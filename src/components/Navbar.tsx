@@ -2,13 +2,10 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
-import AuthModal from './AuthModal'
 
 const Navbar: React.FC = () => {
   const { state } = useCart()
   const { user, signOut } = useAuth()
-  const [showAuthModal, setShowAuthModal] = useState(false)
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
 
@@ -326,24 +323,18 @@ const Navbar: React.FC = () => {
               </div>
             ) : (
               <div className="flex space-x-2">
-                <button
-                  onClick={() => {
-                    setAuthMode('signin')
-                    setShowAuthModal(true)
-                  }}
+                <Link
+                  to="/login"
                   className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   Sign In
-                </button>
-                <button
-                  onClick={() => {
-                    setAuthMode('signup')
-                    setShowAuthModal(true)
-                  }}
+                </Link>
+                <Link
+                  to="/login"
                   className="btn-primary text-sm"
                 >
                   Sign Up
-                </button>
+                </Link>
               </div>
             )}
           </div>
@@ -361,11 +352,6 @@ const Navbar: React.FC = () => {
         </div>
       </div>
 
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        initialMode={authMode}
-      />
     </nav>
   )
 }

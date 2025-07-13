@@ -12,6 +12,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, userData?: any) => Promise<any>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<any>
+  processReferralCode: (code: string) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -23,49 +24,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const getSession = async () => {
-      if (supabase) {
-        try {
-          const { data: { session } } = await supabase.auth.getSession()
-          setSession(session)
-          setUser(session?.user ?? null)
-        } catch (error) {
-          console.warn('Supabase auth error:', error)
-        }
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        setSession(session)
+        setUser(session?.user ?? null)
+      } catch (error) {
+        console.warn('Supabase auth error:', error)
       }
       setLoading(false)
     }
 
     getSession()
 
-    if (supabase) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (_event, session) => {
-          setSession(session)
-          setUser(session?.user ?? null)
-          setLoading(false)
-        }
-      )
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setSession(session)
+        setUser(session?.user ?? null)
+        setLoading(false)
+      }
+    )
 
-      return () => subscription.unsubscribe()
-    }
+    return () => subscription.unsubscribe()
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    if (!supabase) {
-      // Mock sign in for demo purposes
-      const mockUser = {
-        id: 'demo-user-id',
-        email,
-        role: email.includes('admin') ? 'admin' : email.includes('manager') ? 'manager' : email.includes('founder') ? 'founder' : email.includes('vendor') ? 'vendor' : 'customer',
-        app_metadata: {},
-        user_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString()
-      }
-      setUser(mockUser as any)
-      return { data: { user: mockUser, session: null }, error: null }
-    }
-
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -74,28 +56,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const signUp = async (email: string, password: string, userData?: any) => {
-    if (!supabase) {
-      // Mock sign up for demo purposes
-      const mockUser = {
-        id: 'demo-user-' + Date.now(),
-        email,
-        role: 'customer',
-        app_metadata: {},
-        user_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString()
-      }
-      
-      // Process stored referral for mock signup
-      const storedReferral = referralSystem.retrieveStoredReferral()
-      if (storedReferral) {
-        await processReferralSignup(storedReferral, mockUser as any)
-      }
-      
-      setUser(mockUser as any)
-      return { data: { user: mockUser, session: null }, error: null }
-    }
-
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -106,18 +66,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       }
     })
+
+    // Process stored referral for real signup
+    if (data.user && !error) {
+      const storedReferral = referralSystem.retrieveStoredReferral()
+      if (storedReferral) {
+        await processReferralSignup(storedReferral, data.user)
+      }
+    }
+
     return { data, error }
   }
 
   const signOut = async () => {
-    if (!supabase) {
-      setUser(null)
-      setSession(null)
-      return
-    }
-
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    
+    // Clear local state immediately
+    setUser(null)
+    setSession(null)
   }
 
   const processReferralSignup = async (referralCode: string, user: User) => {
@@ -152,10 +119,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const resetPassword = async (email: string) => {
-    if (!supabase) {
-      return { data: null, error: null }
-    }
-
     const { data, error } = await supabase.auth.resetPasswordForEmail(email)
     return { data, error }
   }

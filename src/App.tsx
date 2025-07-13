@@ -4,8 +4,11 @@ import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
 import Navbar from './components/Navbar'
 import KioskRoute from './components/KioskRoute'
+import ProtectedRoute from './components/ProtectedRoute'
 import ChatBotWidget from './components/ChatBotWidget'
 import Home from './pages/Home'
+import Login from './pages/Login'
+import AuthCallback from './pages/AuthCallback'
 import ProductCatalog from './pages/ProductCatalog'
 import ProductPage from './pages/ProductPage'
 import ProductDesigner from './pages/ProductDesigner'
@@ -47,22 +50,25 @@ function App() {
               <Navbar />
               <Routes>
                 <Route path="/" element={<Home />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/catalog" element={<ProductCatalog />} />
                 <Route path="/catalog/:category" element={<ProductCatalog />} />
                 <Route path="/product/:id" element={<ProductPage />} />
-                <Route path="/designer" element={<ProductDesigner />} />
+                <Route path="/designer" element={<ProtectedRoute><ProductDesigner /></ProtectedRoute>} />
                 <Route path="/cart" element={<Cart />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/founders" element={<FoundersDashboard />} />
                 <Route path="/vendor" element={<VendorDashboard />} />
-                <Route path="/models" element={<ModelGallery />} />
+                <Route path="/models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />
+                <Route path="/3d-models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />
                 <Route path="/wallet" element={<Wallet />} />
                 <Route path="/crm" element={<CRM />} />
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/marketing" element={<MarketingTools />} />
                 <Route path="/orders" element={<OrderManagement />} />
                 <Route path="/referrals" element={<Referrals />} />
-                <Route path="/community" element={<Community />} />
+                <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
                 
                 {/* Account & Profile Routes */}
                 <Route path="/account/profile" element={<UserProfile />} />
