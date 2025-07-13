@@ -1,17 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../utils/supabase'
 
 const Login: React.FC = () => {
-  const [mode, setMode] = useState<'signin' | 'signup' | 'reset'>('signin')
+  const [mode, setMode] = useState<'signin' | 'reset'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const { signIn, signUp, resetPassword, user } = useAuth()
+  const { signIn, resetPassword, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -35,10 +32,6 @@ const Login: React.FC = () => {
         setMessage('Signed in successfully!')
         const from = location.state?.from?.pathname || '/'
         navigate(from, { replace: true })
-      } else if (mode === 'signup') {
-        const { error } = await signUp(email, password, { firstName, lastName })
-        if (error) throw error
-        setMessage('Account created! Please check your email to verify your account.')
       } else if (mode === 'reset') {
         const { error } = await resetPassword(email)
         if (error) throw error
@@ -51,34 +44,14 @@ const Login: React.FC = () => {
     }
   }
 
-  const handleGoogleSignIn = async () => {
-    setLoading(true)
-    setMessage('')
-    
-    try {
-      const returnTo = location.state?.from?.pathname || localStorage.getItem('auth_return_to') || '/'
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?returnTo=${encodeURIComponent(returnTo)}`
-        }
-      })
-      if (error) throw error
-    } catch (error: any) {
-      setMessage(error.message)
-      setLoading(false)
-    }
-  }
 
   const resetForm = () => {
     setEmail('')
     setPassword('')
-    setFirstName('')
-    setLastName('')
     setMessage('')
   }
 
-  const switchMode = (newMode: 'signin' | 'signup' | 'reset') => {
+  const switchMode = (newMode: 'signin' | 'reset') => {
     setMode(newMode)
     resetForm()
   }
@@ -89,33 +62,20 @@ const Login: React.FC = () => {
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             {mode === 'signin' && 'Sign in to your account'}
-            {mode === 'signup' && 'Create your account'}
             {mode === 'reset' && 'Reset your password'}
           </h2>
+          {mode === 'signin' && (
+            <p className="mt-2 text-center text-sm text-gray-600">
+              Don't have an account?{' '}
+              <Link to="/signup" className="font-medium text-purple-600 hover:text-purple-500">
+                Sign up
+              </Link>
+            </p>
+          )}
         </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
-            {mode === 'signup' && (
-              <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="First Name"
-                  required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Last Name"
-                  required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-            )}
 
             <input
               type="email"
@@ -146,12 +106,12 @@ const Login: React.FC = () => {
             >
               {loading ? 'Processing...' : (
                 mode === 'signin' ? 'Sign In' :
-                mode === 'signup' ? 'Create Account' :
                 'Send Reset Email'
               )}
             </button>
           </div>
 
+          {/* Google sign-in temporarily disabled until OAuth is configured
           {mode === 'signin' && (
             <div>
               <button
@@ -170,6 +130,7 @@ const Login: React.FC = () => {
               </button>
             </div>
           )}
+          */}
         </form>
 
         {message && (
@@ -184,38 +145,13 @@ const Login: React.FC = () => {
 
         <div className="text-center">
           {mode === 'signin' && (
-            <div className="space-y-2">
-              <p className="text-sm text-gray-600">
-                Don't have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => switchMode('signup')}
-                  className="font-medium text-purple-600 hover:text-purple-500"
-                >
-                  Sign up
-                </button>
-              </p>
-              <p>
-                <button
-                  type="button"
-                  onClick={() => switchMode('reset')}
-                  className="text-sm font-medium text-purple-600 hover:text-purple-500"
-                >
-                  Forgot your password?
-                </button>
-              </p>
-            </div>
-          )}
-
-          {mode === 'signup' && (
-            <p className="text-sm text-gray-600">
-              Already have an account?{' '}
+            <p>
               <button
                 type="button"
-                onClick={() => switchMode('signin')}
-                className="font-medium text-purple-600 hover:text-purple-500"
+                onClick={() => switchMode('reset')}
+                className="text-sm font-medium text-purple-600 hover:text-purple-500"
               >
-                Sign in
+                Forgot your password?
               </button>
             </p>
           )}

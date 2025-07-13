@@ -8,6 +8,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import ChatBotWidget from './components/ChatBotWidget'
 import Home from './pages/Home'
 import Login from './pages/Login'
+import Signup from './pages/Signup'
 import AuthCallback from './pages/AuthCallback'
 import ProductCatalog from './pages/ProductCatalog'
 import ProductPage from './pages/ProductPage'
@@ -51,6 +52,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/catalog" element={<ProductCatalog />} />
                 <Route path="/catalog/:category" element={<ProductCatalog />} />

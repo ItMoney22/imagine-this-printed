@@ -330,7 +330,7 @@ const Navbar: React.FC = () => {
                   Sign In
                 </Link>
                 <Link
-                  to="/login"
+                  to="/signup"
                   className="btn-primary text-sm"
                 >
                   Sign Up
