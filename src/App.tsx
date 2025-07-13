@@ -1,0 +1,115 @@
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import { CartProvider } from './context/CartContext'
+import { KioskAuthProvider } from './context/KioskAuthContext'
+import Navbar from './components/Navbar'
+import KioskRoute from './components/KioskRoute'
+import ChatBotWidget from './components/ChatBotWidget'
+import Home from './pages/Home'
+import ProductCatalog from './pages/ProductCatalog'
+import ProductPage from './pages/ProductPage'
+import ProductDesigner from './pages/ProductDesigner'
+import Cart from './pages/Cart'
+import Checkout from './pages/Checkout'
+import FoundersDashboard from './pages/FoundersDashboard'
+import VendorDashboard from './pages/VendorDashboard'
+import ModelGallery from './pages/ModelGallery'
+import Wallet from './pages/Wallet'
+import CRM from './pages/CRM'
+import AdminDashboard from './pages/AdminDashboard'
+import MarketingTools from './pages/MarketingTools'
+import OrderManagement from './pages/OrderManagement'
+import Referrals from './pages/Referrals'
+import UserProfile from './pages/UserProfile'
+import ProfileEdit from './pages/ProfileEdit'
+import CustomerMessages from './pages/CustomerMessages'
+import VendorMessages from './pages/VendorMessages'
+import VendorPayouts from './pages/VendorPayouts'
+import FounderEarningsPage from './pages/FounderEarnings'
+import AdminControlPanel from './pages/AdminControlPanel'
+import WholesalePortal from './pages/WholesalePortal'
+import VendorStorefront from './pages/VendorStorefront'
+import ProductManagement from './pages/ProductManagement'
+import ManagerDashboard from './pages/ManagerDashboard'
+import AdminCostOverride from './pages/AdminCostOverride'
+import KioskManagement from './pages/KioskManagement'
+import KioskAnalytics from './pages/KioskAnalytics'
+import Community from './pages/Community'
+import SocialContentManagement from './pages/SocialContentManagement'
+
+function App() {
+  return (
+    <AuthProvider>
+      <CartProvider>
+        <KioskAuthProvider>
+          <Router>
+            <div className="min-h-screen bg-gray-50">
+              <Navbar />
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/catalog" element={<ProductCatalog />} />
+                <Route path="/catalog/:category" element={<ProductCatalog />} />
+                <Route path="/product/:id" element={<ProductPage />} />
+                <Route path="/designer" element={<ProductDesigner />} />
+                <Route path="/cart" element={<Cart />} />
+                <Route path="/checkout" element={<Checkout />} />
+                <Route path="/founders" element={<FoundersDashboard />} />
+                <Route path="/vendor" element={<VendorDashboard />} />
+                <Route path="/models" element={<ModelGallery />} />
+                <Route path="/wallet" element={<Wallet />} />
+                <Route path="/crm" element={<CRM />} />
+                <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/marketing" element={<MarketingTools />} />
+                <Route path="/orders" element={<OrderManagement />} />
+                <Route path="/referrals" element={<Referrals />} />
+                <Route path="/community" element={<Community />} />
+                
+                {/* Account & Profile Routes */}
+                <Route path="/account/profile" element={<UserProfile />} />
+                <Route path="/account/profile/edit" element={<ProfileEdit />} />
+                <Route path="/profile/:username" element={<UserProfile />} />
+                <Route path="/account/messages" element={<CustomerMessages />} />
+                
+                {/* Vendor Routes */}
+                <Route path="/vendor/dashboard" element={<VendorDashboard />} />
+                <Route path="/vendor/messages" element={<VendorMessages />} />
+                <Route path="/vendor/payouts" element={<VendorPayouts />} />
+                <Route path="/vendor/storefront/:vendorId" element={<VendorStorefront />} />
+                
+                {/* Founder Routes */}
+                <Route path="/founder/dashboard" element={<FoundersDashboard />} />
+                <Route path="/founder/earnings" element={<FounderEarningsPage />} />
+                
+                {/* Admin Routes */}
+                <Route path="/admin/dashboard" element={<AdminDashboard />} />
+                <Route path="/admin/control-panel" element={<AdminControlPanel />} />
+                <Route path="/admin/orders" element={<OrderManagement />} />
+                <Route path="/admin/crm" element={<CRM />} />
+                <Route path="/admin/marketing" element={<MarketingTools />} />
+                <Route path="/admin/products" element={<ProductManagement />} />
+                <Route path="/admin/cost-override" element={<AdminCostOverride />} />
+                <Route path="/admin/kiosks" element={<KioskManagement />} />
+                <Route path="/admin/kiosk-analytics" element={<KioskAnalytics />} />
+                <Route path="/admin/social-content" element={<SocialContentManagement />} />
+                
+                {/* Manager Routes */}
+                <Route path="/manager/dashboard" element={<ManagerDashboard />} />
+                
+                {/* Kiosk Routes */}
+                <Route path="/kiosk/:kioskId" element={<KioskRoute />} />
+                
+                {/* Business Routes */}
+                <Route path="/wholesale" element={<WholesalePortal />} />
+              </Routes>
+              
+              {/* Chatbot Widget - appears on all pages */}
+              <ChatBotWidget />
+            </div>
+          </Router>
+        </KioskAuthProvider>
+      </CartProvider>
+    </AuthProvider>
+  )
+}
+
+export default App
