@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../utils/supabase'
 import type { UserProfile } from '../types'
 
 const ProfileEdit: React.FC = () => {
@@ -36,26 +37,67 @@ const ProfileEdit: React.FC = () => {
   const loadUserProfile = async () => {
     try {
       setIsLoading(true)
-      // In real app, this would fetch user's profile data
-      // For now, using mock data
-      const mockProfile: Partial<UserProfile> = {
-        username: user?.email?.split('@')[0] || '',
-        displayName: (user as any)?.firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}`.trim() : 'User',
-        bio: '',
-        location: '',
-        website: '',
-        socialLinks: {
-          twitter: '',
-          instagram: '',
-          linkedin: ''
-        },
-        isPublic: true,
-        showOrderHistory: false,
-        showDesigns: true,
-        showModels: true
-      }
       
-      setProfile(mockProfile)
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
+      // Load profile from database
+      const { data: profileData, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        throw error
+      }
+
+      if (profileData) {
+        // Convert database format to component format
+        const loadedProfile: Partial<UserProfile> = {
+          username: profileData.username,
+          displayName: profileData.display_name,
+          bio: profileData.bio || '',
+          location: profileData.location || '',
+          website: profileData.website || '',
+          socialLinks: profileData.social_links || {
+            twitter: '',
+            instagram: '',
+            linkedin: ''
+          },
+          isPublic: profileData.is_public,
+          showOrderHistory: profileData.show_order_history,
+          showDesigns: profileData.show_designs,
+          showModels: profileData.show_models,
+          profileImage: profileData.profile_image
+        }
+        
+        setProfile(loadedProfile)
+        if (profileData.profile_image) {
+          setPreviewUrl(profileData.profile_image)
+        }
+      } else {
+        // Create default profile if none exists
+        const defaultProfile: Partial<UserProfile> = {
+          username: user?.email?.split('@')[0] || '',
+          displayName: (user as any)?.firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}`.trim() : 'User',
+          bio: '',
+          location: '',
+          website: '',
+          socialLinks: {
+            twitter: '',
+            instagram: '',
+            linkedin: ''
+          },
+          isPublic: true,
+          showOrderHistory: false,
+          showDesigns: true,
+          showModels: true
+        }
+        
+        setProfile(defaultProfile)
+      }
     } catch (error) {
       console.error('Error loading profile:', error)
     } finally {
@@ -94,11 +136,54 @@ const ProfileEdit: React.FC = () => {
     try {
       setIsSaving(true)
       
-      // In real app, this would save to database
-      console.log('Saving profile:', profile)
-      
-      // Mock API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
+      // Convert component format to database format
+      const profileData = {
+        user_id: user.id,
+        username: profile.username,
+        display_name: profile.displayName,
+        bio: profile.bio || '',
+        location: profile.location || '',
+        website: profile.website || '',
+        social_links: profile.socialLinks || {},
+        is_public: profile.isPublic,
+        show_order_history: profile.showOrderHistory,
+        show_designs: profile.showDesigns,
+        show_models: profile.showModels,
+        profile_image: previewUrl || null,
+        updated_at: new Date().toISOString()
+      }
+
+      // Check if profile exists
+      const { data: existingProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (existingProfile) {
+        // Update existing profile
+        const { error } = await supabase
+          .from('user_profiles')
+          .update(profileData)
+          .eq('user_id', user.id)
+
+        if (error) throw error
+      } else {
+        // Insert new profile
+        const { error } = await supabase
+          .from('user_profiles')
+          .insert([{
+            ...profileData,
+            joined_date: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          }])
+
+        if (error) throw error
+      }
       
       alert('Profile updated successfully!')
       navigate('/account/profile')

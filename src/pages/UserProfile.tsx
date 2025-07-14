@@ -27,32 +27,60 @@ const UserProfilePage: React.FC = () => {
   const loadUserProfile = async () => {
     setIsLoading(true)
     try {
-      // Determine which profile to load
-      const targetUsername = isAccountRoute 
-        ? user?.email?.split('@')[0] || 'current-user'
-        : username
+      // Ensure we have the current user info
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
       
-      if (!targetUsername) {
-        throw new Error('Username not found')
+      // Determine which profile to load
+      let targetUserId = null
+      let targetUsername = null
+      
+      if (isAccountRoute) {
+        // For account route, use current user's ID
+        if (!currentUser) {
+          throw new Error('User not authenticated')
+        }
+        targetUserId = currentUser.id
+        targetUsername = currentUser.email?.split('@')[0] || 'current-user'
+      } else {
+        // For public profile, load by username
+        targetUsername = username
       }
 
+      let profileData = null
+      
       // Load profile from database
-      const { data: profileData, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('username', targetUsername)
-        .single()
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw profileError
+      if (targetUserId) {
+        // Load by user_id for account route
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', targetUserId)
+          .single()
+        
+        if (error && error.code !== 'PGRST116') {
+          throw error
+        }
+        profileData = data
+      } else if (targetUsername) {
+        // Load by username for public profile
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('username', targetUsername)
+          .single()
+        
+        if (error && error.code !== 'PGRST116') {
+          throw error
+        }
+        profileData = data
       }
 
-      // If profile doesn't exist, create default one for current user
-      if (!profileData && isAccountRoute && user?.id) {
+      // If profile doesn't exist and this is account route, create default one
+      if (!profileData && isAccountRoute && currentUser) {
         const defaultProfile = {
-          user_id: user.id,
+          user_id: currentUser.id,
           username: targetUsername,
-          display_name: (user as any).firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}`.trim() : 'User',
+          display_name: (currentUser as any).firstName ? `${(currentUser as any).firstName} ${(currentUser as any).lastName || ''}`.trim() : 'User',
           bio: '',
           profile_image: null,
           location: '',
@@ -74,40 +102,11 @@ const UserProfilePage: React.FC = () => {
           .single()
 
         if (createError) throw createError
+        profileData = newProfile
+      }
 
+      if (profileData) {
         // Load additional stats
-        const { data: orderStats } = await supabase
-          .from('orders')
-          .select('total_amount')
-          .eq('user_id', user.id)
-
-        const totalOrders = orderStats?.length || 0
-        const totalSpent = orderStats?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0
-
-        const userProfile: UserProfile = {
-          id: newProfile.id,
-          userId: newProfile.user_id,
-          username: newProfile.username,
-          displayName: newProfile.display_name,
-          bio: newProfile.bio || '',
-          profileImage: newProfile.profile_image || null,
-          location: newProfile.location || '',
-          website: newProfile.website || '',
-          socialLinks: newProfile.social_links || {},
-          isPublic: newProfile.is_public,
-          showOrderHistory: newProfile.show_order_history,
-          showDesigns: newProfile.show_designs,
-          showModels: newProfile.show_models,
-          joinedDate: newProfile.joined_date,
-          totalOrders,
-          totalSpent,
-          favoriteCategories: [],
-          badges: []
-        }
-
-        setProfile(userProfile)
-      } else if (profileData) {
-        // Load existing profile with stats
         const { data: orderStats } = await supabase
           .from('orders')
           .select('total_amount')
@@ -138,26 +137,30 @@ const UserProfilePage: React.FC = () => {
         }
 
         setProfile(userProfile)
+        
+        // Check if this is the current user's profile
+        const isOwn = isAccountRoute || (currentUser && currentUser.id === profileData.user_id)
+        setIsOwnProfile(isOwn || false)
+
+        // Load additional data if profile allows it
+        if (userProfile.showOrderHistory || isOwn) {
+          loadOrders()
+        }
+        if (userProfile.showDesigns || isOwn) {
+          loadDesigns()
+        }
+        if (userProfile.showModels || isOwn) {
+          loadModels()
+        }
       } else {
-        throw new Error('Profile not found')
-      }
-
-      // Check if this is the current user's profile
-      const isOwn = isAccountRoute || (user && profile && user.id === profile.userId)
-      setIsOwnProfile(isOwn || false)
-
-      // Load additional data if profile allows it
-      if (profile && (profile.showOrderHistory || isOwn)) {
-        loadOrders()
-      }
-      if (profile && (profile.showDesigns || isOwn)) {
-        loadDesigns()
-      }
-      if (profile && (profile.showModels || isOwn)) {
-        loadModels()
+        // No profile found
+        setProfile(null)
+        setIsOwnProfile(false)
       }
     } catch (error) {
       console.error('Error loading profile:', error)
+      setProfile(null)
+      setIsOwnProfile(false)
     } finally {
       setIsLoading(false)
     }
@@ -258,14 +261,26 @@ const UserProfilePage: React.FC = () => {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Profile Not Found</h1>
-          <p className="text-gray-600 mb-6">The user profile you're looking for doesn't exist or is private.</p>
-          <button 
-            onClick={() => navigate('/')}
-            className="btn-primary"
-          >
-            Go Home
-          </button>
+          <div className="bg-white rounded-lg shadow p-8">
+            <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">No Profile Found</h1>
+            <p className="text-gray-600 mb-6">
+              {isAccountRoute 
+                ? "It looks like you don't have a profile set up yet. One will be created automatically when you sign up."
+                : "The user profile you're looking for doesn't exist or is private."
+              }
+            </p>
+            <button 
+              onClick={() => navigate(isAccountRoute ? '/signup' : '/')}
+              className="btn-primary"
+            >
+              {isAccountRoute ? 'Create Account' : 'Go Home'}
+            </button>
+          </div>
         </div>
       </div>
     )

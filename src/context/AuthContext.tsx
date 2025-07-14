@@ -120,8 +120,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         })
       }
 
-      // Process stored referral for real signup
+      // Create user profile after successful signup
       if (data.user && !error) {
+        console.log('🔄 AuthContext: Creating user profile...')
+        await createUserProfile(data.user, userData)
+        
+        // Process stored referral for real signup
         console.log('🔄 AuthContext: Processing referral for new user...')
         const storedReferral = referralSystem.retrieveStoredReferral()
         if (storedReferral) {
@@ -147,6 +151,50 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Clear local state immediately
     setUser(null)
     setSession(null)
+  }
+
+  const createUserProfile = async (user: User, userData?: any) => {
+    try {
+      const username = user.email?.split('@')[0] || 'user'
+      const displayName = userData?.firstName && userData?.lastName 
+        ? `${userData.firstName} ${userData.lastName}`.trim()
+        : userData?.firstName || 'User'
+      
+      const defaultProfile = {
+        user_id: user.id,
+        username: username,
+        display_name: displayName,
+        bio: '',
+        profile_image: null,
+        location: '',
+        website: '',
+        social_links: {},
+        is_public: true,
+        show_order_history: false,
+        show_designs: true,
+        show_models: true,
+        joined_date: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .insert([defaultProfile])
+        .select()
+        .single()
+
+      if (error) {
+        console.error('❌ AuthContext: Error creating user profile:', error)
+        throw error
+      }
+
+      console.log('✅ AuthContext: User profile created successfully:', data)
+      return data
+    } catch (error) {
+      console.error('❌ AuthContext: Failed to create user profile:', error)
+      throw error
+    }
   }
 
   const processReferralSignup = async (referralCode: string, user: User) => {
