@@ -26,12 +26,39 @@ const Signup: React.FC = () => {
     setLoading(true)
     setMessage('')
 
+    console.log('🔄 Signup: Form submitted', { 
+      email, 
+      hasPassword: !!password, 
+      firstName, 
+      lastName 
+    })
+
     try {
-      const { error } = await signUp(email, password, { firstName, lastName })
-      if (error) throw error
+      console.log('🔄 Signup: Attempting to create account...')
+      const { data, error } = await signUp(email, password, { firstName, lastName })
+      
+      if (error) {
+        console.error('❌ Signup: Account creation failed:', {
+          error,
+          message: error.message,
+          details: error
+        })
+        throw error
+      }
+      
+      console.log('✅ Signup: Account creation successful:', {
+        user: data.user ? 'User created' : 'User pending confirmation',
+        session: data.session ? 'Session active' : 'No session'
+      })
       setMessage('Account created! Please check your email to verify your account.')
     } catch (error: any) {
-      setMessage(error.message)
+      console.error('❌ Signup: Form submission error:', {
+        error,
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack
+      })
+      setMessage(error?.message || 'Failed to create account. Please try again.')
     } finally {
       setLoading(false)
     }

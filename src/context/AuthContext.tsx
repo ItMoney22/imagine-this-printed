@@ -24,58 +24,120 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const getSession = async () => {
+      console.log('🔄 AuthContext: Getting initial session...')
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error } = await supabase.auth.getSession()
+        if (error) {
+          console.error('❌ AuthContext: Error getting session:', error)
+          throw error
+        }
+        console.log('✅ AuthContext: Initial session retrieved:', session ? 'User logged in' : 'No active session')
         setSession(session)
         setUser(session?.user ?? null)
       } catch (error) {
-        console.warn('Supabase auth error:', error)
+        console.error('❌ AuthContext: Failed to get session:', {
+          error,
+          message: (error as any)?.message,
+          status: (error as any)?.status
+        })
       }
       setLoading(false)
     }
 
     getSession()
 
+    console.log('🔄 AuthContext: Setting up auth state change listener...')
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        console.log('🔄 AuthContext: Auth state changed:', { event, hasSession: !!session })
         setSession(session)
         setUser(session?.user ?? null)
         setLoading(false)
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      console.log('🔄 AuthContext: Cleaning up auth listener')
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    return { data, error }
+    console.log('🔄 AuthContext: Attempting sign in for:', email)
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      
+      if (error) {
+        console.error('❌ AuthContext: Sign in failed:', {
+          error,
+          message: error.message,
+          status: error.status
+        })
+      } else {
+        console.log('✅ AuthContext: Sign in successful for:', email)
+      }
+      
+      return { data, error }
+    } catch (networkError) {
+      console.error('❌ AuthContext: Network error during sign in:', {
+        error: networkError,
+        message: (networkError as any)?.message,
+        stack: (networkError as any)?.stack
+      })
+      return { data: null, error: networkError }
+    }
   }
 
   const signUp = async (email: string, password: string, userData?: any) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          role: 'customer',
-          ...userData
+    console.log('🔄 AuthContext: Attempting sign up for:', email)
+    
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            role: 'customer',
+            ...userData
+          }
+        }
+      })
+
+      if (error) {
+        console.error('❌ AuthContext: Sign up failed:', {
+          error,
+          message: error.message,
+          status: error.status
+        })
+      } else {
+        console.log('✅ AuthContext: Sign up successful for:', email, {
+          user: data.user ? 'User created' : 'User pending confirmation',
+          session: data.session ? 'Session active' : 'No session'
+        })
+      }
+
+      // Process stored referral for real signup
+      if (data.user && !error) {
+        console.log('🔄 AuthContext: Processing referral for new user...')
+        const storedReferral = referralSystem.retrieveStoredReferral()
+        if (storedReferral) {
+          await processReferralSignup(storedReferral, data.user)
         }
       }
-    })
 
-    // Process stored referral for real signup
-    if (data.user && !error) {
-      const storedReferral = referralSystem.retrieveStoredReferral()
-      if (storedReferral) {
-        await processReferralSignup(storedReferral, data.user)
-      }
+      return { data, error }
+    } catch (networkError) {
+      console.error('❌ AuthContext: Network error during sign up:', {
+        error: networkError,
+        message: (networkError as any)?.message,
+        stack: (networkError as any)?.stack
+      })
+      return { data: null, error: networkError }
     }
-
-    return { data, error }
   }
 
   const signOut = async () => {

@@ -25,20 +25,44 @@ const Login: React.FC = () => {
     setLoading(true)
     setMessage('')
 
+    console.log('🔄 Login: Form submitted', { mode, email, hasPassword: !!password })
+
     try {
       if (mode === 'signin') {
+        console.log('🔄 Login: Attempting sign in...')
         const { error } = await signIn(email, password)
-        if (error) throw error
+        
+        if (error) {
+          console.error('❌ Login: Sign in failed:', {
+            error,
+            message: error.message,
+            details: error
+          })
+          throw error
+        }
+        
+        console.log('✅ Login: Sign in successful, redirecting...')
         setMessage('Signed in successfully!')
         const from = location.state?.from?.pathname || '/'
         navigate(from, { replace: true })
       } else if (mode === 'reset') {
+        console.log('🔄 Login: Attempting password reset...')
         const { error } = await resetPassword(email)
-        if (error) throw error
+        if (error) {
+          console.error('❌ Login: Password reset failed:', error)
+          throw error
+        }
+        console.log('✅ Login: Password reset email sent')
         setMessage('Password reset email sent!')
       }
     } catch (error: any) {
-      setMessage(error.message)
+      console.error('❌ Login: Form submission error:', {
+        error,
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack
+      })
+      setMessage(error?.message || 'An unexpected error occurred')
     } finally {
       setLoading(false)
     }
