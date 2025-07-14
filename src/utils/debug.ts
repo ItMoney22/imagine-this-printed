@@ -62,3 +62,9 @@ if (import.meta.env.DEV) {
   logEnvironmentInfo()
   testSupabaseConnectivity()
 }
+
+// Make functions available globally for manual testing
+if (typeof window !== 'undefined') {
+  (window as any).testSupabaseConnectivity = testSupabaseConnectivity;
+  (window as any).logEnvironmentInfo = logEnvironmentInfo;
+}
