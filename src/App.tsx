@@ -9,6 +9,7 @@ import Navbar from './components/Navbar'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 import ChatBotWidget from './components/ChatBotWidget'
+import FloatingCart from './components/FloatingCart'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -115,6 +116,9 @@ function App() {
               
               {/* Chatbot Widget - appears on all pages */}
               <ChatBotWidget />
+              
+              {/* Floating Cart - appears on all pages */}
+              <FloatingCart />
             </div>
           </Router>
         </KioskAuthProvider>

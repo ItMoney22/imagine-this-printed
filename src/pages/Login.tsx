@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../utils/supabase'
 
 const Login: React.FC = () => {
   const [mode, setMode] = useState<'signin' | 'reset'>('signin')
@@ -68,6 +69,31 @@ const Login: React.FC = () => {
     }
   }
 
+  const handleGoogleSignIn = async () => {
+    setLoading(true)
+    setMessage('')
+    
+    console.log('🔄 Login: Attempting Google sign in...')
+    
+    try {
+      const returnTo = location.state?.from?.pathname || localStorage.getItem('auth_return_to') || '/'
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?returnTo=${encodeURIComponent(returnTo)}`
+        }
+      })
+      if (error) {
+        console.error('❌ Login: Google sign in failed:', error)
+        throw error
+      }
+      console.log('✅ Login: Google sign in initiated, redirecting...')
+    } catch (error: any) {
+      console.error('❌ Login: Google sign in error:', error)
+      setMessage(error?.message || 'Google sign in failed')
+      setLoading(false)
+    }
+  }
 
   const resetForm = () => {
     setEmail('')
@@ -135,7 +161,6 @@ const Login: React.FC = () => {
             </button>
           </div>
 
-          {/* Google sign-in temporarily disabled until OAuth is configured
           {mode === 'signin' && (
             <div>
               <button
@@ -154,7 +179,6 @@ const Login: React.FC = () => {
               </button>
             </div>
           )}
-          */}
         </form>
 
         {message && (

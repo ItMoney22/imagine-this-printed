@@ -1,11 +1,22 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
+import { shippingCalculator } from '../utils/shipping-calculator'
 
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
   const navigate = useNavigate()
+  const [freeShippingProgress, setFreeShippingProgress] = useState({
+    amountNeeded: 0,
+    percentage: 0,
+    qualified: false
+  })
+
+  useEffect(() => {
+    const progress = shippingCalculator.calculateFreeShippingProgress(state.total)
+    setFreeShippingProgress(progress)
+  }, [state.total])
 
   if (state.items.length === 0) {
     return (
@@ -107,7 +118,7 @@ const Cart: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Shipping</span>
-                <span>{state.total >= 50 ? 'Free' : '$9.99'}</span>
+                <span>{freeShippingProgress.qualified ? 'Free' : '$9.99'}</span>
               </div>
               <div className="flex justify-between">
                 <span>Tax</span>
@@ -116,10 +127,44 @@ const Cart: React.FC = () => {
               <div className="border-t pt-3 flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span>
-                  ${(state.total + (state.total >= 50 ? 0 : 9.99) + state.total * 0.08).toFixed(2)}
+                  ${(state.total + (freeShippingProgress.qualified ? 0 : 9.99) + state.total * 0.08).toFixed(2)}
                 </span>
               </div>
             </div>
+
+            {/* Free Shipping Progress */}
+            {!freeShippingProgress.qualified && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium text-purple-800">Free shipping at $50</span>
+                  <span className="text-sm font-bold text-purple-900">
+                    ${freeShippingProgress.amountNeeded.toFixed(2)} to go
+                  </span>
+                </div>
+                <div className="w-full bg-purple-200 rounded-full h-2">
+                  <div
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${freeShippingProgress.percentage}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-purple-700 mt-2">
+                  🚚 Add ${freeShippingProgress.amountNeeded.toFixed(2)} more for free shipping!
+                </p>
+              </div>
+            )}
+
+            {freeShippingProgress.qualified && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-sm font-medium text-green-800">
+                    🎉 You qualify for free shipping!
+                  </span>
+                </div>
+              </div>
+            )}
 
             {state.total < 50 && (
               <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">

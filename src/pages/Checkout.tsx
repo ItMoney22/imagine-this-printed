@@ -1,14 +1,137 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { loadStripe } from '@stripe/stripe-js'
+import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { shippingCalculator } from '../utils/shipping-calculator'
+import type { ShippingCalculation } from '../utils/shipping-calculator'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
-const Checkout: React.FC = () => {
-  const { state, clearCart } = useCart()
+const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> = ({ }) => {
+  const { clearCart } = useCart()
+  const navigate = useNavigate()
+  const stripe = useStripe()
+
+  const handleExpressPayment = async (event: any) => {
+    const result = await stripe?.confirmPayment({
+      elements: event.elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/`,
+      },
+      redirect: 'if_required'
+    })
+
+    if (result?.error) {
+      console.error('Express payment failed:', result.error)
+    } else {
+      clearCart()
+      navigate('/')
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6 mb-6">
+      <h2 className="text-lg font-semibold mb-4">Express Checkout</h2>
+      <ExpressCheckoutElement
+        options={{
+          buttonType: {
+            applePay: 'buy',
+            googlePay: 'buy'
+          },
+          layout: {
+            maxColumns: 1,
+            maxRows: 1
+          }
+        }}
+        onConfirm={handleExpressPayment}
+      />
+      <div className="mt-4 text-center text-sm text-gray-500">
+        <div className="flex items-center">
+          <div className="flex-1 border-t border-gray-300"></div>
+          <div className="px-3 text-gray-500">or pay with card</div>
+          <div className="flex-1 border-t border-gray-300"></div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[], shipping: any }> = ({ total, items, shipping }) => {
+  const stripe = useStripe()
+  const elements = useElements()
+  const { clearCart } = useCart()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setMessage('')
+
+    if (!stripe || !elements) {
+      setMessage('Stripe not loaded')
+      setLoading(false)
+      return
+    }
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/`,
+      },
+      redirect: 'if_required'
+    })
+
+    if (error) {
+      setMessage(error.message || 'Payment failed')
+    } else {
+      setMessage('Payment successful!')
+      clearCart()
+      navigate('/')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="space-y-6">
+      <ExpressCheckout total={total} items={items} shipping={shipping} />
+      
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-semibold mb-4">Payment Method</h2>
+          <PaymentElement />
+        </div>
+
+        {message && (
+          <div className={`p-3 rounded-md ${
+            message.includes('successful') 
+              ? 'bg-green-50 text-green-700 border border-green-200' 
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}>
+            {message}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading || !stripe || !elements}
+          className="w-full btn-primary disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Processing...' : 'Complete Payment'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+const Checkout: React.FC = () => {
+  const { state } = useCart()
+  const navigate = useNavigate()
+  const [clientSecret, setClientSecret] = useState('')
+  const [shippingCalculation, setShippingCalculation] = useState<ShippingCalculation | null>(null)
+  const [loadingShipping, setLoadingShipping] = useState(false)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -21,9 +144,96 @@ const Checkout: React.FC = () => {
   })
 
   const subtotal = state.total
-  const shipping = subtotal >= 50 ? 0 : 9.99
+  const shipping = shippingCalculation?.selectedRate?.amount || 0
   const tax = subtotal * 0.08
   const total = subtotal + shipping + tax
+
+  useEffect(() => {
+    if (state.items.length > 0) {
+      calculateShipping()
+    }
+  }, [state.items, formData.address, formData.city, formData.state, formData.zipCode, formData.country])
+
+  useEffect(() => {
+    if (state.items.length > 0 && shippingCalculation) {
+      createPaymentIntent()
+    }
+  }, [state.items, total, shippingCalculation])
+
+  const calculateShipping = async () => {
+    if (!formData.address || !formData.city || !formData.state || !formData.zipCode) {
+      // Use default shipping calculation without address
+      const defaultCalculation = await shippingCalculator.calculateShipping(state.items, {
+        name: 'Default',
+        address1: '123 Main St',
+        city: 'Los Angeles',
+        state: 'CA',
+        zip: '90210',
+        country: 'US'
+      })
+      setShippingCalculation(defaultCalculation)
+      return
+    }
+
+    setLoadingShipping(true)
+    try {
+      const shippingAddress = {
+        name: `${formData.firstName} ${formData.lastName}`.trim(),
+        address1: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zip: formData.zipCode,
+        country: formData.country,
+        email: formData.email
+      }
+
+      const calculation = await shippingCalculator.calculateShipping(state.items, shippingAddress)
+      setShippingCalculation(calculation)
+    } catch (error) {
+      console.error('Error calculating shipping:', error)
+    } finally {
+      setLoadingShipping(false)
+    }
+  }
+
+  const createPaymentIntent = async () => {
+    try {
+      const response = await fetch('/api/create-payment-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: Math.round(total * 100),
+          currency: 'usd',
+          items: state.items,
+          shipping: formData
+        }),
+      })
+
+      const { clientSecret } = await response.json()
+      setClientSecret(clientSecret)
+    } catch (error) {
+      console.error('Error creating payment intent:', error)
+    }
+  }
+
+  const handleShippingRateChange = (rateId: string) => {
+    if (!shippingCalculation) return
+    
+    const updatedRates = shippingCalculation.rates.map(rate => ({
+      ...rate,
+      selected: rate.id === rateId
+    }))
+    
+    const selectedRate = updatedRates.find(rate => rate.selected)
+    
+    setShippingCalculation({
+      ...shippingCalculation,
+      rates: updatedRates,
+      selectedRate
+    })
+  }
 
   if (state.items.length === 0) {
     return (
@@ -49,50 +259,13 @@ const Checkout: React.FC = () => {
     })
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-
-    try {
-      const response = await fetch('/api/create-payment-intent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount: Math.round(total * 100),
-          currency: 'usd',
-          items: state.items,
-          shipping: formData
-        }),
-      })
-
-      const { clientSecret: _clientSecret } = await response.json()
-      const stripe = await stripePromise
-
-      if (!stripe) {
-        throw new Error('Stripe failed to load')
-      }
-
-      alert('Payment integration would be completed here with Stripe Elements!')
-      clearCart()
-      navigate('/')
-      
-    } catch (error) {
-      console.error('Error:', error)
-      alert('Payment failed. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h1 className="text-3xl font-bold text-gray-900 mb-8">Checkout</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-4">Contact Information</h2>
               <div className="space-y-4">
@@ -182,23 +355,88 @@ const Checkout: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold mb-4">Payment Method</h2>
-              <div className="bg-gray-50 p-4 rounded-md">
-                <p className="text-gray-600">
-                  Stripe payment integration would be implemented here with proper Elements components.
-                </p>
-              </div>
-            </div>
+            {/* Shipping Options */}
+            {shippingCalculation && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold mb-4">Shipping Options</h2>
+                {loadingShipping ? (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
+                    <p className="mt-2 text-gray-600">Calculating shipping rates...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {shippingCalculation.rates.map((rate) => (
+                      <label
+                        key={rate.id}
+                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                          rate.selected 
+                            ? 'border-purple-500 bg-purple-50' 
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <div className="flex items-center">
+                          <input
+                            type="radio"
+                            name="shippingRate"
+                            value={rate.id}
+                            checked={rate.selected}
+                            onChange={() => handleShippingRateChange(rate.id)}
+                            className="mr-3"
+                          />
+                          <div>
+                            <p className="font-medium">{rate.name}</p>
+                            <p className="text-sm text-gray-600">
+                              {rate.provider} • {rate.estimatedDays} business days
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">
+                            {rate.amount === 0 ? 'Free' : `$${rate.amount.toFixed(2)}`}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full btn-primary disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Processing...' : `Place Order - $${total.toFixed(2)}`}
-            </button>
-          </form>
+                {/* Free Shipping Progress */}
+                {!shippingCalculation.isFreeShipping && (
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm text-gray-600">Free shipping progress</span>
+                      <span className="text-sm font-medium">
+                        ${shippingCalculation.freeShippingThreshold.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                        style={{ 
+                          width: `${Math.min(100, (subtotal / shippingCalculation.freeShippingThreshold) * 100)}%` 
+                        }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Add ${Math.max(0, shippingCalculation.freeShippingThreshold - subtotal).toFixed(2)} more for free shipping
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {clientSecret && (
+              <Elements stripe={stripePromise} options={{ clientSecret }}>
+                <CheckoutForm 
+                  clientSecret={clientSecret} 
+                  total={total}
+                  items={state.items}
+                  shipping={formData}
+                />
+              </Elements>
+            )}
+          </div>
         </div>
 
         <div>

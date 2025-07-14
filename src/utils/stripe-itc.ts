@@ -1,4 +1,4 @@
-const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'demo-stripe-key'
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 const ITC_WALLET_ADDRESS = import.meta.env.VITE_ITC_WALLET_ADDRESS || '43XyoLPb3aek3poicnYXjrtMU6PUynRb93Q71FULKZ3Q'
 const ITC_USD_RATE = parseFloat(import.meta.env.VITE_ITC_USD_RATE || '0.10')
 
@@ -25,26 +25,14 @@ export class StripeITCBridge {
   }
 
   private async initializeStripe() {
-    if (STRIPE_PUBLISHABLE_KEY === 'demo-stripe-key') {
-      // Mock Stripe for demo
-      this.stripe = {
-        confirmCardPayment: () => Promise.resolve({
-          paymentIntent: { 
-            id: 'pi_mock_' + Date.now(),
-            status: 'succeeded',
-            amount: 1000,
-            currency: 'usd'
-          },
-          error: null
-        })
-      }
+    if (!STRIPE_PUBLISHABLE_KEY) {
+      console.error('STRIPE_PUBLISHABLE_KEY not configured')
       return
     }
 
     try {
-      // In real app, dynamically import Stripe
-      // const { loadStripe } = await import('@stripe/stripe-js')
-      // this.stripe = await loadStripe(STRIPE_PUBLISHABLE_KEY)
+      const { loadStripe } = await import('@stripe/stripe-js')
+      this.stripe = await loadStripe(STRIPE_PUBLISHABLE_KEY)
     } catch (error) {
       console.error('Failed to load Stripe:', error)
     }
@@ -55,15 +43,11 @@ export class StripeITCBridge {
       const itcAmount = Math.floor(usdAmount / ITC_USD_RATE)
       const amountInCents = Math.round(usdAmount * 100)
 
-      if (STRIPE_PUBLISHABLE_KEY === 'demo-stripe-key') {
-        // Mock successful payment for demo
-        await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate processing time
-        
+      if (!this.stripe || !STRIPE_PUBLISHABLE_KEY) {
         return {
-          success: true,
-          paymentIntentId: 'pi_mock_' + Date.now(),
-          itcAmount,
-          transactionHash: 'mock_tx_' + Date.now()
+          success: false,
+          itcAmount: 0,
+          error: 'Stripe not properly initialized'
         }
       }
 

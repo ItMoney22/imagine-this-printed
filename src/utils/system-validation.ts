@@ -85,7 +85,7 @@ export class SystemValidator {
       }
     }
 
-    if (publishableKey.startsWith('sk_live_')) {
+    if (publishableKey.startsWith('pk_live_')) {
       return {
         service: 'Stripe',
         status: 'success',

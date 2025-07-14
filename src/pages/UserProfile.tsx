@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../utils/supabase'
 import type { UserProfile, Order, Product, ThreeDModel } from '../types'
 
 const UserProfilePage: React.FC = () => {
@@ -29,72 +30,130 @@ const UserProfilePage: React.FC = () => {
       // Determine which profile to load
       const targetUsername = isAccountRoute 
         ? user?.email?.split('@')[0] || 'current-user'
-        : username || 'johndoe'
+        : username
       
-      // Mock profile data - in real app, this would fetch from API based on username
-      const mockProfile: UserProfile = {
-        id: 'profile_1',
-        userId: 'user_1',
-        username: targetUsername,
-        displayName: isAccountRoute 
-          ? ((user as any)?.firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}`.trim() : 'Current User')
-          : 'John Doe',
-        bio: 'Passionate designer and entrepreneur. Love creating custom apparel and 3D models. Always working on something new!',
-        profileImage: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop&crop=face',
-        location: 'San Francisco, CA',
-        website: 'https://johndoe.design',
-        socialLinks: {
-          twitter: 'https://twitter.com/johndoe',
-          instagram: 'https://instagram.com/johndoe_designs',
-          linkedin: 'https://linkedin.com/in/johndoe'
-        },
-        isPublic: true,
-        showOrderHistory: true,
-        showDesigns: true,
-        showModels: true,
-        joinedDate: '2023-01-15T00:00:00Z',
-        totalOrders: 24,
-        totalSpent: 1248.75,
-        favoriteCategories: ['shirts', 'dtf-transfers', '3d-models'],
-        badges: [
-          {
-            id: 'early_adopter',
-            name: 'Early Adopter',
-            description: 'One of our first 100 customers',
-            icon: '🏆',
-            unlockedAt: '2023-01-20T00:00:00Z'
-          },
-          {
-            id: 'designer',
-            name: 'Designer',
-            description: 'Created 10+ custom designs',
-            icon: '🎨',
-            unlockedAt: '2023-03-15T00:00:00Z'
-          },
-          {
-            id: 'model_creator',
-            name: '3D Model Creator',
-            description: 'Uploaded 5+ 3D models',
-            icon: '🔳',
-            unlockedAt: '2023-06-01T00:00:00Z'
-          }
-        ]
+      if (!targetUsername) {
+        throw new Error('Username not found')
+      }
+
+      // Load profile from database
+      const { data: profileData, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('username', targetUsername)
+        .single()
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        throw profileError
+      }
+
+      // If profile doesn't exist, create default one for current user
+      if (!profileData && isAccountRoute && user?.id) {
+        const defaultProfile = {
+          user_id: user.id,
+          username: targetUsername,
+          display_name: (user as any).firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}`.trim() : 'User',
+          bio: '',
+          profile_image: null,
+          location: '',
+          website: '',
+          social_links: {},
+          is_public: true,
+          show_order_history: false,
+          show_designs: true,
+          show_models: true,
+          joined_date: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+
+        const { data: newProfile, error: createError } = await supabase
+          .from('user_profiles')
+          .insert([defaultProfile])
+          .select()
+          .single()
+
+        if (createError) throw createError
+
+        // Load additional stats
+        const { data: orderStats } = await supabase
+          .from('orders')
+          .select('total_amount')
+          .eq('user_id', user.id)
+
+        const totalOrders = orderStats?.length || 0
+        const totalSpent = orderStats?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0
+
+        const userProfile: UserProfile = {
+          id: newProfile.id,
+          userId: newProfile.user_id,
+          username: newProfile.username,
+          displayName: newProfile.display_name,
+          bio: newProfile.bio || '',
+          profileImage: newProfile.profile_image || null,
+          location: newProfile.location || '',
+          website: newProfile.website || '',
+          socialLinks: newProfile.social_links || {},
+          isPublic: newProfile.is_public,
+          showOrderHistory: newProfile.show_order_history,
+          showDesigns: newProfile.show_designs,
+          showModels: newProfile.show_models,
+          joinedDate: newProfile.joined_date,
+          totalOrders,
+          totalSpent,
+          favoriteCategories: [],
+          badges: []
+        }
+
+        setProfile(userProfile)
+      } else if (profileData) {
+        // Load existing profile with stats
+        const { data: orderStats } = await supabase
+          .from('orders')
+          .select('total_amount')
+          .eq('user_id', profileData.user_id)
+
+        const totalOrders = orderStats?.length || 0
+        const totalSpent = orderStats?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0
+
+        const userProfile: UserProfile = {
+          id: profileData.id,
+          userId: profileData.user_id,
+          username: profileData.username,
+          displayName: profileData.display_name,
+          bio: profileData.bio || '',
+          profileImage: profileData.profile_image || null,
+          location: profileData.location || '',
+          website: profileData.website || '',
+          socialLinks: profileData.social_links || {},
+          isPublic: profileData.is_public,
+          showOrderHistory: profileData.show_order_history,
+          showDesigns: profileData.show_designs,
+          showModels: profileData.show_models,
+          joinedDate: profileData.joined_date,
+          totalOrders,
+          totalSpent,
+          favoriteCategories: [],
+          badges: []
+        }
+
+        setProfile(userProfile)
+      } else {
+        throw new Error('Profile not found')
       }
 
       // Check if this is the current user's profile
-      const isOwn = isAccountRoute || (user && (user.email === `${username}@example.com` || user.id === mockProfile.userId))
+      const isOwn = isAccountRoute || (user && profile && user.id === profile.userId)
       setIsOwnProfile(isOwn || false)
 
-      setProfile(mockProfile)
-
       // Load additional data if profile allows it
-      if (mockProfile.showOrderHistory || isOwn) {
+      if (profile && (profile.showOrderHistory || isOwn)) {
         loadOrders()
       }
-      if (mockProfile.showDesigns || isOwn) {
+      if (profile && (profile.showDesigns || isOwn)) {
         loadDesigns()
       }
-      if (mockProfile.showModels || isOwn) {
+      if (profile && (profile.showModels || isOwn)) {
         loadModels()
       }
     } catch (error) {

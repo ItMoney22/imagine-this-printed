@@ -123,7 +123,7 @@ VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
 ## Current Deployment
 
 🚀 **Successfully deployed on VPS at IP: 168.231.69.85**
-- **URL**: http://168.231.69.85:8080
+- **URL**: https://www.imaginethisprinted.com
 - **Status**: ✅ Running with full feature set
 - **Port**: 8080
 
