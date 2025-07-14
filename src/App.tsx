@@ -4,6 +4,7 @@ import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
 import './utils/debug' // Auto-run debug utilities
 import './utils/connectivity-test' // Additional connectivity tests
+import './utils/env-check' // Environment diagnostic
 import Navbar from './components/Navbar'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
