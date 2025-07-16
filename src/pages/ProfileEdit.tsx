@@ -46,7 +46,7 @@ const ProfileEdit: React.FC = () => {
       const { data: profileData, error } = await supabase
         .from('user_profiles')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .single()
 
       if (error && error.code !== 'PGRST116') {
@@ -59,23 +59,23 @@ const ProfileEdit: React.FC = () => {
           username: profileData.username,
           displayName: profileData.display_name,
           bio: profileData.bio || '',
-          location: profileData.location || '',
-          website: profileData.website || '',
-          socialLinks: profileData.social_links || {
+          location: profileData.phone || '',
+          website: profileData.company_name || '',
+          socialLinks: profileData.preferences || {
             twitter: '',
             instagram: '',
             linkedin: ''
           },
-          isPublic: profileData.is_public,
-          showOrderHistory: profileData.show_order_history,
-          showDesigns: profileData.show_designs,
-          showModels: profileData.show_models,
-          profileImage: profileData.profile_image
+          isPublic: true,
+          showOrderHistory: false,
+          showDesigns: true,
+          showModels: true,
+          profileImage: profileData.avatar_url
         }
         
         setProfile(loadedProfile)
-        if (profileData.profile_image) {
-          setPreviewUrl(profileData.profile_image)
+        if (profileData.avatar_url) {
+          setPreviewUrl(profileData.avatar_url)
         }
       } else {
         // Create default profile if none exists
@@ -142,26 +142,22 @@ const ProfileEdit: React.FC = () => {
 
       // Convert component format to database format
       const profileData = {
-        user_id: user.id,
+        id: user.id,
         username: profile.username,
         display_name: profile.displayName,
         bio: profile.bio || '',
-        location: profile.location || '',
-        website: profile.website || '',
-        social_links: profile.socialLinks || {},
-        is_public: profile.isPublic,
-        show_order_history: profile.showOrderHistory,
-        show_designs: profile.showDesigns,
-        show_models: profile.showModels,
-        profile_image: previewUrl || null,
-        updated_at: new Date().toISOString()
+        phone: profile.location || '',
+        company_name: profile.website || '',
+        preferences: profile.socialLinks || {},
+        avatar_url: previewUrl || null,
+        profile_completed: true
       }
 
       // Check if profile exists
       const { data: existingProfile } = await supabase
         .from('user_profiles')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .single()
 
       if (existingProfile) {
@@ -169,7 +165,7 @@ const ProfileEdit: React.FC = () => {
         const { error } = await supabase
           .from('user_profiles')
           .update(profileData)
-          .eq('user_id', user.id)
+          .eq('id', user.id)
 
         if (error) throw error
       } else {
@@ -178,8 +174,7 @@ const ProfileEdit: React.FC = () => {
           .from('user_profiles')
           .insert([{
             ...profileData,
-            joined_date: new Date().toISOString(),
-            created_at: new Date().toISOString()
+            role: 'customer'
           }])
 
         if (error) throw error

@@ -161,21 +161,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         : userData?.firstName || 'User'
       
       const defaultProfile = {
-        user_id: user.id,
+        id: user.id,
         username: username,
         display_name: displayName,
         bio: '',
-        profile_image: null,
-        location: '',
-        website: '',
-        social_links: {},
-        is_public: true,
-        show_order_history: false,
-        show_designs: true,
-        show_models: true,
-        joined_date: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        avatar_url: null,
+        role: 'customer',
+        email_verified: false,
+        profile_completed: false,
+        preferences: {},
+        metadata: {}
       }
 
       const { data, error } = await supabase

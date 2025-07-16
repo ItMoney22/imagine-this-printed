@@ -54,7 +54,7 @@ const UserProfilePage: React.FC = () => {
         const { data, error } = await supabase
           .from('user_profiles')
           .select('*')
-          .eq('user_id', targetUserId)
+          .eq('id', targetUserId)
           .single()
         
         if (error && error.code !== 'PGRST116') {
@@ -78,21 +78,16 @@ const UserProfilePage: React.FC = () => {
       // If profile doesn't exist and this is account route, create default one
       if (!profileData && isAccountRoute && currentUser) {
         const defaultProfile = {
-          user_id: currentUser.id,
+          id: currentUser.id,
           username: targetUsername,
           display_name: (currentUser as any).firstName ? `${(currentUser as any).firstName} ${(currentUser as any).lastName || ''}`.trim() : 'User',
           bio: '',
-          profile_image: null,
-          location: '',
-          website: '',
-          social_links: {},
-          is_public: true,
-          show_order_history: false,
-          show_designs: true,
-          show_models: true,
-          joined_date: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          avatar_url: null,
+          role: 'customer',
+          email_verified: false,
+          profile_completed: false,
+          preferences: {},
+          metadata: {}
         }
 
         const { data: newProfile, error: createError } = await supabase
@@ -109,27 +104,27 @@ const UserProfilePage: React.FC = () => {
         // Load additional stats
         const { data: orderStats } = await supabase
           .from('orders')
-          .select('total_amount')
-          .eq('user_id', profileData.user_id)
+          .select('total')
+          .eq('user_id', profileData.id)
 
         const totalOrders = orderStats?.length || 0
-        const totalSpent = orderStats?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0
+        const totalSpent = orderStats?.reduce((sum, order) => sum + (order.total || 0), 0) || 0
 
         const userProfile: UserProfile = {
           id: profileData.id,
-          userId: profileData.user_id,
+          userId: profileData.id,
           username: profileData.username,
           displayName: profileData.display_name,
           bio: profileData.bio || '',
-          profileImage: profileData.profile_image || null,
-          location: profileData.location || '',
-          website: profileData.website || '',
-          socialLinks: profileData.social_links || {},
-          isPublic: profileData.is_public,
-          showOrderHistory: profileData.show_order_history,
-          showDesigns: profileData.show_designs,
-          showModels: profileData.show_models,
-          joinedDate: profileData.joined_date,
+          profileImage: profileData.avatar_url || null,
+          location: profileData.phone || '',
+          website: profileData.company_name || '',
+          socialLinks: profileData.preferences || {},
+          isPublic: true,
+          showOrderHistory: false,
+          showDesigns: true,
+          showModels: true,
+          joinedDate: profileData.created_at,
           totalOrders,
           totalSpent,
           favoriteCategories: [],
@@ -139,7 +134,7 @@ const UserProfilePage: React.FC = () => {
         setProfile(userProfile)
         
         // Check if this is the current user's profile
-        const isOwn = isAccountRoute || (currentUser && currentUser.id === profileData.user_id)
+        const isOwn = isAccountRoute || (currentUser && currentUser.id === profileData.id)
         setIsOwnProfile(isOwn || false)
 
         // Load additional data if profile allows it

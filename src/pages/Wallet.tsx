@@ -133,8 +133,8 @@ const Wallet: React.FC = () => {
             user_id: user.id,
             type: 'redeemed',
             amount: -amount,
-            reason: `Redeemed for ${itcAmount.toFixed(2)} ITC tokens`,
-            created_at: new Date().toISOString()
+            balance_after: pointsBalance - amount,
+            reason: `Redeemed for ${itcAmount.toFixed(2)} ITC tokens`
           }])
 
         if (redeemError) throw redeemError
@@ -146,9 +146,9 @@ const Wallet: React.FC = () => {
             user_id: user.id,
             type: 'reward',
             amount: itcAmount,
+            balance_after: itcBalance + itcAmount,
             usd_value: usdValue,
-            reason: 'Points redemption',
-            created_at: new Date().toISOString()
+            reason: 'Points redemption'
           }])
 
         if (itcError) throw itcError
@@ -159,8 +159,7 @@ const Wallet: React.FC = () => {
           .upsert({
             user_id: user.id,
             points_balance: pointsBalance - amount,
-            itc_balance: itcBalance + itcAmount,
-            updated_at: new Date().toISOString()
+            itc_balance: itcBalance + itcAmount
           })
 
         if (updateError) throw updateError

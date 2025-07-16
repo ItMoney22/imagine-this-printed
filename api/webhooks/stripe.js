@@ -58,14 +58,18 @@ async function handlePaymentSuccess(paymentIntent) {
     const shipping = JSON.parse(metadata.shipping || '{}');
 
     const orderData = {
+      order_number: `ORD-${Date.now()}`,
       payment_intent_id: paymentIntent.id,
-      amount: paymentIntent.amount,
-      currency: paymentIntent.currency,
-      status: 'paid',
-      items: items,
+      user_id: metadata.userId || null,
+      customer_email: metadata.customerEmail || null,
+      subtotal: paymentIntent.amount / 100, // Convert cents to dollars
+      total: paymentIntent.amount / 100,
+      currency: paymentIntent.currency.toUpperCase(),
+      status: 'confirmed',
+      payment_status: 'paid',
+      payment_method: 'stripe',
       shipping_address: shipping,
-      created_at: new Date().toISOString(),
-      user_id: metadata.userId || null
+      source: 'web'
     };
 
     const { error } = await supabase
@@ -78,30 +82,42 @@ async function handlePaymentSuccess(paymentIntent) {
     }
 
     if (metadata.userId && metadata.itcAmount) {
-      const itcAmount = parseInt(metadata.itcAmount);
+      const itcAmount = parseFloat(metadata.itcAmount);
+      const usdAmount = paymentIntent.amount / 100; // Convert cents to dollars
       
+      // Get current wallet balance
+      const { data: walletData } = await supabase
+        .from('user_wallets')
+        .select('itc_balance')
+        .eq('user_id', metadata.userId)
+        .single();
+      
+      const currentBalance = walletData?.itc_balance || 0;
+      const newBalance = currentBalance + itcAmount;
+      
+      // Update wallet balance
       const { error: walletError } = await supabase
         .from('user_wallets')
         .upsert({
           user_id: metadata.userId,
-          itc_balance: supabase.raw('COALESCE(itc_balance, 0) + ?', [itcAmount]),
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'user_id'
+          itc_balance: newBalance
         });
 
       if (walletError) {
         console.error('Wallet update failed:', walletError);
       }
 
+      // Record transaction
       const { error: transactionError } = await supabase
         .from('itc_transactions')
         .insert([{
           user_id: metadata.userId,
-          amount: itcAmount,
           type: 'purchase',
-          payment_intent_id: paymentIntent.id,
-          created_at: new Date().toISOString()
+          amount: itcAmount,
+          balance_after: newBalance,
+          usd_value: usdAmount,
+          reason: 'ITC token purchase',
+          payment_intent_id: paymentIntent.id
         }]);
 
       if (transactionError) {
