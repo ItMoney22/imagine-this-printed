@@ -28,19 +28,6 @@ export const getStorageConfig = (fileType: FileType): StorageConfig => {
   }
 }
 
-// Legacy function kept for backward compatibility - now redirects to S3
-export const uploadToSupabase = async (
-  file: File,
-  options: {
-    bucket?: string
-    folder?: string
-    fileName?: string
-    isPublic?: boolean
-  } = {}
-): Promise<{ url: string; path: string; error?: string }> => {
-  console.warn('uploadToSupabase is deprecated, using S3 instead')
-  return uploadToS3(file, options.folder || 'user-uploads', { fileName: options.fileName })
-}
 
 export const uploadToS3 = async (
   file: File,
@@ -79,11 +66,6 @@ export const getCDNUrl = (path: string): string => {
     return path
   }
 
-  // Legacy check for old URLs
-  if (path.includes('supabase')) {
-    console.warn('Legacy Supabase URL detected, consider migrating to S3')
-    return path
-  }
 
   if (CLOUDFRONT_URL) {
     return `${CLOUDFRONT_URL}/${path}`
@@ -161,21 +143,8 @@ export const resizeImage = async (
   })
 }
 
-export const getOptimizedImageUrl = (url: string, width?: number, height?: number): string => {
+export const getOptimizedImageUrl = (url: string): string => {
   if (!url) return ''
-  
-  // Legacy support for old Supabase URLs
-  if (url.includes('supabase')) {
-    console.warn('Legacy Supabase URL detected for image optimization')
-    const transformParams = []
-    if (width) transformParams.push(`width=${width}`)
-    if (height) transformParams.push(`height=${height}`)
-    
-    if (transformParams.length > 0) {
-      const separator = url.includes('?') ? '&' : '?'
-      return `${url}${separator}${transformParams.join('&')}`
-    }
-  }
   
   // For S3/CloudFront URLs, return as-is (image optimization handled by CloudFront)
   return url

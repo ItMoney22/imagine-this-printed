@@ -380,7 +380,7 @@ export class VendorPayoutService {
   }
 
   private async savePayout(payout: VendorPayout): Promise<void> {
-    // In real app, this would save to Supabase
+    // In real app, this would save to PostgreSQL with Prisma
     console.log('Saving payout:', payout)
   }
 

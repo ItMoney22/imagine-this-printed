@@ -9,7 +9,7 @@ const FoundersDashboard: React.FC = () => {
   const [selectedTab, setSelectedTab] = useState<'orders' | 'invoices' | 'earnings'>('orders')
   const [monthlyEarnings, setMonthlyEarnings] = useState(0)
 
-  // Mock data - replace with real Supabase queries
+  // Mock data - replace with real PostgreSQL queries
   useEffect(() => {
     const mockOrders: Order[] = [
       {

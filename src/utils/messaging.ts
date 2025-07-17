@@ -29,7 +29,7 @@ export class MessagingService {
     context?: ConversationCreateData['context']
   ): Promise<Conversation> {
     try {
-      // In real app, this would check Supabase for existing conversation
+      // In real app, this would check PostgreSQL for existing conversation
       const conversationId = this.generateConversationId(userId, participantId)
       
       // Mock conversation data
@@ -76,7 +76,7 @@ export class MessagingService {
         createdAt: new Date().toISOString()
       }
 
-      // In real app, this would save to Supabase
+      // In real app, this would save to PostgreSQL with Prisma
       await this.saveMessage(message)
 
       // Update conversation
@@ -99,7 +99,7 @@ export class MessagingService {
     offset: number = 0
   ): Promise<Message[]> {
     try {
-      // In real app, this would query Supabase
+      // In real app, this would query PostgreSQL with Prisma
       // Mock messages for demo
       const mockMessages: Message[] = [
         {
@@ -148,7 +148,7 @@ export class MessagingService {
     offset: number = 0
   ): Promise<Conversation[]> {
     try {
-      // In real app, this would query Supabase
+      // In real app, this would query PostgreSQL with Prisma
       // Mock conversations for demo
       const mockConversations: Conversation[] = [
         {
@@ -198,7 +198,7 @@ export class MessagingService {
   // Mark messages as read
   async markAsRead(conversationId: string, _userId: string): Promise<void> {
     try {
-      // In real app, this would update Supabase
+      // In real app, this would update PostgreSQL with Prisma
       console.log(`Marking messages as read for conversation ${conversationId}`)
     } catch (error) {
       console.error('Error marking messages as read:', error)
@@ -209,7 +209,7 @@ export class MessagingService {
   // Archive conversation
   async archiveConversation(conversationId: string, _userId: string): Promise<void> {
     try {
-      // In real app, this would update Supabase
+      // In real app, this would update PostgreSQL with Prisma
       console.log(`Archiving conversation ${conversationId}`)
     } catch (error) {
       console.error('Error archiving conversation:', error)
@@ -220,7 +220,7 @@ export class MessagingService {
   // Get unread message count
   async getUnreadCount(_userId: string): Promise<number> {
     try {
-      // In real app, this would query Supabase
+      // In real app, this would query PostgreSQL with Prisma
       return 3 // Mock unread count
     } catch (error) {
       console.error('Error getting unread count:', error)
@@ -235,7 +235,7 @@ export class MessagingService {
     limit: number = 20
   ): Promise<Message[]> {
     try {
-      // In real app, this would use full-text search in Supabase
+      // In real app, this would use full-text search in PostgreSQL
       const conversations = await this.getConversations('demo-user')
       const allMessages: Message[] = []
       
@@ -283,7 +283,7 @@ export class MessagingService {
   }
 
   private async uploadAttachments(files: File[]): Promise<MessageAttachment[]> {
-    // In real app, this would upload to Supabase Storage
+    // In real app, this would upload to PostgreSQL with Prisma
     return files.map((file, index) => ({
       id: `att_${Date.now()}_${index}`,
       type: file.type.startsWith('image/') ? 'image' : 'file',
@@ -295,7 +295,7 @@ export class MessagingService {
   }
 
   private async saveMessage(message: Message): Promise<void> {
-    // In real app, this would save to Supabase messages table
+    // In real app, this would save to PostgreSQL messages table
     console.log('Saving message:', message)
   }
 

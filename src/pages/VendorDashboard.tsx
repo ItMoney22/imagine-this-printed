@@ -20,7 +20,7 @@ const VendorDashboard: React.FC = () => {
     commissionRate: 15
   })
 
-  // Mock data - replace with real Supabase queries
+  // Mock data - replace with real PostgreSQL queries
   useEffect(() => {
     const mockProducts: VendorProduct[] = [
       {
@@ -84,7 +84,7 @@ const VendorDashboard: React.FC = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files) {
-      // In real app, upload to Supabase Storage
+      // In real app, upload to PostgreSQL with Prisma
       const imageUrls = Array.from(files).map(file => URL.createObjectURL(file))
       setNewProduct(prev => ({ ...prev, images: [...prev.images, ...imageUrls] }))
     }
