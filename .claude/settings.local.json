@@ -40,7 +40,9 @@
       "Bash(crontab:*)",
       "Bash(echo:*)",
       "Bash(/var/www/imagine-this-printed/scripts/postgresql-backup.sh:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(psql:*)"
     ],
     "deny": []
   }

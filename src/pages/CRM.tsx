@@ -18,7 +18,7 @@ const CRM: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<{[customerId: string]: Array<{id: string, message: string, sender: string, timestamp: string}>}>({})
   const [newChatMessage, setNewChatMessage] = useState('')
 
-  // Mock data - replace with real Supabase queries
+  // Mock data - replace with real PostgreSQL queries
   useEffect(() => {
     const mockCustomers: CustomerContact[] = [
       {

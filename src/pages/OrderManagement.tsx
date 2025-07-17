@@ -14,7 +14,7 @@ const OrderManagement: React.FC = () => {
   const [internalNotes, setInternalNotes] = useState('')
   const [customerNotes, setCustomerNotes] = useState('')
 
-  // Mock data - replace with real Supabase queries
+  // Mock data - replace with real PostgreSQL queries
   useEffect(() => {
     const mockOrders: Order[] = [
       {
@@ -130,7 +130,7 @@ const OrderManagement: React.FC = () => {
         : order
     ))
 
-    // In real app, update Supabase here
+    // In real app, update PostgreSQL here
     console.log(`Order ${orderId} status updated to ${newStatus}`)
   }
 
@@ -141,7 +141,7 @@ const OrderManagement: React.FC = () => {
         : order
     ))
 
-    // In real app, update Supabase here
+    // In real app, update PostgreSQL here
     console.log(`Order ${orderId} notes updated`)
   }
 

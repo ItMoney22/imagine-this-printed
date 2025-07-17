@@ -20,7 +20,7 @@ const AdminDashboard: React.FC = () => {
     activeSessions: 0
   })
 
-  // Mock data - replace with real Supabase queries
+  // Mock data - replace with real PostgreSQL queries
   useEffect(() => {
     const mockUsers: User[] = [
       {

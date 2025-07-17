@@ -4,7 +4,7 @@ export class CostManagementService {
   // Get cost variables for a manager
   async getCostVariables(managerId: string): Promise<CostVariables | null> {
     try {
-      // In real app, this would query Supabase
+      // In real app, this would query PostgreSQL with Prisma
       // Mock data for demo
       const mockCostVariables: CostVariables = {
         id: `cost_${managerId}`,
@@ -30,7 +30,7 @@ export class CostManagementService {
   // Save cost variables
   async saveCostVariables(costVariables: Partial<CostVariables>): Promise<CostVariables> {
     try {
-      // In real app, this would save to Supabase
+      // In real app, this would save to PostgreSQL with Prisma
       const savedVariables: CostVariables = {
         id: costVariables.id || `cost_${Date.now()}`,
         managerId: costVariables.managerId || '',
@@ -96,7 +96,7 @@ export class CostManagementService {
   // Save product cost breakdown
   async saveProductCostBreakdown(breakdown: ProductCostBreakdown): Promise<void> {
     try {
-      // In real app, this would save to Supabase
+      // In real app, this would save to PostgreSQL with Prisma
       console.log('Saving product cost breakdown:', breakdown)
     } catch (error) {
       console.error('Error saving product cost breakdown:', error)
@@ -261,7 +261,7 @@ Just ask your question and I'll provide detailed analysis with actionable insigh
   // Save GPT query for history
   async saveGPTQuery(query: GPTCostQuery): Promise<void> {
     try {
-      // In real app, this would save to Supabase
+      // In real app, this would save to PostgreSQL with Prisma
       console.log('Saving GPT query:', query)
     } catch (error) {
       console.error('Error saving GPT query:', error)

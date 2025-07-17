@@ -114,12 +114,12 @@ const SystemStatusWidget: React.FC = () => {
       <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
         <h4 className="font-medium mb-2">Service Overview:</h4>
         <ul className="space-y-1 text-gray-600">
-          <li>• <strong>Supabase:</strong> Database, auth, and RLS policies</li>
+          <li>• <strong>PostgreSQL:</strong> Database with Prisma ORM</li>
           <li>• <strong>Auth:</strong> User authentication status</li>
           <li>• <strong>Stripe:</strong> Payment processing (Live mode active)</li>
           <li>• <strong>OpenAI:</strong> Chatbot and AI features</li>
           <li>• <strong>AWS S3:</strong> File storage and CDN</li>
-          <li>• <strong>Storage:</strong> Dual storage system (Supabase + S3)</li>
+          <li>• <strong>Storage:</strong> AWS S3 with CloudFront CDN</li>
         </ul>
       </div>
     </div>

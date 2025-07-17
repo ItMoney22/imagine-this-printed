@@ -23,7 +23,7 @@ const ModelGallery: React.FC = () => {
     { id: 'toys', name: 'Toys' }
   ]
 
-  // Mock data - replace with real Supabase queries
+  // Mock data - replace with real PostgreSQL queries
   useEffect(() => {
     const mockModels: ThreeDModel[] = [
       {
@@ -88,7 +88,7 @@ const ModelGallery: React.FC = () => {
         : model
     ))
 
-    // In real app, update Supabase and award points to uploader
+    // In real app, update PostgreSQL and award points to uploader
     alert('Vote cast! The creator earned 3 points.')
   }
 
@@ -100,7 +100,7 @@ const ModelGallery: React.FC = () => {
       return
     }
 
-    // In real app, upload to Supabase Storage
+    // In real app, upload to PostgreSQL with Prisma
     const model: ThreeDModel = {
       id: Date.now().toString(),
       title: newModel.title,
@@ -130,7 +130,7 @@ const ModelGallery: React.FC = () => {
   }
 
   const downloadModel = (model: ThreeDModel) => {
-    // In real app, track download and serve from Supabase Storage
+    // In real app, track download and serve from PostgreSQL with Prisma
     alert(`Downloading ${model.title}...`)
   }
 

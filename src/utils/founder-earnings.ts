@@ -486,7 +486,7 @@ export class FounderEarningsService {
   }
 
   private async saveFounderEarnings(earnings: FounderEarnings): Promise<void> {
-    // In real app, this would save to Supabase
+    // In real app, this would save to PostgreSQL with Prisma
     console.log('Saving founder earnings:', earnings)
   }
 
