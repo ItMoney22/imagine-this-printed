@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
+import ErrorBoundary from './components/ErrorBoundary'
 import './utils/debug' // Auto-run debug utilities
 import './utils/connectivity-test' // Additional connectivity tests
 import './utils/env-check' // Environment diagnostic
@@ -48,10 +49,11 @@ import SocialContentManagement from './pages/SocialContentManagement'
 
 function App() {
   return (
-    <AuthProvider>
-      <CartProvider>
-        <KioskAuthProvider>
-          <Router>
+    <ErrorBoundary>
+      <AuthProvider>
+        <CartProvider>
+          <KioskAuthProvider>
+            <Router>
             <div className="min-h-screen bg-gray-50">
               <Navbar />
               <Routes>
@@ -122,10 +124,11 @@ function App() {
               {/* Floating Cart - appears on all pages */}
               <FloatingCart />
             </div>
-          </Router>
-        </KioskAuthProvider>
-      </CartProvider>
-    </AuthProvider>
+            </Router>
+          </KioskAuthProvider>
+        </CartProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 
