@@ -1,9 +1,8 @@
-import { supabase } from './supabase'
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 export interface StorageConfig {
-  provider: 'supabase' | 's3'
+  provider: 's3'
   bucket?: string
   folder?: string
 }
@@ -21,24 +20,15 @@ const CLOUDFRONT_URL = import.meta.env.CLOUDFRONT_URL || ''
 
 export type FileType = '3d-files' | 'dashboards' | 'previews' | 'product-photos' | 'ai-art' | 'videos' | 'social-content'
 
-export const getStorageConfig = (fileType: FileType, isProduction = false): StorageConfig => {
-  const productionTypes: FileType[] = ['product-photos', 'ai-art', 'videos', 'social-content']
-  
-  if (isProduction || productionTypes.includes(fileType)) {
-    return {
-      provider: 's3',
-      bucket: S3_BUCKET,
-      folder: fileType
-    }
-  }
-  
+export const getStorageConfig = (fileType: FileType): StorageConfig => {
   return {
-    provider: 'supabase',
-    bucket: fileType.includes('secure') ? 'secure-files' : 'user-uploads',
+    provider: 's3',
+    bucket: S3_BUCKET,
     folder: fileType
   }
 }
 
+// Legacy function kept for backward compatibility - now redirects to S3
 export const uploadToSupabase = async (
   file: File,
   options: {
@@ -48,47 +38,8 @@ export const uploadToSupabase = async (
     isPublic?: boolean
   } = {}
 ): Promise<{ url: string; path: string; error?: string }> => {
-  if (!supabase) {
-    return { url: '', path: '', error: 'Supabase client not initialized' }
-  }
-
-  const { bucket = 'user-uploads', folder = '', fileName, isPublic = true } = options
-  const fileExtension = file.name.split('.').pop()
-  const uniqueFileName = fileName || `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExtension}`
-  const filePath = folder ? `${folder}/${uniqueFileName}` : uniqueFileName
-
-  try {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false
-      })
-
-    if (error) {
-      return { url: '', path: '', error: error.message }
-    }
-
-    if (isPublic) {
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(data.path)
-      
-      return { url: urlData.publicUrl, path: data.path }
-    } else {
-      const { data: urlData, error: urlError } = await supabase.storage
-        .from(bucket)
-        .createSignedUrl(data.path, 3600)
-      
-      if (urlError) {
-        return { url: '', path: data.path, error: urlError.message }
-      }
-      
-      return { url: urlData.signedUrl, path: data.path }
-    }
-  } catch (error) {
-    return { url: '', path: '', error: String(error) }
-  }
+  console.warn('uploadToSupabase is deprecated, using S3 instead')
+  return uploadToS3(file, options.folder || 'user-uploads', { fileName: options.fileName })
 }
 
 export const uploadToS3 = async (
@@ -128,7 +79,9 @@ export const getCDNUrl = (path: string): string => {
     return path
   }
 
+  // Legacy check for old URLs
   if (path.includes('supabase')) {
+    console.warn('Legacy Supabase URL detected, consider migrating to S3')
     return path
   }
 
@@ -159,28 +112,15 @@ export const uploadFile = async (
   fileType: FileType,
   options: {
     fileName?: string
-    forceProvider?: 'supabase' | 's3'
+    forceProvider?: 's3'
     isPublic?: boolean
   } = {}
 ): Promise<{ url: string; path: string; provider: string; error?: string }> => {
-  const { fileName, forceProvider, isPublic = true } = options
+  const { fileName } = options
   
-  const config = forceProvider 
-    ? { provider: forceProvider, bucket: forceProvider === 's3' ? S3_BUCKET : 'user-uploads', folder: fileType }
-    : getStorageConfig(fileType)
-
-  if (config.provider === 's3') {
-    const result = await uploadToS3(file, config.folder || fileType, { fileName })
-    return { ...result, provider: 's3' }
-  } else {
-    const result = await uploadToSupabase(file, {
-      bucket: config.bucket,
-      folder: config.folder,
-      fileName,
-      isPublic
-    })
-    return { ...result, provider: 'supabase' }
-  }
+  const config = getStorageConfig(fileType)
+  const result = await uploadToS3(file, config.folder || fileType, { fileName })
+  return { ...result, provider: 's3' }
 }
 
 export const resizeImage = async (
@@ -224,7 +164,9 @@ export const resizeImage = async (
 export const getOptimizedImageUrl = (url: string, width?: number, height?: number): string => {
   if (!url) return ''
   
+  // Legacy support for old Supabase URLs
   if (url.includes('supabase')) {
+    console.warn('Legacy Supabase URL detected for image optimization')
     const transformParams = []
     if (width) transformParams.push(`width=${width}`)
     if (height) transformParams.push(`height=${height}`)
@@ -235,5 +177,6 @@ export const getOptimizedImageUrl = (url: string, width?: number, height?: numbe
     }
   }
   
+  // For S3/CloudFront URLs, return as-is (image optimization handled by CloudFront)
   return url
 }

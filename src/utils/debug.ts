@@ -1,46 +1,28 @@
 // Debug utilities for authentication troubleshooting
 
-export const testSupabaseConnectivity = async () => {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+export const testDatabaseConnectivity = async () => {
+  console.log('🔍 Testing database connectivity...')
   
-  console.log('🔍 Testing Supabase connectivity...')
-  
-  // Test 1: Basic URL accessibility
+  // Test database connection by checking if we can access the API
   try {
-    const response = await fetch(`${supabaseUrl}/rest/v1/`, {
+    const response = await fetch('/api/health', {
       method: 'GET',
       headers: {
-        'apikey': supabaseAnonKey,
-        'Authorization': `Bearer ${supabaseAnonKey}`
+        'Content-Type': 'application/json'
       }
     })
     
-    console.log('✅ Supabase REST API accessible:', {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries())
-    })
+    if (response.ok) {
+      const data = await response.json()
+      console.log('✅ Database connection healthy:', {
+        status: response.status,
+        data
+      })
+    } else {
+      console.error('❌ Database connection failed:', response.status)
+    }
   } catch (error) {
-    console.error('❌ Supabase REST API not accessible:', error)
-  }
-  
-  // Test 2: Auth endpoint accessibility
-  try {
-    const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {
-      method: 'GET',
-      headers: {
-        'apikey': supabaseAnonKey
-      }
-    })
-    
-    const data = await response.json()
-    console.log('✅ Supabase Auth settings accessible:', {
-      status: response.status,
-      data
-    })
-  } catch (error) {
-    console.error('❌ Supabase Auth settings not accessible:', error)
+    console.error('❌ Database connectivity test failed:', error)
   }
 }
 
@@ -49,9 +31,10 @@ export const logEnvironmentInfo = () => {
     mode: import.meta.env.MODE,
     dev: import.meta.env.DEV,
     prod: import.meta.env.PROD,
-    supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
-    hasSupabaseKey: !!import.meta.env.VITE_SUPABASE_ANON_KEY,
-    keyPrefix: import.meta.env.VITE_SUPABASE_ANON_KEY?.substring(0, 20),
+    databaseUrl: import.meta.env.DATABASE_URL ? '[CONFIGURED]' : '[NOT CONFIGURED]',
+    hasStripeKey: !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
+    hasOpenAIKey: !!import.meta.env.VITE_OPENAI_API_KEY,
+    hasAWSCredentials: !!(import.meta.env.AWS_ACCESS_KEY_ID && import.meta.env.AWS_SECRET_ACCESS_KEY),
     userAgent: navigator.userAgent,
     url: window.location.href
   })
@@ -60,11 +43,11 @@ export const logEnvironmentInfo = () => {
 // Auto-run diagnostics in development
 if (import.meta.env.DEV) {
   logEnvironmentInfo()
-  testSupabaseConnectivity()
+  testDatabaseConnectivity()
 }
 
 // Make functions available globally for manual testing
 if (typeof window !== 'undefined') {
-  (window as any).testSupabaseConnectivity = testSupabaseConnectivity;
+  (window as any).testDatabaseConnectivity = testDatabaseConnectivity;
   (window as any).logEnvironmentInfo = logEnvironmentInfo;
 }

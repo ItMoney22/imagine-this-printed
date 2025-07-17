@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { prisma } from './database'
 import { uploadFile } from './storage'
 import { chatbotService } from './chatbot-service'
 
@@ -10,35 +10,27 @@ export interface ValidationResult {
 }
 
 export class SystemValidator {
-  async validateSupabase(): Promise<ValidationResult> {
+  async validateDatabase(): Promise<ValidationResult> {
     try {
-      if (!supabase) {
+      if (!prisma) {
         return {
-          service: 'Supabase',
+          service: 'Database',
           status: 'error',
-          message: 'Supabase client not initialized'
+          message: 'Database client not initialized'
         }
       }
 
-      const { error } = await supabase.from('users').select('count').limit(1)
+      // Test database connection by checking if we can query the user table
+      const userCount = await prisma.userProfile.count()
       
-      if (error) {
-        return {
-          service: 'Supabase',
-          status: 'error',
-          message: 'Database connection failed',
-          details: error.message
-        }
-      }
-
       return {
-        service: 'Supabase',
+        service: 'Database',
         status: 'success',
-        message: 'Database connected successfully'
+        message: `Database connected successfully (${userCount} users)`
       }
     } catch (error) {
       return {
-        service: 'Supabase',
+        service: 'Database',
         status: 'error',
         message: 'Connection error',
         details: String(error)
@@ -48,21 +40,14 @@ export class SystemValidator {
 
   async validateAuth(): Promise<ValidationResult> {
     try {
-      if (!supabase) {
-        return {
-          service: 'Auth',
-          status: 'error',
-          message: 'Supabase client not available'
-        }
-      }
-
-      const { data: { session } } = await supabase.auth.getSession()
+      // Check if we have an auth token in localStorage
+      const token = localStorage.getItem('auth_token')
       
       return {
         service: 'Auth',
         status: 'success',
-        message: session ? 'User authenticated' : 'No active session (normal)',
-        details: { hasSession: !!session }
+        message: token ? 'Auth token present' : 'No active session (normal)',
+        details: { hasToken: !!token }
       }
     } catch (error) {
       return {
@@ -173,8 +158,7 @@ export class SystemValidator {
       const testFile = new File([testBlob], 'test.txt', { type: 'text/plain' })
       
       const result = await uploadFile(testFile, 'previews', { 
-        fileName: 'validation-test.txt',
-        forceProvider: 'supabase'
+        fileName: 'validation-test.txt'
       })
       
       if (result.error) {
@@ -207,7 +191,7 @@ export class SystemValidator {
 
   async validateAll(): Promise<ValidationResult[]> {
     const results = await Promise.all([
-      this.validateSupabase(),
+      this.validateDatabase(),
       this.validateAuth(),
       this.validateStripe(),
       this.validateOpenAI(),

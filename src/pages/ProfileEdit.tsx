@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../utils/supabase'
+import { profileService } from '../utils/profile-service'
 import type { UserProfile } from '../types'
 
 const ProfileEdit: React.FC = () => {
@@ -42,46 +42,38 @@ const ProfileEdit: React.FC = () => {
         throw new Error('User not authenticated')
       }
 
-      // Load profile from database
-      const { data: profileData, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
+      // Load profile using API service
+      const userProfile = await profileService.getProfile({ userId: user.id })
 
-      if (error && error.code !== 'PGRST116') {
-        throw error
-      }
-
-      if (profileData) {
-        // Convert database format to component format
+      if (userProfile) {
+        // Convert to component format
         const loadedProfile: Partial<UserProfile> = {
-          username: profileData.username,
-          displayName: profileData.display_name,
-          bio: profileData.bio || '',
-          location: profileData.phone || '',
-          website: profileData.company_name || '',
-          socialLinks: profileData.preferences || {
+          username: userProfile.username,
+          displayName: userProfile.displayName,
+          bio: userProfile.bio || '',
+          location: userProfile.location || '',
+          website: userProfile.website || '',
+          socialLinks: userProfile.socialLinks || {
             twitter: '',
             instagram: '',
             linkedin: ''
           },
-          isPublic: true,
-          showOrderHistory: false,
-          showDesigns: true,
-          showModels: true,
-          profileImage: profileData.avatar_url
+          isPublic: userProfile.isPublic,
+          showOrderHistory: userProfile.showOrderHistory,
+          showDesigns: userProfile.showDesigns,
+          showModels: userProfile.showModels,
+          profileImage: userProfile.profileImage
         }
         
         setProfile(loadedProfile)
-        if (profileData.avatar_url) {
-          setPreviewUrl(profileData.avatar_url)
+        if (userProfile.profileImage) {
+          setPreviewUrl(userProfile.profileImage)
         }
       } else {
         // Create default profile if none exists
         const defaultProfile: Partial<UserProfile> = {
-          username: user?.email?.split('@')[0] || '',
-          displayName: (user as any)?.firstName ? `${(user as any).firstName} ${(user as any).lastName || ''}`.trim() : 'User',
+          username: user.username || '',
+          displayName: user.displayName || 'User',
           bio: '',
           location: '',
           website: '',
@@ -140,45 +132,23 @@ const ProfileEdit: React.FC = () => {
         throw new Error('User not authenticated')
       }
 
-      // Convert component format to database format
+      // Prepare profile data for API call
       const profileData = {
-        id: user.id,
         username: profile.username,
-        display_name: profile.displayName,
+        displayName: profile.displayName,
         bio: profile.bio || '',
-        phone: profile.location || '',
-        company_name: profile.website || '',
-        preferences: profile.socialLinks || {},
-        avatar_url: previewUrl || null,
-        profile_completed: true
+        location: profile.location || '',
+        website: profile.website || '',
+        socialLinks: profile.socialLinks || {},
+        avatarUrl: previewUrl || null,
+        isPublic: profile.isPublic,
+        showOrderHistory: profile.showOrderHistory,
+        showDesigns: profile.showDesigns,
+        showModels: profile.showModels
       }
 
-      // Check if profile exists
-      const { data: existingProfile } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single()
-
-      if (existingProfile) {
-        // Update existing profile
-        const { error } = await supabase
-          .from('user_profiles')
-          .update(profileData)
-          .eq('id', user.id)
-
-        if (error) throw error
-      } else {
-        // Insert new profile
-        const { error } = await supabase
-          .from('user_profiles')
-          .insert([{
-            ...profileData,
-            role: 'customer'
-          }])
-
-        if (error) throw error
-      }
+      // Update profile using API service
+      await profileService.updateProfile(profileData)
       
       alert('Profile updated successfully!')
       navigate('/account/profile')

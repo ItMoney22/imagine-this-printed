@@ -1,198 +1,191 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import type { User, Session } from '@supabase/supabase-js'
 import type { ReactNode } from 'react'
-import { supabase } from '../utils/supabase'
+import { authenticateUser, createUser, getUserFromToken } from '../utils/auth'
+import { sendEmailVerification, sendPasswordResetEmail, sendWelcomeEmail } from '../utils/email'
+import { prisma } from '../utils/database'
 import { referralSystem } from '../utils/referral-system'
 
+interface User {
+  id: string
+  email: string
+  role: string
+  username: string
+  displayName?: string
+  firstName?: string
+  lastName?: string
+  emailVerified: boolean
+  profileCompleted: boolean
+  wallet?: {
+    pointsBalance: number
+    itcBalance: number
+  }
+}
+
 interface AuthContextType {
-  user: (User & { role?: string }) | null
-  session: Session | null
+  user: User | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<any>
-  signUp: (email: string, password: string, userData?: any) => Promise<any>
+  signIn: (email: string, password: string) => Promise<{ error?: string }>
+  signUp: (email: string, password: string, userData?: any) => Promise<{ error?: string }>
   signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<any>
+  resetPassword: (email: string) => Promise<{ error?: string }>
   processReferralCode: (code: string) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<(User & { role?: string }) | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const getSession = async () => {
-      console.log('🔄 AuthContext: Getting initial session...')
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession()
-        if (error) {
-          console.error('❌ AuthContext: Error getting session:', error)
-          throw error
-        }
-        console.log('✅ AuthContext: Initial session retrieved:', session ? 'User logged in' : 'No active session')
-        setSession(session)
-        setUser(session?.user ?? null)
-      } catch (error) {
-        console.error('❌ AuthContext: Failed to get session:', {
-          error,
-          message: (error as any)?.message,
-          status: (error as any)?.status
-        })
+    const loadUser = async () => {
+      console.log('🔄 AuthContext: Loading user from localStorage...')
+      
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.log('ℹ️ AuthContext: No token found')
+        setLoading(false)
+        return
       }
+
+      try {
+        const userData = await getUserFromToken(token)
+        if (userData) {
+          console.log('✅ AuthContext: User loaded successfully')
+          setUser({
+            id: userData.id,
+            email: userData.email,
+            role: userData.role,
+            username: userData.username,
+            displayName: userData.displayName || undefined,
+            firstName: userData.firstName || undefined,
+            lastName: userData.lastName || undefined,
+            emailVerified: userData.emailVerified,
+            profileCompleted: userData.profileCompleted,
+            wallet: userData.wallet ? {
+              pointsBalance: userData.wallet.pointsBalance,
+              itcBalance: Number(userData.wallet.itcBalance)
+            } : undefined
+          })
+        } else {
+          console.log('❌ AuthContext: Invalid token, removing from localStorage')
+          localStorage.removeItem('auth_token')
+        }
+      } catch (error) {
+        console.error('❌ AuthContext: Error loading user:', error)
+        localStorage.removeItem('auth_token')
+      }
+      
       setLoading(false)
     }
 
-    getSession()
-
-    console.log('🔄 AuthContext: Setting up auth state change listener...')
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('🔄 AuthContext: Auth state changed:', { event, hasSession: !!session })
-        setSession(session)
-        setUser(session?.user ?? null)
-        setLoading(false)
-      }
-    )
-
-    return () => {
-      console.log('🔄 AuthContext: Cleaning up auth listener')
-      subscription.unsubscribe()
-    }
+    loadUser()
   }, [])
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
     console.log('🔄 AuthContext: Attempting sign in for:', email)
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const { user: userData, token } = await authenticateUser(email, password)
+      
+      localStorage.setItem('auth_token', token)
+      
+      setUser({
+        id: userData.id,
+        email: userData.email,
+        role: userData.role,
+        username: userData.username,
+        displayName: userData.displayName || undefined,
+        firstName: userData.firstName || undefined,
+        lastName: userData.lastName || undefined,
+        emailVerified: userData.emailVerified,
+        profileCompleted: userData.profileCompleted,
+        wallet: userData.wallet ? {
+          pointsBalance: userData.wallet.pointsBalance,
+          itcBalance: Number(userData.wallet.itcBalance)
+        } : undefined
       })
       
-      if (error) {
-        console.error('❌ AuthContext: Sign in failed:', {
-          error,
-          message: error.message,
-          status: error.status
-        })
-      } else {
-        console.log('✅ AuthContext: Sign in successful for:', email)
-      }
-      
-      return { data, error }
-    } catch (networkError) {
-      console.error('❌ AuthContext: Network error during sign in:', {
-        error: networkError,
-        message: (networkError as any)?.message,
-        stack: (networkError as any)?.stack
-      })
-      return { data: null, error: networkError }
+      console.log('✅ AuthContext: Sign in successful')
+      return {}
+    } catch (error: any) {
+      console.error('❌ AuthContext: Sign in failed:', error)
+      return { error: error.message }
     }
   }
 
-  const signUp = async (email: string, password: string, userData?: any) => {
+  const signUp = async (email: string, password: string, userData?: any): Promise<{ error?: string }> => {
     console.log('🔄 AuthContext: Attempting sign up for:', email)
     
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            role: 'customer',
-            ...userData
-          }
-        }
+      const newUser = await createUser(email, password, userData)
+      
+      console.log('✅ AuthContext: User created successfully')
+      
+      // Send email verification
+      const verificationToken = await prisma.userProfile.update({
+        where: { id: newUser.id },
+        data: { emailVerificationToken: 'temp-token' }, // Replace with actual token generation
+        select: { emailVerificationToken: true }
       })
-
-      if (error) {
-        console.error('❌ AuthContext: Sign up failed:', {
-          error,
-          message: error.message,
-          status: error.status
-        })
-      } else {
-        console.log('✅ AuthContext: Sign up successful for:', email, {
-          user: data.user ? 'User created' : 'User pending confirmation',
-          session: data.session ? 'Session active' : 'No session'
-        })
+      
+      await sendEmailVerification(email, verificationToken.emailVerificationToken!)
+      await sendWelcomeEmail(email, userData?.firstName)
+      
+      // Process stored referral for real signup
+      console.log('🔄 AuthContext: Processing referral for new user...')
+      const storedReferral = referralSystem.retrieveStoredReferral()
+      if (storedReferral) {
+        await processReferralSignup(storedReferral, newUser)
       }
-
-      // Create user profile after successful signup
-      if (data.user && !error) {
-        console.log('🔄 AuthContext: Creating user profile...')
-        await createUserProfile(data.user, userData)
-        
-        // Process stored referral for real signup
-        console.log('🔄 AuthContext: Processing referral for new user...')
-        const storedReferral = referralSystem.retrieveStoredReferral()
-        if (storedReferral) {
-          await processReferralSignup(storedReferral, data.user)
-        }
-      }
-
-      return { data, error }
-    } catch (networkError) {
-      console.error('❌ AuthContext: Network error during sign up:', {
-        error: networkError,
-        message: (networkError as any)?.message,
-        stack: (networkError as any)?.stack
-      })
-      return { data: null, error: networkError }
+      
+      return {}
+    } catch (error: any) {
+      console.error('❌ AuthContext: Sign up failed:', error)
+      return { error: error.message }
     }
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
-    
-    // Clear local state immediately
+    console.log('🔄 AuthContext: Signing out user')
+    localStorage.removeItem('auth_token')
     setUser(null)
-    setSession(null)
   }
 
-  const createUserProfile = async (user: User, userData?: any) => {
+  const resetPassword = async (email: string): Promise<{ error?: string }> => {
+    console.log('🔄 AuthContext: Attempting password reset for:', email)
+    
     try {
-      const username = user.email?.split('@')[0] || 'user'
-      const displayName = userData?.firstName && userData?.lastName 
-        ? `${userData.firstName} ${userData.lastName}`.trim()
-        : userData?.firstName || 'User'
+      const existingUser = await prisma.userProfile.findUnique({
+        where: { email }
+      })
       
-      const defaultProfile = {
-        id: user.id,
-        username: username,
-        display_name: displayName,
-        bio: '',
-        avatar_url: null,
-        role: 'customer',
-        email_verified: false,
-        profile_completed: false,
-        preferences: {},
-        metadata: {}
+      if (!existingUser) {
+        return { error: 'User not found' }
       }
-
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .insert([defaultProfile])
-        .select()
-        .single()
-
-      if (error) {
-        console.error('❌ AuthContext: Error creating user profile:', error)
-        throw error
-      }
-
-      console.log('✅ AuthContext: User profile created successfully:', data)
-      return data
-    } catch (error) {
-      console.error('❌ AuthContext: Failed to create user profile:', error)
-      throw error
+      
+      const resetToken = 'temp-reset-token' // Replace with actual token generation
+      const resetExpiry = new Date(Date.now() + 3600000) // 1 hour
+      
+      await prisma.userProfile.update({
+        where: { id: existingUser.id },
+        data: {
+          passwordResetToken: resetToken,
+          passwordResetExpiry: resetExpiry
+        }
+      })
+      
+      await sendPasswordResetEmail(email, resetToken)
+      
+      console.log('✅ AuthContext: Password reset email sent')
+      return {}
+    } catch (error: any) {
+      console.error('❌ AuthContext: Password reset failed:', error)
+      return { error: error.message }
     }
   }
 
-  const processReferralSignup = async (referralCode: string, user: User) => {
+  const processReferralSignup = async (referralCode: string, user: any) => {
     try {
       const transaction = await referralSystem.processReferral(
         referralCode,
@@ -201,7 +194,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       )
       
       if (transaction) {
-        // In real app, would update user's points balance
         console.log('Referral processed successfully:', transaction)
         
         // Show success message to user
@@ -223,14 +215,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return false
   }
 
-  const resetPassword = async (email: string) => {
-    const { data, error } = await supabase.auth.resetPasswordForEmail(email)
-    return { data, error }
-  }
-
   const value = {
     user,
-    session,
     loading,
     signIn,
     signUp,

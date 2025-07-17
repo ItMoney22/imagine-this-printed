@@ -13,17 +13,17 @@ export const checkEnvironment = () => {
     base: import.meta.env.BASE_URL
   })
   
-  // Supabase configuration
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-  const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+  // Database configuration
+  const databaseUrl = import.meta.env.DATABASE_URL
+  const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+  const openaiKey = import.meta.env.VITE_OPENAI_API_KEY
   
-  console.log('🔧 Supabase Configuration:', {
-    url: supabaseUrl,
-    urlValid: supabaseUrl && supabaseUrl !== 'https://demo.supabase.co',
-    hasKey: !!supabaseKey,
-    keyValid: supabaseKey && supabaseKey !== 'demo-key-replace-with-real-key',
-    keyPrefix: supabaseKey?.substring(0, 30) + '...',
-    keyLength: supabaseKey?.length
+  console.log('🔧 Service Configuration:', {
+    databaseUrl: databaseUrl ? '[CONFIGURED]' : '[NOT CONFIGURED]',
+    hasStripeKey: !!stripeKey,
+    stripeMode: stripeKey?.startsWith('pk_live_') ? 'LIVE' : stripeKey?.startsWith('pk_test_') ? 'TEST' : 'UNKNOWN',
+    hasOpenAIKey: !!openaiKey,
+    hasAWSCredentials: !!(import.meta.env.AWS_ACCESS_KEY_ID && import.meta.env.AWS_SECRET_ACCESS_KEY)
   })
   
   // All VITE environment variables
@@ -46,30 +46,26 @@ export const checkEnvironment = () => {
   })
   
   // Network test
-  if (supabaseUrl && supabaseKey) {
-    console.log('🔄 Running network test...')
-    
-    fetch(`${supabaseUrl}/auth/v1/settings`, {
-      headers: {
-        'apikey': supabaseKey,
-        'Content-Type': 'application/json'
-      }
+  console.log('🔄 Running API health check...')
+  
+  fetch('/api/health', {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log('✅ API health check successful:', data)
+  })
+  .catch(error => {
+    console.error('❌ API health check failed:', {
+      error,
+      message: error.message,
+      name: error.name,
+      stack: error.stack
     })
-    .then(response => response.json())
-    .then(data => {
-      console.log('✅ Network test successful:', data)
-    })
-    .catch(error => {
-      console.error('❌ Network test failed:', {
-        error,
-        message: error.message,
-        name: error.name,
-        stack: error.stack
-      })
-    })
-  } else {
-    console.error('❌ Cannot run network test - missing environment variables')
-  }
+  })
   
   console.log('================================')
 }
