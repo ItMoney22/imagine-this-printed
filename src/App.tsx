@@ -35,6 +35,7 @@ import VendorMessages from './pages/VendorMessages'
 import VendorPayouts from './pages/VendorPayouts'
 import FounderEarningsPage from './pages/FounderEarnings'
 import AdminControlPanel from './pages/AdminControlPanel'
+import AdminPanel from './pages/AdminPanel'
 import WholesalePortal from './pages/WholesalePortal'
 import VendorStorefront from './pages/VendorStorefront'
 import ProductManagement from './pages/ProductManagement'
@@ -95,6 +96,7 @@ function App() {
                 {/* Admin Routes */}
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 <Route path="/admin/control-panel" element={<AdminControlPanel />} />
+                <Route path="/admin-panel" element={<AdminPanel />} />
                 <Route path="/admin/orders" element={<OrderManagement />} />
                 <Route path="/admin/crm" element={<CRM />} />
                 <Route path="/admin/marketing" element={<MarketingTools />} />

@@ -1,4 +1,5 @@
 import type { ReferralCode, ReferralTransaction } from '../types'
+import { prisma } from './database'
 
 export interface ReferralReward {
   referrerBonus: number // Points for the person who referred
@@ -22,7 +23,7 @@ export class ReferralSystem {
   private baseUrl: string
 
   constructor() {
-    this.baseUrl = window.location.origin
+    this.baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
   }
 
   // Generate a unique referral code for a user
@@ -46,6 +47,80 @@ export class ReferralSystem {
     }
   }
 
+  // Create a new referral code in the database
+  async createReferralCode(userId: string, userName: string): Promise<ReferralCode | null> {
+    try {
+      // Check if user already has an active referral code
+      const existingCode = await prisma.referralCode.findFirst({
+        where: { userId, isActive: true }
+      })
+
+      if (existingCode) {
+        return {
+          id: existingCode.id,
+          userId: existingCode.userId,
+          code: existingCode.code,
+          isActive: existingCode.isActive,
+          createdAt: existingCode.createdAt.toISOString(),
+          totalUses: existingCode.totalUses,
+          totalEarnings: Number(existingCode.totalEarnings),
+          description: existingCode.description || ''
+        }
+      }
+
+      // Generate a unique code
+      let code: string
+      let isUnique = false
+      let attempts = 0
+      const maxAttempts = 10
+
+      do {
+        const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase()
+        const namePrefix = userName.replace(/[^a-zA-Z]/g, '').substring(0, 4).toUpperCase()
+        code = `${namePrefix}${randomSuffix}`
+
+        // Check if code is unique
+        const existingCodeCheck = await prisma.referralCode.findUnique({
+          where: { code }
+        })
+
+        isUnique = !existingCodeCheck
+        attempts++
+      } while (!isUnique && attempts < maxAttempts)
+
+      if (!isUnique) {
+        console.error('Failed to generate unique referral code after maximum attempts')
+        return null
+      }
+
+      // Create the referral code in the database
+      const dbReferralCode = await prisma.referralCode.create({
+        data: {
+          userId,
+          code,
+          isActive: true,
+          totalUses: 0,
+          totalEarnings: 0,
+          description: `${userName}'s referral code`
+        }
+      })
+
+      return {
+        id: dbReferralCode.id,
+        userId: dbReferralCode.userId,
+        code: dbReferralCode.code,
+        isActive: dbReferralCode.isActive,
+        createdAt: dbReferralCode.createdAt.toISOString(),
+        totalUses: dbReferralCode.totalUses,
+        totalEarnings: Number(dbReferralCode.totalEarnings),
+        description: dbReferralCode.description || ''
+      }
+    } catch (error) {
+      console.error('Error creating referral code:', error)
+      return null
+    }
+  }
+
   // Generate referral URL with tracking parameters
   generateReferralUrl(referralCode: string, page: string = ''): string {
     const url = new URL(this.baseUrl)
@@ -62,44 +137,46 @@ export class ReferralSystem {
 
   // Check if a referral code is valid
   async validateReferralCode(code: string): Promise<{ valid: boolean, referralCode?: ReferralCode, error?: string }> {
-    // Mock validation - in real app, this would query the database
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    // Mock referral codes for demo
-    const mockReferralCodes: ReferralCode[] = [
-      {
-        id: 'ref_1',
-        userId: 'user1',
-        code: 'JOHN2024',
-        isActive: true,
-        createdAt: '2025-01-01T00:00:00Z',
-        totalUses: 5,
-        totalEarnings: 250,
-        description: 'John\'s referral code'
-      },
-      {
-        id: 'ref_2',
-        userId: 'user2',
-        code: 'SARAH123',
-        isActive: true,
-        createdAt: '2025-01-02T00:00:00Z',
-        totalUses: 3,
-        totalEarnings: 150,
-        description: 'Sarah\'s referral code'
+    try {
+      const dbReferralCode = await prisma.referralCode.findUnique({
+        where: { code: code.toUpperCase() },
+        include: { user: true }
+      })
+      
+      if (!dbReferralCode) {
+        return { valid: false, error: 'Referral code not found' }
       }
-    ]
 
-    const referralCode = mockReferralCodes.find(ref => ref.code === code.toUpperCase())
-    
-    if (!referralCode) {
-      return { valid: false, error: 'Referral code not found' }
+      if (!dbReferralCode.isActive) {
+        return { valid: false, error: 'Referral code is no longer active' }
+      }
+
+      // Check if code has expired
+      if (dbReferralCode.expiresAt && dbReferralCode.expiresAt < new Date()) {
+        return { valid: false, error: 'Referral code has expired' }
+      }
+
+      // Check if code has reached max uses
+      if (dbReferralCode.maxUses && dbReferralCode.totalUses >= dbReferralCode.maxUses) {
+        return { valid: false, error: 'Referral code has reached maximum uses' }
+      }
+
+      const referralCode: ReferralCode = {
+        id: dbReferralCode.id,
+        userId: dbReferralCode.userId,
+        code: dbReferralCode.code,
+        isActive: dbReferralCode.isActive,
+        createdAt: dbReferralCode.createdAt.toISOString(),
+        totalUses: dbReferralCode.totalUses,
+        totalEarnings: Number(dbReferralCode.totalEarnings),
+        description: dbReferralCode.description || ''
+      }
+
+      return { valid: true, referralCode }
+    } catch (error) {
+      console.error('Error validating referral code:', error)
+      return { valid: false, error: 'Error validating referral code' }
     }
-
-    if (!referralCode.isActive) {
-      return { valid: false, error: 'Referral code is no longer active' }
-    }
-
-    return { valid: true, referralCode }
   }
 
   // Process a successful referral when someone signs up
@@ -115,36 +192,112 @@ export class ReferralSystem {
       return null
     }
 
-    // Define referral rewards based on action type
-    const reward: ReferralReward = {
-      referrerBonus: 100, // 100 points for referrer
-      refereeBonus: 50,   // 50 points for new user
-      description: 'New user signup bonus'
-    }
+    try {
+      // Get referral code details from database
+      const dbReferralCode = await prisma.referralCode.findUnique({
+        where: { id: validation.referralCode.id }
+      })
 
-    // Create referral transaction
-    const transaction: ReferralTransaction = {
-      id: `reftx_${Date.now()}`,
-      referralCodeId: validation.referralCode.id,
-      referrerId: validation.referralCode.userId,
-      refereeId: newUserId,
-      refereeEmail: newUserEmail,
-      type: 'signup',
-      referrerReward: reward.referrerBonus,
-      refereeReward: reward.refereeBonus,
-      status: 'completed',
-      createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString()
-    }
+      if (!dbReferralCode) {
+        console.error('Referral code not found in database')
+        return null
+      }
 
-    // In real app, this would:
-    // 1. Save transaction to database
-    // 2. Update user points balances
-    // 3. Update referral code statistics
-    // 4. Send notification emails
-    
-    console.log('Referral processed:', transaction)
-    return transaction
+      // Check if this user has already been referred by this code
+      const existingTransaction = await prisma.referralTransaction.findFirst({
+        where: {
+          referralCodeId: validation.referralCode.id,
+          refereeId: newUserId,
+          type: 'signup'
+        }
+      })
+
+      if (existingTransaction) {
+        console.error('User has already been referred by this code')
+        return null
+      }
+
+      // Use the reward amounts from the referral code
+      const referrerReward = Number(dbReferralCode.referrerRewardAmount)
+      const refereeReward = Number(dbReferralCode.refereeRewardAmount)
+
+      // Create referral transaction using Prisma transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Create the referral transaction
+        const transaction = await tx.referralTransaction.create({
+          data: {
+            referralCodeId: validation.referralCode!.id,
+            referrerId: validation.referralCode!.userId,
+            refereeId: newUserId,
+            refereeEmail: newUserEmail,
+            type: 'signup',
+            referrerReward: referrerReward,
+            refereeReward: refereeReward,
+            status: 'completed',
+            completedAt: new Date()
+          }
+        })
+
+        // 2. Update referral code statistics
+        await tx.referralCode.update({
+          where: { id: validation.referralCode!.id },
+          data: {
+            totalUses: { increment: 1 },
+            totalEarnings: { increment: referrerReward }
+          }
+        })
+
+        // 3. Update user points balances via wallet
+        await tx.userWallet.upsert({
+          where: { userId: validation.referralCode!.userId },
+          update: {
+            pointsBalance: { increment: referrerReward },
+            lifetimePointsEarned: { increment: referrerReward }
+          },
+          create: {
+            userId: validation.referralCode!.userId,
+            pointsBalance: referrerReward,
+            lifetimePointsEarned: referrerReward
+          }
+        })
+
+        await tx.userWallet.upsert({
+          where: { userId: newUserId },
+          update: {
+            pointsBalance: { increment: refereeReward },
+            lifetimePointsEarned: { increment: refereeReward }
+          },
+          create: {
+            userId: newUserId,
+            pointsBalance: refereeReward,
+            lifetimePointsEarned: refereeReward
+          }
+        })
+
+        return transaction
+      })
+
+      const referralTransaction: ReferralTransaction = {
+        id: result.id,
+        referralCodeId: result.referralCodeId,
+        referrerId: result.referrerId,
+        refereeId: result.refereeId,
+        refereeEmail: result.refereeEmail,
+        type: result.type as 'signup' | 'purchase',
+        referrerReward: Number(result.referrerReward),
+        refereeReward: Number(result.refereeReward),
+        status: result.status as 'pending' | 'completed' | 'failed',
+        createdAt: result.createdAt.toISOString(),
+        completedAt: result.completedAt?.toISOString(),
+        metadata: result.metadata as Record<string, any> | undefined
+      }
+
+      console.log('Referral processed:', referralTransaction)
+      return referralTransaction
+    } catch (error) {
+      console.error('Error processing referral:', error)
+      return null
+    }
   }
 
   // Process additional referral rewards for purchases
@@ -153,29 +306,98 @@ export class ReferralSystem {
     refereeId: string,
     orderValue: number
   ): Promise<ReferralTransaction | null> {
-    // Calculate commission (5% of order value as points)
-    const commission = Math.floor(orderValue * 0.05)
-    
-    const transaction: ReferralTransaction = {
-      id: `reftx_${Date.now()}`,
-      referralCodeId: 'ref_purchase',
-      referrerId,
-      refereeId,
-      refereeEmail: '', // Would be filled from user data
-      type: 'purchase',
-      referrerReward: commission,
-      refereeReward: 0, // No additional bonus for referee on purchase
-      status: 'completed',
-      createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      metadata: {
-        orderValue,
-        commissionRate: 0.05
-      }
-    }
+    try {
+      // Get the referral code for this referrer-referee pair
+      const referralCode = await prisma.referralCode.findFirst({
+        where: { userId: referrerId }
+      })
 
-    console.log('Purchase referral processed:', transaction)
-    return transaction
+      if (!referralCode) {
+        console.error('No referral code found for referrer')
+        return null
+      }
+
+      // Get referee user details
+      const refereeUser = await prisma.userProfile.findUnique({
+        where: { id: refereeId },
+        select: { email: true }
+      })
+
+      if (!refereeUser) {
+        console.error('Referee user not found')
+        return null
+      }
+
+      // Calculate commission (5% of order value as points)
+      const commission = Math.floor(orderValue * 0.05)
+      
+      // Create referral transaction using Prisma transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Create the referral transaction
+        const transaction = await tx.referralTransaction.create({
+          data: {
+            referralCodeId: referralCode.id,
+            referrerId,
+            refereeId,
+            refereeEmail: refereeUser.email,
+            type: 'purchase',
+            referrerReward: commission,
+            refereeReward: 0, // No additional bonus for referee on purchase
+            status: 'completed',
+            completedAt: new Date(),
+            metadata: {
+              orderValue,
+              commissionRate: 0.05
+            }
+          }
+        })
+
+        // 2. Update referral code total earnings
+        await tx.referralCode.update({
+          where: { id: referralCode.id },
+          data: {
+            totalEarnings: { increment: commission }
+          }
+        })
+
+        // 3. Update referrer points balance via wallet
+        await tx.userWallet.upsert({
+          where: { userId: referrerId },
+          update: {
+            pointsBalance: { increment: commission },
+            lifetimePointsEarned: { increment: commission }
+          },
+          create: {
+            userId: referrerId,
+            pointsBalance: commission,
+            lifetimePointsEarned: commission
+          }
+        })
+
+        return transaction
+      })
+
+      const referralTransaction: ReferralTransaction = {
+        id: result.id,
+        referralCodeId: result.referralCodeId,
+        referrerId: result.referrerId,
+        refereeId: result.refereeId,
+        refereeEmail: result.refereeEmail,
+        type: result.type as 'signup' | 'purchase',
+        referrerReward: Number(result.referrerReward),
+        refereeReward: Number(result.refereeReward),
+        status: result.status as 'pending' | 'completed' | 'failed',
+        createdAt: result.createdAt.toISOString(),
+        completedAt: result.completedAt?.toISOString(),
+        metadata: result.metadata as Record<string, any> | undefined
+      }
+
+      console.log('Purchase referral processed:', referralTransaction)
+      return referralTransaction
+    } catch (error) {
+      console.error('Error processing referral purchase:', error)
+      return null
+    }
   }
 
   // Get referral statistics for a user
@@ -185,103 +407,139 @@ export class ReferralSystem {
     totalEarnings: number,
     totalReferrals: number
   }> {
-    // Mock data for demo
-    await new Promise(resolve => setTimeout(resolve, 300))
+    try {
+      // Get user's referral code
+      const dbReferralCode = await prisma.referralCode.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' }
+      })
 
-    const mockReferralCode: ReferralCode = {
-      id: 'ref_user',
-      userId,
-      code: 'USER2024',
-      isActive: true,
-      createdAt: '2025-01-01T00:00:00Z',
-      totalUses: 3,
-      totalEarnings: 175,
-      description: 'Your referral code'
-    }
-
-    const mockTransactions: ReferralTransaction[] = [
-      {
-        id: 'reftx_1',
-        referralCodeId: 'ref_user',
-        referrerId: userId,
-        refereeId: 'referred_user_1',
-        refereeEmail: 'friend1@example.com',
-        type: 'signup',
-        referrerReward: 100,
-        refereeReward: 50,
-        status: 'completed',
-        createdAt: '2025-01-05T10:00:00Z',
-        completedAt: '2025-01-05T10:00:00Z'
-      },
-      {
-        id: 'reftx_2',
-        referralCodeId: 'ref_user',
-        referrerId: userId,
-        refereeId: 'referred_user_2',
-        refereeEmail: 'friend2@example.com',
-        type: 'signup',
-        referrerReward: 100,
-        refereeReward: 50,
-        status: 'completed',
-        createdAt: '2025-01-08T14:30:00Z',
-        completedAt: '2025-01-08T14:30:00Z'
-      },
-      {
-        id: 'reftx_3',
-        referralCodeId: 'ref_user',
-        referrerId: userId,
-        refereeId: 'referred_user_1',
-        refereeEmail: 'friend1@example.com',
-        type: 'purchase',
-        referrerReward: 15, // 5% of $300 order
-        refereeReward: 0,
-        status: 'completed',
-        createdAt: '2025-01-10T16:45:00Z',
-        completedAt: '2025-01-10T16:45:00Z',
-        metadata: {
-          orderValue: 300,
-          commissionRate: 0.05
+      let referralCode: ReferralCode | null = null
+      if (dbReferralCode) {
+        referralCode = {
+          id: dbReferralCode.id,
+          userId: dbReferralCode.userId,
+          code: dbReferralCode.code,
+          isActive: dbReferralCode.isActive,
+          createdAt: dbReferralCode.createdAt.toISOString(),
+          totalUses: dbReferralCode.totalUses,
+          totalEarnings: Number(dbReferralCode.totalEarnings),
+          description: dbReferralCode.description || ''
         }
       }
-    ]
 
-    return {
-      referralCode: mockReferralCode,
-      transactions: mockTransactions,
-      totalEarnings: mockTransactions.reduce((sum, tx) => sum + tx.referrerReward, 0),
-      totalReferrals: mockTransactions.filter(tx => tx.type === 'signup').length
+      // Get user's referral transactions
+      const dbTransactions = await prisma.referralTransaction.findMany({
+        where: { referrerId: userId },
+        orderBy: { createdAt: 'desc' }
+      })
+
+      const transactions: ReferralTransaction[] = dbTransactions.map(tx => ({
+        id: tx.id,
+        referralCodeId: tx.referralCodeId,
+        referrerId: tx.referrerId,
+        refereeId: tx.refereeId,
+        refereeEmail: tx.refereeEmail,
+        type: tx.type as 'signup' | 'purchase',
+        referrerReward: Number(tx.referrerReward),
+        refereeReward: Number(tx.refereeReward),
+        status: tx.status as 'pending' | 'completed' | 'failed',
+        createdAt: tx.createdAt.toISOString(),
+        completedAt: tx.completedAt?.toISOString(),
+        metadata: tx.metadata as Record<string, any> | undefined
+      }))
+
+      const totalEarnings = transactions.reduce((sum, tx) => sum + tx.referrerReward, 0)
+      const totalReferrals = transactions.filter(tx => tx.type === 'signup').length
+
+      return {
+        referralCode,
+        transactions,
+        totalEarnings,
+        totalReferrals
+      }
+    } catch (error) {
+      console.error('Error getting user referral stats:', error)
+      return {
+        referralCode: null,
+        transactions: [],
+        totalEarnings: 0,
+        totalReferrals: 0
+      }
     }
   }
 
   // Get platform-wide referral statistics (for admin dashboard)
   async getPlatformReferralStats(): Promise<ReferralStats> {
-    // Mock data for demo
-    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      // Get total referrals (signup transactions)
+      const totalReferrals = await prisma.referralTransaction.count({
+        where: { type: 'signup' }
+      })
 
-    return {
-      totalReferrals: 156,
-      totalEarnings: 7800, // Total points distributed
-      conversionRate: 0.68, // 68% of referred users make a purchase
-      topPerformers: [
-        {
-          userId: 'user1',
-          name: 'John Doe',
-          referralCount: 12,
-          earnings: 650
+      // Get total earnings distributed
+      const totalEarningsResult = await prisma.referralTransaction.aggregate({
+        _sum: { referrerReward: true }
+      })
+      const totalEarnings = Number(totalEarningsResult._sum.referrerReward || 0)
+
+      // Calculate conversion rate (users who made purchases after signup)
+      const signupTransactions = await prisma.referralTransaction.findMany({
+        where: { type: 'signup' },
+        select: { refereeId: true }
+      })
+      
+      const purchaseTransactions = await prisma.referralTransaction.findMany({
+        where: {
+          type: 'purchase',
+          refereeId: { in: signupTransactions.map(t => t.refereeId) }
         },
-        {
-          userId: 'user2',
-          name: 'Sarah Wilson',
-          referralCount: 8,
-          earnings: 420
-        },
-        {
-          userId: 'user3',
-          name: 'Mike Johnson',
-          referralCount: 6,
-          earnings: 315
-        }
-      ]
+        select: { refereeId: true }
+      })
+
+      const uniquePurchasers = new Set(purchaseTransactions.map(t => t.refereeId))
+      const conversionRate = totalReferrals > 0 ? uniquePurchasers.size / totalReferrals : 0
+
+      // Get top performers
+      const topPerformersData = await prisma.referralTransaction.groupBy({
+        by: ['referrerId'],
+        where: { type: 'signup' },
+        _count: { referrerId: true },
+        _sum: { referrerReward: true },
+        orderBy: { _count: { referrerId: 'desc' } },
+        take: 10
+      })
+
+      const topPerformers = await Promise.all(
+        topPerformersData.map(async (performer) => {
+          const user = await prisma.userProfile.findUnique({
+            where: { id: performer.referrerId },
+            select: { displayName: true, email: true }
+          })
+          
+          return {
+            userId: performer.referrerId,
+            name: user?.displayName || user?.email || 'Unknown User',
+            referralCount: performer._count.referrerId,
+            earnings: Number(performer._sum.referrerReward || 0)
+          }
+        })
+      )
+
+      return {
+        totalReferrals,
+        totalEarnings,
+        conversionRate,
+        topPerformers
+      }
+    } catch (error) {
+      console.error('Error getting platform referral stats:', error)
+      return {
+        totalReferrals: 0,
+        totalEarnings: 0,
+        conversionRate: 0,
+        topPerformers: []
+      }
     }
   }
 
@@ -323,18 +581,21 @@ export class ReferralSystem {
 
   // Extract referral code from URL parameters
   extractReferralFromUrl(): string | null {
+    if (typeof window === 'undefined') return null
     const urlParams = new URLSearchParams(window.location.search)
     return urlParams.get('ref')
   }
 
   // Store referral code in localStorage for later processing
   storeReferralCode(code: string): void {
+    if (typeof window === 'undefined') return
     localStorage.setItem('pending_referral', code)
     localStorage.setItem('referral_timestamp', Date.now().toString())
   }
 
   // Retrieve stored referral code (and clear it)
   retrieveStoredReferral(): string | null {
+    if (typeof window === 'undefined') return null
     const code = localStorage.getItem('pending_referral')
     const timestamp = localStorage.getItem('referral_timestamp')
     

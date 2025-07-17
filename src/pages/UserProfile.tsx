@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../utils/supabase'
+import { profileService } from '../utils/profile-service'
 import type { UserProfile, Order, Product, ThreeDModel } from '../types'
 
 const UserProfilePage: React.FC = () => {
@@ -27,114 +27,28 @@ const UserProfilePage: React.FC = () => {
   const loadUserProfile = async () => {
     setIsLoading(true)
     try {
-      // Ensure we have the current user info
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
-      
       // Determine which profile to load
-      let targetUserId = null
-      let targetUsername = null
+      let identifier: { username?: string; userId?: string } = {}
       
       if (isAccountRoute) {
         // For account route, use current user's ID
-        if (!currentUser) {
+        if (!user) {
           throw new Error('User not authenticated')
         }
-        targetUserId = currentUser.id
-        targetUsername = currentUser.email?.split('@')[0] || 'current-user'
+        identifier.userId = user.id
       } else {
         // For public profile, load by username
-        targetUsername = username
+        identifier.username = username
       }
 
-      let profileData = null
+      // Load profile using API service
+      const userProfile = await profileService.getProfile(identifier)
       
-      // Load profile from database
-      if (targetUserId) {
-        // Load by user_id for account route
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', targetUserId)
-          .single()
-        
-        if (error && error.code !== 'PGRST116') {
-          throw error
-        }
-        profileData = data
-      } else if (targetUsername) {
-        // Load by username for public profile
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('username', targetUsername)
-          .single()
-        
-        if (error && error.code !== 'PGRST116') {
-          throw error
-        }
-        profileData = data
-      }
-
-      // If profile doesn't exist and this is account route, create default one
-      if (!profileData && isAccountRoute && currentUser) {
-        const defaultProfile = {
-          id: currentUser.id,
-          username: targetUsername,
-          display_name: (currentUser as any).firstName ? `${(currentUser as any).firstName} ${(currentUser as any).lastName || ''}`.trim() : 'User',
-          bio: '',
-          avatar_url: null,
-          role: 'customer',
-          email_verified: false,
-          profile_completed: false,
-          preferences: {},
-          metadata: {}
-        }
-
-        const { data: newProfile, error: createError } = await supabase
-          .from('user_profiles')
-          .insert([defaultProfile])
-          .select()
-          .single()
-
-        if (createError) throw createError
-        profileData = newProfile
-      }
-
-      if (profileData) {
-        // Load additional stats
-        const { data: orderStats } = await supabase
-          .from('orders')
-          .select('total')
-          .eq('user_id', profileData.id)
-
-        const totalOrders = orderStats?.length || 0
-        const totalSpent = orderStats?.reduce((sum, order) => sum + (order.total || 0), 0) || 0
-
-        const userProfile: UserProfile = {
-          id: profileData.id,
-          userId: profileData.id,
-          username: profileData.username,
-          displayName: profileData.display_name,
-          bio: profileData.bio || '',
-          profileImage: profileData.avatar_url || null,
-          location: profileData.phone || '',
-          website: profileData.company_name || '',
-          socialLinks: profileData.preferences || {},
-          isPublic: true,
-          showOrderHistory: false,
-          showDesigns: true,
-          showModels: true,
-          joinedDate: profileData.created_at,
-          totalOrders,
-          totalSpent,
-          favoriteCategories: [],
-          badges: []
-        }
-
+      if (userProfile) {
         setProfile(userProfile)
         
         // Check if this is the current user's profile
-        const isOwn = isAccountRoute || (currentUser && currentUser.id === profileData.id)
+        const isOwn = isAccountRoute || (user && user.id === userProfile.id)
         setIsOwnProfile(isOwn || false)
 
         // Load additional data if profile allows it

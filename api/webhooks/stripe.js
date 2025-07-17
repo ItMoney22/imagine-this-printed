@@ -1,10 +1,7 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { createClient } = require('@supabase/supabase-js');
+const { PrismaClient } = require('@prisma/client');
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const prisma = new PrismaClient();
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -72,57 +69,59 @@ async function handlePaymentSuccess(paymentIntent) {
       source: 'web'
     };
 
-    const { error } = await supabase
-      .from('orders')
-      .insert([orderData]);
-
-    if (error) {
-      console.error('Order creation failed:', error);
-      return;
-    }
+    const order = await prisma.order.create({
+      data: {
+        orderNumber: orderData.order_number,
+        paymentIntentId: orderData.payment_intent_id,
+        userId: orderData.user_id,
+        customerEmail: orderData.customer_email,
+        subtotal: orderData.subtotal,
+        total: orderData.total,
+        currency: orderData.currency,
+        status: orderData.status,
+        paymentStatus: orderData.payment_status,
+        paymentMethod: orderData.payment_method,
+        shippingAddress: orderData.shipping_address,
+        source: orderData.source
+      }
+    });
 
     if (metadata.userId && metadata.itcAmount) {
       const itcAmount = parseFloat(metadata.itcAmount);
       const usdAmount = paymentIntent.amount / 100; // Convert cents to dollars
       
       // Get current wallet balance
-      const { data: walletData } = await supabase
-        .from('user_wallets')
-        .select('itc_balance')
-        .eq('user_id', metadata.userId)
-        .single();
+      const walletData = await prisma.userWallet.findUnique({
+        where: { userId: metadata.userId },
+        select: { itcBalance: true }
+      });
       
-      const currentBalance = walletData?.itc_balance || 0;
+      const currentBalance = Number(walletData?.itcBalance || 0);
       const newBalance = currentBalance + itcAmount;
       
       // Update wallet balance
-      const { error: walletError } = await supabase
-        .from('user_wallets')
-        .upsert({
-          user_id: metadata.userId,
-          itc_balance: newBalance
-        });
-
-      if (walletError) {
-        console.error('Wallet update failed:', walletError);
-      }
+      await prisma.userWallet.upsert({
+        where: { userId: metadata.userId },
+        update: { itcBalance: newBalance },
+        create: {
+          userId: metadata.userId,
+          itcBalance: newBalance,
+          pointsBalance: 0
+        }
+      });
 
       // Record transaction
-      const { error: transactionError } = await supabase
-        .from('itc_transactions')
-        .insert([{
-          user_id: metadata.userId,
+      await prisma.itcTransaction.create({
+        data: {
+          userId: metadata.userId,
           type: 'purchase',
           amount: itcAmount,
-          balance_after: newBalance,
-          usd_value: usdAmount,
+          balanceAfter: newBalance,
+          usdValue: usdAmount,
           reason: 'ITC token purchase',
-          payment_intent_id: paymentIntent.id
-        }]);
-
-      if (transactionError) {
-        console.error('Transaction recording failed:', transactionError);
-      }
+          paymentIntentId: paymentIntent.id
+        }
+      });
     }
 
     console.log(`Payment succeeded: ${paymentIntent.id}`);

@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react'
 import { uploadFile, getStorageConfig, type FileType } from '../utils/storage'
 
 interface StorageSettings {
-  defaultProvider: 'supabase' | 's3'
-  fileTypeOverrides: Record<FileType, 'supabase' | 's3' | 'auto'>
+  defaultProvider: 's3'
+  fileTypeOverrides: Record<FileType, 's3' | 'auto'>
   autoUpgradeToS3: boolean
-  maxSupabaseFileSize: number // in MB
+  maxFileSize: number // in MB
 }
 
 const StorageSettingsComponent: React.FC = () => {
   const [settings, setSettings] = useState<StorageSettings>({
-    defaultProvider: 'supabase',
+    defaultProvider: 's3',
     fileTypeOverrides: {
       '3d-files': 'auto',
       'dashboards': 'auto',
@@ -21,7 +21,7 @@ const StorageSettingsComponent: React.FC = () => {
       'social-content': 's3'
     },
     autoUpgradeToS3: true,
-    maxSupabaseFileSize: 50
+    maxFileSize: 50
   })
 
   const [testFile, setTestFile] = useState<File | null>(null)
@@ -54,7 +54,7 @@ const StorageSettingsComponent: React.FC = () => {
     loadSettings()
   }, [])
 
-  const handleFileTypeOverrideChange = (fileType: FileType, provider: 'supabase' | 's3' | 'auto') => {
+  const handleFileTypeOverrideChange = (fileType: FileType, provider: 's3' | 'auto') => {
     setSettings(prev => ({
       ...prev,
       fileTypeOverrides: {
@@ -71,9 +71,7 @@ const StorageSettingsComponent: React.FC = () => {
     setTestResult('')
 
     try {
-      const result = await uploadFile(testFile, '3d-files', {
-        forceProvider: settings.defaultProvider
-      })
+      const result = await uploadFile(testFile, '3d-files')
 
       if (result.error) {
         setTestResult(`❌ Error: ${result.error}`)
@@ -91,8 +89,8 @@ Path: ${result.path}`)
   }
 
   const getStorageRecommendation = (fileType: FileType) => {
-    const config = getStorageConfig(fileType)
-    return config.provider === 's3' ? 'Recommended: S3 (production-grade)' : 'Recommended: Supabase (basic)'
+    getStorageConfig(fileType)
+    return 'AWS S3 (production-grade storage)'
   }
 
   return (
@@ -101,15 +99,11 @@ Path: ${result.path}`)
       
       {/* Default Provider */}
       <div className="mb-6">
-        <label className="block text-sm font-medium mb-2">Default Storage Provider</label>
-        <select
-          value={settings.defaultProvider}
-          onChange={(e) => setSettings(prev => ({ ...prev, defaultProvider: e.target.value as 'supabase' | 's3' }))}
-          className="border rounded px-3 py-2 w-full"
-        >
-          <option value="supabase">Supabase (Basic uploads, previews)</option>
-          <option value="s3">AWS S3 (Production-grade media)</option>
-        </select>
+        <label className="block text-sm font-medium mb-2">Storage Provider</label>
+        <div className="border rounded px-3 py-2 w-full bg-gray-50">
+          <span className="text-gray-700">AWS S3 (Production-grade storage)</span>
+          <p className="text-sm text-gray-600 mt-1">All files are stored in AWS S3 with CloudFront CDN</p>
+        </div>
       </div>
 
       {/* File Type Overrides */}
@@ -127,8 +121,7 @@ Path: ${result.path}`)
                 onChange={(e) => handleFileTypeOverrideChange(fileType, e.target.value as any)}
                 className="border rounded px-2 py-1 text-sm"
               >
-                <option value="auto">Auto (follow recommendation)</option>
-                <option value="supabase">Force Supabase</option>
+                <option value="auto">Auto (S3)</option>
                 <option value="s3">Force S3</option>
               </select>
             </div>
@@ -148,20 +141,20 @@ Path: ${result.path}`)
               onChange={(e) => setSettings(prev => ({ ...prev, autoUpgradeToS3: e.target.checked }))}
               className="mr-2"
             />
-            <span>Auto-upgrade large files to S3</span>
+            <span>Enable file size optimization</span>
           </label>
 
           <div>
             <label className="block text-sm font-medium mb-1">
-              Max Supabase file size (MB)
+              Max file size (MB)
             </label>
             <input
               type="number"
-              value={settings.maxSupabaseFileSize}
-              onChange={(e) => setSettings(prev => ({ ...prev, maxSupabaseFileSize: parseInt(e.target.value) }))}
+              value={settings.maxFileSize}
+              onChange={(e) => setSettings(prev => ({ ...prev, maxFileSize: parseInt(e.target.value) }))}
               className="border rounded px-3 py-2 w-32"
               min="1"
-              max="100"
+              max="500"
             />
           </div>
         </div>
@@ -203,7 +196,7 @@ Path: ${result.path}`)
       <div className="mt-6 p-4 bg-gray-50 rounded">
         <h5 className="font-semibold mb-2">Environment Status</h5>
         <div className="text-sm space-y-1">
-          <div>Supabase: {import.meta.env.VITE_SUPABASE_URL ? '✅ Configured' : '❌ Not configured'}</div>
+          <div>Database: {import.meta.env.DATABASE_URL ? '✅ Connected' : '❌ Not connected'}</div>
           <div>AWS S3: {import.meta.env.AWS_ACCESS_KEY_ID ? '✅ Configured' : '❌ Not configured'}</div>
           <div>CloudFront CDN: {import.meta.env.CLOUDFRONT_URL ? '✅ Configured' : '⚠️ Not configured (optional)'}</div>
         </div>

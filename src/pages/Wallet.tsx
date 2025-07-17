@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { stripeITCBridge } from '../utils/stripe-itc'
-import { supabase } from '../utils/supabase'
+import { prisma } from '../utils/database'
 import type { PointsTransaction, ITCTransaction } from '../types'
 
 const Wallet: React.FC = () => {
@@ -43,42 +43,34 @@ const Wallet: React.FC = () => {
       setError('')
 
       // Load wallet balance with user isolation
-      const { data: walletData, error: walletError } = await supabase
-        .from('user_wallets')
-        .select('points_balance, itc_balance')
-        .eq('user_id', user.id)
-        .single()
-
-      if (walletError && walletError.code !== 'PGRST116') {
-        throw walletError
-      }
+      const walletData = await prisma.userWallet.findUnique({
+        where: { userId: user.id },
+        select: {
+          pointsBalance: true,
+          itcBalance: true
+        }
+      })
 
       // Set balances (default to 0 if no wallet exists)
-      setPointsBalance(walletData?.points_balance || 0)
-      setItcBalance(walletData?.itc_balance || 0)
+      setPointsBalance(walletData?.pointsBalance || 0)
+      setItcBalance(Number(walletData?.itcBalance || 0))
 
       // Load points transaction history
-      const { data: pointsData, error: pointsError } = await supabase
-        .from('points_transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50)
-
-      if (pointsError) throw pointsError
+      const pointsData = await prisma.pointsTransaction.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      })
 
       // Load ITC transaction history  
-      const { data: itcData, error: itcError } = await supabase
-        .from('itc_transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50)
+      const itcData = await prisma.itcTransaction.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      })
 
-      if (itcError) throw itcError
-
-      setPointsHistory(pointsData || [])
-      setItcHistory(itcData || [])
+      setPointsHistory(pointsData as any || [])
+      setItcHistory(itcData as any || [])
 
     } catch (error: any) {
       console.error('Failed to load wallet data:', error)
@@ -127,42 +119,41 @@ const Wallet: React.FC = () => {
         const itcAmount = usdValue * usdToITC
 
         // Create redemption transaction
-        const { error: redeemError } = await supabase
-          .from('points_transactions')
-          .insert([{
-            user_id: user.id,
+        await prisma.pointsTransaction.create({
+          data: {
+            userId: user.id,
             type: 'redeemed',
             amount: -amount,
-            balance_after: pointsBalance - amount,
+            balanceAfter: pointsBalance - amount,
             reason: `Redeemed for ${itcAmount.toFixed(2)} ITC tokens`
-          }])
-
-        if (redeemError) throw redeemError
+          }
+        })
 
         // Add ITC to wallet
-        const { error: itcError } = await supabase
-          .from('itc_transactions')
-          .insert([{
-            user_id: user.id,
+        await prisma.itcTransaction.create({
+          data: {
+            userId: user.id,
             type: 'reward',
             amount: itcAmount,
-            balance_after: itcBalance + itcAmount,
-            usd_value: usdValue,
+            balanceAfter: itcBalance + itcAmount,
+            usdValue: usdValue,
             reason: 'Points redemption'
-          }])
-
-        if (itcError) throw itcError
+          }
+        })
 
         // Update wallet balances
-        const { error: updateError } = await supabase
-          .from('user_wallets')
-          .upsert({
-            user_id: user.id,
-            points_balance: pointsBalance - amount,
-            itc_balance: itcBalance + itcAmount
-          })
-
-        if (updateError) throw updateError
+        await prisma.userWallet.upsert({
+          where: { userId: user.id },
+          update: {
+            pointsBalance: pointsBalance - amount,
+            itcBalance: itcBalance + itcAmount
+          },
+          create: {
+            userId: user.id,
+            pointsBalance: pointsBalance - amount,
+            itcBalance: itcBalance + itcAmount
+          }
+        })
 
         // Refresh data
         await loadWalletData()
@@ -267,14 +258,14 @@ const Wallet: React.FC = () => {
             <h3 className="text-lg font-semibold mb-4">Recent Transactions</h3>
             <div className="space-y-3">
               {[...pointsHistory.slice(0, 3), ...itcHistory.slice(0, 3)]
-                .sort((a, b) => new Date((a as any).created_at || a.createdAt).getTime() - new Date((b as any).created_at || b.createdAt).getTime())
+                .sort((a, b) => new Date((a as any).createdAt || a.createdAt).getTime() - new Date((b as any).createdAt || b.createdAt).getTime())
                 .slice(0, 5)
                 .map((transaction, index) => (
                 <div key={index} className="flex justify-between items-center py-2 border-b">
                   <div>
                     <p className="font-medium">{transaction.reason}</p>
                     <p className="text-sm text-gray-600">
-                      {new Date((transaction as any).created_at || transaction.createdAt).toLocaleDateString()}
+                      {new Date((transaction as any).createdAt || transaction.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                   <p className={`font-semibold ${
@@ -395,7 +386,7 @@ const Wallet: React.FC = () => {
                 <div>
                   <p className="font-medium">{transaction.reason}</p>
                   <p className="text-sm text-gray-600">
-                    {new Date((transaction as any).created_at || transaction.createdAt).toLocaleDateString()}
+                    {new Date((transaction as any).createdAt || transaction.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 <p className={`font-semibold ${
@@ -418,10 +409,10 @@ const Wallet: React.FC = () => {
                 <div>
                   <p className="font-medium">{transaction.reason}</p>
                   <p className="text-sm text-gray-600">
-                    {new Date((transaction as any).created_at || transaction.createdAt).toLocaleDateString()}
+                    {new Date((transaction as any).createdAt || transaction.createdAt).toLocaleDateString()}
                   </p>
-                  {(transaction as any).usd_value && (
-                    <p className="text-xs text-gray-500">≈ ${((transaction as any).usd_value as number).toFixed(2)} USD</p>
+                  {(transaction as any).usdValue && (
+                    <p className="text-xs text-gray-500">≈ ${((transaction as any).usdValue as number).toFixed(2)} USD</p>
                   )}
                 </div>
                 <p className={`font-semibold ${

@@ -1,0 +1,498 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UserProfile {
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  passwordHash        String    @map("password_hash")
+  role                String    @default("customer")
+  username            String    @unique
+  firstName           String?   @map("first_name")
+  lastName            String?   @map("last_name")
+  displayName         String?   @map("display_name")
+  bio                 String?
+  avatarUrl           String?   @map("avatar_url")
+  phone               String?
+  companyName         String?   @map("company_name")
+  businessType        String?   @map("business_type")
+  taxId               String?   @map("tax_id")
+  wholesaleStatus     String?   @map("wholesale_status")
+  wholesaleTier       String?   @map("wholesale_tier")
+  creditLimit         Decimal   @default(0) @map("credit_limit")
+  paymentTerms        Int       @default(30) @map("payment_terms")
+  stripeAccountId     String?   @map("stripe_account_id")
+  stripeCustomerId    String?   @map("stripe_customer_id")
+  emailVerified       Boolean   @default(false) @map("email_verified")
+  emailVerificationToken String? @map("email_verification_token")
+  passwordResetToken  String?   @map("password_reset_token")
+  passwordResetExpiry DateTime? @map("password_reset_expiry")
+  profileCompleted    Boolean   @default(false) @map("profile_completed")
+  lastActive          DateTime? @map("last_active")
+  preferences         Json      @default("{}")
+  metadata            Json      @default("{}")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  wallet              UserWallet?
+  pointsTransactions  PointsTransaction[]
+  itcTransactions     ItcTransaction[]
+  referralCodes       ReferralCode[]
+  referredBy          ReferralTransaction[] @relation("ReferredBy")
+  referrals           ReferralTransaction[] @relation("Referrals")
+  products            Product[]
+  orders              Order[]
+  sentMessages        Message[] @relation("SentMessages")
+  receivedMessages    Message[] @relation("ReceivedMessages")
+  vendorPayouts       VendorPayout[]
+  founderEarnings     FounderEarning[]
+  kiosks              Kiosk[]
+  costVariables       CostVariable[]
+  vendorOrderItems    OrderItem[] @relation("VendorOrderItems")
+  managedCostBreakdowns ProductCostBreakdown[] @relation("ManagerCostBreakdowns")
+  
+  @@map("user_profiles")
+}
+
+model UserWallet {
+  userId                String    @id @map("user_id")
+  pointsBalance         Int       @default(0) @map("points_balance")
+  itcBalance            Decimal   @default(0.00) @map("itc_balance")
+  lifetimePointsEarned  Int       @default(0) @map("lifetime_points_earned")
+  lifetimeItcEarned     Decimal   @default(0.00) @map("lifetime_itc_earned")
+  lastPointsActivity    DateTime? @map("last_points_activity")
+  lastItcActivity       DateTime? @map("last_itc_activity")
+  walletStatus          String    @default("active") @map("wallet_status")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user                  UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_wallets")
+}
+
+model PointsTransaction {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  type         String    // 'earned', 'redeemed', 'bonus', 'ai_generation', 'referral', 'purchase'
+  amount       Int       // Can be negative for redemptions
+  balanceAfter Int       @map("balance_after")
+  reason       String
+  source       String?   // 'purchase', 'referral', 'ai_usage', 'admin_grant', etc.
+  referenceId  String?   @map("reference_id")
+  metadata     Json      @default("{}")
+  expiresAt    DateTime? @map("expires_at")
+  processedAt  DateTime  @default(now()) @map("processed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  user         UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("points_transactions")
+}
+
+model ItcTransaction {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  type              String    // 'purchase', 'reward', 'redemption', 'usage', 'transfer', 'refund'
+  amount            Decimal   // Can be negative for usage/redemptions
+  balanceAfter      Decimal   @map("balance_after")
+  usdValue          Decimal?  @map("usd_value")
+  exchangeRate      Decimal   @default(0.10) @map("exchange_rate")
+  reason            String
+  paymentIntentId   String?   @map("payment_intent_id")
+  transactionHash   String?   @map("transaction_hash")
+  referenceId       String?   @map("reference_id")
+  metadata          Json      @default("{}")
+  status            String    @default("completed") // 'pending', 'completed', 'failed', 'refunded'
+  processedAt       DateTime  @default(now()) @map("processed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  user              UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("itc_transactions")
+}
+
+model ReferralCode {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  code                String    @unique
+  isActive            Boolean   @default(true) @map("is_active")
+  totalUses           Int       @default(0) @map("total_uses")
+  maxUses             Int?      @map("max_uses") // NULL for unlimited
+  totalEarnings       Decimal   @default(0) @map("total_earnings")
+  referrerRewardAmount Decimal  @default(10.00) @map("referrer_reward_amount")
+  refereeRewardAmount Decimal   @default(5.00) @map("referee_reward_amount")
+  description         String?
+  campaignId          String?   @map("campaign_id")
+  expiresAt           DateTime? @map("expires_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user                UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralTransactions ReferralTransaction[]
+  
+  @@map("referral_codes")
+}
+
+model ReferralTransaction {
+  id             String    @id @default(uuid())
+  referralCodeId String    @map("referral_code_id")
+  referrerId     String    @map("referrer_id")
+  refereeId      String    @map("referee_id")
+  refereeEmail   String    @map("referee_email")
+  type           String    // 'signup', 'purchase', 'milestone'
+  referrerReward Decimal   @default(0) @map("referrer_reward")
+  refereeReward  Decimal   @default(0) @map("referee_reward")
+  orderId        String?   @map("order_id")
+  status         String    @default("completed") // 'pending', 'completed', 'failed', 'reversed'
+  metadata       Json      @default("{}")
+  processedAt    DateTime  @default(now()) @map("processed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+  
+  // Relations
+  referralCode   ReferralCode @relation(fields: [referralCodeId], references: [id])
+  referrer       UserProfile  @relation("Referrals", fields: [referrerId], references: [id])
+  referee        UserProfile  @relation("ReferredBy", fields: [refereeId], references: [id])
+  
+  @@map("referral_transactions")
+}
+
+model Product {
+  id                      String    @id @default(uuid())
+  name                    String
+  description             String?
+  shortDescription        String?   @map("short_description")
+  price                   Decimal
+  compareAtPrice          Decimal?  @map("compare_at_price")
+  costPrice               Decimal?  @map("cost_price")
+  images                  String[]  @default([])
+  thumbnailUrl            String?   @map("thumbnail_url")
+  category                String
+  subcategory             String?
+  tags                    String[]  @default([])
+  sku                     String?   @unique
+  barcode                 String?
+  inStock                 Boolean   @default(true) @map("in_stock")
+  stockQuantity           Int       @default(0) @map("stock_quantity")
+  trackInventory          Boolean   @default(false) @map("track_inventory")
+  allowBackorder          Boolean   @default(false) @map("allow_backorder")
+  vendorId                String?   @map("vendor_id")
+  approved                Boolean   @default(false)
+  featured                Boolean   @default(false)
+  isDigital               Boolean   @default(false) @map("is_digital")
+  weight                  Decimal?  // in grams
+  dimensions              Json?     // {length, width, height}
+  shippingClass           String?   @map("shipping_class")
+  taxClass                String?   @map("tax_class")
+  status                  String    @default("draft") // 'draft', 'active', 'archived'
+  visibility              String    @default("public") // 'public', 'private', 'hidden'
+  searchKeywords          String?   @map("search_keywords")
+  metaTitle               String?   @map("meta_title")
+  metaDescription         String?   @map("meta_description")
+  requiresPersonalization Boolean   @default(false) @map("requires_personalization")
+  printTimeHours          Decimal?  @map("print_time_hours")
+  materialUsageGrams      Decimal?  @map("material_usage_grams")
+  difficultyLevel         String?   @map("difficulty_level")
+  printSettings           Json      @default("{}") @map("print_settings")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  vendor                  UserProfile? @relation(fields: [vendorId], references: [id])
+  variations              ProductVariation[]
+  orderItems              OrderItem[]
+  costBreakdowns          ProductCostBreakdown[]
+  
+  @@map("products")
+}
+
+model ProductVariation {
+  id          String    @id @default(uuid())
+  productId   String    @map("product_id")
+  name        String    // 'Color', 'Size', 'Material', etc.
+  type        String    // 'color', 'size', 'material', 'text', 'dropdown'
+  displayName String?   @map("display_name")
+  isRequired  Boolean   @default(false) @map("is_required")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  options     VariationOption[]
+  
+  @@map("product_variations")
+}
+
+model VariationOption {
+  id               String    @id @default(uuid())
+  variationId      String    @map("variation_id")
+  value            String
+  displayValue     String?   @map("display_value")
+  priceAdjustment  Decimal   @default(0) @map("price_adjustment")
+  weightAdjustment Decimal   @default(0) @map("weight_adjustment")
+  stockQuantity    Int       @default(0) @map("stock_quantity")
+  skuSuffix        String?   @map("sku_suffix")
+  colorHex         String?   @map("color_hex")
+  imageUrl         String?   @map("image_url")
+  isDefault        Boolean   @default(false) @map("is_default")
+  sortOrder        Int       @default(0) @map("sort_order")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  variation        ProductVariation @relation(fields: [variationId], references: [id], onDelete: Cascade)
+  
+  @@map("variation_options")
+}
+
+model Order {
+  id                 String    @id @default(uuid())
+  orderNumber        String    @unique @map("order_number")
+  userId             String?   @map("user_id")
+  customerEmail      String?   @map("customer_email")
+  customerName       String?   @map("customer_name")
+  subtotal           Decimal
+  taxAmount          Decimal   @default(0) @map("tax_amount")
+  shippingAmount     Decimal   @default(0) @map("shipping_amount")
+  discountAmount     Decimal   @default(0) @map("discount_amount")
+  total              Decimal
+  currency           String    @default("USD")
+  status             String    @default("pending") // 'pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'
+  paymentStatus      String    @default("pending") @map("payment_status") // 'pending', 'paid', 'partially_paid', 'refunded', 'failed'
+  fulfillmentStatus  String    @default("unfulfilled") @map("fulfillment_status") // 'unfulfilled', 'partial', 'fulfilled'
+  paymentMethod      String?   @map("payment_method") // 'stripe', 'itc_wallet', 'points', 'cash', 'terminal'
+  paymentIntentId    String?   @map("payment_intent_id")
+  chargeId           String?   @map("charge_id")
+  billingAddress     Json?     @map("billing_address")
+  shippingAddress    Json?     @map("shipping_address")
+  trackingNumber     String?   @map("tracking_number")
+  trackingCompany    String?   @map("tracking_company")
+  estimatedDelivery  DateTime? @map("estimated_delivery")
+  notes              String?
+  internalNotes      String?   @map("internal_notes")
+  source             String    @default("web") // 'web', 'kiosk', 'admin', 'api'
+  discountCodes      String[]  @default([]) @map("discount_codes")
+  referralCode       String?   @map("referral_code")
+  tags               String[]  @default([])
+  metadata           Json      @default("{}")
+  cancelledAt        DateTime? @map("cancelled_at")
+  shippedAt          DateTime? @map("shipped_at")
+  deliveredAt        DateTime? @map("delivered_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  user               UserProfile? @relation(fields: [userId], references: [id])
+  items              OrderItem[]
+  vendorPayouts      VendorPayout[]
+  founderEarnings    FounderEarning[]
+  
+  @@map("orders")
+}
+
+model OrderItem {
+  id                 String    @id @default(uuid())
+  orderId            String    @map("order_id")
+  productId          String?   @map("product_id")
+  productName        String    @map("product_name")
+  productSku         String?   @map("product_sku")
+  quantity           Int
+  price              Decimal   // Price per unit at time of order
+  total              Decimal   // quantity * price
+  costPrice          Decimal?  @map("cost_price")
+  variations         Json      @default("{}") // Selected variations
+  personalization    Json      @default("{}") // Custom text, images, etc.
+  printFiles         String[]  @default([]) @map("print_files")
+  fulfillmentStatus  String    @default("unfulfilled") @map("fulfillment_status")
+  vendorId           String?   @map("vendor_id")
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  order              Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product            Product?     @relation(fields: [productId], references: [id])
+  vendor             UserProfile? @relation("VendorOrderItems", fields: [vendorId], references: [id])
+  
+  @@map("order_items")
+}
+
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  senderId       String?   @map("sender_id")
+  recipientId    String?   @map("recipient_id")
+  subject        String?
+  content        String
+  messageType    String    @default("text") @map("message_type") // 'text', 'image', 'file', 'system'
+  attachments    Json      @default("[]")
+  metadata       Json      @default("{}")
+  isRead         Boolean   @default(false) @map("is_read")
+  isArchived     Boolean   @default(false) @map("is_archived")
+  isPinned       Boolean   @default(false) @map("is_pinned")
+  priority       String    @default("normal") // 'low', 'normal', 'high', 'urgent'
+  replyTo        String?   @map("reply_to")
+  readAt         DateTime? @map("read_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  sender         UserProfile? @relation("SentMessages", fields: [senderId], references: [id])
+  recipient      UserProfile? @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  
+  @@map("messages")
+}
+
+model VendorPayout {
+  id               String    @id @default(uuid())
+  vendorId         String    @map("vendor_id")
+  orderId          String    @map("order_id")
+  orderItemId      String    @map("order_item_id")
+  saleAmount       Decimal   @map("sale_amount")
+  platformFeeRate  Decimal   @map("platform_fee_rate")
+  platformFee      Decimal   @map("platform_fee")
+  stripeFeeRate    Decimal   @map("stripe_fee_rate")
+  stripeFee        Decimal   @map("stripe_fee")
+  payoutAmount     Decimal   @map("payout_amount")
+  currency         String    @default("USD")
+  status           String    @default("pending") // 'pending', 'processing', 'paid', 'failed', 'cancelled'
+  payoutMethod     String    @default("stripe_express") @map("payout_method") // 'stripe_express', 'manual', 'ach'
+  stripeTransferId String?   @map("stripe_transfer_id")
+  stripePayoutId   String?   @map("stripe_payout_id")
+  failureReason    String?   @map("failure_reason")
+  processingFee    Decimal   @default(0) @map("processing_fee")
+  netAmount        Decimal?  @map("net_amount")
+  scheduledAt      DateTime? @map("scheduled_at")
+  processedAt      DateTime? @map("processed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  vendor           UserProfile @relation(fields: [vendorId], references: [id])
+  order            Order       @relation(fields: [orderId], references: [id])
+  
+  @@map("vendor_payouts")
+}
+
+model FounderEarning {
+  id                String    @id @default(uuid())
+  orderId           String    @map("order_id")
+  founderId         String    @map("founder_id")
+  saleAmount        Decimal   @map("sale_amount")
+  costOfGoods       Decimal   @map("cost_of_goods")
+  platformFees      Decimal   @map("platform_fees")
+  stripeFees        Decimal   @map("stripe_fees")
+  grossProfit       Decimal   @map("gross_profit")
+  founderPercentage Decimal   @default(0.35) @map("founder_percentage")
+  founderEarnings   Decimal   @map("founder_earnings")
+  currency          String    @default("USD")
+  status            String    @default("pending") // 'pending', 'calculated', 'paid'
+  payoutBatchId     String?   @map("payout_batch_id")
+  notes             String?
+  calculatedAt      DateTime  @default(now()) @map("calculated_at")
+  paidAt            DateTime? @map("paid_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  order             Order       @relation(fields: [orderId], references: [id])
+  founder           UserProfile @relation(fields: [founderId], references: [id])
+  
+  @@map("founder_earnings")
+}
+
+model Kiosk {
+  id                   String    @id @default(uuid())
+  name                 String
+  displayName          String?   @map("display_name")
+  vendorId             String    @map("vendor_id")
+  kioskUserId          String?   @map("kiosk_user_id")
+  location             String
+  address              Json?
+  isActive             Boolean   @default(true) @map("is_active")
+  commissionRate       Decimal   @default(0.15) @map("commission_rate")
+  partnerCommissionRate Decimal  @default(0.05) @map("partner_commission_rate")
+  accessUrl            String    @unique @map("access_url")
+  qrCodeUrl            String?   @map("qr_code_url")
+  totalSales           Decimal   @default(0) @map("total_sales")
+  totalOrders          Int       @default(0) @map("total_orders")
+  settings             Json      @default("{}")
+  paymentMethods       String[]  @default(["card", "cash", "itc_wallet"]) @map("payment_methods")
+  operatingHours       Json?     @map("operating_hours")
+  timezone             String    @default("UTC")
+  lastActivity         DateTime? @map("last_activity")
+  lastHeartbeat        DateTime? @map("last_heartbeat")
+  status               String    @default("active") // 'active', 'inactive', 'maintenance'
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  vendor               UserProfile @relation(fields: [vendorId], references: [id])
+  
+  @@map("kiosks")
+}
+
+model CostVariable {
+  id                       String    @id @default(uuid())
+  managerId                String    @map("manager_id")
+  locationId               String?   @map("location_id")
+  locationName             String?   @map("location_name")
+  filamentPricePerGram     Decimal   @map("filament_price_per_gram")
+  electricityCostPerHour   Decimal   @map("electricity_cost_per_hour")
+  averagePackagingCost     Decimal   @map("average_packaging_cost")
+  monthlyRent              Decimal   @map("monthly_rent")
+  overheadPercentage       Decimal   @map("overhead_percentage")
+  defaultMarginPercentage  Decimal   @map("default_margin_percentage")
+  laborRatePerHour         Decimal   @map("labor_rate_per_hour")
+  currency                 String    @default("USD")
+  isActive                 Boolean   @default(true) @map("is_active")
+  effectiveDate            DateTime  @default(now()) @map("effective_date")
+  lastUpdated              DateTime  @updatedAt @map("last_updated")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  manager                  UserProfile @relation(fields: [managerId], references: [id])
+  
+  @@map("cost_variables")
+}
+
+model ProductCostBreakdown {
+  id                 String    @id @default(uuid())
+  productId          String    @map("product_id")
+  managerId          String    @map("manager_id")
+  costVariablesId    String    @map("cost_variables_id")
+  printTimeHours     Decimal   @map("print_time_hours")
+  materialUsageGrams Decimal   @map("material_usage_grams")
+  materialCost       Decimal   @map("material_cost")
+  electricityCost    Decimal   @map("electricity_cost")
+  laborCost          Decimal   @map("labor_cost")
+  packagingCost      Decimal   @map("packaging_cost")
+  overheadCost       Decimal   @map("overhead_cost")
+  totalCost          Decimal   @map("total_cost")
+  suggestedMargin    Decimal   @map("suggested_margin")
+  suggestedPrice     Decimal   @map("suggested_price")
+  finalPrice         Decimal?  @map("final_price")
+  priceDifference    Decimal?  @map("price_difference")
+  approvalStatus     String    @default("pending") @map("approval_status") // 'pending', 'approved', 'rejected'
+  approvedBy         String?   @map("approved_by")
+  notes              String?
+  calculationMethod  String    @default("manual") @map("calculation_method") // 'manual', 'ai_assisted', 'automated'
+  lastUpdated        DateTime  @updatedAt @map("last_updated")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  product            Product     @relation(fields: [productId], references: [id])
+  manager            UserProfile @relation("ManagerCostBreakdowns", fields: [managerId], references: [id])
+  
+  @@map("product_cost_breakdowns")
+}
