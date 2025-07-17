@@ -1,9 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { authenticateUser, createUser, getUserFromToken } from '../utils/auth'
-import { sendEmailVerification, sendPasswordResetEmail, sendWelcomeEmail } from '../utils/email'
-import { prisma } from '../utils/database'
-import { referralSystem } from '../utils/referral-system'
+import { authenticateUser, createUser, getUserFromToken, sendPasswordResetEmail } from '../utils/auth-client'
 
 interface User {
   id: string
@@ -28,10 +25,18 @@ interface AuthContextType {
   signUp: (email: string, password: string, userData?: any) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
-  processReferralCode: (code: string) => Promise<boolean>
+  validateReferralCode: (code: string) => Promise<{ isValid: boolean; error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export const useAuth = () => {
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
@@ -86,31 +91,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     console.log('🔄 AuthContext: Attempting sign in for:', email)
     
     try {
-      const { user: userData, token } = await authenticateUser(email, password)
+      const result = await authenticateUser(email, password)
       
-      localStorage.setItem('auth_token', token)
-      
-      setUser({
-        id: userData.id,
-        email: userData.email,
-        role: userData.role,
-        username: userData.username,
-        displayName: userData.displayName || undefined,
-        firstName: userData.firstName || undefined,
-        lastName: userData.lastName || undefined,
-        emailVerified: userData.emailVerified,
-        profileCompleted: userData.profileCompleted,
-        wallet: userData.wallet ? {
-          pointsBalance: userData.wallet.pointsBalance,
-          itcBalance: Number(userData.wallet.itcBalance)
-        } : undefined
-      })
-      
-      console.log('✅ AuthContext: Sign in successful')
-      return {}
+      if (result.error) {
+        return { error: result.error }
+      }
+
+      if (result.token && result.user) {
+        localStorage.setItem('auth_token', result.token)
+        setUser(result.user)
+        console.log('✅ AuthContext: Sign in successful')
+        return {}
+      }
+
+      return { error: 'Authentication failed' }
     } catch (error: any) {
       console.error('❌ AuthContext: Sign in failed:', error)
-      return { error: error.message }
+      return { error: error.message || 'Sign in failed' }
     }
   }
 
@@ -118,31 +115,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     console.log('🔄 AuthContext: Attempting sign up for:', email)
     
     try {
-      const newUser = await createUser(email, password, userData)
+      const result = await createUser(email, password, userData)
       
-      console.log('✅ AuthContext: User created successfully')
-      
-      // Send email verification
-      const verificationToken = await prisma.userProfile.update({
-        where: { id: newUser.id },
-        data: { emailVerificationToken: 'temp-token' }, // Replace with actual token generation
-        select: { emailVerificationToken: true }
-      })
-      
-      await sendEmailVerification(email, verificationToken.emailVerificationToken!)
-      await sendWelcomeEmail(email, userData?.firstName)
-      
-      // Process stored referral for real signup
-      console.log('🔄 AuthContext: Processing referral for new user...')
-      const storedReferral = referralSystem.retrieveStoredReferral()
-      if (storedReferral) {
-        await processReferralSignup(storedReferral, newUser)
+      if (result.error) {
+        return { error: result.error }
       }
-      
-      return {}
+
+      if (result.token && result.user) {
+        localStorage.setItem('auth_token', result.token)
+        setUser(result.user)
+        console.log('✅ AuthContext: Sign up successful')
+        return {}
+      }
+
+      return { error: 'Registration failed' }
     } catch (error: any) {
       console.error('❌ AuthContext: Sign up failed:', error)
-      return { error: error.message }
+      return { error: error.message || 'Sign up failed' }
     }
   }
 
@@ -156,86 +145,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     console.log('🔄 AuthContext: Attempting password reset for:', email)
     
     try {
-      const existingUser = await prisma.userProfile.findUnique({
-        where: { email }
-      })
+      const result = await sendPasswordResetEmail(email)
       
-      if (!existingUser) {
-        return { error: 'User not found' }
+      if (result.error) {
+        return { error: result.error }
       }
-      
-      const resetToken = 'temp-reset-token' // Replace with actual token generation
-      const resetExpiry = new Date(Date.now() + 3600000) // 1 hour
-      
-      await prisma.userProfile.update({
-        where: { id: existingUser.id },
-        data: {
-          passwordResetToken: resetToken,
-          passwordResetExpiry: resetExpiry
-        }
-      })
-      
-      await sendPasswordResetEmail(email, resetToken)
-      
+
       console.log('✅ AuthContext: Password reset email sent')
       return {}
     } catch (error: any) {
       console.error('❌ AuthContext: Password reset failed:', error)
-      return { error: error.message }
+      return { error: error.message || 'Password reset failed' }
     }
   }
 
-  const processReferralSignup = async (referralCode: string, user: any) => {
+  const validateReferralCode = async (code: string): Promise<{ isValid: boolean; error?: string }> => {
     try {
-      const transaction = await referralSystem.processReferral(
-        referralCode,
-        user.id,
-        user.email || ''
-      )
-      
-      if (transaction) {
-        console.log('Referral processed successfully:', transaction)
-        
-        // Show success message to user
-        setTimeout(() => {
-          alert(`Welcome! You've received ${transaction.refereeReward} bonus points from your referral!`)
-        }, 1000)
+      const response = await fetch('/api/referrals/validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        return { isValid: false, error: data.error || 'Validation failed' }
       }
-    } catch (error) {
-      console.error('Error processing referral:', error)
+
+      return { isValid: data.isValid }
+    } catch (error: any) {
+      console.error('Referral validation error:', error)
+      return { isValid: false, error: 'Network error occurred' }
     }
   }
 
-  const processReferralCode = async (code: string): Promise<boolean> => {
-    const validation = await referralSystem.validateReferralCode(code)
-    if (validation.valid) {
-      referralSystem.storeReferralCode(code)
-      return true
-    }
-    return false
-  }
-
-  const value = {
+  const value: AuthContextType = {
     user,
     loading,
     signIn,
     signUp,
     signOut,
     resetPassword,
-    processReferralCode,
+    validateReferralCode,
   }
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  )
-}
-
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
