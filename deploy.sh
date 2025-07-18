@@ -1,29 +1,24 @@
 #!/bin/bash
 
-# Build the application
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+# Build the project
+echo "Building the project..."
 npm run build
 
-# Create a simple HTTP server script
-cat > server.js << 'EOF'
-const express = require('express');
-const path = require('path');
-const app = express();
-const port = process.env.PORT || 3000;
+# Sync .env file
+echo "Syncing .env file..."
+if [ -f ".env" ]; then
+  cp .env .env.production
+else
+  echo "Warning: .env file not found. Assuming production environment is already configured."
+fi
 
-// Serve static files from the dist directory
-app.use(express.static(path.join(__dirname, 'dist')));
+# Restart the server with pm2
+echo "Restarting the server with pm2..."
+pm2 restart server-simple.js --name imagine-this-printed || pm2 start server-simple.js --name imagine-this-printed
 
-// Handle client-side routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-app.listen(port, '0.0.0.0', () => {
-  console.log(`ImagineThisPrinted app running on port ${port}`);
-});
-EOF
-
-# Install express if not already installed
-npm install express
-
-echo "Deployment completed! Run 'node server.js' to start the server"
+# Ping the URL to confirm success
+echo "Pinging the URL to confirm success..."
+curl -s -o /dev/null -w "%{http_code}" https://imaginethisprinted.com | grep -q "200" && echo "Deployment successful!" || echo "Deployment failed!"

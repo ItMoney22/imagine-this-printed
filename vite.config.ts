@@ -22,7 +22,7 @@ export default defineConfig({
         manualChunks: {
           vendor: ['react', 'react-dom'],
           ui: ['react-router-dom', 'react-konva'],
-          utils: ['jsonwebtoken', 'bcryptjs']
+          
         }
       }
     }
