@@ -1,4 +1,4 @@
-import { prisma } from './database'
+// Removed direct Prisma import - using API endpoints for validation
 import { uploadFile } from './storage'
 import { chatbotService } from './chatbot-service'
 
@@ -12,21 +12,28 @@ export interface ValidationResult {
 export class SystemValidator {
   async validateDatabase(): Promise<ValidationResult> {
     try {
-      if (!prisma) {
+      // Test database connection through API endpoint
+      const response = await fetch('/api/health/database', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
         return {
           service: 'Database',
           status: 'error',
-          message: 'Database client not initialized'
+          message: 'Database API endpoint not responding'
         }
       }
 
-      // Test database connection by checking if we can query the user table
-      const userCount = await prisma.userProfile.count()
+      const data = await response.json()
       
       return {
         service: 'Database',
         status: 'success',
-        message: `Database connected successfully (${userCount} users)`
+        message: data.message || 'Database connected successfully'
       }
     } catch (error) {
       return {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { stripeITCBridge } from '../utils/stripe-itc'
-import { prisma } from '../utils/database'
+// Removed direct Prisma import - using API endpoints instead
 import type { PointsTransaction, ITCTransaction } from '../types'
 
 const Wallet: React.FC = () => {
@@ -42,35 +42,33 @@ const Wallet: React.FC = () => {
       setLoading(true)
       setError('')
 
-      // Load wallet balance with user isolation
-      const walletData = await prisma.userWallet.findUnique({
-        where: { userId: user.id },
-        select: {
-          pointsBalance: true,
-          itcBalance: true
-        }
+      // Load wallet data from API
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        setError('Authentication required')
+        return
+      }
+
+      const response = await fetch('/api/wallet/get', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to load wallet data')
+      }
+
+      const walletData = await response.json()
 
       // Set balances (default to 0 if no wallet exists)
-      setPointsBalance(walletData?.pointsBalance || 0)
-      setItcBalance(Number(walletData?.itcBalance || 0))
-
-      // Load points transaction history
-      const pointsData = await prisma.pointsTransaction.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: 'desc' },
-        take: 50
-      })
-
-      // Load ITC transaction history  
-      const itcData = await prisma.itcTransaction.findMany({
-        where: { userId: user.id },
-        orderBy: { createdAt: 'desc' },
-        take: 50
-      })
-
-      setPointsHistory(pointsData as any || [])
-      setItcHistory(itcData as any || [])
+      setPointsBalance(walletData.pointsBalance || 0)
+      setItcBalance(Number(walletData.itcBalance || 0))
+      setPointsHistory(walletData.pointsHistory || [])
+      setItcHistory(walletData.itcHistory || [])
 
     } catch (error: any) {
       console.error('Failed to load wallet data:', error)
@@ -115,50 +113,35 @@ const Wallet: React.FC = () => {
 
     try {
       if (redeemType === 'itc') {
-        const usdValue = amount * pointsToUSD
-        const itcAmount = usdValue * usdToITC
+        const token = localStorage.getItem('auth_token')
+        if (!token) {
+          alert('Authentication required')
+          return
+        }
 
-        // Create redemption transaction
-        await prisma.pointsTransaction.create({
-          data: {
-            userId: user.id,
-            type: 'redeemed',
-            amount: -amount,
-            balanceAfter: pointsBalance - amount,
-            reason: `Redeemed for ${itcAmount.toFixed(2)} ITC tokens`
-          }
-        })
-
-        // Add ITC to wallet
-        await prisma.itcTransaction.create({
-          data: {
-            userId: user.id,
-            type: 'reward',
-            amount: itcAmount,
-            balanceAfter: itcBalance + itcAmount,
-            usdValue: usdValue,
-            reason: 'Points redemption'
-          }
-        })
-
-        // Update wallet balances
-        await prisma.userWallet.upsert({
-          where: { userId: user.id },
-          update: {
-            pointsBalance: pointsBalance - amount,
-            itcBalance: itcBalance + itcAmount
+        const response = await fetch('/api/wallet/redeem', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
           },
-          create: {
-            userId: user.id,
-            pointsBalance: pointsBalance - amount,
-            itcBalance: itcBalance + itcAmount
-          }
+          body: JSON.stringify({
+            amount: amount,
+            redeemType: redeemType
+          })
         })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Redemption failed')
+        }
+
+        const result = await response.json()
 
         // Refresh data
         await loadWalletData()
         setRedeemAmount('')
-        alert(`Successfully redeemed ${amount} points for ${itcAmount.toFixed(2)} ITC tokens!`)
+        alert(result.message)
       }
     } catch (error) {
       console.error('Redemption error:', error)

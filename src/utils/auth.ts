@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { prisma } from './database'
+// Removed direct Prisma import - database operations moved to API endpoints
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key'
 
@@ -57,78 +57,8 @@ export const verifyPasswordResetToken = (token: string): boolean => {
   }
 }
 
-export const createUser = async (email: string, password: string, userData?: any) => {
-  const hashedPassword = await hashPassword(password)
-  const username = email.split('@')[0]
-  const displayName = userData?.firstName && userData?.lastName 
-    ? `${userData.firstName} ${userData.lastName}`.trim()
-    : userData?.firstName || 'User'
-  
-  const user = await prisma.userProfile.create({
-    data: {
-      email,
-      passwordHash: hashedPassword,
-      username,
-      displayName,
-      firstName: userData?.firstName,
-      lastName: userData?.lastName,
-      role: 'customer',
-      emailVerified: false,
-      profileCompleted: false,
-      preferences: {},
-      metadata: {},
-      wallet: {
-        create: {
-          pointsBalance: 0,
-          itcBalance: 0,
-          lifetimePointsEarned: 0,
-          lifetimeItcEarned: 0,
-          walletStatus: 'active'
-        }
-      }
-    },
-    include: {
-      wallet: true
-    }
-  })
-  
-  return user
-}
+// createUser function moved to API endpoint - use createUserAPI from auth-client.ts instead
 
-export const authenticateUser = async (email: string, password: string) => {
-  const user = await prisma.userProfile.findUnique({
-    where: { email },
-    include: { wallet: true }
-  })
-  
-  if (!user) {
-    throw new Error('User not found')
-  }
-  
-  const isValidPassword = await verifyPassword(password, user.passwordHash)
-  if (!isValidPassword) {
-    throw new Error('Invalid password')
-  }
-  
-  const token = generateToken({
-    id: user.id,
-    email: user.email,
-    role: user.role
-  })
-  
-  return { user, token }
-}
+// authenticateUser function moved to API endpoint - use authenticateUserAPI from auth-client.ts instead
 
-export const getUserFromToken = async (token: string) => {
-  const payload = verifyToken(token)
-  if (!payload) {
-    return null
-  }
-  
-  const user = await prisma.userProfile.findUnique({
-    where: { id: payload.id },
-    include: { wallet: true }
-  })
-  
-  return user
-}
+// getUserFromToken function moved to API endpoint - use getUserFromTokenAPI from auth-client.ts instead

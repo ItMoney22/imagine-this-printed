@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { prisma } from '../utils/database'
+// Removed direct Prisma import - using API endpoints instead
 
 interface DbTable {
   name: string
@@ -46,47 +46,27 @@ const AdminPanel: React.FC = () => {
     try {
       setIsLoading(true)
       
-      // Get all table names and counts
-      const tableQueries = [
-        { name: 'user_profiles', query: 'SELECT COUNT(*) FROM user_profiles' },
-        { name: 'user_wallets', query: 'SELECT COUNT(*) FROM user_wallets' },
-        { name: 'products', query: 'SELECT COUNT(*) FROM products' },
-        { name: 'orders', query: 'SELECT COUNT(*) FROM orders' },
-        { name: 'order_items', query: 'SELECT COUNT(*) FROM order_items' },
-        { name: 'points_transactions', query: 'SELECT COUNT(*) FROM points_transactions' },
-        { name: 'itc_transactions', query: 'SELECT COUNT(*) FROM itc_transactions' },
-        { name: 'referral_codes', query: 'SELECT COUNT(*) FROM referral_codes' },
-        { name: 'referral_transactions', query: 'SELECT COUNT(*) FROM referral_transactions' },
-        { name: 'messages', query: 'SELECT COUNT(*) FROM messages' },
-        { name: 'vendor_payouts', query: 'SELECT COUNT(*) FROM vendor_payouts' },
-        { name: 'founder_earnings', query: 'SELECT COUNT(*) FROM founder_earnings' },
-        { name: 'kiosks', query: 'SELECT COUNT(*) FROM kiosks' },
-        { name: 'cost_variables', query: 'SELECT COUNT(*) FROM cost_variables' },
-        { name: 'product_cost_breakdowns', query: 'SELECT COUNT(*) FROM product_cost_breakdowns' },
-        { name: 'product_variations', query: 'SELECT COUNT(*) FROM product_variations' },
-        { name: 'variation_options', query: 'SELECT COUNT(*) FROM variation_options' }
-      ]
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        setPrismaStats(prev => ({ ...prev, status: 'disconnected', error: 'Authentication required' }))
+        return
+      }
 
-      const tableResults = await Promise.all(
-        tableQueries.map(async (table) => {
-          try {
-            const result = await prisma.$queryRawUnsafe(table.query)
-            return {
-              name: table.name,
-              count: Number((result as any)[0]?.count || 0),
-              columns: [] // Will be populated when table is selected
-            }
-          } catch (error) {
-            return {
-              name: table.name,
-              count: 0,
-              columns: []
-            }
-          }
-        })
-      )
+      const response = await fetch('/api/admin/tables', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
 
-      setTables(tableResults)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to load tables')
+      }
+
+      const data = await response.json()
+      setTables(data.tables)
     } catch (error) {
       console.error('Error loading tables:', error)
       setPrismaStats(prev => ({ ...prev, status: 'disconnected', error: String(error) }))
@@ -100,21 +80,31 @@ const AdminPanel: React.FC = () => {
       setIsLoading(true)
       setSelectedTable(tableName)
       
-      // Get table data - limiting to first 100 rows for performance
-      const data = await prisma.$queryRawUnsafe(`SELECT * FROM ${tableName} LIMIT 100`)
-      setTableData(data as TableData[])
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        setTableData([])
+        return
+      }
+
+      const response = await fetch(`/api/admin/table-data?tableName=${tableName}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to load table data')
+      }
+
+      const result = await response.json()
+      setTableData(result.data || [])
       
-      // Get column information
-      const columnInfo = await prisma.$queryRawUnsafe(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = '${tableName}' 
-        ORDER BY ordinal_position
-      `)
-      
-      const columns = (columnInfo as any).map((col: any) => col.column_name)
+      // Update table columns
       setTables(prev => prev.map(table => 
-        table.name === tableName ? { ...table, columns } : table
+        table.name === tableName ? { ...table, columns: result.columns } : table
       ))
     } catch (error) {
       console.error('Error loading table data:', error)
@@ -173,23 +163,29 @@ const AdminPanel: React.FC = () => {
   const createUser = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const { createUser } = await import('../utils/auth')
-      
-      await createUser(newUserForm.email, newUserForm.password, {
-        firstName: newUserForm.name.split(' ')[0],
-        lastName: newUserForm.name.split(' ').slice(1).join(' ')
-      })
-      
-      // Update user role if not customer
-      if (newUserForm.role !== 'customer') {
-        await prisma.userProfile.update({
-          where: { email: newUserForm.email },
-          data: { role: newUserForm.role }
-        })
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        alert('Authentication required')
+        return
       }
-      
+
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newUserForm)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create user')
+      }
+
+      const result = await response.json()
       setNewUserForm({ name: '', email: '', password: '', role: 'customer' })
-      alert('User created successfully!')
+      alert(result.message)
       
       // Reload tables to reflect new user
       await loadTables()
