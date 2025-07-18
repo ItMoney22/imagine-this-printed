@@ -42,7 +42,10 @@
       "Bash(/var/www/imagine-this-printed/scripts/postgresql-backup.sh:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(PGPASSWORD:*)",
+      "Bash(npm run dev:*)",
+      "Bash(NODE_ENV=production npm run build)"
     ],
     "deny": []
   }
