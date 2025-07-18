@@ -45,7 +45,12 @@
       "Bash(psql:*)",
       "Bash(PGPASSWORD:*)",
       "Bash(npm run dev:*)",
-      "Bash(NODE_ENV=production npm run build)"
+      "Bash(NODE_ENV=production npm run build)",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.imaginethisprinted.com)",
+      "Bash(pkill:*)",
+      "Bash(npm start)",
+      "Bash(PORT=3001 npm start)"
     ],
     "deny": []
   }
