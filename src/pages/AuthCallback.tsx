@@ -1,33 +1,38 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { supabase } from '../utils/supabase'
 
 const AuthCallback = () => {
   const navigate = useNavigate()
-  const { user } = useAuth()
 
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        // Handle the OAuth callback - check if user is already authenticated
-        if (user) {
-          // User is authenticated - redirect to intended destination or home
-          const urlParams = new URLSearchParams(window.location.search)
-          const returnTo = urlParams.get('returnTo') || localStorage.getItem('auth_return_to') || '/'
-          localStorage.removeItem('auth_return_to')
-          navigate(returnTo, { replace: true })
+        const { data, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          console.error('Auth callback error:', error)
+          navigate('/login?error=auth_callback_failed')
+          return
+        }
+
+        if (data.session) {
+          console.log('✅ Auth callback successful, user logged in')
+          // Redirect to home or intended destination
+          const redirectTo = new URLSearchParams(window.location.search).get('redirect_to') || '/'
+          navigate(redirectTo)
         } else {
-          // No user found - redirect to login
-          navigate('/login', { replace: true })
+          console.log('❌ No session found in auth callback')
+          navigate('/login?error=no_session')
         }
       } catch (error) {
-        console.error('Auth callback error:', error)
-        navigate('/login?error=auth_callback_failed', { replace: true })
+        console.error('Auth callback exception:', error)
+        navigate('/login?error=callback_exception')
       }
     }
 
     handleAuthCallback()
-  }, [navigate, user])
+  }, [navigate])
 
   return (
     <div className="min-h-screen flex items-center justify-center">

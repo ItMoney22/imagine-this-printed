@@ -38,6 +38,11 @@ const Home: React.FC = () => {
 
   return (
     <div className="bg-white">
+      {/* 🎉 VPS + Supabase Migration Success Banner */}
+      <div className="w-full text-center bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white py-6 font-bold text-2xl shadow-lg">
+        🎉 Imagine This Printed is now running 100% on ✨ Supabase + VPS ✨ — No Vercel Needed!
+      </div>
+      
       <section className="relative bg-gradient-to-r from-purple-600 to-blue-600 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="text-center">
@@ -54,12 +59,19 @@ const Home: React.FC = () => {
               <Link to="/designer" className="btn-secondary text-lg px-8 py-3">
                 Create Design
               </Link>
-              <button 
-                onClick={() => window.open('#', '_blank')}
-                className="bg-white text-purple-600 hover:bg-gray-100 font-semibold text-lg px-8 py-3 rounded-lg transition-colors"
+              <a 
+                href="https://imagine-this-printed.buildagangsheet.com/builder/create/itp-maxload™-transfer-sheet" 
+                style={{
+                  padding: '0.5rem',
+                  display: 'block',
+                  textAlign: 'center',
+                  borderRadius: '0.25rem',
+                  backgroundColor: '#c039fe',
+                  color: '#ffffff'
+                }}
               >
-                Gang Sheet Builder
-              </button>
+                Build a Gang Sheet
+              </a>
             </div>
           </div>
         </div>

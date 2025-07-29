@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './context/AuthContext'
+import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
 import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -50,7 +50,7 @@ import SocialContentManagement from './pages/SocialContentManagement'
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
+      <SupabaseAuthProvider>
         <CartProvider>
           <KioskAuthProvider>
             <Router>
@@ -61,6 +61,7 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="/auth/reset-password" element={<AuthCallback />} />
                 <Route path="/catalog" element={<ProductCatalog />} />
                 <Route path="/catalog/:category" element={<ProductCatalog />} />
                 <Route path="/product/:id" element={<ProductPage />} />
@@ -127,7 +128,7 @@ function App() {
             </Router>
           </KioskAuthProvider>
         </CartProvider>
-      </AuthProvider>
+      </SupabaseAuthProvider>
     </ErrorBoundary>
   )
 }
