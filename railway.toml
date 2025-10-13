@@ -1,4 +1,12 @@
-[service.backend]
-root = "backend"
-build = "npm install && npm run build"
-start = "npm run start"
+[build]
+builder = "NIXPACKS"
+
+[build.watchPatterns]
+paths = ["backend/**"]
+
+[build.args]
+NIXPACKS_PATH = "backend"
+NIXPACKS_NODE_VERSION = "20"
+
+[start]
+command = "npm --prefix backend run start"
