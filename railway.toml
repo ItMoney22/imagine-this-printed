@@ -5,6 +5,7 @@ watchPatterns = ["backend/**/*", "supabase/**/*"]
 [build.args]
 NIXPACKS_PATH = "backend"
 NIXPACKS_NODE_VERSION = "20"
+NIXPACKS_BUILD_COMMAND = "npm run build"
 
 [start]
 command = "npm run start"
