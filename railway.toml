@@ -1,8 +1,6 @@
 [build]
 builder = "NIXPACKS"
-
-[build.watchPatterns]
-paths = ["backend/**"]
+watchPatterns = ["backend/**/*", "supabase/**/*"]
 
 [build.args]
 NIXPACKS_PATH = "backend"
