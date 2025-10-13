@@ -7,4 +7,4 @@ NIXPACKS_PATH = "backend"
 NIXPACKS_NODE_VERSION = "20"
 
 [start]
-command = "npm --prefix backend run start"
+command = "npm run start"
