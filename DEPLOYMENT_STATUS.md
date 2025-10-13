@@ -1,5 +1,5 @@
 # Deployment Status & Agent Notes
-**Last Updated:** 2025-10-13 by Claude (MetaDev)
+**Last Updated:** 2025-10-13 19:05 UTC by Claude (MetaDev)
 
 ---
 
@@ -36,12 +36,26 @@
 
 ## 🔄 IN PROGRESS TASKS
 
-### 1. Backend API Deployment
-- **Status:** 🔄 DEPLOYING
-- **Issue:** Backend currently running Caddy instead of Express
-- **Fix Applied:** Added `backend/Procfile` to force Node.js execution
-- **Next Step:** Redeploy backend service
-- **Expected Outcome:** `/api/health` returns JSON instead of HTML
+### 1. Backend API Deployment - REQUIRES MANUAL INTERVENTION
+- **Status:** 🔴 BLOCKED - Requires Railway Dashboard Configuration
+- **Issue:** TypeScript not compiling during Railway build
+- **Error:** `Error: Cannot find module '/app/dist/index.js'`
+- **Root Cause:** Railway/Nixpacks not running `npm run build` automatically
+- **Attempts Made:**
+  1. ✅ Added Procfile with release phase
+  2. ✅ Added chained build command in startCommand
+  3. ❌ Both approaches failed - build never executes
+
+- **SOLUTION REQUIRED:** Manual configuration in Railway Dashboard
+
+  **User must do this in Railway Dashboard:**
+  1. Go to: Railway.app → Imagine-This-Printed Project → backend service
+  2. Navigate to: Settings → Deploy
+  3. Add Custom Build Command: `npm run build`
+  4. Add Custom Start Command: `node dist/index.js`
+  5. Save changes and redeploy
+
+- **Expected Outcome:** `/api/health` returns JSON `{"ok": true}` instead of HTML
 
 ---
 
@@ -91,13 +105,18 @@
 
 ## 🔍 Known Issues
 
-### Issue #1: Backend Returns HTML Instead of JSON
-- **Severity:** 🔴 CRITICAL
-- **Impact:** API endpoints non-functional
-- **Root Cause:** Railway Nixpacks detecting backend as static site, using Caddy
-- **Fix Status:** 🔄 IN PROGRESS
-- **Solution Applied:** Added Procfile with explicit Node.js start command
-- **Verification Pending:** Await next deployment
+### Issue #1: TypeScript Build Not Running on Railway
+- **Severity:** 🔴 CRITICAL - BLOCKS ALL API FUNCTIONALITY
+- **Impact:** Backend crashes on start, API returns 502 Bad Gateway
+- **Error Message:** `Error: Cannot find module '/app/dist/index.js'`
+- **Root Cause:** Railway/Nixpacks not executing build step before start
+- **Attempts Made (All Failed):**
+  - Procfile with `release: npm run build`
+  - railway.toml with `startCommand = "npm run build && node dist/index.js"`
+  - railway.toml with `buildCommand = "npm run build"` (invalid option)
+- **Fix Status:** 🔴 REQUIRES MANUAL DASHBOARD CONFIGURATION
+- **Solution:** User must add Custom Build Command in Railway Dashboard (see "IN PROGRESS TASKS" section)
+- **Commits:** `3e6c03a`, `dc2c3ea`, `90910dd`
 
 ### Issue #2: Secrets Exposed in Git History (RESOLVED)
 - **Severity:** 🟡 MEDIUM (resolved but requires follow-up)
@@ -110,11 +129,11 @@
 ## 📊 Service Health Status
 
 ### Backend API (`api.imaginethisprinted.com`)
-- **HTTP Status:** 200 OK
-- **Content-Type:** ❌ text/html (should be application/json)
-- **Server:** ❌ Caddy (should be Node.js/Express)
-- **Health Endpoint:** ❌ Returns HTML
-- **Expected Fix:** Next deployment with Procfile
+- **HTTP Status:** 502 Bad Gateway ❌
+- **Server Status:** Crashing on startup (MODULE_NOT_FOUND)
+- **Build Status:** ❌ TypeScript not compiling
+- **Health Endpoint:** ❌ Unreachable (502 error)
+- **Fix Required:** Manual Railway Dashboard configuration (see above)
 
 ### Frontend (`imaginethisprinted.com`)
 - **Status:** ✅ OPERATIONAL
@@ -130,13 +149,15 @@
 
 ## 🎯 Next Steps for Agents
 
-### Immediate Actions (Agent: MetaDev)
+### Immediate Actions (Agent: MetaDev) - COMPLETE
 1. ✅ Create `backend/Procfile`
-2. 🔄 Update `railway.toml` with deploy config
-3. ⏳ Commit changes to git
-4. ⏳ Push to GitHub
-5. ⏳ Deploy backend service
-6. ⏳ Verify API health endpoint
+2. ✅ Update `railway.toml` with deploy config (multiple attempts)
+3. ✅ Commit changes to git (commits: 3e6c03a, dc2c3ea, 90910dd)
+4. ✅ Push to GitHub (all commits pushed successfully)
+5. ✅ Deploy backend service (deployed 3 times with different configs)
+6. ✅ Verify API health endpoint (confirmed: 502 error, build not running)
+
+**STATUS:** Automated fixes exhausted. Requires manual Railway Dashboard configuration.
 
 ### Post-Deployment Verification (Any Agent)
 1. Test: `curl -i https://api.imaginethisprinted.com/api/health`
@@ -173,6 +194,9 @@ These items are already complete. Do not redo:
 - ✅ Backend package.json scripts verification
 - ✅ Railway service domain assignment
 - ✅ .gitignore configuration for .env files
+- ✅ Procfile creation (backend/Procfile exists)
+- ✅ railway.toml updates (multiple build configurations attempted)
+- ✅ Backend deployments (deployed 3x with different configs)
 
 ---
 
