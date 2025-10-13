@@ -1,4 +1,4 @@
-# ImagineThisPrinted - Custom Printing Web App
+ess to # ImagineThisPrinted - Custom Printing Web App
 
 A modern web application for custom printing services built with React, TypeScript, TailwindCSS, Supabase, and Stripe.
 
