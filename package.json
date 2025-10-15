@@ -2,13 +2,16 @@
   "name": "imagine-this-printed",
   "private": true,
   "version": "0.0.0",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node server-static.js"
+    "start": "node server-static.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.844.0",
