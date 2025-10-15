@@ -2,7 +2,25 @@
   "permissions": {
     "allow": [
       "Bash(git remote add:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(railway whoami:*)",
+      "Bash(railway status:*)",
+      "Bash(railway service:*)",
+      "Bash(railway domain:*)",
+      "Bash(railway link:*)",
+      "Bash(railway logs:*)",
+      "Bash(railway variables:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(railway redeploy:*)",
+      "Bash(railway up:*)",
+      "Bash(Select-String -Pattern '\"\"\"\"backend\"\"\"\"' -Context 0,50)",
+      "Bash(python:*)",
+      "Bash(curl:*)",
+      "Read(//e//**)",
+      "Bash(npm install:*)",
+      "Bash(railway:*)"
     ],
     "deny": [],
     "ask": []
