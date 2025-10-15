@@ -1,4 +1,5 @@
 // Simple connectivity test that can be run from browser console
+import { apiFetch } from '@/lib/api'
 
 export const testConnectivity = async () => {
   console.log('🔍 Starting connectivity test...')
@@ -17,18 +18,8 @@ export const testConnectivity = async () => {
   // Test 1: API Health Check
   try {
     console.log('🔄 Testing API health check...')
-    const response = await fetch('/api/health', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    
-    const data = await response.json()
-    console.log('✅ API health check successful:', {
-      status: response.status,
-      data
-    })
+    const data = await apiFetch('/api/health')
+    console.log('✅ API health check successful:', data)
   } catch (error) {
     console.error('❌ API health check failed:', error)
   }
@@ -36,24 +27,10 @@ export const testConnectivity = async () => {
   // Test 2: Auth token check
   try {
     console.log('🔄 Testing auth token...')
-    const token = localStorage.getItem('auth_token')
-    
-    if (token) {
-      const response = await fetch('/api/auth/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      const data = await response.json()
-      console.log('✅ Auth token valid:', {
-        status: response.status,
-        data: data.user ? { id: data.user.id, email: data.user.email } : 'No user data'
-      })
-    } else {
-      console.log('ℹ️ No auth token found in localStorage')
-    }
+    const data = await apiFetch('/api/auth/me')
+    console.log('✅ Auth token valid:', {
+      data: data.user ? { id: data.user.id, email: data.user.email } : 'No user data'
+    })
   } catch (error) {
     console.error('❌ Auth token test failed:', error)
   }

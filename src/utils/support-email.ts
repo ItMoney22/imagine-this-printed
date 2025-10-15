@@ -1,3 +1,5 @@
+import { apiFetch } from '@/lib/api'
+
 export interface SupportEmailRequest {
   to: string
   subject: string
@@ -10,25 +12,18 @@ export interface SupportEmailRequest {
 
 export const sendSupportEmail = async (request: SupportEmailRequest): Promise<boolean> => {
   try {
-    const response = await fetch('/api/send-support-email', {
+    await apiFetch('/api/send-support-email', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(request)
     })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
 
     return true
   } catch (error) {
     console.error('Failed to send support email:', error)
-    
+
     const fallbackEmail = createMailtoLink(request)
     window.open(fallbackEmail, '_blank')
-    
+
     return false
   }
 }

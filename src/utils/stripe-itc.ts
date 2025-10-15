@@ -1,3 +1,5 @@
+import { apiFetch } from '@/lib/api'
+
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 const ITC_WALLET_ADDRESS = import.meta.env.VITE_ITC_WALLET_ADDRESS || '43XyoLPb3aek3poicnYXjrtMU6PUynRb93Q71FULKZ3Q'
 const ITC_USD_RATE = parseFloat(import.meta.env.VITE_ITC_USD_RATE || '0.10')
@@ -52,11 +54,8 @@ export class StripeITCBridge {
       }
 
       // In real app, create payment intent on backend
-      const response = await fetch('/api/create-payment-intent', {
+      const { client_secret } = await apiFetch('/api/create-payment-intent', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           amount: amountInCents,
           currency: 'usd',
@@ -68,8 +67,6 @@ export class StripeITCBridge {
           }
         })
       })
-
-      const { client_secret } = await response.json()
 
       // Confirm payment with Stripe
       const result = await this.stripe.confirmCardPayment(client_secret, {

@@ -1,26 +1,16 @@
 // Debug utilities for authentication troubleshooting
+import { apiFetch } from '@/lib/api'
 
 export const testDatabaseConnectivity = async () => {
   console.log('🔍 Testing database connectivity...')
-  
+
   // Test database connection by checking if we can access the API
   try {
-    const response = await fetch('/api/health', {
+    const data = await apiFetch('/api/health', {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
     })
-    
-    if (response.ok) {
-      const data = await response.json()
-      console.log('✅ Database connection healthy:', {
-        status: response.status,
-        data
-      })
-    } else {
-      console.error('❌ Database connection failed:', response.status)
-    }
+
+    console.log('✅ Database connection healthy:', { data })
   } catch (error) {
     console.error('❌ Database connectivity test failed:', error)
   }

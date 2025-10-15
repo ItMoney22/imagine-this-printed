@@ -1,4 +1,5 @@
 import type { ReferralCode, ReferralTransaction } from '../types'
+import { apiFetch } from '@/lib/api'
 // Removed direct Prisma import - using API endpoints for referral operations
 
 export interface ReferralReward {
@@ -50,21 +51,10 @@ export class ReferralSystem {
   // Create a new referral code in the database
   async createReferralCode(userId: string, userName: string): Promise<ReferralCode | null> {
     try {
-      const response = await fetch('/api/referral/create-code', {
+      return await apiFetch('/api/referral/create-code', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-        },
         body: JSON.stringify({ userId, userName })
       })
-
-      if (!response.ok) {
-        console.error('Failed to create referral code')
-        return null
-      }
-
-      return await response.json()
     } catch (error) {
       console.error('Error creating referral code:', error)
       return null
@@ -88,18 +78,7 @@ export class ReferralSystem {
   // Check if a referral code is valid
   async validateReferralCode(code: string): Promise<{ valid: boolean, referralCode?: ReferralCode, error?: string }> {
     try {
-      const response = await fetch(`/api/referral/validate?code=${code}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      })
-
-      if (!response.ok) {
-        return { valid: false, error: 'Failed to validate referral code' }
-      }
-
-      return await response.json()
+      return await apiFetch(`/api/referral/validate?code=${code}`)
     } catch (error) {
       console.error('Error validating referral code:', error)
       return { valid: false, error: 'Error validating referral code' }

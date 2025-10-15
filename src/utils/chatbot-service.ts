@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { apiFetch } from '@/lib/api'
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
@@ -175,12 +176,9 @@ export class ChatbotService {
   async escalateToHuman(request: EscalationRequest): Promise<boolean> {
     try {
       const emailBody = this.formatEscalationEmail(request)
-      
-      const response = await fetch('/api/send-support-email', {
+
+      await apiFetch('/api/send-support-email', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           to: import.meta.env.SUPPORT_EMAIL || 'support@imaginethisprinted.com',
           subject: `Customer Support Request - ${request.userName || 'Guest User'}`,
@@ -192,7 +190,7 @@ export class ChatbotService {
         })
       })
 
-      return response.ok
+      return true
     } catch (error) {
       console.error('Failed to escalate to human support:', error)
       return false

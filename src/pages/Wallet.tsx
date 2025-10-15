@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { stripeITCBridge } from '../utils/stripe-itc'
+import { apiFetch } from '@/lib/api'
 // Removed direct Prisma import - using API endpoints instead
 import type { PointsTransaction, ITCTransaction } from '../types'
 
@@ -42,27 +43,9 @@ const Wallet: React.FC = () => {
       setLoading(true)
       setError('')
 
-      // Load wallet data from API
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        setError('Authentication required')
-        return
-      }
-
-      const response = await fetch('/api/wallet/get', {
+      const walletData = await apiFetch('/api/wallet/get', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
       })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to load wallet data')
-      }
-
-      const walletData = await response.json()
 
       // Set balances (default to 0 if no wallet exists)
       setPointsBalance(walletData.pointsBalance || 0)
@@ -113,30 +96,13 @@ const Wallet: React.FC = () => {
 
     try {
       if (redeemType === 'itc') {
-        const token = localStorage.getItem('auth_token')
-        if (!token) {
-          alert('Authentication required')
-          return
-        }
-
-        const response = await fetch('/api/wallet/redeem', {
+        const result = await apiFetch('/api/wallet/redeem', {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify({
             amount: amount,
             redeemType: redeemType
           })
         })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Redemption failed')
-        }
-
-        const result = await response.json()
 
         // Refresh data
         await loadWalletData()

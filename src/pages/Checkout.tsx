@@ -4,6 +4,7 @@ import { useCart } from '../context/CartContext'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator } from '../utils/shipping-calculator'
+import { apiFetch } from '@/lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
@@ -198,11 +199,8 @@ const Checkout: React.FC = () => {
 
   const createPaymentIntent = async () => {
     try {
-      const response = await fetch('/api/create-payment-intent', {
+      const data = await apiFetch('/api/create-payment-intent', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           amount: Math.round(total * 100),
           currency: 'usd',
@@ -211,8 +209,7 @@ const Checkout: React.FC = () => {
         }),
       })
 
-      const { clientSecret } = await response.json()
-      setClientSecret(clientSecret)
+      setClientSecret(data.clientSecret)
     } catch (error) {
       console.error('Error creating payment intent:', error)
     }

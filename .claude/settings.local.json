@@ -20,7 +20,8 @@
       "Bash(curl:*)",
       "Read(//e//**)",
       "Bash(npm install:*)",
-      "Bash(railway:*)"
+      "Bash(railway:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

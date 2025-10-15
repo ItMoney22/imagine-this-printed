@@ -1,4 +1,5 @@
 // Environment variable diagnostic utility
+import { apiFetch } from '@/lib/api'
 
 export const checkEnvironment = () => {
   console.log('🔍 ENVIRONMENT DIAGNOSTIC REPORT')
@@ -47,25 +48,19 @@ export const checkEnvironment = () => {
   
   // Network test
   console.log('🔄 Running API health check...')
-  
-  fetch('/api/health', {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  })
-  .then(response => response.json())
-  .then(data => {
-    console.log('✅ API health check successful:', data)
-  })
-  .catch(error => {
-    console.error('❌ API health check failed:', {
-      error,
-      message: error.message,
-      name: error.name,
-      stack: error.stack
+
+  apiFetch('/api/health')
+    .then(data => {
+      console.log('✅ API health check successful:', data)
     })
-  })
+    .catch(error => {
+      console.error('❌ API health check failed:', {
+        error,
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      })
+    })
   
   console.log('================================')
 }

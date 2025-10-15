@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { apiFetch } from '@/lib/api'
 // Removed direct Prisma import - using API endpoints instead
 
 interface DbTable {
@@ -45,27 +46,11 @@ const AdminPanel: React.FC = () => {
   const loadTables = async () => {
     try {
       setIsLoading(true)
-      
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        setPrismaStats(prev => ({ ...prev, status: 'disconnected', error: 'Authentication required' }))
-        return
-      }
 
-      const response = await fetch('/api/admin/tables', {
+      const data = await apiFetch('/api/admin/tables', {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to load tables')
-      }
-
-      const data = await response.json()
       setTables(data.tables)
     } catch (error) {
       console.error('Error loading tables:', error)
@@ -79,31 +64,15 @@ const AdminPanel: React.FC = () => {
     try {
       setIsLoading(true)
       setSelectedTable(tableName)
-      
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        setTableData([])
-        return
-      }
 
-      const response = await fetch(`/api/admin/table-data?tableName=${tableName}`, {
+      const result = await apiFetch(`/api/admin/table-data?tableName=${tableName}`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to load table data')
-      }
-
-      const result = await response.json()
       setTableData(result.data || [])
-      
+
       // Update table columns
-      setTables(prev => prev.map(table => 
+      setTables(prev => prev.map(table =>
         table.name === tableName ? { ...table, columns: result.columns } : table
       ))
     } catch (error) {
@@ -163,30 +132,14 @@ const AdminPanel: React.FC = () => {
   const createUser = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        alert('Authentication required')
-        return
-      }
-
-      const response = await fetch('/api/admin/create-user', {
+      const result = await apiFetch('/api/admin/create-user', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(newUserForm)
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create user')
-      }
-
-      const result = await response.json()
       setNewUserForm({ name: '', email: '', password: '', role: 'customer' })
       alert(result.message)
-      
+
       // Reload tables to reflect new user
       await loadTables()
     } catch (error) {

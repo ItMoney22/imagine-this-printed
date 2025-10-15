@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { authenticateUser, createUser, getUserFromToken, sendPasswordResetEmail } from '../utils/auth-client'
+import { apiFetch } from '@/lib/api'
 
 interface User {
   id: string
@@ -161,24 +162,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const validateReferralCode = async (code: string): Promise<{ isValid: boolean; error?: string }> => {
     try {
-      const response = await fetch('/api/referrals/validate', {
+      const data = await apiFetch('/api/referrals/validate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ code }),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        return { isValid: false, error: data.error || 'Validation failed' }
-      }
 
       return { isValid: data.isValid }
     } catch (error: any) {
       console.error('Referral validation error:', error)
-      return { isValid: false, error: 'Network error occurred' }
+      return { isValid: false, error: error.message || 'Network error occurred' }
     }
   }
 
