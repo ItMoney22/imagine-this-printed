@@ -9,6 +9,9 @@ import accountRoutes from './routes/account'
 import healthRoutes from './routes/health'
 import webhooksRoutes from './routes/webhooks'
 
+// Import middleware
+import { requireAuth } from './middleware/supabaseAuth'
+
 // Load environment variables
 dotenv.config()
 
@@ -24,7 +27,9 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
 
 const corsOptions: CorsOptions = {
   origin: allowedOrigins.length > 0 ? allowedOrigins : [/^https:\/\/.*imaginethisprinted\.com$/],
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }
 
 app.use(cors(corsOptions))
@@ -43,6 +48,11 @@ app.use('/api/auth', accountRoutes)
 app.use('/api/account', accountRoutes)
 app.use('/api/health', healthRoutes)
 app.use('/api/webhooks', webhooksRoutes)
+
+// Lightweight auth probe
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  return res.json({ ok: true, user: req.user })
+})
 
 // Root endpoint
 app.get('/', (req, res) => {
