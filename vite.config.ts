@@ -1,4 +1,4 @@
-import { fileURLToPath, URL } from 'node:url'
+import path from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@lib': fileURLToPath(new URL('./src/lib', import.meta.url))
+      '@': path.resolve(__dirname, 'src'),
+      '@lib': path.resolve(__dirname, 'src/lib')
     }
   },
   define: {
