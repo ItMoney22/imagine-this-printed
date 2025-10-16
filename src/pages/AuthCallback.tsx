@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL!,
-  import.meta.env.VITE_SUPABASE_ANON_KEY!,
-  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } } // we handle URL explicitly
-);
+import { supabase } from "@/lib/supabase";
 
 export default function AuthCallback() {
   const [msg, setMsg] = useState("Completing sign in…");
@@ -35,7 +29,7 @@ export default function AuthCallback() {
           const { data, error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) throw error;
           console.log("[callback] setSession ok", !!data?.session);
-          // Clean the hash to avoid reprocessing on refresh
+          // Clean hash to avoid reprocessing
           history.replaceState(null, "", window.location.pathname + window.location.search);
         } else {
           throw new Error("No auth code or hash tokens present");
@@ -44,7 +38,7 @@ export default function AuthCallback() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error("No session after handling URL");
 
-        // Verify localStorage persisted
+        // Verify persisted
         const key = Object.keys(localStorage).find(k => k.startsWith("sb-") && k.endsWith("-auth-token"));
         console.log("[callback] storage key:", key, "has token?", !!key && !!JSON.parse(localStorage.getItem(key) || "{}")?.currentSession?.access_token);
 
