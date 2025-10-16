@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client'
 import accountRoutes from './routes/account'
 import healthRoutes from './routes/health'
 import webhooksRoutes from './routes/webhooks'
+import userRoutes from './routes/user'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth'
@@ -48,6 +49,7 @@ app.use('/api/auth', accountRoutes)
 app.use('/api/account', accountRoutes)
 app.use('/api/health', healthRoutes)
 app.use('/api/webhooks', webhooksRoutes)
+app.use('/api/users', userRoutes)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {
