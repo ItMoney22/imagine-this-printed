@@ -11,17 +11,21 @@ export default function AuthCallback() {
 
     (async () => {
       try {
-        // Handles both hash (#access_token=...) and code (PKCE) flows.
-        const hashHasToken = typeof window !== "undefined" && window.location.hash.includes("access_token");
-        const urlHasCode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("code");
+        // For PKCE flow, exchange the code for a session
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
 
-        if (hashHasToken || urlHasCode) {
-          const { error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
+        if (code) {
+          // PKCE flow - exchange code for session
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
         }
 
-        // Double-check a session exists
-        const { data } = await supabase.auth.getSession();
+        // For implicit flow (hash-based), the client auto-detects with detectSessionInUrl: true
+        // Just verify a session exists
+        const { data, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) throw sessionError;
         if (!data.session) throw new Error("No session after callback");
 
         if (!canceled) navigate("/", { replace: true });
