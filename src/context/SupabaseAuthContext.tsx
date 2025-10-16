@@ -185,7 +185,8 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'https://imaginethisprinted.com/auth/callback'
+          redirectTo: 'https://imaginethisprinted.com/auth/callback',
+          flowType: 'pkce'
         }
       })
 
