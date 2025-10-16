@@ -1,47 +1,45 @@
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { supabase } from '../utils/supabase'
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
 
-const AuthCallback = () => {
-  const navigate = useNavigate()
+export default function AuthCallback() {
+  const [err, setErr] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const handleAuthCallback = async () => {
+    let canceled = false;
+
+    (async () => {
       try {
-        const { data, error } = await supabase.auth.getSession()
-        
-        if (error) {
-          console.error('Auth callback error:', error)
-          navigate('/login?error=auth_callback_failed')
-          return
+        // Handles both hash (#access_token=...) and code (PKCE) flows.
+        const hashHasToken = typeof window !== "undefined" && window.location.hash.includes("access_token");
+        const urlHasCode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("code");
+
+        if (hashHasToken || urlHasCode) {
+          const { error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
+          if (error) throw error;
         }
 
-        if (data.session) {
-          console.log('✅ Auth callback successful, user logged in')
-          // Redirect to home or intended destination
-          const redirectTo = new URLSearchParams(window.location.search).get('redirect_to') || '/'
-          navigate(redirectTo)
-        } else {
-          console.log('❌ No session found in auth callback')
-          navigate('/login?error=no_session')
-        }
-      } catch (error) {
-        console.error('Auth callback exception:', error)
-        navigate('/login?error=callback_exception')
+        // Double-check a session exists
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) throw new Error("No session after callback");
+
+        if (!canceled) navigate("/", { replace: true });
+      } catch (e: any) {
+        if (!canceled) setErr(e?.message || String(e));
       }
-    }
+    })();
 
-    handleAuthCallback()
-  }, [navigate])
+    return () => { canceled = true; };
+  }, [navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Completing sign in...</p>
+    <div style={{minHeight:"60vh", display:"grid", placeItems:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{width:32,height:32,border:"4px solid #a855f7",borderTopColor:"transparent",borderRadius:"9999px",margin:"0 auto 12px",animation:"spin 1s linear infinite"}} />
+        <p>Completing sign in...</p>
+        {err && <p style={{color:"#ef4444",marginTop:8}}>Error: {err}</p>}
       </div>
     </div>
-  )
+  );
 }
-
-export default AuthCallback
