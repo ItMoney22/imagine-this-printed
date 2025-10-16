@@ -180,12 +180,12 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const signInWithGoogle = async (): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting Google sign in')
-    
+
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          redirectTo: 'https://imaginethisprinted.com/auth/callback'
         }
       })
 
