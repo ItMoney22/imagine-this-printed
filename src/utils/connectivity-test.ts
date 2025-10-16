@@ -27,7 +27,7 @@ export const testConnectivity = async () => {
   // Test 2: Auth token check
   try {
     console.log('🔄 Testing auth token...')
-    const data = await apiFetch('/api/auth/me')
+    const data = await apiFetch('/api/users/me')
     console.log('✅ Auth token valid:', {
       data: data.user ? { id: data.user.id, email: data.user.email } : 'No user data'
     })

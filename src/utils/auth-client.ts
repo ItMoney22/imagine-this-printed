@@ -58,7 +58,7 @@ export const createUser = async (email: string, password: string, userData?: any
 
 export const getUserFromToken = async (token: string): Promise<User | null> => {
   try {
-    const data = await apiFetch('/api/auth/me', {
+    const data = await apiFetch('/api/users/me', {
       method: 'GET',
     })
     return data.user
