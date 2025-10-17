@@ -91,31 +91,73 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    console.log('[AuthContext] 🚀 Initializing auth context...')
+
     // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const mappedUser = await mapSupabaseUserToUser(session.user)
-        setUser(mappedUser)
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+      console.log('[AuthContext] 📦 Initial session check:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        userId: session?.user?.id,
+        error: error?.message
+      })
+
+      if (error) {
+        console.error('[AuthContext] ❌ Error getting initial session:', error)
       }
+
+      if (session?.user) {
+        console.log('[AuthContext] 👤 Mapping Supabase user to app user...')
+        const mappedUser = await mapSupabaseUserToUser(session.user)
+        if (mappedUser) {
+          console.log('[AuthContext] ✅ User loaded:', {
+            id: mappedUser.id,
+            email: mappedUser.email,
+            username: mappedUser.username
+          })
+          setUser(mappedUser)
+        } else {
+          console.warn('[AuthContext] ⚠️ Failed to map user profile')
+        }
+      } else {
+        console.log('[AuthContext] ℹ️ No active session found')
+      }
+
       setLoading(false)
+      console.log('[AuthContext] ✅ Initial auth check complete')
     })
 
     // Listen for auth changes
+    console.log('[AuthContext] 👂 Setting up auth state change listener...')
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 Auth state changed:', event)
-      
+      console.log('[AuthContext] 🔄 Auth state changed:', event, {
+        hasSession: !!session,
+        userId: session?.user?.id
+      })
+
       if (session?.user) {
+        console.log('[AuthContext] 👤 User signed in, fetching profile...')
         const mappedUser = await mapSupabaseUserToUser(session.user)
-        setUser(mappedUser)
+        if (mappedUser) {
+          console.log('[AuthContext] ✅ User profile loaded:', mappedUser.username)
+          setUser(mappedUser)
+        } else {
+          console.warn('[AuthContext] ⚠️ Failed to load user profile after sign in')
+          setUser(null)
+        }
       } else {
+        console.log('[AuthContext] 👋 User signed out')
         setUser(null)
       }
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      console.log('[AuthContext] 🧹 Cleaning up auth listener')
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
@@ -179,25 +221,40 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
   }
 
   const signInWithGoogle = async (): Promise<{ error?: string }> => {
-    console.log('🔄 SupabaseAuth: Attempting Google sign in')
+    console.log('[AuthContext] 🔄 Attempting Google OAuth sign in')
 
     try {
+      // Save current path for post-auth redirect
+      const currentPath = window.location.pathname + window.location.search
+      if (currentPath !== '/login' && currentPath !== '/signup') {
+        localStorage.setItem('auth_return_to', currentPath)
+        console.log('[AuthContext] 💾 Saved return path:', currentPath)
+      }
+
+      // Use dynamic redirect URL based on current domain
+      const redirectTo = `${window.location.origin}/auth/callback`
+      console.log('[AuthContext] 🎯 OAuth redirect URL:', redirectTo)
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'https://imaginethisprinted.com/auth/callback'
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
         }
       })
 
       if (error) {
-        console.error('❌ SupabaseAuth: Google sign in failed:', error)
+        console.error('[AuthContext] ❌ Google sign in failed:', error)
         return { error: error.message }
       }
 
-      console.log('✅ SupabaseAuth: Google sign in initiated')
+      console.log('[AuthContext] ✅ Google OAuth initiated, redirecting...')
       return {}
     } catch (error: any) {
-      console.error('❌ SupabaseAuth: Google sign in exception:', error)
+      console.error('[AuthContext] ❌ Google sign in exception:', error)
       return { error: error.message || 'Google sign in failed' }
     }
   }

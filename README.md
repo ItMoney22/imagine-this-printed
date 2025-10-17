@@ -120,6 +120,172 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
 ```
 
+### Railway Environment Variables
+
+For the **frontend service** (`imagine-this-printed`), ensure these variables are set:
+```env
+VITE_SUPABASE_URL=https://czzyrmizvjqlifcivrhn.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_API_BASE=https://api.imaginethisprinted.com
+VITE_SITE_URL=https://imaginethisprinted.com
+VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
+```
+
+For the **backend service**, ensure these are set (should already be configured):
+```env
+SUPABASE_URL=https://czzyrmizvjqlifcivrhn.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+DATABASE_URL=your_postgres_connection_string
+```
+
+## Authentication Setup & Troubleshooting
+
+### Supabase Dashboard Configuration
+
+**CRITICAL**: For OAuth authentication to work across all domains (production, Railway, localhost), you MUST configure your Supabase project correctly.
+
+See the detailed checklist in: [`SUPABASE_AUTH_CHECKLIST.md`](./SUPABASE_AUTH_CHECKLIST.md)
+
+**Quick Setup Steps:**
+
+1. **Go to Supabase Dashboard** → Your Project → **Authentication** → **URL Configuration**
+
+2. **Set Site URL:**
+   ```
+   https://imaginethisprinted.com
+   ```
+
+3. **Add ALL Redirect URLs** (comma-separated or one per line):
+   ```
+   https://imaginethisprinted.com/auth/callback
+   https://imaginethisprinted.com/auth/reset-password
+   https://your-railway-domain.up.railway.app/auth/callback
+   https://your-railway-domain.up.railway.app/auth/reset-password
+   http://localhost:5173/auth/callback
+   http://localhost:5173/auth/reset-password
+   ```
+
+4. **Enable Google OAuth** (if using):
+   - Go to **Authentication** → **Providers** → **Google**
+   - Enable and add your Google OAuth credentials
+   - Ensure Google Cloud Console has the correct redirect URI:
+     ```
+     https://czzyrmizvjqlifcivrhn.supabase.co/auth/v1/callback
+     ```
+
+5. **Enable PKCE Flow** (recommended):
+   - Go to **Authentication** → **Settings**
+   - Set Auth Flow Type to **PKCE**
+
+### How Authentication Works
+
+1. **OAuth Sign-In Flow:**
+   - User clicks "Sign in with Google"
+   - System saves current path to localStorage (`auth_return_to`)
+   - Redirects to Google OAuth with dynamic callback URL
+   - Google redirects back to `/auth/callback` with code (PKCE) or tokens (implicit)
+
+2. **Callback Handler** (`src/pages/AuthCallback.tsx`):
+   - Detects auth flow type (PKCE or implicit)
+   - Exchanges code for session OR sets session from tokens
+   - Verifies session persistence in localStorage
+   - Cleans URL and redirects to intended page
+
+3. **Session Management** (`src/context/SupabaseAuthContext.tsx`):
+   - Initializes on app load
+   - Listens for auth state changes
+   - Maps Supabase user to app user profile
+   - Auto-refreshes tokens
+
+### Common Issues & Solutions
+
+#### Issue: "redirect_uri_mismatch" Error
+**Cause:** The domain you're on isn't in Supabase's allowed redirect URLs
+**Solution:** Add the exact URL to **Authentication** → **URL Configuration** → **Redirect URLs**
+
+#### Issue: Session Doesn't Persist After Login
+**Cause:** localStorage not being set or wrong storageKey
+**Solution:**
+- Check browser console for `[callback]` and `[AuthContext]` logs
+- Verify `itp-auth-v1` key exists in localStorage
+- Clear localStorage and try again
+- Ensure `persistSession: true` in Supabase client config
+
+#### Issue: "No session after handling URL"
+**Cause:** Auth exchange failed or session not persisted
+**Solution:**
+- Check browser console for detailed error logs
+- Verify Supabase environment variables are correct
+- Ensure PKCE is enabled in Supabase dashboard
+- Try clearing browser cache and localStorage
+
+#### Issue: User Profile Not Loading
+**Cause:** `user_profiles` table query failed
+**Solution:**
+- Check if user profile exists in Supabase database
+- Verify RLS policies allow reading user profiles
+- Check browser console for `[AuthContext]` error logs
+
+#### Issue: OAuth Works on One Domain but Not Another
+**Cause:** Missing domain in Supabase redirect URLs
+**Solution:**
+- Add ALL domains to Supabase redirect URLs
+- Include both production domain AND Railway domain
+- Don't forget `/auth/callback` path for each domain
+
+### Debugging Authentication
+
+The app has comprehensive logging. Open browser console and filter by:
+- `[supabase]` - Supabase client initialization
+- `[callback]` - OAuth callback handler
+- `[AuthContext]` - Auth context and session management
+
+**Typical successful login flow:**
+```
+[supabase] 🔧 Initializing Supabase client...
+[supabase] ✅ Supabase client initialized
+[AuthContext] 🚀 Initializing auth context...
+[AuthContext] 📦 Initial session check: { hasSession: false }
+[callback] 1️⃣ Full URL: https://...?code=...
+[callback] 2️⃣ Found code in query → exchangeCodeForSession (PKCE flow)
+[callback] 3️⃣ PKCE SUCCESS → session: true
+[callback] 4️⃣ Final session check: true
+[callback] 5️⃣ Storage verification: itp-auth-v1
+[callback] 7️⃣ User verification: true
+[callback] 8️⃣ Navigating to: /
+[AuthContext] 🔄 Auth state changed: SIGNED_IN
+[AuthContext] ✅ User profile loaded: username
+```
+
+### Testing Authentication
+
+1. **Clear localStorage:** Open DevTools → Application → Local Storage → Clear All
+2. **Test OAuth:** Click "Sign in with Google" and verify flow
+3. **Check Console:** Look for any `❌` error logs
+4. **Verify Persistence:** Refresh page, check if user stays logged in
+5. **Test on All Domains:** Verify auth works on localhost, Railway, and production
+
+### Railway Deployment Notes
+
+Railway has two services for this project:
+- **imagine-this-printed** (frontend) - needs VITE_* variables
+- **backend** - needs SUPABASE_* and other backend variables
+
+To check/update Railway variables:
+```bash
+# List services
+railway service
+
+# Check current variables (select frontend service)
+railway variables
+
+# Add a variable
+railway variables set VITE_SUPABASE_URL=https://...
+```
+
+Make sure the frontend service has all VITE_ prefixed variables!
+
 ## Current Deployment
 
 🚀 **Successfully deployed on VPS at IP: 168.231.69.85**
