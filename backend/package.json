@@ -2,6 +2,7 @@
   "name": "imagine-this-printed-backend",
   "version": "1.0.0",
   "description": "Express TypeScript backend for Imagine This Printed",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
