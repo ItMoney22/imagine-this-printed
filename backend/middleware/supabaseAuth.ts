@@ -1,8 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { jose } from "../lib/jose";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const JWKS = createRemoteJWKSet(new URL(`https://${new URL(SUPABASE_URL).host}/auth/v1/.well-known/jwks.json`));
 
 export type AuthUser = { sub: string; email?: string; role?: string };
 
@@ -12,15 +11,26 @@ declare global {
   }
 }
 
+// Lazy-loaded JWKS (created on first auth request)
+let JWKS: any = null;
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const auth = req.header("authorization") || req.header("Authorization");
     if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Missing bearer token" });
     const token = auth.substring(7);
 
+    // Load jose dynamically and create JWKS if not yet created
+    const { createRemoteJWKSet, jwtVerify } = await jose();
+
+    if (!JWKS) {
+      JWKS = createRemoteJWKSet(
+        new URL(`https://${new URL(SUPABASE_URL).host}/auth/v1/.well-known/jwks.json`)
+      );
+    }
+
     const { payload } = await jwtVerify(token, JWKS, {
       algorithms: ["RS256"],
-      // issuer should be your supabase auth url
       issuer: `https://${new URL(SUPABASE_URL).host}/auth/v1`,
     });
 
