@@ -28,7 +28,7 @@ router.get('/database', async (req: Request, res: Response) => {
 })
 
 // Email health check (Brevo transactional)
-router.get('/email', async (req: Request, res: Response) => {
+router.get('/email', async (req: Request, res: Response): Promise<any> => {
   try {
     const brevoApiKey = process.env.BREVO_API_KEY;
     const senderEmail = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com';
@@ -62,7 +62,7 @@ router.get('/email', async (req: Request, res: Response) => {
       })
     });
 
-    const result = await response.json();
+    const result: any = await response.json();
 
     if (!response.ok) {
       console.error('[health:email] Brevo API error:', result);
@@ -76,7 +76,7 @@ router.get('/email', async (req: Request, res: Response) => {
 
     console.log('[health:email] ✅ Test email sent successfully, messageId:', result.messageId);
 
-    res.status(200).json({
+    return res.status(200).json({
       ok: true,
       messageId: result.messageId,
       sender: senderEmail,
