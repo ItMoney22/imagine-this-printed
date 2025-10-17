@@ -21,7 +21,10 @@
       "Read(//e//**)",
       "Bash(npm install:*)",
       "Bash(railway:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git log:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

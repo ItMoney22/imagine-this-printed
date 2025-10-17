@@ -286,6 +286,158 @@ railway variables set VITE_SUPABASE_URL=https://...
 
 Make sure the frontend service has all VITE_ prefixed variables!
 
+## Email & API Post-Rotation Checklist
+
+### Brevo API Key Rotation
+
+When rotating the Brevo API key (for email services):
+
+1. **Generate new API key** in Brevo Dashboard:
+   - Go to https://app.brevo.com/
+   - Navigate to Settings → API Keys
+   - Create new API key
+   - Copy the full key (starts with `xkeysib-`)
+
+2. **Update Railway backend service**:
+   ```bash
+   railway service  # Select "backend"
+   railway variables set BREVO_API_KEY=xkeysib-your-new-key-here
+   ```
+
+3. **Verify other email variables** (should already be set):
+   ```bash
+   railway variables  # Check these exist:
+   # BREVO_SENDER_EMAIL=wecare@imaginethisprinted.com
+   # BREVO_SENDER_NAME=Imagine This Printed
+   ```
+
+4. **Redeploy backend**:
+   ```bash
+   railway up --service backend
+   ```
+
+5. **Test email service**:
+   ```bash
+   curl https://api.imaginethisprinted.com/api/health/email
+   # Should return: { "ok": true, "messageId": "...", "apiKeyTail": "...BMF1" }
+   ```
+
+6. **Check backend logs** for environment confirmation:
+   ```bash
+   railway logs --service backend
+   # Look for: [env:api] { BREVO_API_KEY_tail: '...BMF1', ... }
+   ```
+
+### Supabase SMTP Settings
+
+Configure Supabase to send emails via Brevo:
+
+1. **Go to Supabase Dashboard** → Your Project → **Project Settings** → **Auth**
+
+2. **Scroll to "SMTP Settings"** and configure:
+   ```
+   Host: smtp-relay.brevo.com
+   Port: 587
+   Username: (your Brevo login email)
+   Password: (your Brevo SMTP password - NOT API key!)
+   Sender email: wecare@imaginethisprinted.com
+   Sender name: Imagine This Printed
+   ```
+
+3. **Enable SMTP** and test by sending a password reset email
+
+### Health Endpoints
+
+The backend provides health check endpoints for monitoring:
+
+**General Health:**
+```bash
+curl https://api.imaginethisprinted.com/api/health
+# Returns: { "ok": true }
+```
+
+**Email Service Health:**
+```bash
+curl https://api.imaginethisprinted.com/api/health/email
+# Sends test email and returns:
+# {
+#   "ok": true,
+#   "messageId": "...",
+#   "sender": "wecare@imaginethisprinted.com",
+#   "apiKeyTail": "...BMF1"
+# }
+```
+
+**Auth Configuration:**
+```bash
+curl https://api.imaginethisprinted.com/api/health/auth
+# Returns:
+# {
+#   "ok": true,
+#   "supabaseUrl": "https://czzyrmizvjqlifcivrhn.supabase.co",
+#   "frontendUrl": "https://imaginethisprinted.com",
+#   "anonKeyTail": "...VGs",
+#   "callbackUrl": "https://imaginethisprinted.com/auth/callback"
+# }
+```
+
+**Database Health:**
+```bash
+curl https://api.imaginethisprinted.com/api/health/database
+# Returns: { "status": "connected", "message": "Database connected (N users)" }
+```
+
+### Environment Logging
+
+Both frontend and backend log environment variables on startup (with secrets masked):
+
+**Frontend Console (browser DevTools):**
+```
+[env:frontend] {
+  VITE_SUPABASE_URL: "https://czzyrmizvjqlifcivrhn.supabase.co",
+  VITE_SUPABASE_ANON_KEY_tail: "...x81uOOyA",
+  VITE_SITE_URL: "https://imaginethisprinted.com",
+  VITE_API_BASE: "https://api.imaginethisprinted.com"
+}
+```
+
+**Backend Logs (Railway):**
+```
+[env:api] {
+  NODE_ENV: "production",
+  BREVO_API_KEY_tail: "...BMF1",
+  BREVO_SENDER_EMAIL: "wecare@imaginethisprinted.com",
+  SUPABASE_URL: "https://czzyrmizvjqlifcivrhn.supabase.co",
+  FRONTEND_URL: "https://imaginethisprinted.com"
+}
+```
+
+### Post-Deployment Verification
+
+After deploying changes:
+
+1. **Check frontend logs** (browser console):
+   - Visit https://imaginethisprinted.com
+   - Look for `[env:frontend]` log
+   - Verify all VITE_ variables are present
+
+2. **Check backend logs** (Railway):
+   ```bash
+   railway logs --service backend --tail 50
+   ```
+   - Look for `[env:api]` log
+   - Verify BREVO_API_KEY_tail matches last 4 chars of your key
+
+3. **Test auth flow**:
+   - Sign in with email/password or Google OAuth
+   - Check console for `[callback] PKCE SUCCESS → session: true`
+   - Verify redirect to `/` and session persistence
+
+4. **Test email**:
+   - Trigger a password reset or signup
+   - Check email delivery to your inbox
+   - Or use `/api/health/email` endpoint
+
 ## Current Deployment
 
 🚀 **Successfully deployed on VPS at IP: 168.231.69.85**

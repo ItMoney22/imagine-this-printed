@@ -16,6 +16,21 @@ import { requireAuth } from './middleware/supabaseAuth'
 // Load environment variables
 dotenv.config()
 
+// Environment sanity check (log on boot, mask secrets)
+const tail = (s?: string) => s ? `...${s.slice(-4)}` : 'none';
+console.log('[env:api]', {
+  NODE_ENV: process.env.NODE_ENV,
+  PORT: process.env.PORT || 4000,
+  BREVO_API_KEY_tail: tail(process.env.BREVO_API_KEY),
+  BREVO_SENDER_EMAIL: process.env.BREVO_SENDER_EMAIL,
+  BREVO_SENDER_NAME: process.env.BREVO_SENDER_NAME,
+  SUPABASE_URL: process.env.SUPABASE_URL,
+  SUPABASE_ANON_KEY_tail: tail(process.env.SUPABASE_ANON_KEY),
+  FRONTEND_URL: process.env.FRONTEND_URL,
+  DATABASE_URL_tail: process.env.DATABASE_URL ? `...${process.env.DATABASE_URL.slice(-20)}` : 'none',
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
+});
+
 const app = express()
 const PORT = process.env.PORT || 4000
 const prisma = new PrismaClient()
