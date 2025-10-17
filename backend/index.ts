@@ -5,13 +5,13 @@ import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
 // Import routes
-import accountRoutes from './routes/account'
-import healthRoutes from './routes/health'
-import webhooksRoutes from './routes/webhooks'
-import userRoutes from './routes/user'
+import accountRoutes from './routes/account.js'
+import healthRoutes from './routes/health.js'
+import webhooksRoutes from './routes/webhooks.js'
+import userRoutes from './routes/user.js'
 
 // Import middleware
-import { requireAuth } from './middleware/supabaseAuth'
+import { requireAuth } from './middleware/supabaseAuth.js'
 
 // Load environment variables
 dotenv.config()
