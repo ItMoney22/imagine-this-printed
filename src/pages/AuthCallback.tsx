@@ -34,13 +34,45 @@ export default function AuthCallback() {
           if (result.error) throw result.error;
         } else if (access_token && refresh_token) {
           console.log('[callback] 🎫 Implicit tokens found → setSession');
-          const result = await supabase.auth.setSession({ access_token, refresh_token });
-          console.log('[callback] 🎫 setSession result:', {
-            success: !result.error,
-            hasSession: !!result.data.session,
-            error: result.error?.message
+
+          // setSession can hang in implicit flow, so add timeout + event listener fallback
+          const setSessionPromise = supabase.auth.setSession({ access_token, refresh_token });
+
+          // Create a promise that resolves when auth state changes to SIGNED_IN
+          const authChangePromise = new Promise<void>((resolve) => {
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+              console.log('[callback] 🎫 Auth state change during setSession:', event);
+              if (event === 'SIGNED_IN') {
+                console.log('[callback] 🎫 SIGNED_IN event received, proceeding...');
+                subscription.unsubscribe();
+                resolve();
+              }
+            });
           });
-          if (result.error) throw result.error;
+
+          // Race between setSession completing and auth state change event
+          await Promise.race([
+            setSessionPromise.then((result) => {
+              console.log('[callback] 🎫 setSession completed first:', {
+                success: !result.error,
+                hasSession: !!result.data.session,
+                error: result.error?.message
+              });
+              if (result.error) throw result.error;
+            }),
+            authChangePromise.then(() => {
+              console.log('[callback] 🎫 Auth event won the race, setSession hung');
+            }),
+            // Absolute timeout after 3 seconds
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                console.log('[callback] ⏱️ setSession timeout, proceeding anyway...');
+                resolve();
+              }, 3000)
+            )
+          ]);
+
+          console.log('[callback] 🎫 setSession flow complete');
         } else {
           console.log('[callback] 📦 No tokens; trying getSession()');
           const result = await supabase.auth.getSession();
