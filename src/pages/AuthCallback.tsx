@@ -18,19 +18,45 @@ export default function AuthCallback() {
         const refresh_token =
           hashParams.get('refresh_token') || search.get('refresh_token');
 
+        console.log('[callback] 🔍 Params detected:', {
+          hasCode: !!code,
+          hasAccessToken: !!access_token,
+          hasRefreshToken: !!refresh_token
+        });
+
         if (code) {
           console.log('[callback] 🔑 PKCE code found → exchangeCodeForSession');
-          await supabase.auth.exchangeCodeForSession(code);
+          const result = await supabase.auth.exchangeCodeForSession(code);
+          console.log('[callback] 🔑 exchangeCodeForSession result:', {
+            success: !result.error,
+            error: result.error?.message
+          });
+          if (result.error) throw result.error;
         } else if (access_token && refresh_token) {
           console.log('[callback] 🎫 Implicit tokens found → setSession');
-          await supabase.auth.setSession({ access_token, refresh_token });
+          const result = await supabase.auth.setSession({ access_token, refresh_token });
+          console.log('[callback] 🎫 setSession result:', {
+            success: !result.error,
+            hasSession: !!result.data.session,
+            error: result.error?.message
+          });
+          if (result.error) throw result.error;
         } else {
           console.log('[callback] 📦 No tokens; trying getSession()');
-          await supabase.auth.getSession();
+          const result = await supabase.auth.getSession();
+          console.log('[callback] 📦 getSession result:', {
+            hasSession: !!result.data.session
+          });
         }
 
+        console.log('[callback] ✓ Auth exchange complete, verifying...');
+
         // Verify session was set
-        const { data } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('[callback] ❌ Error getting session:', error);
+          throw error;
+        }
         console.log('[callback] ✅ Session established:', !!data.session, 'user:', data.session?.user?.id);
 
         // Verify localStorage persistence
@@ -43,8 +69,9 @@ export default function AuthCallback() {
         });
 
         // Clean URL
+        console.log('[callback] 🧹 Cleaning URL...');
         window.history.replaceState({}, '', '/');
-        console.log('[callback] 🧹 URL cleaned');
+        console.log('[callback] 🧹 URL cleaned, new path:', window.location.pathname);
 
         // Determine where to redirect
         const returnTo = localStorage.getItem('returnTo') || localStorage.getItem('auth_return_to') || '/';
@@ -55,19 +82,25 @@ export default function AuthCallback() {
         localStorage.removeItem('auth_return_to');
 
         // Try router navigation first
+        console.log('[callback] 🚀 Attempting React Router navigation...');
         navigate(returnTo, { replace: true });
 
         // Hard fallback: force window.location.replace if router doesn't fire
         setTimeout(() => {
+          console.log('[callback] ⏱️ Fallback check: current path =', window.location.pathname);
           if (window.location.pathname === '/auth/callback') {
             console.log('[callback] ⚠️ Router navigation stuck, forcing window.location.replace');
             window.location.replace(returnTo);
           }
         }, 2000);
 
-      } catch (e) {
-        console.error('[callback] ❌ Error:', e);
-        // On error, force navigate to home after delay
+      } catch (e: any) {
+        console.error('[callback] ❌ Fatal error:', e);
+        console.error('[callback] ❌ Error name:', e?.name);
+        console.error('[callback] ❌ Error message:', e?.message);
+        console.error('[callback] ❌ Error stack:', e?.stack);
+
+        // On error, force navigate to login after delay
         setTimeout(() => {
           console.log('[callback] ⏱️ Error recovery: redirecting to login');
           window.location.replace('/login');
