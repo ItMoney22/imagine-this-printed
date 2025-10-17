@@ -1,176 +1,88 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
+import { useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 export default function AuthCallback() {
-  const [msg, setMsg] = useState("Completing sign in…");
-  const [detail, setDetail] = useState<string>("");
-  const nav = useNavigate();
+  const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
       try {
-        const href = window.location.href;
-        console.log("[callback] 1️⃣ Full URL:", href);
-        console.log("[callback] 📍 Origin:", window.location.origin);
-        console.log("[callback] 📍 Pathname:", window.location.pathname);
-        console.log("[callback] 📍 Search:", window.location.search);
-        console.log("[callback] 📍 Hash:", window.location.hash);
+        console.log('[callback] 🧭 Starting auth callback');
+        const search = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
 
-        const url = new URL(href);
-
-        // 1) PKCE: code in query string
-        const code = url.searchParams.get("code");
-
-        // 2) Implicit: access_token/refresh_token may be in hash OR query
-        const paramsFromHash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-        const paramsFromQuery = url.searchParams;
-
+        const code = search.get('code');
         const access_token =
-          paramsFromHash.get("access_token") ||
-          paramsFromQuery.get("access_token");
-
+          hashParams.get('access_token') || search.get('access_token');
         const refresh_token =
-          paramsFromHash.get("refresh_token") ||
-          paramsFromQuery.get("refresh_token");
-
-        console.log("[callback] 🔍 Detected params:", {
-          code: !!code,
-          access_token: !!access_token,
-          refresh_token: !!refresh_token,
-          source: access_token ? (paramsFromHash.get("access_token") ? 'hash' : 'query') : 'none'
-        });
-
-        // Get the intended redirect path (saved before OAuth redirect)
-        const returnTo = localStorage.getItem("auth_return_to") || "/";
-        console.log("[callback] 🎯 Return path:", returnTo);
+          hashParams.get('refresh_token') || search.get('refresh_token');
 
         if (code) {
-          console.log("[callback] 2️⃣ Found code in query → exchangeCodeForSession (PKCE flow)");
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            console.error("[callback] ❌ exchangeCodeForSession error:", error);
-            throw error;
-          }
-          console.log("[callback] 3️⃣ PKCE SUCCESS → session:", !!data?.session, "user.id:", data?.session?.user?.id);
+          console.log('[callback] 🔑 PKCE code found → exchangeCodeForSession');
+          await supabase.auth.exchangeCodeForSession(code);
         } else if (access_token && refresh_token) {
-          console.log("[callback] 2️⃣ Found tokens → setSession (implicit flow)");
-          const { data, error } = await supabase.auth.setSession({
-            access_token,
-            refresh_token
-          });
-          if (error) {
-            console.error("[callback] ❌ setSession error:", error);
-            throw error;
-          }
-          console.log("[callback] 3️⃣ Implicit SUCCESS → session:", !!data?.session, "user.id:", data?.session?.user?.id);
+          console.log('[callback] 🎫 Implicit tokens found → setSession');
+          await supabase.auth.setSession({ access_token, refresh_token });
         } else {
-          // Fallback: try to get existing session (e.g., for password reset flows)
-          console.log("[callback] 2️⃣ No code or tokens, checking for existing session...");
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (error || !session) {
-            throw new Error("No auth code, tokens, or existing session found");
-          }
-          console.log("[callback] 3️⃣ Found existing session, user.id:", session.user.id);
+          console.log('[callback] 📦 No tokens; trying getSession()');
+          await supabase.auth.getSession();
         }
 
-        // Small delay to ensure localStorage persistence completes
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Verify session was set
+        const { data } = await supabase.auth.getSession();
+        console.log('[callback] ✅ Session established:', !!data.session, 'user:', data.session?.user?.id);
 
-        // Verify session was properly set
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log("[callback] 4️⃣ Final session check:", !!session, "user.id:", session?.user?.id);
-
-        if (!session) {
-          throw new Error("No session found after auth exchange");
-        }
-
-        // Verify persisted to localStorage with our custom storageKey
-        const storageKey = `itp-auth-v1`;
+        // Verify localStorage persistence
+        const storageKey = 'itp-auth-v1';
         const storedAuth = localStorage.getItem(storageKey);
-        console.log("[callback] 5️⃣ Storage verification:");
-        console.log("  - storageKey:", storageKey);
-        console.log("  - has stored data:", !!storedAuth);
+        console.log('[callback] 💾 localStorage check:', {
+          key: storageKey,
+          hasData: !!storedAuth,
+          hasToken: storedAuth ? !!JSON.parse(storedAuth).access_token : false
+        });
 
-        if (storedAuth) {
-          try {
-            const parsed = JSON.parse(storedAuth);
-            console.log("  - has access_token:", !!parsed?.access_token);
-            console.log("  - has refresh_token:", !!parsed?.refresh_token);
-          } catch (e) {
-            console.warn("  - failed to parse stored auth:", e);
-          }
-        }
+        // Clean URL
+        window.history.replaceState({}, '', '/');
+        console.log('[callback] 🧹 URL cleaned');
 
-        if (!storedAuth) {
-          console.warn("[callback] ⚠️ Session exists but not in localStorage! Forcing refresh...");
-          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
-          if (refreshError) {
-            console.error("[callback] ❌ Refresh error:", refreshError);
-          } else {
-            console.log("[callback] 6️⃣ Forced refresh complete, session:", !!refreshedSession);
-          }
-        }
+        // Determine where to redirect
+        const returnTo = localStorage.getItem('returnTo') || localStorage.getItem('auth_return_to') || '/';
+        console.log('[callback] 🎯 Navigating to:', returnTo);
 
-        // Verify the user can actually be fetched
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        console.log("[callback] 7️⃣ User verification:", !!user, "error:", userError?.message);
+        // Clear return path
+        localStorage.removeItem('returnTo');
+        localStorage.removeItem('auth_return_to');
 
-        if (!user) {
-          throw new Error("Session exists but user cannot be fetched");
-        }
+        // Try router navigation first
+        navigate(returnTo, { replace: true });
 
-        // Clean URL (remove auth params and hash)
-        window.history.replaceState({}, '', window.location.pathname);
-        console.log("[callback] 🧹 URL cleaned");
-
-        // Clear return path from localStorage
-        localStorage.removeItem("auth_return_to");
-
-        setMsg("Signed in successfully! Redirecting…");
-        console.log("[callback] 8️⃣ Navigating to:", returnTo);
-
-        // Small delay to show success message
-        await new Promise(resolve => setTimeout(resolve, 500));
-        nav(returnTo, { replace: true });
-
-      } catch (err: any) {
-        console.error("[callback] ❌ FATAL ERROR:", err);
-        console.error("[callback] Error stack:", err?.stack);
-        setMsg("We couldn't complete sign in.");
-        setDetail(err?.message || String(err));
-
-        // Show error for 3 seconds, then redirect to login
+        // Hard fallback: force window.location.replace if router doesn't fire
         setTimeout(() => {
-          console.log("[callback] ⏱️ Error timeout, redirecting to login...");
-          nav("/login", { replace: true });
+          if (window.location.pathname === '/auth/callback') {
+            console.log('[callback] ⚠️ Router navigation stuck, forcing window.location.replace');
+            window.location.replace(returnTo);
+          }
+        }, 2000);
+
+      } catch (e) {
+        console.error('[callback] ❌ Error:', e);
+        // On error, force navigate to home after delay
+        setTimeout(() => {
+          console.log('[callback] ⏱️ Error recovery: redirecting to login');
+          window.location.replace('/login');
         }, 3000);
       }
     })();
-  }, [nav]);
+  }, [navigate]);
 
   return (
-    <div style={{ padding: "4rem", textAlign: "center" }}>
-      <h2>{msg}</h2>
-      {detail && (
-        <div>
-          <pre style={{
-            color: "crimson",
-            whiteSpace: "pre-wrap",
-            background: "#fee",
-            padding: "1rem",
-            borderRadius: "8px",
-            margin: "1rem auto",
-            maxWidth: "600px",
-            textAlign: "left"
-          }}>
-            {detail}
-          </pre>
-          <p style={{ fontSize: "0.875rem", color: "#666" }}>
-            Redirecting to login in 3 seconds...
-          </p>
-        </div>
-      )}
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <h2 className="text-xl font-semibold text-gray-800">Completing sign in…</h2>
+        <p className="text-sm text-gray-600 mt-2">Please wait while we redirect you</p>
+      </div>
     </div>
   );
 }
