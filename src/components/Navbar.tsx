@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 
 const Navbar: React.FC = () => {
   const { state } = useCart()

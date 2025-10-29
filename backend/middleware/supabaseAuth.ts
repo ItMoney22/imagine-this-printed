@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { jose } from "../lib/jose";
+import { jose } from "../lib/jose.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 

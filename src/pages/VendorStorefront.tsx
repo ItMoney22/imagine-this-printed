@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
 import type { WholesaleVendor, WholesaleProduct, Product } from '../types'

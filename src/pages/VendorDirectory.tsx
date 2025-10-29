@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { useNavigate } from 'react-router-dom'
 import type { WholesaleVendor } from '../types'
 

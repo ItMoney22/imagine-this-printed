@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import type { Order, Invoice } from '../types'
 
 const FoundersDashboard: React.FC = () => {

@@ -3,6 +3,9 @@ import cors from 'cors'
 import type { CorsOptions } from 'cors'
 import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
+import pino from 'pino'
+import pinoHttp from 'pino-http'
+import { nanoid } from 'nanoid'
 
 // Import routes
 import accountRoutes from './routes/account.js'
@@ -16,20 +19,37 @@ import { requireAuth } from './middleware/supabaseAuth.js'
 // Load environment variables
 dotenv.config()
 
+// Setup logger
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: process.env.NODE_ENV === 'development' ? {
+    target: 'pino-pretty',
+    options: {
+      colorize: true,
+      translateTime: 'HH:MM:ss',
+      ignore: 'pid,hostname'
+    }
+  } : undefined
+})
+
 // Environment sanity check (log on boot, mask secrets)
 const tail = (s?: string) => s ? `...${s.slice(-4)}` : 'none';
-console.log('[env:api]', {
-  NODE_ENV: process.env.NODE_ENV,
-  PORT: process.env.PORT || 4000,
-  BREVO_API_KEY_tail: tail(process.env.BREVO_API_KEY),
-  BREVO_SENDER_EMAIL: process.env.BREVO_SENDER_EMAIL,
-  BREVO_SENDER_NAME: process.env.BREVO_SENDER_NAME,
-  SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_ANON_KEY_tail: tail(process.env.SUPABASE_ANON_KEY),
-  FRONTEND_URL: process.env.FRONTEND_URL,
-  DATABASE_URL_tail: process.env.DATABASE_URL ? `...${process.env.DATABASE_URL.slice(-20)}` : 'none',
-  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
-});
+logger.info({
+  env: {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT || 4000,
+    BREVO_API_KEY: !!process.env.BREVO_API_KEY,
+    BREVO_SENDER_EMAIL: process.env.BREVO_SENDER_EMAIL,
+    BREVO_SENDER_NAME: process.env.BREVO_SENDER_NAME,
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
+    FRONTEND_URL: process.env.FRONTEND_URL,
+    DATABASE_URL: !!process.env.DATABASE_URL,
+    ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
+    JWT_SECRET: !!process.env.JWT_SECRET,
+  }
+}, 'Environment variables loaded')
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -53,11 +73,22 @@ app.use(cors(corsOptions))
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`)
-  next()
-})
+// Request logging middleware with request IDs
+app.use(pinoHttp({
+  logger,
+  genReqId: () => nanoid(10),
+  customLogLevel: (req, res, err) => {
+    if (res.statusCode >= 500 || err) return 'error'
+    if (res.statusCode >= 400) return 'warn'
+    return 'info'
+  },
+  customSuccessMessage: (req, res) => {
+    return `${req.method} ${req.url} ${res.statusCode}`
+  },
+  customErrorMessage: (req, res, err) => {
+    return `${req.method} ${req.url} ${res.statusCode} - ${err.message}`
+  }
+}))
 
 // Routes
 app.use('/api/auth', accountRoutes)
@@ -90,7 +121,7 @@ app.use('*', (req, res) => {
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Unhandled error:', err)
+  req.log.error({ err }, 'Unhandled error')
   res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
@@ -99,22 +130,22 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('Received SIGINT, shutting down gracefully...')
+  logger.info('Received SIGINT, shutting down gracefully...')
   await prisma.$disconnect()
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
-  console.log('Received SIGTERM, shutting down gracefully...')
+  logger.info('Received SIGTERM, shutting down gracefully...')
   await prisma.$disconnect()
   process.exit(0)
 })
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`)
-  console.log(`📡 API available at http://localhost:${PORT}`)
-  console.log(`🏥 Health check: http://localhost:${PORT}/api/health`)
+  logger.info(`🚀 Server running on port ${PORT}`)
+  logger.info(`📡 API available at http://localhost:${PORT}`)
+  logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`)
 })
 
 export default app

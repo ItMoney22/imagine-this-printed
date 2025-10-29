@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { Stage, Layer, Image as KonvaImage, Text, Transformer, Rect } from 'react-konva'
 import { useCart } from '../context/CartContext'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { replicateAPI } from '../utils/replicate'
 import { gptAssistant } from '../utils/gpt-assistant'
 import type { AIGenerationRequest } from '../types'

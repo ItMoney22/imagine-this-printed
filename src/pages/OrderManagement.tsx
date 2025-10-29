@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { shippoAPI } from '../utils/shippo'
 import type { Order, ShippingAddress } from '../types'
 

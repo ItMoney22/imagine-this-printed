@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { kioskService } from '../utils/kiosk-service'
 import type { Kiosk, KioskAnalytics, KioskOrder } from '../types'
 

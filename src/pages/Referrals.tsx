@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { referralSystem } from '../utils/referral-system'
 import type { ReferralCode, ReferralTransaction } from '../types'
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { chatbotService, type ChatMessage } from '../utils/chatbot-service'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 
 const ChatBotWidget: React.FC = () => {
   const { user } = useAuth()

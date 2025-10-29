@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { costManagementService } from '../utils/cost-management'
 import type { CostVariables, ProductCostBreakdown, CostAnalytics } from '../types'
 

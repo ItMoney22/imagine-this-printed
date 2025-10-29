@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
 import type { Product } from '../types'

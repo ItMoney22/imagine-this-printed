@@ -1,4 +1,4 @@
-import { jose } from "../lib/jose";
+import { jose } from "../lib/jose.js";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 let JWKS = null;
 export async function requireAuth(req, res, next) {

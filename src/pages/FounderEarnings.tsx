@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { founderEarningsService } from '../utils/founder-earnings'
 import type { ProductCOGS } from '../utils/founder-earnings'
 import type { FounderEarnings } from '../types'
