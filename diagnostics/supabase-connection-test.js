@@ -13,6 +13,7 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
 console.log('Testing Supabase connection...');
 console.log('URL:', supabaseUrl);
+// Displaying only the last 8 characters of the key for security
 console.log('Key tail:', supabaseKey?.slice(-8));
 
 if (!supabaseUrl || !supabaseKey) {
@@ -28,15 +29,19 @@ async function testConnection() {
     const { data, error } = await supabase.auth.getSession();
     if (error) {
       console.error('❌ Connection failed:', error.message);
-      return false;
+      process.exit(1);
     }
     console.log('✅ Connected to Supabase successfully');
     console.log('Session:', data.session ? 'Active' : 'None');
     return true;
   } catch (err) {
     console.error('❌ Connection error:', err.message);
-    return false;
+    process.exit(1);
   }
 }
 
-testConnection();
+// Execute test with proper async handling
+(async () => {
+  await testConnection();
+  process.exit(0);
+})();
