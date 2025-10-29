@@ -82,16 +82,28 @@ async function setupRLS() {
       console.log(`  ${idx + 1}. ${firstLine}...`);
     });
 
-    console.log('\n⚠️  Note: Direct execution via supabase.rpc() is not available.');
-    console.log('Instead, use one of these methods:');
-    console.log('  1. Apply via Supabase Dashboard > SQL Editor');
-    console.log('  2. Use mcp__supabase__apply_migration tool with service role');
-    console.log('  3. Execute via direct PostgreSQL connection');
-    console.log('  4. Use Supabase CLI: supabase db push');
+    console.log('\n=== IMPORTANT: Manual Application Required ===');
+    console.log('\nThis script CANNOT automatically apply RLS policies via the JavaScript client.');
+    console.log('RLS policies must be applied manually using one of these methods:\n');
+    console.log('  1. Supabase Dashboard > SQL Editor');
+    console.log('     - Go to your Supabase project dashboard');
+    console.log('     - Copy the SQL from: backend/prisma/migrations/002_rls_policies.sql');
+    console.log('     - Paste into SQL Editor and click "Run"\n');
+    console.log('  2. Supabase CLI (recommended):');
+    console.log('     $ supabase db push\n');
+    console.log('  3. Direct PostgreSQL connection:');
+    console.log('     $ psql "postgres://..." < backend/prisma/migrations/002_rls_policies.sql\n');
+    console.log('  4. Claude Code tool:');
+    console.log('     Use mcp__supabase__apply_migration with your project ID\n');
 
     // Verify that policies are already applied
-    console.log('\nVerifying existing RLS configuration...\n');
+    console.log('Verifying existing RLS configuration...\n');
     const verified = await verifyRLSPolicies();
+
+    if (!verified) {
+      console.log('\nCritical: RLS policies may not be applied yet.');
+      console.log('Please apply the SQL migration using one of the methods above.');
+    }
 
     return verified;
   } catch (err) {
