@@ -22,22 +22,37 @@
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Create user profile
-  INSERT INTO public.user_profiles (id, email, full_name)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    NEW.raw_user_meta_data->>'full_name'
-  );
+  BEGIN
+    -- Create user profile
+    INSERT INTO public.user_profiles (id, email, full_name)
+    VALUES (
+      NEW.id,
+      NEW.email,
+      NEW.raw_user_meta_data->>'full_name'
+    );
+  EXCEPTION WHEN unique_violation THEN
+    -- User profile already exists, continue
+    NULL;
+  END;
 
-  -- Create user wallet with 0 balance
-  INSERT INTO public.user_wallets (user_id, itc_balance, usd_balance)
-  VALUES (NEW.id, 0.00, 0.00);
+  BEGIN
+    -- Create user wallet with 0 balance
+    INSERT INTO public.user_wallets (user_id, itc_balance, usd_balance)
+    VALUES (NEW.id, 0.00, 0.00);
+  EXCEPTION WHEN unique_violation OR foreign_key_violation THEN
+    -- Wallet already exists or user_profiles constraint issue, continue
+    NULL;
+  END;
 
-  -- Generate referral code (8 character uppercase code from MD5 hash of user ID)
-  UPDATE public.user_profiles
-  SET referral_code = UPPER(SUBSTR(MD5(NEW.id::text), 1, 8))
-  WHERE id = NEW.id;
+  BEGIN
+    -- Generate referral code (8 character uppercase code from MD5 hash of user ID)
+    UPDATE public.user_profiles
+    SET referral_code = UPPER(SUBSTR(MD5(NEW.id::text), 1, 8))
+    WHERE id = NEW.id;
+  EXCEPTION WHEN OTHERS THEN
+    -- Referral code generation failed, but continue with signup
+    RAISE WARNING 'Failed to generate referral code for user %: %', NEW.id, SQLERRM;
+  END;
 
   RETURN NEW;
 END;
@@ -53,8 +68,13 @@ CREATE TRIGGER on_auth_user_created
 CREATE OR REPLACE FUNCTION public.handle_user_delete()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Delete user profile (cascades to wallet and other tables via FK)
-  DELETE FROM public.user_profiles WHERE id = OLD.id;
+  BEGIN
+    -- Delete user profile (cascades to wallet and other tables via FK)
+    DELETE FROM public.user_profiles WHERE id = OLD.id;
+  EXCEPTION WHEN OTHERS THEN
+    -- Log the error but continue with deletion
+    RAISE WARNING 'Error deleting user profile for user %: %', OLD.id, SQLERRM;
+  END;
   RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

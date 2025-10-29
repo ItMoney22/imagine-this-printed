@@ -11,28 +11,24 @@ Task 5 creates database triggers that automatically handle user lifecycle events
 ## Files Created
 
 - `backend/prisma/migrations/003_user_triggers.sql` - Trigger definitions
-- `backend/scripts/setup-triggers.js` - Setup script (requires direct database connection)
+- `backend/scripts/setup-triggers.js` - Documentation and verification script (no automatic setup)
 
-## Setup Methods
+## Important: Railway Deployment Note
 
-### Method 1: Automatic Setup (Recommended for Production)
+**Triggers cannot be automatically applied in Railway deployment** because:
+- Railway blocks direct PostgreSQL connections for security
+- Supabase RPC functions cannot execute arbitrary SQL
+- Manual application through the Dashboard is required
 
-If you have direct database access:
-
+Use the setup script to display documentation:
 ```bash
 cd backend
-npm install  # Ensure pg is installed
 node scripts/setup-triggers.js
 ```
 
-**Requirements:**
-- DATABASE_URL environment variable set
-- Direct PostgreSQL connection access
-- Network connectivity to Supabase database
+## Setup Methods
 
-### Method 2: Manual Setup in Supabase Dashboard (For Development)
-
-This is the most reliable method when you don't have direct database access:
+### Method 1: Manual Setup in Supabase Dashboard (Recommended)
 
 1. Open [Supabase Dashboard](https://app.supabase.com)
 2. Select your project (imagine-this-printed)
@@ -48,9 +44,9 @@ This is the most reliable method when you don't have direct database access:
 Query successful
 ```
 
-### Method 3: Using psql Command Line
+### Method 2: Using psql Command Line (Local Development Only)
 
-If you have PostgreSQL CLI installed:
+If you have PostgreSQL CLI installed and direct database access:
 
 ```bash
 psql "postgresql://postgres:[PASSWORD]@db.czzyrmizvjqlifcivrhn.supabase.co:5432/postgres?sslmode=require" \
@@ -58,6 +54,8 @@ psql "postgresql://postgres:[PASSWORD]@db.czzyrmizvjqlifcivrhn.supabase.co:5432/
 ```
 
 Replace `[PASSWORD]` with your database password from Supabase settings.
+
+**Note:** This will not work in Railway deployment due to network restrictions.
 
 ## Trigger Details
 
@@ -82,6 +80,11 @@ Replace `[PASSWORD]` with your database password from Supabase settings.
   - referral_code: 8-char uppercase code from MD5(user_id)
 ```
 
+**Error Handling:**
+- Handles `unique_violation` if user_profiles already exists (idempotent)
+- Handles `unique_violation` and `foreign_key_violation` for wallet creation
+- Logs warnings if referral code generation fails but allows signup to complete
+
 ### 2. handle_user_delete() Function
 
 **Trigger:** `on_auth_user_deleted`
@@ -93,6 +96,11 @@ Replace `[PASSWORD]` with your database password from Supabase settings.
 - Cascade deletes user_wallets (via FK constraint)
 - Cascade deletes other related records (products, orders, etc.)
 ```
+
+**Error Handling:**
+- Catches all exceptions during deletion and logs warnings
+- Continues with deletion even if user_profiles deletion fails
+- Ensures the user auth record can be deleted even if profile cleanup has issues
 
 ## Verification
 
