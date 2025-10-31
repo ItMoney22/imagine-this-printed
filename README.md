@@ -207,29 +207,34 @@ See the detailed checklist in: [`SUPABASE_AUTH_CHECKLIST.md`](./SUPABASE_AUTH_CH
      https://czzyrmizvjqlifcivrhn.supabase.co/auth/v1/callback
      ```
 
-5. **Enable PKCE Flow** (recommended):
+5. **Enable PKCE Flow** (REQUIRED):
    - Go to **Authentication** → **Settings**
-   - Set Auth Flow Type to **PKCE**
+   - Ensure Auth Flow Type is **PKCE** (Code Flow)
+   - **Do NOT use Implicit Flow** - it causes race conditions and callback hangs
 
-### How Authentication Works
+### How Authentication Works (PKCE Flow)
 
-1. **OAuth Sign-In Flow:**
+**Important:** As of 2025-10-31, the auth callback has been rewritten to use **PKCE flow only** to eliminate race conditions. See [AUTH_CALLBACK_FIX_GUIDE.md](./AUTH_CALLBACK_FIX_GUIDE.md) for details.
+
+1. **OAuth Sign-In Flow (PKCE):**
    - User clicks "Sign in with Google"
    - System saves current path to localStorage (`auth_return_to`)
-   - Redirects to Google OAuth with dynamic callback URL
-   - Google redirects back to `/auth/callback` with code (PKCE) or tokens (implicit)
+   - Redirects to Google OAuth with `redirectTo` callback URL
+   - Google redirects back to `/auth/callback?code=...` (PKCE code, NOT tokens)
 
-2. **Callback Handler** (`src/pages/AuthCallback.tsx`):
-   - Detects auth flow type (PKCE or implicit)
-   - Exchanges code for session OR sets session from tokens
-   - Verifies session persistence in localStorage
+2. **Callback Handler** ([src/pages/AuthCallback.tsx](src/pages/AuthCallback.tsx)):
+   - Detects `code` parameter in query string
+   - Calls `exchangeCodeForSession(fullUrl)` to exchange code for session
+   - Verifies session exists with `getSession()`
+   - Checks localStorage persistence (`itp-auth-v1` key)
    - Cleans URL and redirects to intended page
+   - **Total time: <2 seconds** (no race conditions, no timeouts)
 
-3. **Session Management** (`src/context/SupabaseAuthContext.tsx`):
-   - Initializes on app load
-   - Listens for auth state changes
-   - Maps Supabase user to app user profile
-   - Auto-refreshes tokens
+3. **Session Management** ([src/context/SupabaseAuthContext.tsx](src/context/SupabaseAuthContext.tsx)):
+   - Initializes on app load with `getSession()`
+   - Listens for auth state changes via `onAuthStateChange`
+   - Maps Supabase user to app user profile (from `user_profiles` table)
+   - Auto-refreshes tokens before expiration
 
 ### Common Issues & Solutions
 
@@ -252,6 +257,15 @@ See the detailed checklist in: [`SUPABASE_AUTH_CHECKLIST.md`](./SUPABASE_AUTH_CH
 - Verify Supabase environment variables are correct
 - Ensure PKCE is enabled in Supabase dashboard
 - Try clearing browser cache and localStorage
+
+#### Issue: Callback Stuck on "Completing sign in..." (FIXED 2025-10-31)
+**Cause:** Race condition between PKCE and implicit flows, or `setSession()` hanging
+**Solution:** This issue has been fixed in the latest version. If you still experience it:
+- Clear browser cache and localStorage completely
+- Test in incognito mode to rule out extension interference
+- Check console for `⚠️ IMPLICIT TOKENS DETECTED` warning
+- If you see that warning, your Supabase Auth is NOT using PKCE - go to Dashboard → Authentication → Settings and enable PKCE
+- See [AUTH_CALLBACK_FIX_GUIDE.md](./AUTH_CALLBACK_FIX_GUIDE.md) for detailed diagnosis
 
 #### Issue: User Profile Not Loading
 **Cause:** `user_profiles` table query failed

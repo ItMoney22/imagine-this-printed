@@ -15,6 +15,7 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import AuthCallback from './pages/AuthCallback'
+import AuthError from './pages/AuthError'
 import ProductCatalog from './pages/ProductCatalog'
 import ProductPage from './pages/ProductPage'
 import ProductDesigner from './pages/ProductDesigner'
@@ -61,6 +62,7 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="/auth/error" element={<AuthError />} />
                 <Route path="/auth/reset-password" element={<AuthCallback />} />
                 <Route path="/catalog" element={<ProductCatalog />} />
                 <Route path="/catalog/:category" element={<ProductCatalog />} />

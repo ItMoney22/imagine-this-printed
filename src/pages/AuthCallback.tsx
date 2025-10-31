@@ -1,152 +1,192 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 
+type CallbackStatus = 'parsing' | 'exchanging' | 'verifying' | 'redirecting' | 'error';
+
 export default function AuthCallback() {
   const navigate = useNavigate();
+  const [status, setStatus] = useState<CallbackStatus>('parsing');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         console.log('[callback] 🧭 Starting auth callback');
-        const search = new URLSearchParams(window.location.search);
-        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const href = window.location.href;
+        const params = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.slice(1));
 
-        const code = search.get('code');
-        const access_token =
-          hashParams.get('access_token') || search.get('access_token');
-        const refresh_token =
-          hashParams.get('refresh_token') || search.get('refresh_token');
-
+        // Log what we received
         console.log('[callback] 🔍 Params detected:', {
-          hasCode: !!code,
-          hasAccessToken: !!access_token,
-          hasRefreshToken: !!refresh_token
+          hasCode: !!params.get('code'),
+          hasAccessToken: !!hashParams.get('access_token'),
+          hasRefreshToken: !!hashParams.get('refresh_token'),
+          hasError: !!params.get('error'),
         });
 
+        // Handle OAuth errors first
+        const errorParam = params.get('error');
+        const errorDescription = params.get('error_description');
+        if (errorParam) {
+          throw new Error(errorDescription || errorParam);
+        }
+
+        // PKCE FLOW ONLY - This is the recommended Supabase v2+ approach
+        // Supabase OAuth should be configured to use PKCE (code flow), not implicit (token in hash)
+        const code = params.get('code');
         if (code) {
           console.log('[callback] 🔑 PKCE code found → exchangeCodeForSession');
-          const result = await supabase.auth.exchangeCodeForSession(code);
-          console.log('[callback] 🔑 exchangeCodeForSession result:', {
-            success: !result.error,
-            error: result.error?.message
+          setStatus('exchanging');
+
+          // Exchange the code for a session
+          // Pass the full URL so Supabase can extract code and code_verifier
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(href);
+
+          if (exchangeError) {
+            console.error('[callback] ❌ exchangeCodeForSession failed:', exchangeError);
+            throw exchangeError;
+          }
+
+          console.log('[callback] ✅ Session established:', {
+            hasSession: !!data.session,
+            userId: data.session?.user?.id,
           });
-          if (result.error) throw result.error;
-        } else if (access_token && refresh_token) {
-          console.log('[callback] 🎫 Implicit tokens found → setSession');
-
-          // setSession can hang in implicit flow, so add timeout + event listener fallback
-          const setSessionPromise = supabase.auth.setSession({ access_token, refresh_token });
-
-          // Create a promise that resolves when auth state changes to SIGNED_IN
-          const authChangePromise = new Promise<void>((resolve) => {
-            const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-              console.log('[callback] 🎫 Auth state change during setSession:', event);
-              if (event === 'SIGNED_IN') {
-                console.log('[callback] 🎫 SIGNED_IN event received, proceeding...');
-                subscription.unsubscribe();
-                resolve();
-              }
-            });
-          });
-
-          // Race between setSession completing and auth state change event
-          await Promise.race([
-            setSessionPromise.then((result) => {
-              console.log('[callback] 🎫 setSession completed first:', {
-                success: !result.error,
-                hasSession: !!result.data.session,
-                error: result.error?.message
-              });
-              if (result.error) throw result.error;
-            }),
-            authChangePromise.then(() => {
-              console.log('[callback] 🎫 Auth event won the race, setSession hung');
-            }),
-            // Absolute timeout after 3 seconds
-            new Promise<void>((resolve) =>
-              setTimeout(() => {
-                console.log('[callback] ⏱️ setSession timeout, proceeding anyway...');
-                resolve();
-              }, 3000)
-            )
-          ]);
-
-          console.log('[callback] 🎫 setSession flow complete');
         } else {
-          console.log('[callback] 📦 No tokens; trying getSession()');
-          const result = await supabase.auth.getSession();
-          console.log('[callback] 📦 getSession result:', {
-            hasSession: !!result.data.session
-          });
+          // No code parameter - this shouldn't happen with PKCE flow
+          // If you see implicit tokens (access_token in hash), your OAuth config needs updating
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            console.warn(
+              '[callback] ⚠️ IMPLICIT TOKENS DETECTED - Your OAuth is not using PKCE flow!'
+            );
+            console.warn('[callback] ⚠️ Please update Supabase Auth settings to use PKCE (code flow)');
+            console.warn('[callback] ⚠️ Attempting to handle anyway, but this may be unreliable...');
+
+            setStatus('exchanging');
+
+            // Fallback: handle implicit flow if it somehow arrives
+            const { error: setSessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (setSessionError) {
+              console.error('[callback] ❌ setSession failed:', setSessionError);
+              throw setSessionError;
+            }
+
+            console.log('[callback] ⚠️ Implicit session set (not recommended)');
+          } else {
+            // No code and no tokens - check if session already exists
+            console.log('[callback] 📦 No OAuth params, checking existing session...');
+            const { data: sessionData } = await supabase.auth.getSession();
+
+            if (!sessionData.session) {
+              throw new Error(
+                'No OAuth code or tokens found in callback URL. Please try signing in again.'
+              );
+            }
+
+            console.log('[callback] ℹ️ Existing session found:', sessionData.session.user.id);
+          }
         }
 
-        console.log('[callback] ✓ Auth exchange complete, verifying...');
+        // Verify session is actually set
+        setStatus('verifying');
+        console.log('[callback] 🔍 Verifying session...');
 
-        // Verify session was set
-        const { data, error } = await supabase.auth.getSession();
-        if (error) {
-          console.error('[callback] ❌ Error getting session:', error);
-          throw error;
+        const { data: verifyData, error: verifyError } = await supabase.auth.getSession();
+        if (verifyError) {
+          console.error('[callback] ❌ Session verification failed:', verifyError);
+          throw verifyError;
         }
-        console.log('[callback] ✅ Session established:', !!data.session, 'user:', data.session?.user?.id);
 
-        // Verify localStorage persistence
+        if (!verifyData.session) {
+          throw new Error('Session verification failed: no session found after auth exchange');
+        }
+
+        console.log('[callback] ✅ Session verified:', {
+          userId: verifyData.session.user.id,
+          email: verifyData.session.user.email,
+        });
+
+        // Check localStorage persistence
         const storageKey = 'itp-auth-v1';
         const storedAuth = localStorage.getItem(storageKey);
         console.log('[callback] 💾 localStorage check:', {
           key: storageKey,
           hasData: !!storedAuth,
-          hasToken: storedAuth ? !!JSON.parse(storedAuth).access_token : false
+          hasToken: storedAuth ? !!JSON.parse(storedAuth).access_token : false,
         });
 
-        // Clean URL
+        // Clean URL of OAuth parameters
+        setStatus('redirecting');
         console.log('[callback] 🧹 Cleaning URL...');
-        window.history.replaceState({}, '', '/');
-        console.log('[callback] 🧹 URL cleaned, new path:', window.location.pathname);
+        window.history.replaceState({}, '', window.location.pathname);
 
-        // Determine where to redirect
-        const returnTo = localStorage.getItem('returnTo') || localStorage.getItem('auth_return_to') || '/';
-        console.log('[callback] 🎯 Navigating to:', returnTo);
+        // Determine redirect destination
+        const returnTo =
+          localStorage.getItem('auth_return_to') ||
+          localStorage.getItem('returnTo') ||
+          '/';
+
+        console.log('[callback] 🎯 Redirecting to:', returnTo);
 
         // Clear return path
-        localStorage.removeItem('returnTo');
         localStorage.removeItem('auth_return_to');
+        localStorage.removeItem('returnTo');
 
-        // Try router navigation first
-        console.log('[callback] 🚀 Attempting React Router navigation...');
+        // Navigate using React Router
+        console.log('[callback] 🚀 Navigating with React Router...');
         navigate(returnTo, { replace: true });
 
-        // Hard fallback: force window.location.replace if router doesn't fire
+        // Fallback: if router doesn't work, force window navigation
         setTimeout(() => {
-          console.log('[callback] ⏱️ Fallback check: current path =', window.location.pathname);
           if (window.location.pathname === '/auth/callback') {
-            console.log('[callback] ⚠️ Router navigation stuck, forcing window.location.replace');
+            console.warn('[callback] ⚠️ React Router navigation stuck, using window.location');
             window.location.replace(returnTo);
           }
-        }, 2000);
+        }, 1000);
+      } catch (err: any) {
+        console.error('[callback] ❌ Auth callback error:', err);
+        setStatus('error');
+        setError(err.message || 'Authentication failed');
 
-      } catch (e: any) {
-        console.error('[callback] ❌ Fatal error:', e);
-        console.error('[callback] ❌ Error name:', e?.name);
-        console.error('[callback] ❌ Error message:', e?.message);
-        console.error('[callback] ❌ Error stack:', e?.stack);
-
-        // On error, force navigate to login after delay
+        // On error, redirect to login after showing error briefly
         setTimeout(() => {
-          console.log('[callback] ⏱️ Error recovery: redirecting to login');
-          window.location.replace('/login');
+          console.log('[callback] 🔄 Redirecting to login after error...');
+          navigate('/login', { replace: true });
         }, 3000);
       }
     })();
   }, [navigate]);
 
+  // Render status-specific UI
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <h2 className="text-xl font-semibold text-gray-800">Completing sign in…</h2>
-        <p className="text-sm text-gray-600 mt-2">Please wait while we redirect you</p>
+      <div className="text-center max-w-md">
+        {status === 'error' ? (
+          <>
+            <div className="text-red-500 text-6xl mb-4">✕</div>
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">Authentication Error</h2>
+            <p className="text-sm text-red-600 mb-4">{error}</p>
+            <p className="text-xs text-gray-500">Redirecting to login page...</p>
+          </>
+        ) : (
+          <>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">
+              {status === 'parsing' && 'Processing authentication...'}
+              {status === 'exchanging' && 'Exchanging credentials...'}
+              {status === 'verifying' && 'Verifying session...'}
+              {status === 'redirecting' && 'Redirecting...'}
+            </h2>
+            <p className="text-sm text-gray-600">Please wait while we sign you in</p>
+          </>
+        )}
       </div>
     </div>
   );
