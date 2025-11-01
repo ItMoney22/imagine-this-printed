@@ -12,87 +12,40 @@ export default function AuthCallback() {
   useEffect(() => {
     (async () => {
       try {
-        console.log('[callback] 🧭 Starting auth callback');
+        console.log('[callback] 🧭 Starting PKCE auth callback');
         const href = window.location.href;
         const params = new URLSearchParams(window.location.search);
-        const hashParams = new URLSearchParams(window.location.hash.slice(1));
-
-        // Log what we received
-        console.log('[callback] 🔍 Params detected:', {
-          hasCode: !!params.get('code'),
-          hasAccessToken: !!hashParams.get('access_token'),
-          hasRefreshToken: !!hashParams.get('refresh_token'),
-          hasError: !!params.get('error'),
-        });
 
         // Handle OAuth errors first
         const errorParam = params.get('error');
         const errorDescription = params.get('error_description');
         if (errorParam) {
+          console.error('[callback] ❌ OAuth error:', errorDescription || errorParam);
           throw new Error(errorDescription || errorParam);
         }
 
-        // PKCE FLOW ONLY - This is the recommended Supabase v2+ approach
-        // Supabase OAuth should be configured to use PKCE (code flow), not implicit (token in hash)
+        // PKCE FLOW ONLY - require code parameter
         const code = params.get('code');
-        if (code) {
-          console.log('[callback] 🔑 PKCE code found → exchangeCodeForSession');
-          setStatus('exchanging');
-
-          // Exchange the code for a session
-          // Pass the full URL so Supabase can extract code and code_verifier
-          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(href);
-
-          if (exchangeError) {
-            console.error('[callback] ❌ exchangeCodeForSession failed:', exchangeError);
-            throw exchangeError;
-          }
-
-          console.log('[callback] ✅ Session established:', {
-            hasSession: !!data.session,
-            userId: data.session?.user?.id,
-          });
-        } else {
-          // No code parameter - this shouldn't happen with PKCE flow
-          // If you see implicit tokens (access_token in hash), your OAuth config needs updating
-          const accessToken = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-
-          if (accessToken && refreshToken) {
-            console.warn(
-              '[callback] ⚠️ IMPLICIT TOKENS DETECTED - Your OAuth is not using PKCE flow!'
-            );
-            console.warn('[callback] ⚠️ Please update Supabase Auth settings to use PKCE (code flow)');
-            console.warn('[callback] ⚠️ Attempting to handle anyway, but this may be unreliable...');
-
-            setStatus('exchanging');
-
-            // Fallback: handle implicit flow if it somehow arrives
-            const { error: setSessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-
-            if (setSessionError) {
-              console.error('[callback] ❌ setSession failed:', setSessionError);
-              throw setSessionError;
-            }
-
-            console.log('[callback] ⚠️ Implicit session set (not recommended)');
-          } else {
-            // No code and no tokens - check if session already exists
-            console.log('[callback] 📦 No OAuth params, checking existing session...');
-            const { data: sessionData } = await supabase.auth.getSession();
-
-            if (!sessionData.session) {
-              throw new Error(
-                'No OAuth code or tokens found in callback URL. Please try signing in again.'
-              );
-            }
-
-            console.log('[callback] ℹ️ Existing session found:', sessionData.session.user.id);
-          }
+        if (!code) {
+          console.error('[callback] ❌ No PKCE code in URL - implicit flow is disabled');
+          throw new Error('No PKCE code in URL (implicit flow is disabled)');
         }
+
+        console.log('[callback] 🔑 PKCE code found → exchangeCodeForSession');
+        setStatus('exchanging');
+
+        // Exchange the authorization code for a session
+        const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(href);
+
+        if (exchangeError) {
+          console.error('[callback] ❌ exchangeCodeForSession failed:', exchangeError);
+          throw exchangeError;
+        }
+
+        console.log('[callback] ✅ Session established:', {
+          hasSession: !!data.session,
+          userId: data.session?.user?.id,
+        });
 
         // Verify session is actually set
         setStatus('verifying');

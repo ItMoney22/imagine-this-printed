@@ -23,6 +23,7 @@ console.log("[supabase] 🔧 Initializing Supabase client with URL:", supabaseUr
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
+    flowType: 'pkce', // Force PKCE flow (code-based OAuth, not implicit)
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false, // we handle URL explicitly in AuthCallback
