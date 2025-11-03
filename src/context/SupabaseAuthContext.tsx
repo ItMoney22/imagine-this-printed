@@ -50,7 +50,7 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       .select(`
         *,
         user_wallets (
-          points_balance,
+          points,
           itc_balance
         )
       `)
@@ -77,7 +77,7 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       emailVerified: profile.email_verified || false,
       profileCompleted: profile.profile_completed || false,
       wallet: profile.user_wallets ? {
-        pointsBalance: profile.user_wallets.points_balance || 0,
+        pointsBalance: profile.user_wallets.points || 0,
         itcBalance: Number(profile.user_wallets.itc_balance) || 0
       } : undefined
     }
