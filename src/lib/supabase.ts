@@ -23,7 +23,7 @@ console.log("[supabase] 🔧 Initializing Supabase client with URL:", supabaseUr
 
 // Generate unified storage key from project URL to ensure consistency
 const PROJECT_REF_HOST = new URL(supabaseUrl).host;
-const STORAGE_KEY = `sb-${PROJECT_REF_HOST}-auth-token`;
+export const STORAGE_KEY = `sb-${PROJECT_REF_HOST}-auth-token`; // Export for use in auth handlers
 
 console.log("[supabase] 🔑 Using storage key:", STORAGE_KEY);
 

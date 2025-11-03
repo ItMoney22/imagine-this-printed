@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, STORAGE_KEY } from '@/lib/supabase'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 
 interface User {
@@ -260,6 +260,24 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       }
 
       console.log('[AuthContext] ✅ PKCE keys stored, manual redirect to:', data.url)
+
+      // CRITICAL WORKAROUND: Manually persist PKCE state to ensure it's available on callback
+      // skipBrowserRedirect: true sometimes doesn't persist the oauth-state before redirect
+      try {
+        const providerUrl = new URL(data.url)
+        const state = providerUrl.searchParams.get('state')
+
+        if (state) {
+          const stateKey = `${STORAGE_KEY}-oauth-state`
+          localStorage.setItem(stateKey, state)
+          console.log('[PKCE] 🔐 Manually stored oauth-state under:', stateKey)
+          console.log('[PKCE] 📊 Current storage keys:', Object.keys(localStorage).filter(k => k.startsWith('sb-')))
+        } else {
+          console.warn('[PKCE] ⚠️ No state parameter found in provider URL')
+        }
+      } catch (err) {
+        console.warn('[PKCE] ⚠️ Failed to parse provider URL or store state:', err)
+      }
 
       // Manual redirect AFTER PKCE data is safely saved to localStorage
       window.location.assign(data.url)
