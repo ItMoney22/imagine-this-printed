@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
+import { verifyPkceStorage, getPkceDebugInfo } from '@/utils/verifyPkce';
 
 type CallbackStatus = 'parsing' | 'exchanging' | 'verifying' | 'redirecting' | 'error';
 
@@ -13,8 +14,28 @@ export default function AuthCallback() {
     (async () => {
       try {
         console.log('[callback] 🧭 Starting PKCE auth callback');
+        console.log('[callback] 🌐 Current origin:', window.location.origin);
+        console.log('[callback] 📍 Full URL:', window.location.href);
+
         const href = window.location.href;
         const params = new URLSearchParams(window.location.search);
+
+        // QA VERIFICATION: Check PKCE keys are present before exchange
+        console.log('[callback] 🔍 Running PKCE verification...');
+        const pkceVerification = verifyPkceStorage();
+        console.log(getPkceDebugInfo());
+
+        // CRITICAL: Verify PKCE keys exist
+        if (!pkceVerification.hasState || !pkceVerification.hasVerifier) {
+          console.error('[callback] ❌ PKCE VERIFICATION FAILED');
+          console.error('[callback] Missing keys:', {
+            state: pkceVerification.hasState ? '✅' : '❌ MISSING',
+            verifier: pkceVerification.hasVerifier ? '✅' : '❌ MISSING',
+          });
+          throw new Error('PKCE keys not found in localStorage. Auth flow may have been interrupted.');
+        }
+
+        console.log('[callback] ✅ PKCE verification passed');
 
         // Handle OAuth errors first
         const errorParam = params.get('error');
@@ -64,15 +85,6 @@ export default function AuthCallback() {
         console.log('[callback] ✅ Session verified:', {
           userId: verifyData.session.user.id,
           email: verifyData.session.user.email,
-        });
-
-        // Check localStorage persistence
-        const storageKey = 'itp-auth-v1';
-        const storedAuth = localStorage.getItem(storageKey);
-        console.log('[callback] 💾 localStorage check:', {
-          key: storageKey,
-          hasData: !!storedAuth,
-          hasToken: storedAuth ? !!JSON.parse(storedAuth).access_token : false,
         });
 
         // Clean URL of OAuth parameters

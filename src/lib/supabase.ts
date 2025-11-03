@@ -23,12 +23,10 @@ console.log("[supabase] 🔧 Initializing Supabase client with URL:", supabaseUr
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    flowType: 'pkce', // Force PKCE flow (code-based OAuth, not implicit)
+    flowType: 'pkce',
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false, // we handle URL explicitly in AuthCallback
-    storageKey: 'itp-auth-v1', // unique per environment
-    storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    detectSessionInUrl: true, // Required for PKCE callback detection
   },
 });
 

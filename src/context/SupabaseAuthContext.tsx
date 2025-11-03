@@ -231,18 +231,21 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
         console.log('[AuthContext] 💾 Saved return path:', currentPath)
       }
 
-      // Use dynamic redirect URL based on current domain
+      // IMPORTANT: Use apex domain consistently (no www)
+      // This MUST match where the user starts the OAuth flow
       const redirectTo = `${window.location.origin}/auth/callback`
       console.log('[AuthContext] 🎯 OAuth redirect URL:', redirectTo)
+      console.log('[AuthContext] 🌐 Current origin:', window.location.origin)
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-          }
+          },
+          skipBrowserRedirect: true, // CRITICAL: Ensures PKCE state/verifier are stored before redirect
         }
       })
 
@@ -251,7 +254,15 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
         return { error: error.message }
       }
 
-      console.log('[AuthContext] ✅ Google OAuth initiated, redirecting...')
+      if (!data?.url) {
+        console.error('[AuthContext] ❌ No provider redirect URL returned')
+        return { error: 'No provider redirect URL returned' }
+      }
+
+      console.log('[AuthContext] ✅ PKCE keys stored, manual redirect to:', data.url)
+
+      // Manual redirect AFTER PKCE data is safely saved to localStorage
+      window.location.assign(data.url)
       return {}
     } catch (error: any) {
       console.error('[AuthContext] ❌ Google sign in exception:', error)
