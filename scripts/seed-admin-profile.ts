@@ -79,17 +79,18 @@ async function upsertAdminProfile(userId: string, email: string): Promise<void> 
   console.log('📝 Upserting admin profile...');
 
   const profileData = {
-    user_id: userId,
+    id: userId,  // Use 'id' instead of 'user_id' for primary key
     email: email,
     username: 'admin',
-    display_name: 'Administrator',
+    full_name: 'David Trinidad',
+    display_name: 'David Trinidad',
     role: 'admin',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
-  // Using upsert with on_conflict parameter
-  const response = await fetch(`${REST_API}/profiles?on_conflict=user_id`, {
+  // Using upsert with on_conflict parameter (id is the primary key)
+  const response = await fetch(`${REST_API}/profiles?on_conflict=id`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,

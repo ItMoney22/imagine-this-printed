@@ -115,6 +115,20 @@ async function checkSupabaseConnectivity() {
   } catch (error: any) {
     addCheck('Supabase API', 'FAIL', error.message);
   }
+
+  // Check frontend is reachable
+  if (PUBLIC_URL) {
+    try {
+      const frontendResponse = await fetch(`${PUBLIC_URL}/login`);
+      if (frontendResponse.ok) {
+        addCheck('Frontend /login', 'PASS', `HTTP ${frontendResponse.status}`);
+      } else {
+        addCheck('Frontend /login', 'WARN', `HTTP ${frontendResponse.status}`);
+      }
+    } catch (error: any) {
+      addCheck('Frontend /login', 'WARN', error.message);
+    }
+  }
 }
 
 /**
