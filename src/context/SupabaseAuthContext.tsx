@@ -25,6 +25,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string, userData?: any) => Promise<{ error?: string }>
   signInWithGoogle: () => Promise<{ error?: string }>
+  signInWithMagicLink: (email: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
   validateReferralCode: (code: string) => Promise<{ isValid: boolean; error?: string }>
@@ -288,6 +289,31 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   }
 
+  const signInWithMagicLink = async (email: string): Promise<{ error?: string }> => {
+    console.log('[AuthContext] 🔄 Attempting magic link sign in for:', email)
+
+    try {
+      const publicUrl = import.meta.env.VITE_PUBLIC_URL || window.location.origin
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${publicUrl}/auth/callback`
+        }
+      })
+
+      if (error) {
+        console.error('[AuthContext] ❌ Magic link failed:', error)
+        return { error: error.message }
+      }
+
+      console.log('[AuthContext] ✅ Magic link sent to:', email)
+      return {}
+    } catch (error: any) {
+      console.error('[AuthContext] ❌ Magic link exception:', error)
+      return { error: error.message || 'Magic link failed' }
+    }
+  }
+
   const signOut = async () => {
     console.log('🔄 SupabaseAuth: Signing out user')
     
@@ -365,6 +391,7 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     signIn,
     signUp,
     signInWithGoogle,
+    signInWithMagicLink,
     signOut,
     resetPassword,
     validateReferralCode,
