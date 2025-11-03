@@ -57,6 +57,18 @@ try {
   } else {
     fail('Supabase client missing persistSession: true');
   }
+
+  if (supabaseFile.includes('storageKey: STORAGE_KEY')) {
+    pass('Supabase client has unified storageKey (prevents PKCE mismatch)');
+  } else {
+    warn('Supabase client missing unified storageKey (may cause PKCE issues)');
+  }
+
+  if (supabaseFile.includes('legacyKeys.forEach')) {
+    pass('Legacy storage key cleanup implemented');
+  } else {
+    warn('Legacy storage key cleanup not found (may leave stale keys)');
+  }
 } catch (error) {
   fail(`Cannot read src/lib/supabase.ts: ${error.message}`);
 }
@@ -96,6 +108,12 @@ try {
     pass('Auth callback includes PKCE verification');
   } else {
     warn('Auth callback missing PKCE verification (QA feature)');
+  }
+
+  if (callbackFile.includes('[PKCE QA]')) {
+    pass('Auth callback includes QA storage key logging');
+  } else {
+    warn('Auth callback missing QA storage key logging');
   }
 
   if (callbackFile.includes('setSession') && !callbackFile.includes('exchangeCodeForSession')) {

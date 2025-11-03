@@ -22,6 +22,8 @@ export default function AuthCallback() {
 
         // QA VERIFICATION: Check PKCE keys are present before exchange
         console.log('[callback] 🔍 Running PKCE verification...');
+        console.log('[PKCE QA]', Object.keys(localStorage).filter(k => k.startsWith('sb-')));
+
         const pkceVerification = verifyPkceStorage();
         console.log(getPkceDebugInfo());
 
