@@ -66,6 +66,11 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       return null
     }
 
+    // PostgREST returns user_wallets as an array, get first item
+    const walletData = Array.isArray(profile.user_wallets)
+      ? profile.user_wallets[0]
+      : profile.user_wallets
+
     return {
       id: profile.id,
       email: profile.email,
@@ -76,9 +81,9 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       lastName: profile.last_name,
       emailVerified: profile.email_verified || false,
       profileCompleted: profile.profile_completed || false,
-      wallet: profile.user_wallets ? {
-        pointsBalance: profile.user_wallets.points || 0,
-        itcBalance: Number(profile.user_wallets.itc_balance) || 0
+      wallet: walletData ? {
+        pointsBalance: walletData.points || 0,
+        itcBalance: Number(walletData.itc_balance) || 0
       } : undefined
     }
   } catch (error) {
