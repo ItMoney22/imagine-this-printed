@@ -1,5 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
+import { Hero } from '../components/Hero'
 import ProductRecommendations from '../components/ProductRecommendations'
 import FeaturedSocialContent from '../components/FeaturedSocialContent'
 import ProductCard from '../components/ProductCard'
@@ -37,45 +38,9 @@ const Home: React.FC = () => {
   ]
 
   return (
-    <div className="bg-white">
-      {/* 🎉 VPS + Supabase Migration Success Banner */}
-      <div className="w-full text-center bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white py-6 font-bold text-2xl shadow-lg">
-        🎉 Imagine This Printed is now running 100% on ✨ Supabase + VPS ✨ — No Vercel Needed!
-      </div>
-      
-      <section className="relative bg-gradient-to-r from-purple-600 to-blue-600 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-          <div className="text-center">
-            <h1 className="text-4xl md:text-6xl font-bold mb-6">
-              Imagine This Printed
-            </h1>
-            <p className="text-xl md:text-2xl mb-8 max-w-3xl mx-auto">
-              Custom printing solutions for your creative vision. From DTF transfers to personalized apparel.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link to="/catalog" className="btn-primary text-lg px-8 py-3">
-                Shop Products
-              </Link>
-              <Link to="/designer" className="btn-secondary text-lg px-8 py-3">
-                Create Design
-              </Link>
-              <a 
-                href="https://imagine-this-printed.buildagangsheet.com/builder/create/itp-maxload™-transfer-sheet" 
-                style={{
-                  padding: '0.5rem',
-                  display: 'block',
-                  textAlign: 'center',
-                  borderRadius: '0.25rem',
-                  backgroundColor: '#c039fe',
-                  color: '#ffffff'
-                }}
-              >
-                Build a Gang Sheet
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
+    <div className="bg-bg">
+      {/* Hero Section */}
+      <Hero />
 
       <section className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
