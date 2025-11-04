@@ -366,8 +366,8 @@ const VendorStorefront: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Vendor Not Found</h1>
-          <p className="text-gray-600 mb-6">The vendor storefront you're looking for doesn't exist.</p>
+          <h1 className="text-2xl font-bold text-text mb-4">Vendor Not Found</h1>
+          <p className="text-muted mb-6">The vendor storefront you're looking for doesn't exist.</p>
           <button 
             onClick={() => navigate('/vendors')}
             className="btn-primary"
@@ -406,7 +406,7 @@ const VendorStorefront: React.FC = () => {
       <header 
         className={`${
           theme.headerStyle === 'bold' ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white' :
-          theme.headerStyle === 'minimal' ? 'bg-white border-b' :
+          theme.headerStyle === 'minimal' ? 'bg-card border-b' :
           'bg-gray-900 text-white'
         } shadow-sm`}
       >
@@ -447,7 +447,7 @@ const VendorStorefront: React.FC = () => {
                 className={`px-4 py-2 rounded-md text-sm font-medium ${
                   theme.headerStyle === 'minimal' 
                     ? 'bg-purple-600 text-white hover:bg-purple-700'
-                    : 'bg-white text-gray-900 hover:bg-gray-100'
+                    : 'bg-card text-text hover:bg-card'
                 }`}
               >
                 Contact Us
@@ -485,7 +485,7 @@ const VendorStorefront: React.FC = () => {
                 </svg>
                 {vendor.productCount}
               </div>
-              <p className="text-gray-600">Products</p>
+              <p className="text-muted">Products</p>
             </div>
             
             <div className="text-center">
@@ -495,7 +495,7 @@ const VendorStorefront: React.FC = () => {
                 </svg>
                 {vendor.leadTime}
               </div>
-              <p className="text-gray-600">Days Lead Time</p>
+              <p className="text-muted">Days Lead Time</p>
             </div>
             
             <div className="text-center">
@@ -505,7 +505,7 @@ const VendorStorefront: React.FC = () => {
                 </svg>
                 ${vendor.minimumOrderValue}
               </div>
-              <p className="text-gray-600">Minimum Order</p>
+              <p className="text-muted">Minimum Order</p>
             </div>
             
             <div className="text-center">
@@ -524,7 +524,7 @@ const VendorStorefront: React.FC = () => {
                 </div>
                 <span className="ml-2">{vendor.rating}</span>
               </div>
-              <p className="text-gray-600">{vendor.reviewCount} Reviews</p>
+              <p className="text-muted">{vendor.reviewCount} Reviews</p>
             </div>
           </div>
         </div>
@@ -534,7 +534,7 @@ const VendorStorefront: React.FC = () => {
       <section className="py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-bold text-gray-900">Our Products</h3>
+            <h3 className="text-2xl font-bold text-text">Our Products</h3>
             
             <div className="flex items-center space-x-4">
               <select
@@ -585,14 +585,14 @@ const VendorStorefront: React.FC = () => {
 
           {filteredProducts.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-500">No products found in this category.</p>
+              <p className="text-muted">No products found in this category.</p>
             </div>
           )}
         </div>
       </section>
 
       {/* Recommendations */}
-      <section className="py-12 bg-gray-50">
+      <section className="py-12 bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <ProductRecommendations
             context={{
@@ -626,7 +626,7 @@ const ProductCard: React.FC<{
   layout: string
 }> = ({ product, theme, displayPrice, onAddToCart, layout }) => {
   return (
-    <div className={`bg-white rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow ${
+    <div className={`bg-card rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow ${
       layout === 'list' ? 'flex' : ''
     }`}>
       <div className={layout === 'list' ? 'w-1/3' : ''}>
@@ -638,8 +638,8 @@ const ProductCard: React.FC<{
       </div>
       
       <div className={`p-6 ${layout === 'list' ? 'flex-1' : ''}`}>
-        <h4 className="text-lg font-medium text-gray-900 mb-2">{product.name}</h4>
-        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{product.description}</p>
+        <h4 className="text-lg font-medium text-text mb-2">{product.name}</h4>
+        <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>
         
         {theme.showPricing && displayPrice.price > 0 && (
           <div className="mb-4">
@@ -648,17 +648,17 @@ const ProductCard: React.FC<{
                 <p className="text-2xl font-bold" style={{ color: theme.primaryColor }}>
                   ${displayPrice.price.toFixed(2)}
                 </p>
-                <p className="text-xs text-gray-500">{displayPrice.label}</p>
+                <p className="text-xs text-muted">{displayPrice.label}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">MOQ</p>
+                <p className="text-sm text-muted">MOQ</p>
                 <p className="font-medium">{product.minimumOrderQuantity}</p>
               </div>
             </div>
           </div>
         )}
 
-        <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+        <div className="flex items-center justify-between text-sm text-muted mb-4">
           <span>Lead time: {product.leadTime} days</span>
           <span className="text-green-600">{product.inStock ? 'In Stock' : 'Out of Stock'}</span>
         </div>
@@ -675,7 +675,7 @@ const ProductCard: React.FC<{
           >
             Add to Cart
           </button>
-          <button className="w-full py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
+          <button className="w-full py-2 px-4 border card-border rounded-md text-sm font-medium text-text hover:bg-card">
             Request Quote
           </button>
         </div>
@@ -692,12 +692,12 @@ const ContactModal: React.FC<{
 }> = ({ vendor, config, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
+      <div className="bg-card rounded-lg p-6 max-w-lg w-full mx-4">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-medium text-gray-900">Contact {vendor.companyName}</h3>
+          <h3 className="text-lg font-medium text-text">Contact {vendor.companyName}</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
+            className="text-gray-400 hover:text-muted"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -706,7 +706,7 @@ const ContactModal: React.FC<{
         </div>
 
         {config.contactInfo.customMessage && (
-          <p className="text-gray-600 mb-6">{config.contactInfo.customMessage}</p>
+          <p className="text-muted mb-6">{config.contactInfo.customMessage}</p>
         )}
 
         <div className="space-y-4">
@@ -755,14 +755,14 @@ const ContactModal: React.FC<{
         {/* Social Links */}
         {Object.values(config.socialLinks).some(link => link) && (
           <div className="mt-6 pt-6 border-t">
-            <p className="text-sm font-medium text-gray-900 mb-3">Follow Us</p>
+            <p className="text-sm font-medium text-text mb-3">Follow Us</p>
             <div className="flex space-x-3">
               {config.socialLinks.website && (
                 <a 
                   href={config.socialLinks.website}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-400 hover:text-gray-500"
+                  className="text-gray-400 hover:text-muted"
                 >
                   🌐
                 </a>
@@ -772,7 +772,7 @@ const ContactModal: React.FC<{
                   href={config.socialLinks.instagram}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-400 hover:text-gray-500"
+                  className="text-gray-400 hover:text-muted"
                 >
                   📷
                 </a>
@@ -782,7 +782,7 @@ const ContactModal: React.FC<{
                   href={config.socialLinks.linkedin}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-400 hover:text-gray-500"
+                  className="text-gray-400 hover:text-muted"
                 >
                   💼
                 </a>

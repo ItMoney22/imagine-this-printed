@@ -103,13 +103,13 @@ const VendorDashboard: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Vendor Dashboard</h1>
-        <p className="text-gray-600">Manage your products and track sales performance</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Vendor Dashboard</h1>
+        <p className="text-muted">Manage your products and track sales performance</p>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -117,13 +117,13 @@ const VendorDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Earnings</p>
-              <p className="text-2xl font-semibold text-gray-900">${analytics.totalSales.toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted">Total Earnings</p>
+              <p className="text-2xl font-semibold text-text">${analytics.totalSales.toFixed(2)}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -131,13 +131,13 @@ const VendorDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">This Month</p>
-              <p className="text-2xl font-semibold text-gray-900">${analytics.thisMonth.toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted">This Month</p>
+              <p className="text-2xl font-semibold text-text">${analytics.thisMonth.toFixed(2)}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded-lg">
               <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,13 +145,13 @@ const VendorDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending Payout</p>
-              <p className="text-2xl font-semibold text-gray-900">${analytics.pendingPayout.toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted">Pending Payout</p>
+              <p className="text-2xl font-semibold text-text">${analytics.pendingPayout.toFixed(2)}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
               <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,15 +159,15 @@ const VendorDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Commission Rate</p>
-              <p className="text-2xl font-semibold text-gray-900">{analytics.commissionRate}%</p>
+              <p className="text-sm font-medium text-muted">Commission Rate</p>
+              <p className="text-2xl font-semibold text-text">{analytics.commissionRate}%</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {['products', 'submit', 'analytics', 'payouts'].map((tab) => (
             <button
@@ -176,7 +176,7 @@ const VendorDashboard: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 selectedTab === tab
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -187,9 +187,9 @@ const VendorDashboard: React.FC = () => {
 
       {/* Products Tab */}
       {selectedTab === 'products' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Your Products</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Your Products</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
             {products.map((product) => (
@@ -200,10 +200,10 @@ const VendorDashboard: React.FC = () => {
                   className="w-full h-48 object-cover"
                 />
                 <div className="p-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">{product.title}</h4>
-                  <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
+                  <h4 className="font-semibold text-text mb-2">{product.title}</h4>
+                  <p className="text-muted text-sm mb-3 line-clamp-2">{product.description}</p>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-lg font-bold text-gray-900">${product.price}</span>
+                    <span className="text-lg font-bold text-text">${product.price}</span>
                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                       product.approved 
                         ? 'bg-green-100 text-green-800' 
@@ -212,7 +212,7 @@ const VendorDashboard: React.FC = () => {
                       {product.approved ? 'Approved' : 'Pending'}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500">Commission: {product.commissionRate}%</p>
+                  <p className="text-sm text-muted">Commission: {product.commissionRate}%</p>
                   <div className="mt-3 flex space-x-2">
                     <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-3 rounded">
                       Edit
@@ -230,51 +230,51 @@ const VendorDashboard: React.FC = () => {
 
       {/* Submit Product Tab */}
       {selectedTab === 'submit' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-6">Submit New Product</h3>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-text mb-6">Submit New Product</h3>
           
           <form onSubmit={handleSubmitProduct} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Product Title</label>
+              <label className="block text-sm font-medium text-text mb-2">Product Title</label>
               <input
                 type="text"
                 value={newProduct.title}
                 onChange={(e) => setNewProduct(prev => ({ ...prev, title: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+              <label className="block text-sm font-medium text-text mb-2">Description</label>
               <textarea
                 value={newProduct.description}
                 onChange={(e) => setNewProduct(prev => ({ ...prev, description: e.target.value }))}
                 rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 required
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Price ($)</label>
+                <label className="block text-sm font-medium text-text mb-2">Price ($)</label>
                 <input
                   type="number"
                   step="0.01"
                   value={newProduct.price}
                   onChange={(e) => setNewProduct(prev => ({ ...prev, price: parseFloat(e.target.value) }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <label className="block text-sm font-medium text-text mb-2">Category</label>
                 <select
                   value={newProduct.category}
                   onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   required
                 >
                   <option value="">Select Category</option>
@@ -288,13 +288,13 @@ const VendorDashboard: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Product Images</label>
+              <label className="block text-sm font-medium text-text mb-2">Product Images</label>
               <input
                 type="file"
                 multiple
                 accept="image/*"
                 onChange={handleImageUpload}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               {newProduct.images.length > 0 && (
                 <div className="mt-3 grid grid-cols-4 gap-3">
@@ -335,8 +335,8 @@ const VendorDashboard: React.FC = () => {
       {/* Analytics Tab */}
       {selectedTab === 'analytics' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-6">Sales Performance</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-6">Sales Performance</h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div className="bg-gradient-to-r from-green-400 to-blue-500 rounded-lg p-6 text-white">
@@ -353,20 +353,20 @@ const VendorDashboard: React.FC = () => {
             </div>
 
             <div className="border rounded-lg p-4">
-              <h4 className="font-semibold text-gray-900 mb-4">Top Performing Products</h4>
+              <h4 className="font-semibold text-text mb-4">Top Performing Products</h4>
               <div className="space-y-3">
                 {products.filter(p => p.approved).map((product) => (
-                  <div key={product.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                  <div key={product.id} className="flex items-center justify-between p-3 bg-card rounded">
                     <div className="flex items-center">
                       <img src={product.images[0]} alt={product.title} className="w-12 h-12 object-cover rounded mr-3" />
                       <div>
-                        <p className="font-medium text-gray-900">{product.title}</p>
-                        <p className="text-sm text-gray-600">${product.price}</p>
+                        <p className="font-medium text-text">{product.title}</p>
+                        <p className="text-sm text-muted">${product.price}</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-green-600">$67.89</p>
-                      <p className="text-sm text-gray-500">23 sold</p>
+                      <p className="text-sm text-muted">23 sold</p>
                     </div>
                   </div>
                 ))}
@@ -378,8 +378,8 @@ const VendorDashboard: React.FC = () => {
 
       {/* Payouts Tab */}
       {selectedTab === 'payouts' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-6">Payout Management</h3>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-text mb-6">Payout Management</h3>
           
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
             <div className="flex">
@@ -396,27 +396,27 @@ const VendorDashboard: React.FC = () => {
           <div className="space-y-4">
             <div className="border rounded-lg p-4">
               <div className="flex justify-between items-center mb-2">
-                <h4 className="font-semibold text-gray-900">Pending Payout</h4>
+                <h4 className="font-semibold text-text">Pending Payout</h4>
                 <span className="text-2xl font-bold text-green-600">${analytics.pendingPayout.toFixed(2)}</span>
               </div>
-              <p className="text-sm text-gray-600 mb-4">Available for payout on next billing cycle</p>
+              <p className="text-sm text-muted mb-4">Available for payout on next billing cycle</p>
               <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded">
                 Request Payout
               </button>
             </div>
 
             <div className="border rounded-lg p-4">
-              <h4 className="font-semibold text-gray-900 mb-4">Payout History</h4>
+              <h4 className="font-semibold text-text mb-4">Payout History</h4>
               <div className="space-y-3">
                 {[
                   { date: '2025-01-01', amount: 145.67, status: 'Completed' },
                   { date: '2024-12-01', amount: 234.12, status: 'Completed' },
                   { date: '2024-11-01', amount: 178.93, status: 'Completed' }
                 ].map((payout, index) => (
-                  <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                  <div key={index} className="flex justify-between items-center p-3 bg-card rounded">
                     <div>
-                      <p className="font-medium text-gray-900">${payout.amount.toFixed(2)}</p>
-                      <p className="text-sm text-gray-600">{payout.date}</p>
+                      <p className="font-medium text-text">${payout.amount.toFixed(2)}</p>
+                      <p className="text-sm text-muted">{payout.date}</p>
                     </div>
                     <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
                       {payout.status}

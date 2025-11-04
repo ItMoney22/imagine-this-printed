@@ -253,10 +253,10 @@ const KioskInterface: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-xl text-gray-600">Loading kiosk...</p>
+          <p className="text-xl text-muted">Loading kiosk...</p>
         </div>
       </div>
     )
@@ -278,12 +278,12 @@ const KioskInterface: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen bg-gray-100" style={{ 
+    <div className="min-h-screen bg-card" style={{ 
       fontFamily: kiosk.settings.touchOptimized ? 'system-ui, sans-serif' : 'inherit',
       fontSize: kiosk.settings.touchOptimized ? '1.125rem' : 'inherit'
     }}>
       {/* Header */}
-      <header className="bg-white shadow-sm border-b-4" style={{ borderColor: kiosk.settings.primaryColor }}>
+      <header className="bg-card shadow-sm border-b-4" style={{ borderColor: kiosk.settings.primaryColor }}>
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -291,15 +291,15 @@ const KioskInterface: React.FC = () => {
                 <img src={kiosk.settings.logoUrl} alt="Logo" className="h-12 w-auto" />
               )}
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{kiosk.name}</h1>
-                <p className="text-gray-600">{kiosk.location}</p>
+                <h1 className="text-2xl font-bold text-text">{kiosk.name}</h1>
+                <p className="text-muted">{kiosk.location}</p>
               </div>
             </div>
             
             {/* Cart Summary */}
             <div className="flex items-center space-x-4">
               <div className="text-right">
-                <p className="text-sm text-gray-600">Items: {cart.reduce((sum, item) => sum + item.quantity, 0)}</p>
+                <p className="text-sm text-muted">Items: {cart.reduce((sum, item) => sum + item.quantity, 0)}</p>
                 <p className="text-lg font-bold" style={{ color: kiosk.settings.primaryColor }}>
                   {formatCurrency(getCartTotal())}
                 </p>
@@ -322,11 +322,11 @@ const KioskInterface: React.FC = () => {
       <main className="max-w-7xl mx-auto px-6 py-6">
         {/* Welcome Message */}
         {currentView === 'products' && cart.length === 0 && (
-          <div className="text-center mb-8 p-8 bg-white rounded-lg shadow-sm">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">
+          <div className="text-center mb-8 p-8 bg-card rounded-lg shadow-sm">
+            <h2 className="text-3xl font-bold text-text mb-2">
               {kiosk.settings.welcomeMessage}
             </h2>
-            <p className="text-xl text-gray-600">
+            <p className="text-xl text-muted">
               Touch any product to add it to your cart
             </p>
           </div>
@@ -344,7 +344,7 @@ const KioskInterface: React.FC = () => {
                   className={`px-6 py-3 rounded-lg font-medium touch-manipulation transition-colors ${
                     selectedCategory === category
                       ? 'text-white'
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                      : 'bg-card text-text hover:bg-card'
                   }`}
                   style={{
                     backgroundColor: selectedCategory === category ? kiosk.settings.primaryColor : undefined
@@ -361,7 +361,7 @@ const KioskInterface: React.FC = () => {
                 <div
                   key={product.id}
                   onClick={() => addToCart(product)}
-                  className="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer touch-manipulation transform transition-transform hover:scale-105 active:scale-95"
+                  className="bg-card rounded-lg shadow-sm overflow-hidden cursor-pointer touch-manipulation transform transition-transform hover:scale-105 active:scale-95"
                 >
                   <img
                     src={product.images[0]}
@@ -369,8 +369,8 @@ const KioskInterface: React.FC = () => {
                     className="w-full h-48 object-cover"
                   />
                   <div className="p-4">
-                    <h3 className="font-bold text-gray-900 mb-2 text-lg">{product.name}</h3>
-                    <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
+                    <h3 className="font-bold text-text mb-2 text-lg">{product.name}</h3>
+                    <p className="text-muted text-sm mb-3 line-clamp-2">{product.description}</p>
                     <div className="flex items-center justify-between">
                       <span className="text-2xl font-bold" style={{ color: kiosk.settings.primaryColor }}>
                         {formatCurrency(product.price)}
@@ -388,12 +388,12 @@ const KioskInterface: React.FC = () => {
 
         {/* Cart View */}
         {currentView === 'cart' && (
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Your Cart</h2>
+          <div className="bg-card rounded-lg shadow-sm">
+            <div className="px-6 py-4 border-b card-border flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-text">Your Cart</h2>
               <button
                 onClick={() => setCurrentView('products')}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 touch-manipulation"
+                className="px-4 py-2 text-muted hover:text-gray-800 touch-manipulation"
               >
                 ← Continue Shopping
               </button>
@@ -402,7 +402,7 @@ const KioskInterface: React.FC = () => {
             <div className="p-6">
               {cart.length === 0 ? (
                 <div className="text-center py-8">
-                  <p className="text-xl text-gray-600">Your cart is empty</p>
+                  <p className="text-xl text-muted">Your cart is empty</p>
                   <button
                     onClick={() => setCurrentView('products')}
                     className="mt-4 px-6 py-3 rounded-lg text-white font-medium touch-manipulation"
@@ -415,20 +415,20 @@ const KioskInterface: React.FC = () => {
                 <>
                   <div className="space-y-4 mb-6">
                     {cart.map(item => (
-                      <div key={item.id} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
+                      <div key={item.id} className="flex items-center space-x-4 p-4 border card-border rounded-lg">
                         <img
                           src={item.product.images[0]}
                           alt={item.product.name}
                           className="w-16 h-16 object-cover rounded"
                         />
                         <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">{item.product.name}</h3>
-                          <p className="text-gray-600">{formatCurrency(item.product.price)}</p>
+                          <h3 className="font-medium text-text">{item.product.name}</h3>
+                          <p className="text-muted">{formatCurrency(item.product.price)}</p>
                         </div>
                         <div className="flex items-center space-x-3">
                           <button
                             onClick={() => updateCartQuantity(item.id, item.quantity - 1)}
-                            className="w-10 h-10 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 touch-manipulation flex items-center justify-center"
+                            className="w-10 h-10 rounded-full bg-gray-200 text-muted hover:bg-gray-300 touch-manipulation flex items-center justify-center"
                           >
                             -
                           </button>
@@ -451,7 +451,7 @@ const KioskInterface: React.FC = () => {
                   </div>
 
                   {/* Cart Total */}
-                  <div className="border-t border-gray-200 pt-4 mb-6">
+                  <div className="border-t card-border pt-4 mb-6">
                     <div className="flex items-center justify-between text-2xl font-bold">
                       <span>Total:</span>
                       <span style={{ color: kiosk.settings.primaryColor }}>
@@ -476,12 +476,12 @@ const KioskInterface: React.FC = () => {
 
         {/* Checkout View */}
         {currentView === 'checkout' && (
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Checkout</h2>
+          <div className="bg-card rounded-lg shadow-sm">
+            <div className="px-6 py-4 border-b card-border flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-text">Checkout</h2>
               <button
                 onClick={() => setCurrentView('cart')}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 touch-manipulation"
+                className="px-4 py-2 text-muted hover:text-gray-800 touch-manipulation"
               >
                 ← Back to Cart
               </button>
@@ -491,7 +491,7 @@ const KioskInterface: React.FC = () => {
               {/* Customer Info (Optional) */}
               {kiosk.settings.requireCustomerInfo && (
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h3>
+                  <h3 className="text-lg font-medium text-text mb-4">Customer Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <input
                       type="text"
@@ -520,7 +520,7 @@ const KioskInterface: React.FC = () => {
 
               {/* Payment Method Selection */}
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Payment Method</h3>
+                <h3 className="text-lg font-medium text-text mb-4">Payment Method</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {kiosk.settings.allowStripeTerminal && (
                     <button
@@ -528,7 +528,7 @@ const KioskInterface: React.FC = () => {
                       className={`p-6 border-2 rounded-lg touch-manipulation transition-colors ${
                         paymentMethod === 'card'
                           ? 'border-current text-white'
-                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                          : 'card-border text-text hover:card-border'
                       }`}
                       style={{
                         backgroundColor: paymentMethod === 'card' ? kiosk.settings.primaryColor : undefined,
@@ -550,7 +550,7 @@ const KioskInterface: React.FC = () => {
                       className={`p-6 border-2 rounded-lg touch-manipulation transition-colors ${
                         paymentMethod === 'cash'
                           ? 'border-current text-white'
-                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                          : 'card-border text-text hover:card-border'
                       }`}
                       style={{
                         backgroundColor: paymentMethod === 'cash' ? kiosk.settings.primaryColor : undefined,
@@ -572,7 +572,7 @@ const KioskInterface: React.FC = () => {
                       className={`p-6 border-2 rounded-lg touch-manipulation transition-colors ${
                         paymentMethod === 'itc_wallet'
                           ? 'border-current text-white'
-                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                          : 'card-border text-text hover:card-border'
                       }`}
                       style={{
                         backgroundColor: paymentMethod === 'itc_wallet' ? kiosk.settings.primaryColor : undefined,
@@ -593,11 +593,11 @@ const KioskInterface: React.FC = () => {
               {/* Cash Input */}
               {paymentMethod === 'cash' && (
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Cash Payment</h3>
-                  <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-lg font-medium text-text mb-4">Cash Payment</h3>
+                  <div className="bg-card p-4 rounded-lg">
                     <p className="text-lg mb-4">Total: {formatCurrency(getCartTotal())}</p>
                     <div className="flex items-center space-x-4">
-                      <label className="text-sm font-medium text-gray-700">Cash Received:</label>
+                      <label className="text-sm font-medium text-text">Cash Received:</label>
                       <input
                         type="number"
                         step="0.01"
@@ -632,8 +632,8 @@ const KioskInterface: React.FC = () => {
               )}
 
               {/* Order Summary */}
-              <div className="border-t border-gray-200 pt-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Order Summary</h3>
+              <div className="border-t card-border pt-4">
+                <h3 className="text-lg font-medium text-text mb-4">Order Summary</h3>
                 <div className="space-y-2 mb-4">
                   {cart.map(item => (
                     <div key={item.id} className="flex justify-between">
@@ -665,17 +665,17 @@ const KioskInterface: React.FC = () => {
 
         {/* Receipt View */}
         {currentView === 'receipt' && currentOrder && (
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-200 text-center">
+          <div className="bg-card rounded-lg shadow-sm">
+            <div className="px-6 py-4 border-b card-border text-center">
               <h2 className="text-2xl font-bold text-green-600">Payment Successful!</h2>
             </div>
             
             <div className="p-6 text-center">
               <div className="text-6xl mb-4">✓</div>
-              <h3 className="text-xl font-medium text-gray-900 mb-4">Thank you for your purchase!</h3>
+              <h3 className="text-xl font-medium text-text mb-4">Thank you for your purchase!</h3>
               
-              <div className="bg-gray-50 p-4 rounded-lg mb-6 text-left max-w-md mx-auto">
-                <h4 className="font-medium text-gray-900 mb-2">Receipt</h4>
+              <div className="bg-card p-4 rounded-lg mb-6 text-left max-w-md mx-auto">
+                <h4 className="font-medium text-text mb-2">Receipt</h4>
                 <div className="text-sm space-y-1">
                   <div className="flex justify-between">
                     <span>Order ID:</span>
@@ -696,7 +696,7 @@ const KioskInterface: React.FC = () => {
                 </div>
               </div>
 
-              <p className="text-gray-600 mb-6">
+              <p className="text-muted mb-6">
                 A new order will start automatically in a few seconds.
               </p>
 

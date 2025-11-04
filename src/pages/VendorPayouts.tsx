@@ -106,8 +106,8 @@ const VendorPayouts: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Vendor Payouts</h1>
-        <p className="text-gray-600">Manage your earnings and payout schedule</p>
+        <h1 className="text-3xl font-bold text-text">Vendor Payouts</h1>
+        <p className="text-muted">Manage your earnings and payout schedule</p>
       </div>
 
       {/* Stripe Connect Status */}
@@ -131,7 +131,7 @@ const VendorPayouts: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', label: 'Overview', icon: '📊' },
@@ -145,7 +145,7 @@ const VendorPayouts: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -160,7 +160,7 @@ const VendorPayouts: React.FC = () => {
         <div className="space-y-6">
           {/* Key Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -168,8 +168,8 @@ const VendorPayouts: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Earnings</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Total Earnings</p>
+                  <p className="text-2xl font-semibold text-text">
                     {vendorPayoutService.formatCurrency(summary.totalAmount)}
                   </p>
                   {summary.periodComparison && (
@@ -181,7 +181,7 @@ const VendorPayouts: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -189,16 +189,16 @@ const VendorPayouts: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Pending Payouts</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Pending Payouts</p>
+                  <p className="text-2xl font-semibold text-text">
                     {vendorPayoutService.formatCurrency(summary.pendingAmount)}
                   </p>
-                  <p className="text-sm text-gray-500">Available for withdrawal</p>
+                  <p className="text-sm text-muted">Available for withdrawal</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -206,16 +206,16 @@ const VendorPayouts: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Average Payout</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Average Payout</p>
+                  <p className="text-2xl font-semibold text-text">
                     {vendorPayoutService.formatCurrency(summary.averagePayout)}
                   </p>
-                  <p className="text-sm text-gray-500">Per transaction</p>
+                  <p className="text-sm text-muted">Per transaction</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -223,11 +223,11 @@ const VendorPayouts: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Platform Fees</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Platform Fees</p>
+                  <p className="text-2xl font-semibold text-text">
                     {vendorPayoutService.formatCurrency(summary.totalFees)}
                   </p>
-                  <p className="text-sm text-gray-500">10.5% total fees</p>
+                  <p className="text-sm text-muted">10.5% total fees</p>
                 </div>
               </div>
             </div>
@@ -235,13 +235,13 @@ const VendorPayouts: React.FC = () => {
 
           {/* Quick Actions */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Request Payout</h3>
-              <p className="text-gray-600 mb-4">
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-text mb-4">Request Payout</h3>
+              <p className="text-muted mb-4">
                 Request an immediate payout of your pending earnings.
               </p>
               <div className="flex items-center justify-between mb-4">
-                <span className="text-sm text-gray-500">Available:</span>
+                <span className="text-sm text-muted">Available:</span>
                 <span className="font-medium text-green-600">
                   {vendorPayoutService.formatCurrency(summary.pendingAmount)}
                 </span>
@@ -255,30 +255,30 @@ const VendorPayouts: React.FC = () => {
               </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Fee Breakdown</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-text mb-4">Fee Breakdown</h3>
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Platform Fee</span>
+                  <span className="text-muted">Platform Fee</span>
                   <span className="font-medium">7.0%</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Payment Processing</span>
+                  <span className="text-muted">Payment Processing</span>
                   <span className="font-medium">3.5%</span>
                 </div>
                 <div className="flex justify-between border-t pt-3">
-                  <span className="font-medium text-gray-900">Total Fees</span>
-                  <span className="font-medium text-gray-900">10.5%</span>
+                  <span className="font-medium text-text">Total Fees</span>
+                  <span className="font-medium text-text">10.5%</span>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Payout Schedule</h3>
-              <p className="text-gray-600 mb-4">
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-text mb-4">Payout Schedule</h3>
+              <p className="text-muted mb-4">
                 Automatic payouts are processed weekly on Fridays.
               </p>
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-muted">
                 <p>Next automatic payout: Friday, Jan 17</p>
                 <p>Minimum payout: $25.00</p>
               </div>
@@ -291,10 +291,10 @@ const VendorPayouts: React.FC = () => {
       {selectedTab === 'payouts' && (
         <div className="space-y-6">
           {/* Filters */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-card rounded-lg shadow p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <label className="text-sm font-medium text-gray-700">Filter by status:</label>
+                <label className="text-sm font-medium text-text">Filter by status:</label>
                 <select
                   value={filter}
                   onChange={(e) => setFilter(e.target.value as any)}
@@ -316,49 +316,49 @@ const VendorPayouts: React.FC = () => {
           </div>
 
           {/* Payouts Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Payout History</h3>
+          <div className="bg-card rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Payout History</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-card">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Order ID
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Sale Amount
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Fees
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Payout
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Date
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-card divide-y divide-gray-200">
                   {filteredPayouts.map((payout) => (
-                    <tr key={payout.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <tr key={payout.id} className="hover:bg-card">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
                         {payout.orderId}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {vendorPayoutService.formatCurrency(payout.saleAmount)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         <div className="space-y-1">
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-muted">
                             Platform: {vendorPayoutService.formatCurrency(payout.platformFee)}
                           </div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-muted">
                             Stripe: {vendorPayoutService.formatCurrency(payout.stripeFee)}
                           </div>
                         </div>
@@ -375,7 +375,7 @@ const VendorPayouts: React.FC = () => {
                           {payout.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {new Date(payout.createdAt).toLocaleDateString()}
                       </td>
                     </tr>
@@ -390,12 +390,12 @@ const VendorPayouts: React.FC = () => {
       {/* Analytics Tab */}
       {selectedTab === 'analytics' && analytics && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Payout Analytics</h3>
-            <p className="text-gray-600">
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Payout Analytics</h3>
+            <p className="text-muted">
               Analytics features will be implemented here, including:
             </p>
-            <ul className="mt-4 space-y-2 text-gray-600">
+            <ul className="mt-4 space-y-2 text-muted">
               <li>• Weekly/Monthly payout trends</li>
               <li>• Top-performing products</li>
               <li>• Fee optimization insights</li>
@@ -408,12 +408,12 @@ const VendorPayouts: React.FC = () => {
       {/* Settings Tab */}
       {selectedTab === 'settings' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Payout Settings</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Payout Settings</h3>
             
             <div className="space-y-6">
               <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Stripe Connect Status</h4>
+                <h4 className="text-sm font-medium text-text mb-2">Stripe Connect Status</h4>
                 <div className={`p-4 rounded-lg ${
                   stripeStatus?.isOnboarded ? 'bg-green-50' : 'bg-yellow-50'
                 }`}>
@@ -441,20 +441,20 @@ const VendorPayouts: React.FC = () => {
               </div>
 
               <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Automatic Payouts</h4>
+                <h4 className="text-sm font-medium text-text mb-2">Automatic Payouts</h4>
                 <div className="flex items-center">
                   <input type="checkbox" defaultChecked className="form-checkbox" />
-                  <span className="ml-2 text-sm text-gray-700">
+                  <span className="ml-2 text-sm text-text">
                     Enable automatic weekly payouts (Fridays)
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-muted">
                   Payouts will be processed automatically when your balance exceeds $25
                 </p>
               </div>
 
               <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Minimum Payout Amount</h4>
+                <h4 className="text-sm font-medium text-text mb-2">Minimum Payout Amount</h4>
                 <input
                   type="number"
                   defaultValue="25"
@@ -462,7 +462,7 @@ const VendorPayouts: React.FC = () => {
                   max="1000"
                   className="form-input w-32"
                 />
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-muted">
                   Minimum amount required before a payout is processed
                 </p>
               </div>

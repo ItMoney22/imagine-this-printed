@@ -211,7 +211,7 @@ const KioskAnalyticsPage: React.FC = () => {
       case 'card': return 'text-blue-600 bg-blue-100'
       case 'cash': return 'text-green-600 bg-green-100'
       case 'itc_wallet': return 'text-purple-600 bg-purple-100'
-      default: return 'text-gray-600 bg-gray-100'
+      default: return 'text-muted bg-card'
     }
   }
 
@@ -243,16 +243,16 @@ const KioskAnalyticsPage: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Kiosk Analytics</h1>
-        <p className="text-gray-600">Track kiosk performance and revenue sharing</p>
+        <h1 className="text-3xl font-bold text-text">Kiosk Analytics</h1>
+        <p className="text-muted">Track kiosk performance and revenue sharing</p>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className="bg-card rounded-lg shadow mb-6">
+        <div className="px-6 py-4 border-b card-border">
           <div className="flex flex-wrap items-center gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Kiosk</label>
+              <label className="block text-sm font-medium text-text mb-1">Kiosk</label>
               <select
                 value={selectedKiosk}
                 onChange={(e) => setSelectedKiosk(e.target.value)}
@@ -270,7 +270,7 @@ const KioskAnalyticsPage: React.FC = () => {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+              <label className="block text-sm font-medium text-text mb-1">Period</label>
               <select
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
@@ -288,7 +288,7 @@ const KioskAnalyticsPage: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -296,15 +296,15 @@ const KioskAnalyticsPage: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Sales</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-muted">Total Sales</p>
+              <p className="text-2xl font-bold text-text">
                 {formatCurrency(analytics?.totalSales || summaryData.totalSales)}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -312,15 +312,15 @@ const KioskAnalyticsPage: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-muted">Total Orders</p>
+              <p className="text-2xl font-bold text-text">
                 {analytics?.totalOrders || summaryData.totalOrders}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
               <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -328,15 +328,15 @@ const KioskAnalyticsPage: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Avg Order Value</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-muted">Avg Order Value</p>
+              <p className="text-2xl font-bold text-text">
                 {formatCurrency(analytics?.averageOrderValue || summaryData.averageOrderValue)}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded-lg">
               <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,8 +344,8 @@ const KioskAnalyticsPage: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Kiosks</p>
-              <p className="text-2xl font-bold text-gray-900">{summaryData.activeKiosks}</p>
+              <p className="text-sm font-medium text-muted">Active Kiosks</p>
+              <p className="text-2xl font-bold text-text">{summaryData.activeKiosks}</p>
             </div>
           </div>
         </div>
@@ -355,9 +355,9 @@ const KioskAnalyticsPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Payment Methods Breakdown */}
         {analytics && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Payment Methods</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Payment Methods</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
@@ -367,11 +367,11 @@ const KioskAnalyticsPage: React.FC = () => {
                       <span className={`px-2 py-1 text-xs rounded-full ${getPaymentMethodColor(method)} capitalize`}>
                         {method.replace('_', ' ')}
                       </span>
-                      <span className="ml-3 text-sm font-medium text-gray-900">
+                      <span className="ml-3 text-sm font-medium text-text">
                         {data.count} orders
                       </span>
                     </div>
-                    <span className="text-sm font-bold text-gray-900">
+                    <span className="text-sm font-bold text-text">
                       {formatCurrency(data.amount)}
                     </span>
                   </div>
@@ -383,16 +383,16 @@ const KioskAnalyticsPage: React.FC = () => {
 
         {/* Hourly Performance */}
         {analytics && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Hourly Performance</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Hourly Performance</h3>
             </div>
             <div className="p-6">
               <div className="space-y-3">
                 {analytics.hourlyBreakdown.map((hour) => (
                   <div key={hour.hour} className="flex items-center justify-between">
                     <div className="flex items-center">
-                      <span className="text-sm font-medium text-gray-600 w-16">
+                      <span className="text-sm font-medium text-muted w-16">
                         {hour.hour}:00
                       </span>
                       <div className="ml-3">
@@ -407,8 +407,8 @@ const KioskAnalyticsPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-medium text-gray-900">{formatCurrency(hour.sales)}</p>
-                      <p className="text-xs text-gray-600">{hour.orders} orders</p>
+                      <p className="text-sm font-medium text-text">{formatCurrency(hour.sales)}</p>
+                      <p className="text-xs text-muted">{hour.orders} orders</p>
                     </div>
                   </div>
                 ))}
@@ -422,9 +422,9 @@ const KioskAnalyticsPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Top Products */}
         {analytics && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Top Products</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Top Products</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
@@ -435,11 +435,11 @@ const KioskAnalyticsPage: React.FC = () => {
                         {index + 1}
                       </span>
                       <div className="ml-3">
-                        <p className="text-sm font-medium text-gray-900">{product.productName}</p>
-                        <p className="text-xs text-gray-600">{product.quantity} sold</p>
+                        <p className="text-sm font-medium text-text">{product.productName}</p>
+                        <p className="text-xs text-muted">{product.quantity} sold</p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-gray-900">
+                    <span className="text-sm font-bold text-text">
                       {formatCurrency(product.revenue)}
                     </span>
                   </div>
@@ -451,9 +451,9 @@ const KioskAnalyticsPage: React.FC = () => {
 
         {/* Commission Breakdown */}
         {analytics && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Revenue Share</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Revenue Share</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
@@ -493,44 +493,44 @@ const KioskAnalyticsPage: React.FC = () => {
       </div>
 
       {/* Recent Orders */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Recent Orders</h3>
+      <div className="bg-card rounded-lg shadow">
+        <div className="px-6 py-4 border-b card-border">
+          <h3 className="text-lg font-medium text-text">Recent Orders</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+            <thead className="bg-card">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Order ID
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Kiosk
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Customer
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Payment
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Total
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                   Time
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-card divide-y divide-gray-200">
               {recentOrders.map((order) => (
                 <tr key={order.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
                     {order.id}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                     {getKioskName(order.kioskId)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                     {order.customerName || order.customerEmail || 'Guest'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -538,10 +538,10 @@ const KioskAnalyticsPage: React.FC = () => {
                       {order.paymentMethod.replace('_', ' ')}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
                     {formatCurrency(order.total)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                     {new Date(order.createdAt).toLocaleString()}
                   </td>
                 </tr>

@@ -122,19 +122,19 @@ const AdminCostOverride: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Admin Cost Override</h1>
-        <p className="text-gray-600">View and override manager cost settings</p>
+        <h1 className="text-3xl font-bold text-text">Admin Cost Override</h1>
+        <p className="text-muted">View and override manager cost settings</p>
       </div>
 
       {/* Managers Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {managers.map((manager) => (
-          <div key={manager.id} className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
+          <div key={manager.id} className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900">{manager.name}</h3>
-                  <p className="text-sm text-gray-600">{manager.email}</p>
+                  <h3 className="text-lg font-medium text-text">{manager.name}</h3>
+                  <p className="text-sm text-muted">{manager.email}</p>
                 </div>
                 <button
                   onClick={() => openOverrideModal(manager)}
@@ -149,34 +149,34 @@ const AdminCostOverride: React.FC = () => {
               {/* Cost Variables Summary */}
               {manager.costVariables ? (
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Current Settings</h4>
+                  <h4 className="font-medium text-text mb-2">Current Settings</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Filament/gram:</span>
+                      <span className="text-muted">Filament/gram:</span>
                       <span className="font-medium">${manager.costVariables.filamentPricePerGram.toFixed(3)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Electricity/hour:</span>
+                      <span className="text-muted">Electricity/hour:</span>
                       <span className="font-medium">${manager.costVariables.electricityCostPerHour.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Labor/hour:</span>
+                      <span className="text-muted">Labor/hour:</span>
                       <span className="font-medium">${manager.costVariables.laborRatePerHour.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Default margin:</span>
+                      <span className="text-muted">Default margin:</span>
                       <span className="font-medium">{manager.costVariables.defaultMarginPercentage}%</span>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-sm text-gray-500">No cost variables set</div>
+                <div className="text-sm text-muted">No cost variables set</div>
               )}
 
               {/* Analytics Summary */}
               {manager.analytics && (
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Analytics</h4>
+                  <h4 className="font-medium text-text mb-2">Analytics</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="text-center bg-blue-50 p-2 rounded">
                       <p className="text-blue-600 font-medium">{manager.analytics.totalProducts}</p>
@@ -192,8 +192,8 @@ const AdminCostOverride: React.FC = () => {
 
               {/* Recent Activity */}
               <div>
-                <h4 className="font-medium text-gray-900 mb-2">Recent Breakdowns</h4>
-                <div className="text-sm text-gray-600">
+                <h4 className="font-medium text-text mb-2">Recent Breakdowns</h4>
+                <div className="text-sm text-muted">
                   {manager.recentBreakdowns.length > 0 ? (
                     <p>{manager.recentBreakdowns.length} recent calculations</p>
                   ) : (
@@ -209,16 +209,16 @@ const AdminCostOverride: React.FC = () => {
       {/* Override Modal */}
       {showOverrideModal && selectedManager && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
+          <div className="bg-card rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b card-border">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900">Override Cost Variables</h3>
-                  <p className="text-sm text-gray-600">{selectedManager.name}</p>
+                  <h3 className="text-lg font-medium text-text">Override Cost Variables</h3>
+                  <p className="text-sm text-muted">{selectedManager.name}</p>
                 </div>
                 <button
                   onClick={() => setShowOverrideModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-muted"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -230,7 +230,7 @@ const AdminCostOverride: React.FC = () => {
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Filament Price per Gram ($)
                   </label>
                   <input
@@ -247,7 +247,7 @@ const AdminCostOverride: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Electricity Cost per Hour ($)
                   </label>
                   <input
@@ -264,7 +264,7 @@ const AdminCostOverride: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Labor Rate per Hour ($)
                   </label>
                   <input
@@ -281,7 +281,7 @@ const AdminCostOverride: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Default Margin Percentage (%)
                   </label>
                   <input
@@ -299,7 +299,7 @@ const AdminCostOverride: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Overhead Percentage (%)
                   </label>
                   <input
@@ -317,7 +317,7 @@ const AdminCostOverride: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Average Packaging Cost ($)
                   </label>
                   <input
@@ -349,7 +349,7 @@ const AdminCostOverride: React.FC = () => {
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+            <div className="px-6 py-4 border-t card-border flex items-center justify-between">
               <button
                 onClick={() => setShowOverrideModal(false)}
                 className="btn-secondary"

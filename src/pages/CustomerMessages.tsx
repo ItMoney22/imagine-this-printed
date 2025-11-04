@@ -174,28 +174,28 @@ const CustomerMessages: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Messages</h1>
-        <p className="text-gray-600">Communicate with vendors and get support</p>
+        <h1 className="text-3xl font-bold text-text">Messages</h1>
+        <p className="text-muted">Communicate with vendors and get support</p>
       </div>
 
-      <div className="bg-white rounded-lg shadow h-[600px] flex">
+      <div className="bg-card rounded-lg shadow h-[600px] flex">
         {/* Conversations Sidebar */}
-        <div className="w-1/3 border-r border-gray-200 flex flex-col">
+        <div className="w-1/3 border-r card-border flex flex-col">
           {/* Search */}
-          <div className="p-4 border-b border-gray-200">
+          <div className="p-4 border-b card-border">
             <input
               type="text"
               placeholder="Search conversations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
           </div>
 
           {/* Conversations List */}
           <div className="flex-1 overflow-y-auto">
             {filteredConversations.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">
+              <div className="p-4 text-center text-muted">
                 <svg className="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
@@ -210,7 +210,7 @@ const CustomerMessages: React.FC = () => {
                   <div
                     key={conversation.id}
                     onClick={() => setSelectedConversation(conversation)}
-                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-card ${
                       selectedConversation?.id === conversation.id ? 'bg-purple-50 border-purple-200' : ''
                     }`}
                   >
@@ -228,17 +228,17 @@ const CustomerMessages: React.FC = () => {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
+                        <p className="text-sm font-medium text-text truncate">
                           {otherParticipant?.name}
                         </p>
-                        <p className="text-sm text-gray-500 truncate">
+                        <p className="text-sm text-muted truncate">
                           {conversation.lastMessage?.content || 'No messages yet'}
                         </p>
                         <div className="flex items-center space-x-2 mt-1">
                           {conversation.tags.map(tag => (
                             <span
                               key={tag}
-                              className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
+                              className="text-xs bg-card text-muted px-2 py-1 rounded-full"
                             >
                               {tag.replace('_', ' ')}
                             </span>
@@ -264,7 +264,7 @@ const CustomerMessages: React.FC = () => {
           {selectedConversation ? (
             <>
               {/* Message Header */}
-              <div className="p-4 border-b border-gray-200 bg-gray-50">
+              <div className="p-4 border-b card-border bg-card">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <img
@@ -273,15 +273,15 @@ const CustomerMessages: React.FC = () => {
                       className="w-8 h-8 rounded-full object-cover"
                     />
                     <div>
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-text">
                         {selectedConversation.participantDetails.find(p => p.userId !== user.id)?.name}
                       </p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-muted">
                         {selectedConversation.participantDetails.find(p => p.userId !== user.id)?.role}
                       </p>
                     </div>
                   </div>
-                  <button className="text-gray-400 hover:text-gray-600">
+                  <button className="text-gray-400 hover:text-muted">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                     </svg>
@@ -302,7 +302,7 @@ const CustomerMessages: React.FC = () => {
                       <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                         isOwnMessage
                           ? 'bg-purple-600 text-white'
-                          : 'bg-gray-200 text-gray-900'
+                          : 'bg-gray-200 text-text'
                       }`}>
                         <p className="text-sm">{message.content}</p>
                         {message.attachments && message.attachments.length > 0 && (
@@ -328,11 +328,11 @@ const CustomerMessages: React.FC = () => {
               </div>
 
               {/* Message Input */}
-              <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <div className="p-4 border-t card-border bg-card">
                 <div className="flex items-end space-x-2">
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2 text-gray-400 hover:text-gray-600"
+                    className="p-2 text-gray-400 hover:text-muted"
                     disabled={isSending}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -346,7 +346,7 @@ const CustomerMessages: React.FC = () => {
                       onKeyPress={handleKeyPress}
                       placeholder="Type your message..."
                       rows={1}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
                       disabled={isSending}
                     />
                   </div>
@@ -376,11 +376,11 @@ const CustomerMessages: React.FC = () => {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-500">
+              <div className="text-center text-muted">
                 <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Select a conversation</h3>
+                <h3 className="text-lg font-medium text-text mb-2">Select a conversation</h3>
                 <p>Choose a conversation from the sidebar to start messaging</p>
               </div>
             </div>

@@ -362,13 +362,13 @@ const CRM: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">CRM & Order Management</h1>
-        <p className="text-gray-600">Manage customer relationships and custom job requests</p>
+        <h1 className="text-3xl font-bold text-text mb-2">CRM & Order Management</h1>
+        <p className="text-muted">Manage customer relationships and custom job requests</p>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -376,13 +376,13 @@ const CRM: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-semibold text-gray-900">{customers.length}</p>
+              <p className="text-sm font-medium text-muted">Total Customers</p>
+              <p className="text-2xl font-semibold text-text">{customers.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -390,13 +390,13 @@ const CRM: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.length}</p>
+              <p className="text-sm font-medium text-muted">Total Orders</p>
+              <p className="text-2xl font-semibold text-text">{orders.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded-lg">
               <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -404,13 +404,13 @@ const CRM: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending Orders</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.filter(o => o.status === 'pending').length}</p>
+              <p className="text-sm font-medium text-muted">Pending Orders</p>
+              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'pending').length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
               <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -418,15 +418,15 @@ const CRM: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-semibold text-gray-900">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted">Total Revenue</p>
+              <p className="text-2xl font-semibold text-text">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(2)}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {['customers', 'orders', 'jobs', 'analytics'].map((tab) => (
             <button
@@ -435,7 +435,7 @@ const CRM: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 selectedTab === tab
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -454,13 +454,13 @@ const CRM: React.FC = () => {
                 placeholder="Search customers..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>
             <select
               value={filterTag}
               onChange={(e) => setFilterTag(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="px-4 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
               <option value="">All Tags</option>
               {allTags.map(tag => (
@@ -478,32 +478,32 @@ const CRM: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="bg-card rounded-lg shadow overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-card">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Orders</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Spent</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Order</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Contact</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Tags</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Orders</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Total Spent</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Last Order</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-card divide-y divide-gray-200">
                   {filteredCustomers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
+                    <tr key={customer.id} className="hover:bg-card">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                          <div className="text-sm text-gray-500">{customer.company}</div>
+                          <div className="text-sm font-medium text-text">{customer.name}</div>
+                          <div className="text-sm text-muted">{customer.company}</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{customer.email}</div>
-                        <div className="text-sm text-gray-500">{customer.phone}</div>
+                        <div className="text-sm text-text">{customer.email}</div>
+                        <div className="text-sm text-muted">{customer.phone}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex flex-wrap gap-1">
@@ -514,9 +514,9 @@ const CRM: React.FC = () => {
                           ))}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{customer.totalOrders}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{customer.totalOrders}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">${customer.totalSpent.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {customer.lastOrderDate ? new Date(customer.lastOrderDate).toLocaleDateString() : 'Never'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -549,13 +549,13 @@ const CRM: React.FC = () => {
                 placeholder="Search orders by ID, customer name, or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>
             <select
               value={orderStatusFilter}
               onChange={(e) => setOrderStatusFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="px-4 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
               <option value="all">All Statuses</option>
               <option value="pending">Pending</option>
@@ -570,14 +570,14 @@ const CRM: React.FC = () => {
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 placeholder="Start date"
               />
               <input
                 type="date"
                 value={dateRange.end}
                 onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 placeholder="End date"
               />
             </div>
@@ -592,40 +592,40 @@ const CRM: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Order Management</h3>
-              <p className="text-sm text-gray-600 mt-1">Track and manage customer orders with real-time status updates</p>
+          <div className="bg-card rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Order Management</h3>
+              <p className="text-sm text-muted mt-1">Track and manage customer orders with real-time status updates</p>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-card">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tracking</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Order ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Items</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Total</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Tracking</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-card divide-y divide-gray-200">
                   {filteredOrders.map((order) => {
                     const customer = customers.find(c => c.userId === order.userId)
                     return (
-                    <tr key={order.id} className="hover:bg-gray-50">
+                    <tr key={order.id} className="hover:bg-card">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{order.id}</div>
-                        <div className="text-sm text-gray-500">Order #{order.id.split('-')[1]}</div>
+                        <div className="text-sm font-medium text-text">{order.id}</div>
+                        <div className="text-sm text-muted">Order #{order.id.split('-')[1]}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{customer?.name || 'Unknown'}</div>
-                        <div className="text-sm text-gray-500">{customer?.email || 'Unknown'}</div>
+                        <div className="text-sm font-medium text-text">{customer?.name || 'Unknown'}</div>
+                        <div className="text-sm text-muted">{customer?.email || 'Unknown'}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-text">
                           {order.items.map((item, index) => (
                             <div key={index} className="mb-1">
                               {item.product.name} (x{item.quantity})
@@ -648,7 +648,7 @@ const CRM: React.FC = () => {
                           {order.status.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {order.trackingNumber ? (
                           <a href={`#tracking-${order.trackingNumber}`} className="text-purple-600 hover:text-purple-900">
                             {order.trackingNumber}
@@ -657,7 +657,7 @@ const CRM: React.FC = () => {
                           'No tracking'
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {new Date(order.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -707,39 +707,39 @@ const CRM: React.FC = () => {
       {/* Jobs Tab */}
       {selectedTab === 'jobs' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Custom Job Requests</h3>
+          <div className="bg-card rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Custom Job Requests</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-card">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job Title</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Budget</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Job Title</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Budget</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Deadline</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Assigned To</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-card divide-y divide-gray-200">
                   {jobs.map((job) => {
                     const customer = customers.find(c => c.id === job.customerId)
                     return (
-                      <tr key={job.id} className="hover:bg-gray-50">
+                      <tr key={job.id} className="hover:bg-card">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{job.title}</div>
-                          <div className="text-sm text-gray-500 max-w-xs truncate">{job.description}</div>
+                          <div className="text-sm font-medium text-text">{job.title}</div>
+                          <div className="text-sm text-muted max-w-xs truncate">{job.description}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                           {customer?.name || 'Unknown'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                           ${job.budget || 'Not specified'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                           {job.deadline ? new Date(job.deadline).toLocaleDateString() : 'Flexible'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -754,7 +754,7 @@ const CRM: React.FC = () => {
                             {job.status.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                           {job.assignedTo || 'Unassigned'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -792,20 +792,20 @@ const CRM: React.FC = () => {
       {selectedTab === 'analytics' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Segments</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">Customer Segments</h3>
               <div className="space-y-3">
                 {allTags.map(tag => {
                   const count = customers.filter(c => c.tags.includes(tag)).length
                   const percentage = (count / customers.length) * 100
                   return (
                     <div key={tag} className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700">{tag}</span>
+                      <span className="text-sm font-medium text-text">{tag}</span>
                       <div className="flex items-center">
                         <div className="w-20 bg-gray-200 rounded-full h-2 mr-2">
                           <div className="bg-purple-600 h-2 rounded-full" style={{ width: `${percentage}%` }}></div>
                         </div>
-                        <span className="text-sm text-gray-600">{count}</span>
+                        <span className="text-sm text-muted">{count}</span>
                       </div>
                     </div>
                   )
@@ -813,8 +813,8 @@ const CRM: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Customers</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">Top Customers</h3>
               <div className="space-y-3">
                 {customers
                   .sort((a, b) => b.totalSpent - a.totalSpent)
@@ -822,8 +822,8 @@ const CRM: React.FC = () => {
                   .map((customer, index) => (
                     <div key={customer.id} className="flex items-center justify-between">
                       <div className="flex items-center">
-                        <span className="text-sm font-medium text-gray-500 mr-2">#{index + 1}</span>
-                        <span className="text-sm font-medium text-gray-900">{customer.name}</span>
+                        <span className="text-sm font-medium text-muted mr-2">#{index + 1}</span>
+                        <span className="text-sm font-medium text-text">{customer.name}</span>
                       </div>
                       <span className="text-sm font-semibold text-green-600">${customer.totalSpent.toFixed(2)}</span>
                     </div>
@@ -837,12 +837,12 @@ const CRM: React.FC = () => {
       {/* Customer Detail Modal */}
       {showCustomerModal && selectedCustomer && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
+          <div className="bg-card rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">Customer Details</h3>
+              <h3 className="text-lg font-semibold text-text">Customer Details</h3>
               <button
                 onClick={() => setShowCustomerModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -852,7 +852,7 @@ const CRM: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
-                <h4 className="font-semibold text-gray-900 mb-3">Contact Information</h4>
+                <h4 className="font-semibold text-text mb-3">Contact Information</h4>
                 <div className="space-y-2 text-sm">
                   <p><span className="font-medium">Name:</span> {selectedCustomer.name}</p>
                   <p><span className="font-medium">Email:</span> {selectedCustomer.email}</p>
@@ -862,7 +862,7 @@ const CRM: React.FC = () => {
               </div>
 
               <div>
-                <h4 className="font-semibold text-gray-900 mb-3">Account Summary</h4>
+                <h4 className="font-semibold text-text mb-3">Account Summary</h4>
                 <div className="space-y-2 text-sm">
                   <p><span className="font-medium">Total Orders:</span> {selectedCustomer.totalOrders}</p>
                   <p><span className="font-medium">Total Spent:</span> ${selectedCustomer.totalSpent.toFixed(2)}</p>
@@ -873,7 +873,7 @@ const CRM: React.FC = () => {
             </div>
 
             <div className="mb-6">
-              <h4 className="font-semibold text-gray-900 mb-3">Tags</h4>
+              <h4 className="font-semibold text-text mb-3">Tags</h4>
               <div className="flex flex-wrap gap-2">
                 {selectedCustomer.tags.map((tag) => (
                   <span key={tag} className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm flex items-center">
@@ -886,29 +886,29 @@ const CRM: React.FC = () => {
                     </button>
                   </span>
                 ))}
-                <button className="px-3 py-1 border border-dashed border-gray-300 rounded-full text-sm text-gray-600 hover:border-gray-400">
+                <button className="px-3 py-1 border border-dashed card-border rounded-full text-sm text-muted hover:border-gray-400">
                   + Add Tag
                 </button>
               </div>
             </div>
 
             <div className="mb-6">
-              <h4 className="font-semibold text-gray-900 mb-3">Notes</h4>
+              <h4 className="font-semibold text-text mb-3">Notes</h4>
               <div className="space-y-3 mb-4">
                 {selectedCustomer.notes.map((note) => (
-                  <div key={note.id} className="bg-gray-50 rounded-lg p-3">
+                  <div key={note.id} className="bg-card rounded-lg p-3">
                     <div className="flex justify-between items-start mb-2">
                       <span className={`px-2 py-1 text-xs rounded ${
-                        note.type === 'general' ? 'bg-gray-200 text-gray-700' :
+                        note.type === 'general' ? 'bg-gray-200 text-text' :
                         note.type === 'order' ? 'bg-blue-200 text-blue-700' :
                         note.type === 'complaint' ? 'bg-red-200 text-red-700' :
                         'bg-yellow-200 text-yellow-700'
                       }`}>
                         {note.type.replace('_', ' ')}
                       </span>
-                      <span className="text-xs text-gray-500">{new Date(note.createdAt).toLocaleDateString()}</span>
+                      <span className="text-xs text-muted">{new Date(note.createdAt).toLocaleDateString()}</span>
                     </div>
-                    <p className="text-sm text-gray-700">{note.content}</p>
+                    <p className="text-sm text-text">{note.content}</p>
                   </div>
                 ))}
               </div>
@@ -919,7 +919,7 @@ const CRM: React.FC = () => {
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
                   placeholder="Add a note..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="flex-1 px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <button
                   onClick={() => addNote(selectedCustomer.id)}
@@ -932,11 +932,11 @@ const CRM: React.FC = () => {
 
             {/* Internal Chat */}
             <div className="mb-6">
-              <h4 className="font-semibold text-gray-900 mb-3">Internal Team Chat</h4>
+              <h4 className="font-semibold text-text mb-3">Internal Team Chat</h4>
               <div className="border rounded-lg">
-                <div className="h-64 overflow-y-auto p-4 bg-gray-50">
+                <div className="h-64 overflow-y-auto p-4 bg-card">
                   {(chatMessages[selectedCustomer.id] || []).length === 0 ? (
-                    <p className="text-gray-500 text-center py-8">No messages yet. Start a conversation with your team about this customer.</p>
+                    <p className="text-muted text-center py-8">No messages yet. Start a conversation with your team about this customer.</p>
                   ) : (
                     <div className="space-y-3">
                       {(chatMessages[selectedCustomer.id] || []).map((msg) => (
@@ -949,12 +949,12 @@ const CRM: React.FC = () => {
                             </div>
                           </div>
                           <div className="flex-1">
-                            <div className="bg-white rounded-lg p-3 shadow-sm">
+                            <div className="bg-card rounded-lg p-3 shadow-sm">
                               <div className="flex items-center justify-between mb-1">
-                                <span className="text-sm font-medium text-gray-900">{msg.sender}</span>
-                                <span className="text-xs text-gray-500">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                                <span className="text-sm font-medium text-text">{msg.sender}</span>
+                                <span className="text-xs text-muted">{new Date(msg.timestamp).toLocaleTimeString()}</span>
                               </div>
-                              <p className="text-sm text-gray-700">{msg.message}</p>
+                              <p className="text-sm text-text">{msg.message}</p>
                             </div>
                           </div>
                         </div>
@@ -962,14 +962,14 @@ const CRM: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <div className="p-4 border-t bg-white">
+                <div className="p-4 border-t bg-card">
                   <div className="flex space-x-2">
                     <input
                       type="text"
                       value={newChatMessage}
                       onChange={(e) => setNewChatMessage(e.target.value)}
                       placeholder="Send a message to your team..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="flex-1 px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                       onKeyPress={(e) => {
                         if (e.key === 'Enter' && newChatMessage.trim()) {
                           const newMessage = {
@@ -1015,25 +1015,25 @@ const CRM: React.FC = () => {
 
             {/* Customer Purchase History */}
             <div>
-              <h4 className="font-semibold text-gray-900 mb-3">Purchase History</h4>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-semibold text-text mb-3">Purchase History</h4>
+              <div className="bg-card rounded-lg p-4">
                 <div className="space-y-3">
                   {orders.filter(order => order.userId === selectedCustomer.userId).map((order) => (
-                    <div key={order.id} className="flex items-center justify-between bg-white rounded p-3">
+                    <div key={order.id} className="flex items-center justify-between bg-card rounded p-3">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{order.id}</div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-sm font-medium text-text">{order.id}</div>
+                        <div className="text-xs text-muted">
                           {order.items.map(item => item.product.name).join(', ')}
                         </div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-medium text-green-600">${order.total.toFixed(2)}</div>
-                        <div className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleDateString()}</div>
+                        <div className="text-xs text-muted">{new Date(order.createdAt).toLocaleDateString()}</div>
                       </div>
                     </div>
                   ))}
                   {orders.filter(order => order.userId === selectedCustomer.userId).length === 0 && (
-                    <p className="text-gray-500 text-center py-4">No orders found for this customer</p>
+                    <p className="text-muted text-center py-4">No orders found for this customer</p>
                   )}
                 </div>
               </div>

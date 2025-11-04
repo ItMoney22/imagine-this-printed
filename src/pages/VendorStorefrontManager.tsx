@@ -232,8 +232,8 @@ const VendorStorefrontManager: React.FC = () => {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Storefront Not Found</h1>
-          <p className="text-gray-600 mb-6">We couldn't find your vendor storefront. Please contact support.</p>
+          <h1 className="text-2xl font-bold text-text mb-4">Storefront Not Found</h1>
+          <p className="text-muted mb-6">We couldn't find your vendor storefront. Please contact support.</p>
         </div>
       </div>
     )
@@ -253,8 +253,8 @@ const VendorStorefrontManager: React.FC = () => {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Storefront Manager</h1>
-            <p className="text-gray-600">Customize your public vendor storefront</p>
+            <h1 className="text-3xl font-bold text-text mb-2">Storefront Manager</h1>
+            <p className="text-muted">Customize your public vendor storefront</p>
           </div>
           
           <div className="flex items-center space-x-4">
@@ -295,7 +295,7 @@ const VendorStorefrontManager: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-8">
+      <div className="border-b card-border mb-8">
         <nav className="-mb-px flex space-x-8">
           {tabs.map((tab) => (
             <button
@@ -304,7 +304,7 @@ const VendorStorefrontManager: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 activeTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -357,8 +357,8 @@ const VendorStorefrontManager: React.FC = () => {
 
         {/* Preview Sidebar */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow p-6 sticky top-8">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Preview</h3>
+          <div className="bg-card rounded-lg shadow p-6 sticky top-8">
+            <h3 className="text-lg font-medium text-text mb-4">Quick Preview</h3>
             
             {/* Mini Preview */}
             <div className="border rounded-lg overflow-hidden mb-4">
@@ -368,8 +368,8 @@ const VendorStorefrontManager: React.FC = () => {
               >
                 {vendor.companyName}
               </div>
-              <div className="p-3 bg-gray-50">
-                <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
+              <div className="p-3 bg-card">
+                <div className="flex items-center justify-between text-xs text-muted mb-2">
                   <span>Products</span>
                   <span>{vendor.productCount}</span>
                 </div>
@@ -384,24 +384,24 @@ const VendorStorefrontManager: React.FC = () => {
             {/* Quick Stats */}
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Storefront Status:</span>
+                <span className="text-muted">Storefront Status:</span>
                 <span className={config.isPublic ? 'text-green-600' : 'text-yellow-600'}>
                   {config.isPublic ? 'Live' : 'Private'}
                 </span>
               </div>
               
               <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Custom URL:</span>
+                <span className="text-muted">Custom URL:</span>
                 <span className="text-purple-600">{config.customUrl}</span>
               </div>
               
               <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Theme:</span>
+                <span className="text-muted">Theme:</span>
                 <span className="capitalize">{config.theme.headerStyle}</span>
               </div>
               
               <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Layout:</span>
+                <span className="text-muted">Layout:</span>
                 <span className="capitalize">{config.theme.layout}</span>
               </div>
             </div>
@@ -448,12 +448,12 @@ const GeneralSettings: React.FC<{
 
   return (
     <div className="space-y-8">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-6">Basic Information</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-6">Basic Information</h3>
         
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Storefront Status
             </label>
             <div className="flex items-center">
@@ -463,18 +463,18 @@ const GeneralSettings: React.FC<{
                 onChange={(e) => onChange('root', 'isPublic', e.target.checked)}
                 className="mr-2"
               />
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-muted">
                 Make storefront publicly accessible
               </span>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Custom URL
             </label>
             <div className="flex">
-              <span className="inline-flex items-center px-3 py-2 border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm rounded-l-md">
+              <span className="inline-flex items-center px-3 py-2 border border-r-0 card-border bg-card text-muted text-sm rounded-l-md">
                 imagine-this-printed.com/vendor/
               </span>
               <input
@@ -494,7 +494,7 @@ const GeneralSettings: React.FC<{
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Custom Domain (Optional)
             </label>
             <input
@@ -504,15 +504,15 @@ const GeneralSettings: React.FC<{
               className="form-input w-full"
               placeholder="shop.yourdomain.com"
             />
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-muted">
               Contact support to set up a custom domain
             </p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-6">Contact Information</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-6">Contact Information</h3>
         
         <div className="space-y-4">
           <div className="flex items-center">
@@ -522,7 +522,7 @@ const GeneralSettings: React.FC<{
               onChange={(e) => onChange('contactInfo', 'showPhone', e.target.checked)}
               className="mr-2"
             />
-            <span className="text-sm text-gray-600">Show phone number</span>
+            <span className="text-sm text-muted">Show phone number</span>
           </div>
 
           <div className="flex items-center">
@@ -532,7 +532,7 @@ const GeneralSettings: React.FC<{
               onChange={(e) => onChange('contactInfo', 'showEmail', e.target.checked)}
               className="mr-2"
             />
-            <span className="text-sm text-gray-600">Show email address</span>
+            <span className="text-sm text-muted">Show email address</span>
           </div>
 
           <div className="flex items-center">
@@ -542,11 +542,11 @@ const GeneralSettings: React.FC<{
               onChange={(e) => onChange('contactInfo', 'showAddress', e.target.checked)}
               className="mr-2"
             />
-            <span className="text-sm text-gray-600">Show business address</span>
+            <span className="text-sm text-muted">Show business address</span>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Custom Contact Message
             </label>
             <textarea
@@ -560,12 +560,12 @@ const GeneralSettings: React.FC<{
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-6">Social Links</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-6">Social Links</h3>
         
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Website</label>
+            <label className="block text-sm font-medium text-text mb-2">Website</label>
             <input
               type="url"
               value={config.socialLinks.website || ''}
@@ -576,7 +576,7 @@ const GeneralSettings: React.FC<{
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Instagram</label>
+            <label className="block text-sm font-medium text-text mb-2">Instagram</label>
             <input
               type="url"
               value={config.socialLinks.instagram || ''}
@@ -587,7 +587,7 @@ const GeneralSettings: React.FC<{
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">LinkedIn</label>
+            <label className="block text-sm font-medium text-text mb-2">LinkedIn</label>
             <input
               type="url"
               value={config.socialLinks.linkedin || ''}
@@ -609,12 +609,12 @@ const DesignSettings: React.FC<{
 }> = ({ config, onChange }) => {
   return (
     <div className="space-y-8">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-6">Color Scheme</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-6">Color Scheme</h3>
         
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Primary Color
             </label>
             <div className="flex items-center space-x-3">
@@ -622,7 +622,7 @@ const DesignSettings: React.FC<{
                 type="color"
                 value={config.theme.primaryColor}
                 onChange={(e) => onChange('theme', 'primaryColor', e.target.value)}
-                className="w-12 h-12 border border-gray-300 rounded-md"
+                className="w-12 h-12 border card-border rounded-md"
               />
               <input
                 type="text"
@@ -635,7 +635,7 @@ const DesignSettings: React.FC<{
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Secondary Color
             </label>
             <div className="flex items-center space-x-3">
@@ -643,7 +643,7 @@ const DesignSettings: React.FC<{
                 type="color"
                 value={config.theme.secondaryColor}
                 onChange={(e) => onChange('theme', 'secondaryColor', e.target.value)}
-                className="w-12 h-12 border border-gray-300 rounded-md"
+                className="w-12 h-12 border card-border rounded-md"
               />
               <input
                 type="text"
@@ -656,7 +656,7 @@ const DesignSettings: React.FC<{
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Background Color
             </label>
             <div className="flex items-center space-x-3">
@@ -664,7 +664,7 @@ const DesignSettings: React.FC<{
                 type="color"
                 value={config.theme.backgroundColor}
                 onChange={(e) => onChange('theme', 'backgroundColor', e.target.value)}
-                className="w-12 h-12 border border-gray-300 rounded-md"
+                className="w-12 h-12 border card-border rounded-md"
               />
               <input
                 type="text"
@@ -678,12 +678,12 @@ const DesignSettings: React.FC<{
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-6">Layout Options</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-6">Layout Options</h3>
         
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
+            <label className="block text-sm font-medium text-text mb-3">
               Header Style
             </label>
             <div className="grid grid-cols-3 gap-3">
@@ -704,10 +704,10 @@ const DesignSettings: React.FC<{
                   <div className={`border-2 rounded-lg p-3 text-center ${
                     config.theme.headerStyle === style.id 
                       ? 'border-purple-500 bg-purple-50' 
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'card-border hover:card-border'
                   }`}>
                     <div className="font-medium text-sm">{style.label}</div>
-                    <div className="text-xs text-gray-500 mt-1">{style.preview}</div>
+                    <div className="text-xs text-muted mt-1">{style.preview}</div>
                   </div>
                 </label>
               ))}
@@ -715,7 +715,7 @@ const DesignSettings: React.FC<{
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
+            <label className="block text-sm font-medium text-text mb-3">
               Product Layout
             </label>
             <div className="grid grid-cols-3 gap-3">
@@ -736,10 +736,10 @@ const DesignSettings: React.FC<{
                   <div className={`border-2 rounded-lg p-3 text-center ${
                     config.theme.layout === layout.id 
                       ? 'border-purple-500 bg-purple-50' 
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'card-border hover:card-border'
                   }`}>
                     <div className="font-medium text-sm">{layout.label}</div>
-                    <div className="text-xs text-gray-500 mt-1">{layout.preview}</div>
+                    <div className="text-xs text-muted mt-1">{layout.preview}</div>
                   </div>
                 </label>
               ))}
@@ -748,8 +748,8 @@ const DesignSettings: React.FC<{
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-6">Display Options</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-6">Display Options</h3>
         
         <div className="space-y-4">
           <div className="flex items-center">
@@ -759,7 +759,7 @@ const DesignSettings: React.FC<{
               onChange={(e) => onChange('theme', 'showPricing', e.target.checked)}
               className="mr-2"
             />
-            <span className="text-sm text-gray-600">Show product pricing</span>
+            <span className="text-sm text-muted">Show product pricing</span>
           </div>
 
           <div className="flex items-center">
@@ -769,7 +769,7 @@ const DesignSettings: React.FC<{
               onChange={(e) => onChange('theme', 'showReviews', e.target.checked)}
               className="mr-2"
             />
-            <span className="text-sm text-gray-600">Show customer reviews</span>
+            <span className="text-sm text-muted">Show customer reviews</span>
           </div>
         </div>
       </div>
@@ -782,12 +782,12 @@ const SEOSettings: React.FC<{
   config: VendorStorefrontConfig
   onChange: (section: string, field: string, value: any) => void
 }> = ({ config, onChange }) => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-6">SEO & Marketing</h3>
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-6">SEO & Marketing</h3>
     
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">SEO Title</label>
+        <label className="block text-sm font-medium text-text mb-2">SEO Title</label>
         <input
           type="text"
           value={config.seoTitle}
@@ -795,11 +795,11 @@ const SEOSettings: React.FC<{
           className="form-input w-full"
           maxLength={60}
         />
-        <p className="text-xs text-gray-500 mt-1">{config.seoTitle.length}/60 characters</p>
+        <p className="text-xs text-muted mt-1">{config.seoTitle.length}/60 characters</p>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">SEO Description</label>
+        <label className="block text-sm font-medium text-text mb-2">SEO Description</label>
         <textarea
           value={config.seoDescription}
           onChange={(e) => onChange('root', 'seoDescription', e.target.value)}
@@ -807,7 +807,7 @@ const SEOSettings: React.FC<{
           className="form-textarea w-full"
           maxLength={160}
         />
-        <p className="text-xs text-gray-500 mt-1">{config.seoDescription.length}/160 characters</p>
+        <p className="text-xs text-muted mt-1">{config.seoDescription.length}/160 characters</p>
       </div>
     </div>
   </div>
@@ -817,12 +817,12 @@ const AnalyticsSettings: React.FC<{
   config: VendorStorefrontConfig
   onChange: (section: string, field: string, value: any) => void
 }> = ({ config, onChange }) => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-6">Analytics Integration</h3>
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-6">Analytics Integration</h3>
     
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Google Analytics ID</label>
+        <label className="block text-sm font-medium text-text mb-2">Google Analytics ID</label>
         <input
           type="text"
           value={config.analytics.googleAnalyticsId || ''}
@@ -839,8 +839,8 @@ const PreviewSection: React.FC<{
   config: VendorStorefrontConfig
   vendor: WholesaleVendor
 }> = ({ config }) => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-6">Storefront Preview</h3>
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-6">Storefront Preview</h3>
     <iframe
       src={`/vendor/${config.customUrl}`}
       className="w-full h-96 border rounded-lg"

@@ -86,8 +86,8 @@ const Referrals: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Referral Program</h1>
-        <p className="text-gray-600">Earn points by referring friends to ImagineThisPrinted</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Referral Program</h1>
+        <p className="text-muted">Earn points by referring friends to ImagineThisPrinted</p>
       </div>
 
       {/* Stats Cards */}
@@ -156,7 +156,7 @@ const Referrals: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', label: 'Overview', icon: '📊' },
@@ -170,7 +170,7 @@ const Referrals: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -184,16 +184,16 @@ const Referrals: React.FC = () => {
       {selectedTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">How It Works</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">How It Works</h3>
               <div className="space-y-4">
                 <div className="flex items-start">
                   <div className="flex-shrink-0 w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center mr-4">
                     <span className="text-purple-600 font-semibold">1</span>
                   </div>
                   <div>
-                    <h4 className="font-medium text-gray-900">Share Your Code</h4>
-                    <p className="text-sm text-gray-600">Send your unique referral code to friends via email, social media, or direct link</p>
+                    <h4 className="font-medium text-text">Share Your Code</h4>
+                    <p className="text-sm text-muted">Send your unique referral code to friends via email, social media, or direct link</p>
                   </div>
                 </div>
                 
@@ -202,8 +202,8 @@ const Referrals: React.FC = () => {
                     <span className="text-purple-600 font-semibold">2</span>
                   </div>
                   <div>
-                    <h4 className="font-medium text-gray-900">Friend Signs Up</h4>
-                    <p className="text-sm text-gray-600">Your friend creates an account using your referral code and gets 50 bonus points</p>
+                    <h4 className="font-medium text-text">Friend Signs Up</h4>
+                    <p className="text-sm text-muted">Your friend creates an account using your referral code and gets 50 bonus points</p>
                   </div>
                 </div>
                 
@@ -212,15 +212,15 @@ const Referrals: React.FC = () => {
                     <span className="text-purple-600 font-semibold">3</span>
                   </div>
                   <div>
-                    <h4 className="font-medium text-gray-900">You Earn Rewards</h4>
-                    <p className="text-sm text-gray-600">Get 100 points when they sign up, plus 5% commission on their future purchases</p>
+                    <h4 className="font-medium text-text">You Earn Rewards</h4>
+                    <p className="text-sm text-muted">Get 100 points when they sign up, plus 5% commission on their future purchases</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Reward Structure</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">Reward Structure</h3>
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded">
                   <div>
@@ -257,7 +257,7 @@ const Referrals: React.FC = () => {
               </div>
               <button
                 onClick={() => setSelectedTab('share')}
-                className="bg-white text-purple-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-colors"
+                className="bg-card text-purple-600 font-semibold py-2 px-6 rounded-lg hover:bg-card transition-colors"
               >
                 Share Now
               </button>
@@ -269,18 +269,18 @@ const Referrals: React.FC = () => {
       {/* Share Tab */}
       {selectedTab === 'share' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">Share Your Referral Code</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-text mb-6">Share Your Referral Code</h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Your Referral Code</label>
+                <label className="block text-sm font-medium text-text mb-2">Your Referral Code</label>
                 <div className="flex">
                   <input
                     type="text"
                     value={referralCode?.code || ''}
                     readOnly
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md bg-gray-50 text-lg font-mono"
+                    className="flex-1 px-3 py-2 border card-border rounded-l-md bg-card text-lg font-mono"
                   />
                   <button
                     onClick={() => copyToClipboard(referralCode?.code || '', 'code')}
@@ -292,13 +292,13 @@ const Referrals: React.FC = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Your Referral Link</label>
+                <label className="block text-sm font-medium text-text mb-2">Your Referral Link</label>
                 <div className="flex">
                   <input
                     type="text"
                     value={referralCode ? referralSystem.generateReferralUrl(referralCode.code) : ''}
                     readOnly
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md bg-gray-50 text-sm"
+                    className="flex-1 px-3 py-2 border card-border rounded-l-md bg-card text-sm"
                   />
                   <button
                     onClick={() => copyToClipboard(
@@ -315,21 +315,21 @@ const Referrals: React.FC = () => {
 
             {sharingContent && (
               <div>
-                <h4 className="text-md font-semibold text-gray-900 mb-4">Share on Social Media</h4>
+                <h4 className="text-md font-semibold text-text mb-4">Share on Social Media</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {sharingContent.messages.map((share) => (
                     <button
                       key={share.platform}
                       onClick={() => openShareUrl(share.url)}
                       className={`p-4 rounded-lg border-2 transition-colors text-center hover:shadow-md ${
-                        share.platform === 'email' ? 'border-gray-300 hover:border-gray-400' :
+                        share.platform === 'email' ? 'card-border hover:border-gray-400' :
                         share.platform === 'twitter' ? 'border-blue-300 hover:border-blue-400' :
                         share.platform === 'facebook' ? 'border-blue-600 hover:border-blue-700' :
                         'border-green-400 hover:border-green-500'
                       }`}
                     >
                       <div className={`text-2xl mb-2 ${
-                        share.platform === 'email' ? 'text-gray-600' :
+                        share.platform === 'email' ? 'text-muted' :
                         share.platform === 'twitter' ? 'text-blue-500' :
                         share.platform === 'facebook' ? 'text-blue-600' :
                         'text-green-500'
@@ -338,7 +338,7 @@ const Referrals: React.FC = () => {
                          share.platform === 'twitter' ? '🐦' :
                          share.platform === 'facebook' ? '📘' : '📱'}
                       </div>
-                      <div className="font-medium capitalize text-gray-900">{share.platform}</div>
+                      <div className="font-medium capitalize text-text">{share.platform}</div>
                     </button>
                   ))}
                 </div>
@@ -367,28 +367,28 @@ const Referrals: React.FC = () => {
 
       {/* History Tab */}
       {selectedTab === 'history' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Referral Transaction History</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Referral Transaction History</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-card">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Friend</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Your Reward</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Friend</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Your Reward</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-card divide-y divide-gray-200">
                 {transactions.map((transaction) => (
                   <tr key={transaction.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                       {new Date(transaction.createdAt).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                       {transaction.refereeEmail}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -420,7 +420,7 @@ const Referrals: React.FC = () => {
               <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
-              <p className="text-gray-500">No referral transactions yet. Start sharing to earn rewards!</p>
+              <p className="text-muted">No referral transactions yet. Start sharing to earn rewards!</p>
             </div>
           )}
         </div>
@@ -429,8 +429,8 @@ const Referrals: React.FC = () => {
       {/* Leaderboard Tab */}
       {selectedTab === 'leaderboard' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">Top Referrers This Month</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-text mb-6">Top Referrers This Month</h3>
             <div className="space-y-4">
               {[
                 { rank: 1, name: 'Sarah W.', referrals: 12, earnings: 650, badge: '🥇' },
@@ -442,23 +442,23 @@ const Referrals: React.FC = () => {
                 <div 
                   key={user.rank} 
                   className={`flex items-center justify-between p-4 rounded-lg border ${
-                    user.name === 'You' ? 'border-purple-200 bg-purple-50' : 'border-gray-200'
+                    user.name === 'You' ? 'border-purple-200 bg-purple-50' : 'card-border'
                   }`}
                 >
                   <div className="flex items-center">
                     <span className="text-2xl mr-3">{user.badge}</span>
                     <div>
-                      <div className={`font-medium ${user.name === 'You' ? 'text-purple-900' : 'text-gray-900'}`}>
+                      <div className={`font-medium ${user.name === 'You' ? 'text-purple-900' : 'text-text'}`}>
                         #{user.rank} {user.name}
                       </div>
-                      <div className="text-sm text-gray-600">{user.referrals} referrals</div>
+                      <div className="text-sm text-muted">{user.referrals} referrals</div>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className={`font-semibold ${user.name === 'You' ? 'text-purple-600' : 'text-green-600'}`}>
                       {user.earnings} points
                     </div>
-                    <div className="text-sm text-gray-500">≈ ${(user.earnings * 0.01).toFixed(2)}</div>
+                    <div className="text-sm text-muted">≈ ${(user.earnings * 0.01).toFixed(2)}</div>
                   </div>
                 </div>
               ))}
@@ -473,7 +473,7 @@ const Referrals: React.FC = () => {
                 <div className="mt-2">
                   <div className="bg-yellow-300 rounded-full h-2 w-64">
                     <div 
-                      className="bg-white rounded-full h-2 transition-all duration-300"
+                      className="bg-card rounded-full h-2 transition-all duration-300"
                       style={{ width: `${Math.min((totalReferrals / 10) * 100, 100)}%` }}
                     ></div>
                   </div>

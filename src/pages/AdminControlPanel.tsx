@@ -145,12 +145,12 @@ const AdminControlPanel: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Admin Control Panel</h1>
-        <p className="text-gray-600">Manage platform settings, payouts, and earnings</p>
+        <h1 className="text-3xl font-bold text-text">Admin Control Panel</h1>
+        <p className="text-muted">Manage platform settings, payouts, and earnings</p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'settings', label: 'Platform Settings', icon: '⚙️' },
@@ -164,7 +164,7 @@ const AdminControlPanel: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -177,15 +177,15 @@ const AdminControlPanel: React.FC = () => {
       {/* Platform Settings Tab */}
       {selectedTab === 'settings' && settings && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Fee Structure</h3>
-              <p className="text-sm text-gray-600">Configure platform and processing fees</p>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Fee Structure</h3>
+              <p className="text-sm text-muted">Configure platform and processing fees</p>
             </div>
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Platform Fee Percentage
                   </label>
                   <div className="relative">
@@ -198,17 +198,17 @@ const AdminControlPanel: React.FC = () => {
                       onChange={(e) => updateSetting('platformFeePercentage', parseFloat(e.target.value))}
                       className="form-input pr-8"
                     />
-                    <span className="absolute right-3 top-2 text-gray-500">
+                    <span className="absolute right-3 top-2 text-muted">
                       ({(settings.platformFeePercentage * 100).toFixed(1)}%)
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-muted mt-1">
                     Fee charged to vendors on each sale
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Stripe Fee Percentage
                   </label>
                   <div className="relative">
@@ -221,17 +221,17 @@ const AdminControlPanel: React.FC = () => {
                       onChange={(e) => updateSetting('stripeFeePercentage', parseFloat(e.target.value))}
                       className="form-input pr-8"
                     />
-                    <span className="absolute right-3 top-2 text-gray-500">
+                    <span className="absolute right-3 top-2 text-muted">
                       ({(settings.stripeFeePercentage * 100).toFixed(1)}%)
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-muted mt-1">
                     Payment processing fee
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Founder Earnings Percentage
                   </label>
                   <div className="relative">
@@ -244,21 +244,21 @@ const AdminControlPanel: React.FC = () => {
                       onChange={(e) => updateSetting('founderEarningsPercentage', parseFloat(e.target.value))}
                       className="form-input pr-8"
                     />
-                    <span className="absolute right-3 top-2 text-gray-500">
+                    <span className="absolute right-3 top-2 text-muted">
                       ({(settings.founderEarningsPercentage * 100).toFixed(0)}%)
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-muted mt-1">
                     Founder's share of profit from internal products
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Minimum Payout Amount
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-2 text-gray-500">$</span>
+                    <span className="absolute left-3 top-2 text-muted">$</span>
                     <input
                       type="number"
                       min="1"
@@ -269,7 +269,7 @@ const AdminControlPanel: React.FC = () => {
                       className="form-input pl-8"
                     />
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-muted mt-1">
                     Minimum amount before payouts are processed
                   </p>
                 </div>
@@ -277,15 +277,15 @@ const AdminControlPanel: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Payout Settings</h3>
-              <p className="text-sm text-gray-600">Configure automatic payout schedule</p>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Payout Settings</h3>
+              <p className="text-sm text-muted">Configure automatic payout schedule</p>
             </div>
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Payout Schedule
                   </label>
                   <select
@@ -297,7 +297,7 @@ const AdminControlPanel: React.FC = () => {
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                   </select>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-muted mt-1">
                     How often automatic payouts are processed
                   </p>
                 </div>
@@ -310,11 +310,11 @@ const AdminControlPanel: React.FC = () => {
                       onChange={(e) => updateSetting('autoPayoutEnabled', e.target.checked)}
                       className="form-checkbox"
                     />
-                    <span className="ml-2 text-sm font-medium text-gray-700">
+                    <span className="ml-2 text-sm font-medium text-text">
                       Enable Automatic Payouts
                     </span>
                   </label>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-muted mt-1">
                     Automatically process payouts on schedule
                   </p>
                 </div>
@@ -323,7 +323,7 @@ const AdminControlPanel: React.FC = () => {
           </div>
 
           <div className="flex justify-between items-center">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted">
               Last updated: {new Date(settings.lastUpdated).toLocaleString()}
             </p>
             <button
@@ -342,7 +342,7 @@ const AdminControlPanel: React.FC = () => {
         <div className="space-y-6">
           {/* Key Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -350,16 +350,16 @@ const AdminControlPanel: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Revenue</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Total Revenue</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(earningsOverview.totalRevenue)}
                   </p>
-                  <p className="text-sm text-gray-500">{earningsOverview.period}</p>
+                  <p className="text-sm text-muted">{earningsOverview.period}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -367,18 +367,18 @@ const AdminControlPanel: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Platform Fees</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Platform Fees</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(earningsOverview.totalPlatformFees)}
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted">
                     {((earningsOverview.totalPlatformFees / earningsOverview.totalRevenue) * 100).toFixed(1)}% of revenue
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -386,18 +386,18 @@ const AdminControlPanel: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Vendor Payouts</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Vendor Payouts</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(earningsOverview.totalVendorPayouts)}
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted">
                     {((earningsOverview.totalVendorPayouts / earningsOverview.totalRevenue) * 100).toFixed(1)}% of revenue
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,33 +405,33 @@ const AdminControlPanel: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Founder Earnings</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Founder Earnings</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(earningsOverview.totalFounderEarnings)}
                   </p>
-                  <p className="text-sm text-gray-500">Internal products only</p>
+                  <p className="text-sm text-muted">Internal products only</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Revenue Breakdown */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Revenue Breakdown</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Revenue Breakdown</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">Vendor Sales</p>
-                    <p className="text-sm text-gray-500">Third-party vendor products</p>
+                    <p className="font-medium text-text">Vendor Sales</p>
+                    <p className="text-sm text-muted">Third-party vendor products</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium text-gray-900">
+                    <p className="font-medium text-text">
                       {founderEarningsService.formatCurrency(earningsOverview.breakdown.vendorSales)}
                     </p>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted">
                       {((earningsOverview.breakdown.vendorSales / earningsOverview.totalRevenue) * 100).toFixed(1)}%
                     </p>
                   </div>
@@ -439,14 +439,14 @@ const AdminControlPanel: React.FC = () => {
 
                 <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">In-House Sales</p>
-                    <p className="text-sm text-gray-500">Platform-owned products</p>
+                    <p className="font-medium text-text">In-House Sales</p>
+                    <p className="text-sm text-muted">Platform-owned products</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium text-gray-900">
+                    <p className="font-medium text-text">
                       {founderEarningsService.formatCurrency(earningsOverview.breakdown.inHouseSales)}
                     </p>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted">
                       {((earningsOverview.breakdown.inHouseSales / earningsOverview.totalRevenue) * 100).toFixed(1)}%
                     </p>
                   </div>
@@ -456,20 +456,20 @@ const AdminControlPanel: React.FC = () => {
           </div>
 
           {/* Pending Actions */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Pending Actions</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Pending Actions</h3>
             </div>
             <div className="p-6">
               <div className="flex items-center justify-between p-4 bg-yellow-50 rounded-lg">
                 <div>
-                  <p className="font-medium text-gray-900">Pending Payouts</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium text-text">Pending Payouts</p>
+                  <p className="text-sm text-muted">
                     Vendor payouts awaiting processing
                   </p>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <p className="font-medium text-gray-900">
+                  <p className="font-medium text-text">
                     {founderEarningsService.formatCurrency(earningsOverview.pendingPayouts)}
                   </p>
                   <button
@@ -488,12 +488,12 @@ const AdminControlPanel: React.FC = () => {
       {/* Payout Management Tab */}
       {selectedTab === 'payouts' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Payout Management</h3>
-            <p className="text-gray-600">
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Payout Management</h3>
+            <p className="text-muted">
               Payout management features will be implemented here, including:
             </p>
-            <ul className="mt-4 space-y-2 text-gray-600">
+            <ul className="mt-4 space-y-2 text-muted">
               <li>• View all pending vendor payouts</li>
               <li>• Process individual or bulk payouts</li>
               <li>• Payout history and status tracking</li>
@@ -507,12 +507,12 @@ const AdminControlPanel: React.FC = () => {
       {/* Analytics Tab */}
       {selectedTab === 'analytics' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Platform Analytics</h3>
-            <p className="text-gray-600">
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Platform Analytics</h3>
+            <p className="text-muted">
               Comprehensive analytics dashboard will be implemented here, including:
             </p>
-            <ul className="mt-4 space-y-2 text-gray-600">
+            <ul className="mt-4 space-y-2 text-muted">
               <li>• Revenue trends and forecasting</li>
               <li>• Fee optimization analysis</li>
               <li>• Vendor performance metrics</li>

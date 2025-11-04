@@ -211,7 +211,7 @@ const OrderManagement: React.FC = () => {
       case 'shipped': return 'bg-green-100 text-green-800'
       case 'delivered': return 'bg-green-100 text-green-800'
       case 'on_hold': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      default: return 'bg-card text-gray-800'
     }
   }
 
@@ -232,13 +232,13 @@ const OrderManagement: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Order Management</h1>
-        <p className="text-gray-600">Manage order status, shipping labels, and customer communications</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Order Management</h1>
+        <p className="text-muted">Manage order status, shipping labels, and customer communications</p>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded-lg">
               <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -246,13 +246,13 @@ const OrderManagement: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.filter(o => o.status === 'pending').length}</p>
+              <p className="text-sm font-medium text-muted">Pending</p>
+              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'pending').length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -260,13 +260,13 @@ const OrderManagement: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Printed</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.filter(o => o.status === 'printed').length}</p>
+              <p className="text-sm font-medium text-muted">Printed</p>
+              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'printed').length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,13 +274,13 @@ const OrderManagement: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Shipped</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.filter(o => o.status === 'shipped').length}</p>
+              <p className="text-sm font-medium text-muted">Shipped</p>
+              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'shipped').length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-red-100 rounded-lg">
               <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -288,13 +288,13 @@ const OrderManagement: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">On Hold</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.filter(o => o.status === 'on_hold').length}</p>
+              <p className="text-sm font-medium text-muted">On Hold</p>
+              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'on_hold').length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
               <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -302,15 +302,15 @@ const OrderManagement: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.length}</p>
+              <p className="text-sm font-medium text-muted">Total Orders</p>
+              <p className="text-2xl font-semibold text-text">{orders.length}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {['pending', 'printed', 'shipped', 'on_hold', 'all'].map((tab) => (
             <button
@@ -319,7 +319,7 @@ const OrderManagement: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 selectedTab === tab
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1).replace('_', ' ')}
@@ -329,38 +329,38 @@ const OrderManagement: React.FC = () => {
       </div>
 
       {/* Orders Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-card rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+            <thead className="bg-card">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Order ID</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Items</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Total</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Created</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-card divide-y divide-gray-200">
               {filteredOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
+                <tr key={order.id} className="hover:bg-card">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{order.id}</div>
+                    <div className="text-sm font-medium text-text">{order.id}</div>
                     {order.trackingNumber && (
-                      <div className="text-xs text-gray-500">Tracking: {order.trackingNumber}</div>
+                      <div className="text-xs text-muted">Tracking: {order.trackingNumber}</div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{order.shippingAddress?.name || 'N/A'}</div>
-                    <div className="text-xs text-gray-500">{order.shippingAddress?.email}</div>
+                    <div className="text-sm text-text">{order.shippingAddress?.name || 'N/A'}</div>
+                    <div className="text-xs text-muted">{order.shippingAddress?.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{order.items.length} item(s)</div>
-                    <div className="text-xs text-gray-500">{order.items[0]?.product.name}</div>
+                    <div className="text-sm text-text">{order.items.length} item(s)</div>
+                    <div className="text-xs text-muted">{order.items[0]?.product.name}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
                     ${order.total.toFixed(2)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -368,7 +368,7 @@ const OrderManagement: React.FC = () => {
                       {order.status.replace('_', ' ')}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                     {new Date(order.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -413,12 +413,12 @@ const OrderManagement: React.FC = () => {
       {/* Order Management Modal */}
       {showOrderModal && selectedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
+          <div className="bg-card rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">Manage Order {selectedOrder.id}</h3>
+              <h3 className="text-lg font-semibold text-text">Manage Order {selectedOrder.id}</h3>
               <button
                 onClick={() => setShowOrderModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -428,7 +428,7 @@ const OrderManagement: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
-                <h4 className="font-semibold text-gray-900 mb-3">Order Details</h4>
+                <h4 className="font-semibold text-text mb-3">Order Details</h4>
                 <div className="space-y-2 text-sm">
                   <p><span className="font-medium">Order ID:</span> {selectedOrder.id}</p>
                   <p><span className="font-medium">Created:</span> {new Date(selectedOrder.createdAt).toLocaleString()}</p>
@@ -441,8 +441,8 @@ const OrderManagement: React.FC = () => {
               </div>
 
               <div>
-                <h4 className="font-semibold text-gray-900 mb-3">Shipping Address</h4>
-                <div className="text-sm text-gray-700">
+                <h4 className="font-semibold text-text mb-3">Shipping Address</h4>
+                <div className="text-sm text-text">
                   <p>{selectedOrder.shippingAddress?.name}</p>
                   {selectedOrder.shippingAddress?.company && <p>{selectedOrder.shippingAddress.company}</p>}
                   <p>{selectedOrder.shippingAddress?.address1}</p>
@@ -456,7 +456,7 @@ const OrderManagement: React.FC = () => {
             </div>
 
             <div className="mb-6">
-              <h4 className="font-semibold text-gray-900 mb-3">Status Management</h4>
+              <h4 className="font-semibold text-text mb-3">Status Management</h4>
               <div className="flex space-x-2">
                 {['pending', 'printed', 'shipped', 'on_hold'].map((status) => (
                   <button
@@ -465,7 +465,7 @@ const OrderManagement: React.FC = () => {
                     className={`px-4 py-2 rounded text-sm font-medium ${
                       selectedOrder.status === status
                         ? 'bg-purple-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        : 'bg-gray-200 text-text hover:bg-gray-300'
                     }`}
                   >
                     {status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}
@@ -476,23 +476,23 @@ const OrderManagement: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Internal Notes</label>
+                <label className="block text-sm font-medium text-text mb-2">Internal Notes</label>
                 <textarea
                   value={internalNotes}
                   onChange={(e) => setInternalNotes(e.target.value)}
                   rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="Internal notes for staff only..."
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Customer Notes</label>
+                <label className="block text-sm font-medium text-text mb-2">Customer Notes</label>
                 <textarea
                   value={customerNotes}
                   onChange={(e) => setCustomerNotes(e.target.value)}
                   rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="Notes visible to customer..."
                 />
               </div>
@@ -510,7 +510,7 @@ const OrderManagement: React.FC = () => {
               </button>
               <button
                 onClick={() => setShowOrderModal(false)}
-                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 px-4 rounded"
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-text py-2 px-4 rounded"
               >
                 Cancel
               </button>
@@ -522,12 +522,12 @@ const OrderManagement: React.FC = () => {
       {/* Shipping Modal */}
       {showShippingModal && selectedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-card rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">Generate Shipping Label</h3>
+              <h3 className="text-lg font-semibold text-text">Generate Shipping Label</h3>
               <button
                 onClick={() => setShowShippingModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -536,7 +536,7 @@ const OrderManagement: React.FC = () => {
             </div>
 
             <div className="mb-6">
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-muted mb-4">
                 This will generate a shipping label for order {selectedOrder.id} and mark it as shipped.
               </p>
               
@@ -577,7 +577,7 @@ const OrderManagement: React.FC = () => {
               </button>
               <button
                 onClick={() => setShowShippingModal(false)}
-                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 px-4 rounded"
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-text py-2 px-4 rounded"
               >
                 Cancel
               </button>

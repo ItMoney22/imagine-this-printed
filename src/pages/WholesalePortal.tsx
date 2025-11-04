@@ -103,8 +103,8 @@ const WholesalePortal: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Wholesale Portal</h1>
-        <p className="text-gray-600">
+        <h1 className="text-3xl font-bold text-text mb-2">Wholesale Portal</h1>
+        <p className="text-muted">
           {wholesaleAccount 
             ? `Welcome back, ${wholesaleAccount.companyName}` 
             : 'Apply for wholesale access to unlock exclusive pricing and features'
@@ -132,7 +132,7 @@ const WholesalePortal: React.FC = () => {
               </div>
             </div>
             <div className="text-right">
-              <p className="text-sm text-gray-600">Total Spent</p>
+              <p className="text-sm text-muted">Total Spent</p>
               <p className="text-2xl font-bold text-green-600">${wholesaleAccount.totalSpent.toLocaleString()}</p>
             </div>
           </div>
@@ -140,7 +140,7 @@ const WholesalePortal: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {tabs.map((tab) => (
             <button
@@ -149,7 +149,7 @@ const WholesalePortal: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -198,7 +198,7 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
     <div className="space-y-6">
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -206,13 +206,13 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Orders</p>
-              <p className="text-2xl font-semibold text-gray-900">{account.totalOrders}</p>
+              <p className="text-sm font-medium text-muted">Total Orders</p>
+              <p className="text-2xl font-semibold text-text">{account.totalOrders}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,13 +220,13 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Spent</p>
-              <p className="text-2xl font-semibold text-gray-900">${account.totalSpent.toLocaleString()}</p>
+              <p className="text-sm font-medium text-muted">Total Spent</p>
+              <p className="text-2xl font-semibold text-text">${account.totalSpent.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -234,13 +234,13 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Avg Order Value</p>
-              <p className="text-2xl font-semibold text-gray-900">${account.averageOrderValue.toLocaleString()}</p>
+              <p className="text-sm font-medium text-muted">Avg Order Value</p>
+              <p className="text-2xl font-semibold text-text">${account.averageOrderValue.toLocaleString()}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -248,18 +248,18 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Credit Available</p>
-              <p className="text-2xl font-semibold text-gray-900">${(account.creditLimit - (account.totalSpent * 0.1)).toLocaleString()}</p>
+              <p className="text-sm font-medium text-muted">Credit Available</p>
+              <p className="text-2xl font-semibold text-text">${(account.creditLimit - (account.totalSpent * 0.1)).toLocaleString()}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Recent Orders */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className="bg-card rounded-lg shadow">
+        <div className="px-6 py-4 border-b card-border">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-900">Recent Orders</h3>
+            <h3 className="text-lg font-medium text-text">Recent Orders</h3>
             <button
               onClick={() => navigate('/wholesale/orders')}
               className="text-purple-600 hover:text-purple-700 font-medium text-sm"
@@ -275,13 +275,13 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
               { id: 'WO-2025-002', date: '2025-01-08', items: 12, total: 1320.00, status: 'shipped' },
               { id: 'WO-2025-003', date: '2025-01-05', items: 35, total: 3850.00, status: 'processing' }
             ].map((order) => (
-              <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div key={order.id} className="flex items-center justify-between p-4 bg-card rounded-lg">
                 <div>
-                  <p className="font-medium text-gray-900">{order.id}</p>
-                  <p className="text-sm text-gray-500">{new Date(order.date).toLocaleDateString()} • {order.items} items</p>
+                  <p className="font-medium text-text">{order.id}</p>
+                  <p className="text-sm text-muted">{new Date(order.date).toLocaleDateString()} • {order.items} items</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium text-gray-900">${order.total.toLocaleString()}</p>
+                  <p className="font-medium text-text">${order.total.toLocaleString()}</p>
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                     order.status === 'delivered' ? 'bg-green-100 text-green-800' :
                     order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
@@ -298,9 +298,9 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Browse Products</h3>
-          <p className="text-gray-600 mb-4">Explore our wholesale catalog with exclusive pricing</p>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-text mb-4">Browse Products</h3>
+          <p className="text-muted mb-4">Explore our wholesale catalog with exclusive pricing</p>
           <button
             onClick={() => navigate('/wholesale/products')}
             className="btn-primary w-full"
@@ -309,17 +309,17 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Place Quick Order</h3>
-          <p className="text-gray-600 mb-4">Reorder your most popular items quickly</p>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-text mb-4">Place Quick Order</h3>
+          <p className="text-muted mb-4">Reorder your most popular items quickly</p>
           <button className="btn-secondary w-full">
             Quick Reorder
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Find Vendors</h3>
-          <p className="text-gray-600 mb-4">Discover new suppliers and vendors</p>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-text mb-4">Find Vendors</h3>
+          <p className="text-muted mb-4">Discover new suppliers and vendors</p>
           <button
             onClick={() => navigate('/wholesale/vendors')}
             className="btn-secondary w-full"
@@ -388,8 +388,8 @@ const WholesaleProducts: React.FC<{ account: WholesaleAccount }> = ({ account })
   return (
     <div className="space-y-6">
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Filter Products</h3>
+      <div className="bg-card rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-text mb-4">Filter Products</h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <select className="form-select">
             <option>All Categories</option>
@@ -419,35 +419,35 @@ const WholesaleProducts: React.FC<{ account: WholesaleAccount }> = ({ account })
       {/* Products Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {products.map((product) => (
-          <div key={product.id} className="bg-white rounded-lg shadow overflow-hidden">
+          <div key={product.id} className="bg-card rounded-lg shadow overflow-hidden">
             <img
               src={product.images[0]}
               alt={product.name}
               className="w-full h-48 object-cover"
             />
             <div className="p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">{product.name}</h3>
-              <p className="text-gray-600 text-sm mb-4 line-clamp-2">{product.description}</p>
+              <h3 className="text-lg font-medium text-text mb-2">{product.name}</h3>
+              <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>
               
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <p className="text-sm text-gray-500 line-through">${product.retailPrice}</p>
+                  <p className="text-sm text-muted line-through">${product.retailPrice}</p>
                   <p className="text-xl font-bold text-green-600">${getMyPrice(product)}</p>
-                  <p className="text-xs text-gray-500">Your {account.tier} price</p>
+                  <p className="text-xs text-muted">Your {account.tier} price</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-gray-500">MOQ</p>
+                  <p className="text-sm text-muted">MOQ</p>
                   <p className="font-medium">{product.minimumOrderQuantity}</p>
                 </div>
               </div>
 
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Lead Time:</span>
+                  <span className="text-muted">Lead Time:</span>
                   <span>{product.leadTime} days</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Stock:</span>
+                  <span className="text-muted">Stock:</span>
                   <span className="text-green-600">In Stock</span>
                 </div>
               </div>
@@ -470,40 +470,40 @@ const WholesaleProducts: React.FC<{ account: WholesaleAccount }> = ({ account })
 
 // Placeholder components for other tabs
 const WholesaleOrders: React.FC<{ account: WholesaleAccount }> = () => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-4">Order Management</h3>
-    <p className="text-gray-600">Order management interface will be implemented here.</p>
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-4">Order Management</h3>
+    <p className="text-muted">Order management interface will be implemented here.</p>
   </div>
 )
 
 const WholesaleVendors: React.FC = () => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-4">Vendor Directory</h3>
-    <p className="text-gray-600">Vendor discovery and management interface will be implemented here.</p>
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-4">Vendor Directory</h3>
+    <p className="text-muted">Vendor discovery and management interface will be implemented here.</p>
   </div>
 )
 
 const WholesaleAccount: React.FC<{ account: WholesaleAccount }> = () => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-4">Account Settings</h3>
-    <p className="text-gray-600">Account management interface will be implemented here.</p>
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-4">Account Settings</h3>
+    <p className="text-muted">Account management interface will be implemented here.</p>
   </div>
 )
 
 const WholesaleApplication: React.FC<{ onApplicationSubmit: () => void }> = ({ onApplicationSubmit }) => (
-  <div className="bg-white rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-gray-900 mb-4">Apply for Wholesale Access</h3>
-    <p className="text-gray-600 mb-6">
+  <div className="bg-card rounded-lg shadow p-6">
+    <h3 className="text-lg font-medium text-text mb-4">Apply for Wholesale Access</h3>
+    <p className="text-muted mb-6">
       Join our wholesale program to access exclusive pricing, bulk discounts, and priority support.
     </p>
     
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
+        <label className="block text-sm font-medium text-text mb-2">Company Name</label>
         <input type="text" className="form-input w-full" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Business Type</label>
+        <label className="block text-sm font-medium text-text mb-2">Business Type</label>
         <select className="form-select w-full">
           <option>Select...</option>
           <option>Retailer</option>

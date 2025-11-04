@@ -275,13 +275,13 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
-        <p className="text-gray-600">Manage users, approvals, and monitor system performance</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Admin Dashboard</h1>
+        <p className="text-muted">Manage users, approvals, and monitor system performance</p>
       </div>
 
       {/* System Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -289,13 +289,13 @@ const AdminDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Users</p>
-              <p className="text-2xl font-semibold text-gray-900">{systemMetrics.totalUsers}</p>
+              <p className="text-sm font-medium text-muted">Total Users</p>
+              <p className="text-2xl font-semibold text-text">{systemMetrics.totalUsers}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -303,13 +303,13 @@ const AdminDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-semibold text-gray-900">${systemMetrics.totalRevenue.toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted">Total Revenue</p>
+              <p className="text-2xl font-semibold text-text">${systemMetrics.totalRevenue.toFixed(2)}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded-lg">
               <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -317,13 +317,13 @@ const AdminDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending Approvals</p>
-              <p className="text-2xl font-semibold text-gray-900">{systemMetrics.pendingApprovals}</p>
+              <p className="text-sm font-medium text-muted">Pending Approvals</p>
+              <p className="text-2xl font-semibold text-text">{systemMetrics.pendingApprovals}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
               <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -331,15 +331,15 @@ const AdminDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Sessions</p>
-              <p className="text-2xl font-semibold text-gray-900">{systemMetrics.activeSessions}</p>
+              <p className="text-sm font-medium text-muted">Active Sessions</p>
+              <p className="text-2xl font-semibold text-text">{systemMetrics.activeSessions}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {['overview', 'users', 'vendors', 'products', 'models', 'audit'].map((tab) => (
             <button
@@ -348,7 +348,7 @@ const AdminDashboard: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 selectedTab === tab
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -361,8 +361,8 @@ const AdminDashboard: React.FC = () => {
       {selectedTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">Quick Actions</h3>
               <div className="space-y-3">
                 <button 
                   onClick={() => setSelectedTab('vendors')}
@@ -388,39 +388,39 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">System Health</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">System Health</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-gray-700">Database Status</span>
+                  <span className="text-sm font-medium text-text">Database Status</span>
                   <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Healthy</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-gray-700">API Response Time</span>
-                  <span className="text-sm text-gray-600">45ms</span>
+                  <span className="text-sm font-medium text-text">API Response Time</span>
+                  <span className="text-sm text-muted">45ms</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-gray-700">Storage Usage</span>
-                  <span className="text-sm text-gray-600">68% of 100GB</span>
+                  <span className="text-sm font-medium text-text">Storage Usage</span>
+                  <span className="text-sm text-muted">68% of 100GB</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-gray-700">Active Vendors</span>
-                  <span className="text-sm text-gray-600">{systemMetrics.activeVendors}</span>
+                  <span className="text-sm font-medium text-text">Active Vendors</span>
+                  <span className="text-sm text-muted">{systemMetrics.activeVendors}</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-text mb-4">Recent Activity</h3>
             <div className="space-y-3">
               {auditLogs.slice(0, 5).map((log) => (
-                <div key={log.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                <div key={log.id} className="flex items-center justify-between p-3 bg-card rounded">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{log.action.replace('_', ' ')}</p>
-                    <p className="text-xs text-gray-500">{log.entity} #{log.entityId}</p>
+                    <p className="text-sm font-medium text-text">{log.action.replace('_', ' ')}</p>
+                    <p className="text-xs text-muted">{log.entity} #{log.entityId}</p>
                   </div>
-                  <span className="text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</span>
+                  <span className="text-xs text-muted">{new Date(log.createdAt).toLocaleString()}</span>
                 </div>
               ))}
             </div>
@@ -430,35 +430,35 @@ const AdminDashboard: React.FC = () => {
 
       {/* Users Tab */}
       {selectedTab === 'users' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">User Management</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">User Management</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-card">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Points</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ITC Balance</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">User</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Role</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Points</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">ITC Balance</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Joined</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-card divide-y divide-gray-200">
                 {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
+                  <tr key={user.id} className="hover:bg-card">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{user.firstName} {user.lastName}</div>
+                      <div className="text-sm font-medium text-text">{user.firstName} {user.lastName}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{user.email}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
                         value={user.role}
                         onChange={(e) => updateUserRole(user.id, e.target.value as User['role'])}
-                        className="text-sm border border-gray-300 rounded px-2 py-1"
+                        className="text-sm border card-border rounded px-2 py-1"
                       >
                         <option value="customer">Customer</option>
                         <option value="vendor">Vendor</option>
@@ -467,9 +467,9 @@ const AdminDashboard: React.FC = () => {
                         <option value="admin">Admin</option>
                       </select>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.points || 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.itcBalance || 0} ITC</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{user.points || 0}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{user.itcBalance || 0} ITC</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                       {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -486,9 +486,9 @@ const AdminDashboard: React.FC = () => {
 
       {/* Vendor Products Tab */}
       {selectedTab === 'vendors' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Vendor Product Approvals</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Vendor Product Approvals</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
             {vendorProducts.map((product) => {
@@ -501,10 +501,10 @@ const AdminDashboard: React.FC = () => {
                     className="w-full h-48 object-cover"
                   />
                   <div className="p-4">
-                    <h4 className="font-semibold text-gray-900 mb-2">{product.title}</h4>
-                    <p className="text-gray-600 text-sm mb-3">{product.description}</p>
+                    <h4 className="font-semibold text-text mb-2">{product.title}</h4>
+                    <p className="text-muted text-sm mb-3">{product.description}</p>
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-lg font-bold text-gray-900">${product.price}</span>
+                      <span className="text-lg font-bold text-text">${product.price}</span>
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         product.approved 
                           ? 'bg-green-100 text-green-800' 
@@ -513,7 +513,7 @@ const AdminDashboard: React.FC = () => {
                         {product.approved ? 'Approved' : 'Pending'}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 mb-3">
+                    <p className="text-sm text-muted mb-3">
                       Vendor: {vendor?.firstName} {vendor?.lastName}
                     </p>
                     
@@ -543,25 +543,25 @@ const AdminDashboard: React.FC = () => {
 
       {/* 3D Models Tab */}
       {selectedTab === 'models' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">3D Model Approvals</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">3D Model Approvals</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
             {models.map((model) => {
               const uploader = users.find(u => u.id === model.uploadedBy)
               return (
                 <div key={model.id} className="border rounded-lg overflow-hidden">
-                  <div className="h-48 bg-gray-100 flex items-center justify-center">
+                  <div className="h-48 bg-card flex items-center justify-center">
                     <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                     </svg>
                   </div>
                   <div className="p-4">
-                    <h4 className="font-semibold text-gray-900 mb-2">{model.title}</h4>
-                    <p className="text-gray-600 text-sm mb-3">{model.description}</p>
+                    <h4 className="font-semibold text-text mb-2">{model.title}</h4>
+                    <p className="text-muted text-sm mb-3">{model.description}</p>
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm text-gray-600">{model.fileType.toUpperCase()}</span>
+                      <span className="text-sm text-muted">{model.fileType.toUpperCase()}</span>
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         model.approved 
                           ? 'bg-green-100 text-green-800' 
@@ -571,10 +571,10 @@ const AdminDashboard: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex justify-between items-center mb-3">
-                      <span className="text-sm text-gray-500">👍 {model.votes} votes</span>
-                      <span className="text-sm text-gray-500">⭐ {model.points} points</span>
+                      <span className="text-sm text-muted">👍 {model.votes} votes</span>
+                      <span className="text-sm text-muted">⭐ {model.points} points</span>
                     </div>
-                    <p className="text-sm text-gray-500 mb-3">
+                    <p className="text-sm text-muted mb-3">
                       By: {uploader?.firstName} {uploader?.lastName}
                     </p>
                     
@@ -604,31 +604,31 @@ const AdminDashboard: React.FC = () => {
 
       {/* Audit Logs Tab */}
       {selectedTab === 'audit' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Audit Logs</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Audit Logs</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-card">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Changes</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Timestamp</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">User</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Action</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Entity</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Changes</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">IP Address</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-card divide-y divide-gray-200">
                 {auditLogs.map((log) => {
                   const logUser = users.find(u => u.id === log.userId)
                   return (
-                    <tr key={log.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <tr key={log.id} className="hover:bg-card">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {new Date(log.createdAt).toLocaleString()}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {logUser ? `${logUser.firstName} ${logUser.lastName}` : 'System'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -636,18 +636,18 @@ const AdminDashboard: React.FC = () => {
                           log.action.includes('APPROVE') ? 'bg-green-100 text-green-800' :
                           log.action.includes('REJECT') ? 'bg-red-100 text-red-800' :
                           log.action.includes('CREATE') ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
+                          'bg-card text-gray-800'
                         }`}>
                           {log.action.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {log.entity} #{log.entityId}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {Object.keys(log.changes || {}).join(', ')}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {log.ipAddress}
                       </td>
                     </tr>

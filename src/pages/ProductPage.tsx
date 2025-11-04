@@ -63,10 +63,10 @@ const ProductPage: React.FC = () => {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Product Not Found</h1>
-          <button 
+          <h1 className="text-2xl font-bold text-text mb-4">Product Not Found</h1>
+          <button
             onClick={() => navigate('/catalog')}
-            className="btn-primary"
+            className="btn-primary shadow-glow"
           >
             Back to Catalog
           </button>
@@ -87,9 +87,9 @@ const ProductPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <button 
+      <button
         onClick={() => navigate(-1)}
-        className="mb-6 text-purple-600 hover:text-purple-700 flex items-center"
+        className="mb-6 text-primary hover:text-secondary flex items-center transition-colors"
       >
         <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -114,7 +114,7 @@ const ProductPage: React.FC = () => {
                   key={index}
                   onClick={() => setSelectedImage(index)}
                   className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 ${
-                    selectedImage === index ? 'border-purple-600' : 'border-gray-200'
+                    selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
                   }`}
                 >
                   <img 
@@ -130,18 +130,18 @@ const ProductPage: React.FC = () => {
 
         <div className="space-y-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.name}</h1>
-            <p className="text-3xl font-bold text-purple-600">${product.price}</p>
+            <h1 className="text-3xl font-bold text-text mb-2">{product.name}</h1>
+            <p className="text-3xl font-bold text-primary">${product.price}</p>
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2">Description</h3>
-            <p className="text-gray-600 leading-relaxed">{product.description}</p>
+            <h3 className="text-lg font-semibold mb-2 text-text">Description</h3>
+            <p className="text-muted leading-relaxed">{product.description}</p>
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2">Features</h3>
-            <ul className="text-gray-600 space-y-1">
+            <h3 className="text-lg font-semibold mb-2 text-text">Features</h3>
+            <ul className="text-muted space-y-1">
               <li>• High-quality materials</li>
               <li>• Custom printing available</li>
               <li>• Fast processing time</li>
@@ -149,20 +149,20 @@ const ProductPage: React.FC = () => {
             </ul>
           </div>
 
-          <div className="border-t pt-6">
+          <div className="border-t card-border pt-6">
             <div className="flex items-center space-x-4 mb-4">
-              <label className="text-sm font-medium text-gray-700">Quantity:</label>
-              <div className="flex items-center border rounded-md">
+              <label className="text-sm font-medium text-text">Quantity:</label>
+              <div className="flex items-center border card-border rounded-md">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="px-3 py-1 hover:bg-gray-100"
+                  className="px-3 py-1 hover:bg-card transition-colors"
                 >
                   -
                 </button>
-                <span className="px-4 py-1 border-x">{quantity}</span>
+                <span className="px-4 py-1 border-x card-border">{quantity}</span>
                 <button
                   onClick={() => setQuantity(quantity + 1)}
-                  className="px-3 py-1 hover:bg-gray-100"
+                  className="px-3 py-1 hover:bg-card transition-colors"
                 >
                   +
                 </button>
@@ -173,11 +173,11 @@ const ProductPage: React.FC = () => {
               <button
                 onClick={handleAddToCart}
                 disabled={!product.inStock}
-                className="w-full btn-primary disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {product.inStock ? 'Add to Cart' : 'Out of Stock'}
               </button>
-              
+
               <button
                 onClick={handleBuyNow}
                 disabled={!product.inStock}
@@ -188,16 +188,16 @@ const ProductPage: React.FC = () => {
 
               <button
                 onClick={() => navigate('/designer')}
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                className="w-full bg-gradient-to-r from-primary to-secondary hover:shadow-glow text-white font-semibold py-2 px-4 rounded-lg transition-all"
               >
                 Customize Design
               </button>
             </div>
           </div>
 
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h4 className="font-semibold mb-2">Shipping Information</h4>
-            <p className="text-sm text-gray-600">
+          <div className="bg-card card-border p-4 rounded-lg">
+            <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
+            <p className="text-sm text-muted">
               • Free shipping on orders over $50<br/>
               • Standard delivery: 3-5 business days<br/>
               • Express delivery: 1-2 business days

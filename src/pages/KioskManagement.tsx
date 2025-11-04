@@ -182,12 +182,12 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Kiosk Management</h1>
-        <p className="text-gray-600">Manage point of sale kiosks and generate access</p>
+        <h1 className="text-3xl font-bold text-text">Kiosk Management</h1>
+        <p className="text-muted">Manage point of sale kiosks and generate access</p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'list', label: 'Kiosks', icon: '🖥️' },
@@ -200,7 +200,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -215,8 +215,8 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-medium text-gray-900">Active Kiosks</h3>
-              <p className="text-sm text-gray-600">{kiosks.length} total kiosks</p>
+              <h3 className="text-lg font-medium text-text">Active Kiosks</h3>
+              <p className="text-sm text-muted">{kiosks.length} total kiosks</p>
             </div>
             <button
               onClick={() => setShowCreateModal(true)}
@@ -228,12 +228,12 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
             {kiosks.map((kiosk) => (
-              <div key={kiosk.id} className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200">
+              <div key={kiosk.id} className="bg-card rounded-lg shadow">
+                <div className="px-6 py-4 border-b card-border">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg font-medium text-gray-900">{kiosk.name}</h3>
-                      <p className="text-sm text-gray-600">{kiosk.location}</p>
+                      <h3 className="text-lg font-medium text-text">{kiosk.name}</h3>
+                      <p className="text-sm text-muted">{kiosk.location}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(kiosk.isActive)}`}>
                       {kiosk.isActive ? 'Active' : 'Inactive'}
@@ -244,25 +244,25 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                 <div className="p-6 space-y-4">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-gray-600">Vendor</p>
+                      <p className="text-muted">Vendor</p>
                       <p className="font-medium">{getVendorName(kiosk.vendorId)}</p>
                     </div>
                     <div>
-                      <p className="text-gray-600">Commission</p>
+                      <p className="text-muted">Commission</p>
                       <p className="font-medium">{((kiosk.commissionRate || 0) * 100).toFixed(1)}%</p>
                     </div>
                     <div>
-                      <p className="text-gray-600">Total Sales</p>
+                      <p className="text-muted">Total Sales</p>
                       <p className="font-medium text-green-600">{formatCurrency(kiosk.totalSales)}</p>
                     </div>
                     <div>
-                      <p className="text-gray-600">Orders</p>
+                      <p className="text-muted">Orders</p>
                       <p className="font-medium">{kiosk.totalOrders}</p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted">
                       <p>Last Activity: {kiosk.lastActivity ? new Date(kiosk.lastActivity).toLocaleDateString() : 'Never'}</p>
                       <p>Created: {new Date(kiosk.createdAt).toLocaleDateString()}</p>
                     </div>
@@ -305,8 +305,8 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
               <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No kiosks created</h3>
-              <p className="text-gray-600 mb-4">Create your first kiosk to enable in-store sales</p>
+              <h3 className="text-lg font-medium text-text mb-2">No kiosks created</h3>
+              <p className="text-muted mb-4">Create your first kiosk to enable in-store sales</p>
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="btn-primary"
@@ -320,16 +320,16 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
 
       {/* Create Kiosk Form */}
       {selectedTab === 'create' && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Create New Kiosk</h3>
-            <p className="text-sm text-gray-600">Set up a new point of sale kiosk</p>
+        <div className="bg-card rounded-lg shadow">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Create New Kiosk</h3>
+            <p className="text-sm text-muted">Set up a new point of sale kiosk</p>
           </div>
           
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Kiosk Name *
                 </label>
                 <input
@@ -342,7 +342,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Vendor *
                 </label>
                 <select
@@ -360,7 +360,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Location *
                 </label>
                 <input
@@ -373,7 +373,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Commission Rate (%)
                 </label>
                 <input
@@ -385,11 +385,11 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                   onChange={(e) => setCreateForm(prev => ({ ...prev, commissionRate: parseFloat(e.target.value) || 0 }))}
                   className="form-input w-full"
                 />
-                <p className="text-xs text-gray-500 mt-1">Platform commission on kiosk sales</p>
+                <p className="text-xs text-muted mt-1">Platform commission on kiosk sales</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Partner Commission Rate (%)
                 </label>
                 <input
@@ -401,17 +401,17 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                   onChange={(e) => setCreateForm(prev => ({ ...prev, partnerCommissionRate: parseFloat(e.target.value) || 0 }))}
                   className="form-input w-full"
                 />
-                <p className="text-xs text-gray-500 mt-1">Commission for location partner (optional)</p>
+                <p className="text-xs text-muted mt-1">Commission for location partner (optional)</p>
               </div>
             </div>
 
             {/* Kiosk Settings */}
             <div>
-              <h4 className="text-lg font-medium text-gray-900 mb-4">Kiosk Settings</h4>
+              <h4 className="text-lg font-medium text-text mb-4">Kiosk Settings</h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Primary Color
                   </label>
                   <input
@@ -426,7 +426,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Session Timeout (minutes)
                   </label>
                   <input
@@ -443,7 +443,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Welcome Message
                   </label>
                   <textarea
@@ -459,7 +459,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Logo URL (optional)
                   </label>
                   <input
@@ -496,13 +496,13 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                       }))}
                       className="form-checkbox"
                     />
-                    <span className="ml-2 text-sm text-gray-700">{label}</span>
+                    <span className="ml-2 text-sm text-text">{label}</span>
                   </label>
                 ))}
               </div>
             </div>
 
-            <div className="pt-4 border-t border-gray-200 flex justify-between">
+            <div className="pt-4 border-t card-border flex justify-between">
               <button
                 onClick={resetCreateForm}
                 className="btn-secondary"
@@ -525,43 +525,43 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
       {selectedTab === 'analytics' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-sm font-medium text-gray-500">Total Kiosks</h3>
+            <div className="bg-card p-6 rounded-lg shadow">
+              <h3 className="text-sm font-medium text-muted">Total Kiosks</h3>
               <p className="text-2xl font-bold text-purple-600">{kiosks.length}</p>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-sm font-medium text-gray-500">Active Kiosks</h3>
+            <div className="bg-card p-6 rounded-lg shadow">
+              <h3 className="text-sm font-medium text-muted">Active Kiosks</h3>
               <p className="text-2xl font-bold text-green-600">{kiosks.filter(k => k.isActive).length}</p>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-sm font-medium text-gray-500">Total Sales</h3>
+            <div className="bg-card p-6 rounded-lg shadow">
+              <h3 className="text-sm font-medium text-muted">Total Sales</h3>
               <p className="text-2xl font-bold text-blue-600">
                 {formatCurrency(kiosks.reduce((sum, k) => sum + k.totalSales, 0))}
               </p>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-sm font-medium text-gray-500">Total Orders</h3>
+            <div className="bg-card p-6 rounded-lg shadow">
+              <h3 className="text-sm font-medium text-muted">Total Orders</h3>
               <p className="text-2xl font-bold text-indigo-600">
                 {kiosks.reduce((sum, k) => sum + k.totalOrders, 0)}
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Kiosk Performance</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Kiosk Performance</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
                 {kiosks.map((kiosk) => (
                   <div key={kiosk.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
                     <div>
-                      <h4 className="font-medium text-gray-900">{kiosk.name}</h4>
-                      <p className="text-sm text-gray-600">{kiosk.location}</p>
+                      <h4 className="font-medium text-text">{kiosk.name}</h4>
+                      <p className="text-sm text-muted">{kiosk.location}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium text-gray-900">{formatCurrency(kiosk.totalSales)}</p>
-                      <p className="text-sm text-gray-600">{kiosk.totalOrders} orders</p>
+                      <p className="font-medium text-text">{formatCurrency(kiosk.totalSales)}</p>
+                      <p className="text-sm text-muted">{kiosk.totalOrders} orders</p>
                     </div>
                   </div>
                 ))}
@@ -574,12 +574,12 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
       {/* Create Kiosk Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-md w-full mx-4">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Create New Kiosk</h3>
+          <div className="bg-card rounded-lg max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Create New Kiosk</h3>
             </div>
             <div className="p-6">
-              <p className="text-gray-600 mb-4">
+              <p className="text-muted mb-4">
                 Use the Create Kiosk tab for the full form, or this quick setup for basic configuration.
               </p>
               <div className="flex justify-between">
@@ -607,13 +607,13 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
       {/* Settings Modal */}
       {showSettingsModal && selectedKiosk && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Kiosk Settings</h3>
-              <p className="text-sm text-gray-600">{selectedKiosk.name}</p>
+          <div className="bg-card rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Kiosk Settings</h3>
+              <p className="text-sm text-muted">{selectedKiosk.name}</p>
             </div>
             <div className="p-6">
-              <p className="text-gray-600 mb-4">
+              <p className="text-muted mb-4">
                 Settings management would be implemented here with the same form fields as the create form.
               </p>
               <div className="flex justify-between">

@@ -111,13 +111,13 @@ const FoundersDashboard: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Founders Dashboard</h1>
-        <p className="text-gray-600">Manage your assigned orders and track earnings</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Founders Dashboard</h1>
+        <p className="text-muted">Manage your assigned orders and track earnings</p>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -125,13 +125,13 @@ const FoundersDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Assigned Orders</p>
-              <p className="text-2xl font-semibold text-gray-900">{orders.length}</p>
+              <p className="text-sm font-medium text-muted">Assigned Orders</p>
+              <p className="text-2xl font-semibold text-text">{orders.length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,13 +139,13 @@ const FoundersDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Monthly Earnings</p>
-              <p className="text-2xl font-semibold text-gray-900">${monthlyEarnings.toFixed(2)}</p>
+              <p className="text-sm font-medium text-muted">Monthly Earnings</p>
+              <p className="text-2xl font-semibold text-text">${monthlyEarnings.toFixed(2)}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded-lg">
               <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -153,13 +153,13 @@ const FoundersDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Pending Invoices</p>
-              <p className="text-2xl font-semibold text-gray-900">{invoices.filter(inv => inv.status === 'pending').length}</p>
+              <p className="text-sm font-medium text-muted">Pending Invoices</p>
+              <p className="text-2xl font-semibold text-text">{invoices.filter(inv => inv.status === 'pending').length}</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
               <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -167,15 +167,15 @@ const FoundersDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Profit Margin</p>
-              <p className="text-2xl font-semibold text-gray-900">35%</p>
+              <p className="text-sm font-medium text-muted">Profit Margin</p>
+              <p className="text-2xl font-semibold text-text">35%</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {['orders', 'invoices', 'earnings'].map((tab) => (
             <button
@@ -184,7 +184,7 @@ const FoundersDashboard: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 selectedTab === tab
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -195,31 +195,31 @@ const FoundersDashboard: React.FC = () => {
 
       {/* Orders Tab */}
       {selectedTab === 'orders' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Assigned Orders</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Assigned Orders</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-card">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sale Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Material Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Your Share (35%)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Order ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Items</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Sale Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Material Cost</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Your Share (35%)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-card divide-y divide-gray-200">
                 {orders.map((order) => (
                   <tr key={order.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#{order.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">#{order.id}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                       {order.items.map(item => item.product.name).join(', ')}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">${order.total.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text font-semibold">${order.total.toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">${(order.materialCost || 0).toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-semibold">${calculateProfit(order).toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -227,7 +227,7 @@ const FoundersDashboard: React.FC = () => {
                         order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                         order.status === 'processing' ? 'bg-blue-100 text-blue-800' :
                         order.status === 'shipped' ? 'bg-green-100 text-green-800' :
-                        'bg-gray-100 text-gray-800'
+                        'bg-card text-gray-800'
                       }`}>
                         {order.status}
                       </span>
@@ -253,28 +253,28 @@ const FoundersDashboard: React.FC = () => {
 
       {/* Invoices Tab */}
       {selectedTab === 'invoices' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Payment Invoices</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Payment Invoices</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-card">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Your Share</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Invoice ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Order ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Your Share</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Created</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-card divide-y divide-gray-200">
                 {invoices.map((invoice) => (
                   <tr key={invoice.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#{invoice.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">#{invoice.orderId}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${invoice.amount.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">#{invoice.id}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">#{invoice.orderId}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">${invoice.amount.toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-semibold">${invoice.profitShare.toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -283,7 +283,7 @@ const FoundersDashboard: React.FC = () => {
                         {invoice.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                       {new Date(invoice.createdAt).toLocaleDateString()}
                     </td>
                   </tr>
@@ -296,8 +296,8 @@ const FoundersDashboard: React.FC = () => {
 
       {/* Earnings Tab */}
       {selectedTab === 'earnings' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-6">Monthly Earnings Report</h3>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-text mb-6">Monthly Earnings Report</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-gradient-to-r from-green-400 to-blue-500 rounded-lg p-6 text-white">
@@ -314,17 +314,17 @@ const FoundersDashboard: React.FC = () => {
           </div>
 
           <div className="mt-8">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h4>
+            <h4 className="text-lg font-semibold text-text mb-4">Recent Activity</h4>
             <div className="space-y-4">
               {orders.slice(0, 3).map((order) => (
-                <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div key={order.id} className="flex items-center justify-between p-4 bg-card rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">Order #{order.id}</p>
-                    <p className="text-sm text-gray-600">{order.items[0]?.product.name}</p>
+                    <p className="font-medium text-text">Order #{order.id}</p>
+                    <p className="text-sm text-muted">{order.items[0]?.product.name}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-green-600">+${calculateProfit(order).toFixed(2)}</p>
-                    <p className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleDateString()}</p>
+                    <p className="text-sm text-muted">{new Date(order.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
               ))}

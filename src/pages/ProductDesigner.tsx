@@ -375,13 +375,13 @@ const ProductDesigner: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Product Designer</h1>
-        <p className="text-gray-600">Create custom designs with our drag-and-drop editor</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Product Designer</h1>
+        <p className="text-muted">Create custom designs with our drag-and-drop editor</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-4 rounded-lg shadow">
+          <div className="bg-card p-4 rounded-lg shadow">
             <h3 className="font-semibold mb-3">Product Template</h3>
             <div className="grid grid-cols-1 gap-2">
               {[{ id: 'shirt', name: 'T-Shirt', price: '$24.99' }, 
@@ -393,17 +393,17 @@ const ProductDesigner: React.FC = () => {
                   className={`p-3 text-left rounded-md border ${
                     selectedTemplate === template.id
                       ? 'border-purple-600 bg-purple-50 text-purple-700'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'card-border hover:card-border'
                   }`}
                 >
                   <div className="font-medium">{template.name}</div>
-                  <div className="text-sm text-gray-500">{template.price}</div>
+                  <div className="text-sm text-muted">{template.price}</div>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-lg shadow">
+          <div className="bg-card p-4 rounded-lg shadow">
             <h3 className="font-semibold mb-3">Add Image</h3>
             <input
               ref={fileInputRef}
@@ -421,7 +421,7 @@ const ProductDesigner: React.FC = () => {
             
             <div className="border-t pt-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">ITC Balance</span>
+                <span className="text-sm font-medium text-text">ITC Balance</span>
                 <span className="text-sm font-bold text-purple-600">{userBalance} ITC</span>
               </div>
               <button
@@ -433,11 +433,11 @@ const ProductDesigner: React.FC = () => {
                 </svg>
                 Generate AI Image
               </button>
-              <p className="text-xs text-gray-500 mt-1 text-center">Costs {AI_GENERATION_COST} ITC</p>
+              <p className="text-xs text-muted mt-1 text-center">Costs {AI_GENERATION_COST} ITC</p>
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-lg shadow">
+          <div className="bg-card p-4 rounded-lg shadow">
             <h3 className="font-semibold mb-3">Add Text</h3>
             <div className="space-y-3">
               <input
@@ -488,7 +488,7 @@ const ProductDesigner: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-lg shadow">
+          <div className="bg-card p-4 rounded-lg shadow">
             <h3 className="font-semibold mb-3">Smart Assistant</h3>
             <div className="space-y-2">
               <button
@@ -500,11 +500,11 @@ const ProductDesigner: React.FC = () => {
                 </svg>
                 GPT Design Assistant
               </button>
-              <p className="text-xs text-gray-500 text-center">Get AI-powered design suggestions</p>
+              <p className="text-xs text-muted text-center">Get AI-powered design suggestions</p>
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-lg shadow">
+          <div className="bg-card p-4 rounded-lg shadow">
             <h3 className="font-semibold mb-3">Actions</h3>
             <div className="space-y-2">
               <button
@@ -537,14 +537,14 @@ const ProductDesigner: React.FC = () => {
         </div>
 
         <div className="lg:col-span-3">
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-card rounded-lg shadow p-4">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold">{getTemplateBackground().label}</h3>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-muted">
                 {selectedTemplate && `${selectedTemplate.charAt(0).toUpperCase() + selectedTemplate.slice(1)} Template`}
               </div>
             </div>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg overflow-hidden relative">
+            <div className="border-2 border-dashed card-border rounded-lg overflow-hidden relative">
               <Stage
                 ref={stageRef}
                 width={800}
@@ -623,7 +623,7 @@ const ProductDesigner: React.FC = () => {
                 </Layer>
               </Stage>
             </div>
-            <p className="text-sm text-gray-500 mt-2">
+            <p className="text-sm text-muted mt-2">
               {previewMode 
                 ? 'Preview mode: See how your design will look on the product'
                 : 'Edit mode: Click elements to select and transform. Drag to move, use handles to resize and rotate.'}
@@ -635,12 +635,12 @@ const ProductDesigner: React.FC = () => {
       {/* AI Generation Modal */}
       {showAIModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-card rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">Generate AI Image</h3>
+              <h3 className="text-lg font-semibold text-text">Generate AI Image</h3>
               <button
                 onClick={() => setShowAIModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -650,22 +650,22 @@ const ProductDesigner: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Prompt</label>
+                <label className="block text-sm font-medium text-text mb-2">Prompt</label>
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="Describe what you want to generate (e.g., 'a cute cartoon cat wearing sunglasses')"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Style</label>
+                <label className="block text-sm font-medium text-text mb-2">Style</label>
                 <select
                   value={aiStyle}
                   onChange={(e) => setAiStyle(e.target.value as AIGenerationRequest['style'])}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="realistic">Realistic</option>
                   <option value="cartoon">Cartoon</option>
@@ -710,7 +710,7 @@ const ProductDesigner: React.FC = () => {
               </button>
               <button
                 onClick={() => setShowAIModal(false)}
-                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 px-4 rounded"
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-text py-2 px-4 rounded"
               >
                 Cancel
               </button>
@@ -722,12 +722,12 @@ const ProductDesigner: React.FC = () => {
       {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-card rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">Insufficient ITC Balance</h3>
+              <h3 className="text-lg font-semibold text-text">Insufficient ITC Balance</h3>
               <button
                 onClick={() => setShowPaymentModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -741,10 +741,10 @@ const ProductDesigner: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-muted mb-4">
                 You need {AI_GENERATION_COST} ITC to generate an AI image, but you only have {userBalance} ITC.
               </p>
-              <p className="text-sm font-medium text-gray-900">Purchase ITC to continue:</p>
+              <p className="text-sm font-medium text-text">Purchase ITC to continue:</p>
             </div>
 
             <div className="space-y-3 mb-6">
@@ -757,18 +757,18 @@ const ProductDesigner: React.FC = () => {
                 <button
                   key={package_.amount}
                   onClick={() => purchaseITC(package_.amount)}
-                  className={`w-full p-3 border rounded-lg text-left hover:bg-gray-50 transition-colors ${
-                    package_.popular ? 'border-purple-600 bg-purple-50' : 'border-gray-200'
+                  className={`w-full p-3 border rounded-lg text-left hover:bg-card transition-colors ${
+                    package_.popular ? 'border-purple-600 bg-purple-50' : 'card-border'
                   }`}
                 >
                   <div className="flex justify-between items-center">
                     <div>
-                      <div className="font-medium text-gray-900">{package_.amount} ITC</div>
+                      <div className="font-medium text-text">{package_.amount} ITC</div>
                       {package_.popular && (
                         <div className="text-xs text-purple-600 font-medium">Most Popular</div>
                       )}
                     </div>
-                    <div className="text-lg font-bold text-gray-900">${package_.price.toFixed(2)}</div>
+                    <div className="text-lg font-bold text-text">${package_.price.toFixed(2)}</div>
                   </div>
                 </button>
               ))}
@@ -776,7 +776,7 @@ const ProductDesigner: React.FC = () => {
 
             <button
               onClick={() => setShowPaymentModal(false)}
-              className="w-full bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 px-4 rounded"
+              className="w-full bg-gray-300 hover:bg-gray-400 text-text py-2 px-4 rounded"
             >
               Cancel
             </button>
@@ -787,9 +787,9 @@ const ProductDesigner: React.FC = () => {
       {/* GPT Assistant Modal */}
       {showAssistantModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-card rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex justify-between items-center p-6 border-b">
-              <h3 className="text-xl font-semibold text-gray-900 flex items-center">
+              <h3 className="text-xl font-semibold text-text flex items-center">
                 <svg className="w-6 h-6 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
@@ -797,7 +797,7 @@ const ProductDesigner: React.FC = () => {
               </h3>
               <button
                 onClick={() => setShowAssistantModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -806,7 +806,7 @@ const ProductDesigner: React.FC = () => {
             </div>
 
             {/* Assistant Tabs */}
-            <div className="border-b border-gray-200">
+            <div className="border-b card-border">
               <nav className="flex space-x-8 px-6">
                 {[{ id: 'suggestions', label: 'Design Ideas', icon: '💡' }, 
                   { id: 'analysis', label: 'Analysis', icon: '📊' }, 
@@ -817,7 +817,7 @@ const ProductDesigner: React.FC = () => {
                     className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center ${
                       assistantTab === tab.id
                         ? 'border-indigo-500 text-indigo-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                        : 'border-transparent text-muted hover:text-text hover:card-border'
                     }`}
                   >
                     <span className="mr-2">{tab.icon}</span>
@@ -833,21 +833,21 @@ const ProductDesigner: React.FC = () => {
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Design Context</label>
+                      <label className="block text-sm font-medium text-text mb-2">Design Context</label>
                       <input
                         type="text"
                         value={designContext}
                         onChange={(e) => setDesignContext(e.target.value)}
                         placeholder="e.g., birthday party, business logo, motivational quote"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Target Audience</label>
+                      <label className="block text-sm font-medium text-text mb-2">Target Audience</label>
                       <select
                         value={targetAudience}
                         onChange={(e) => setTargetAudience(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
                         <option value="general">General Audience</option>
                         <option value="teenagers">Teenagers</option>
@@ -884,7 +884,7 @@ const ProductDesigner: React.FC = () => {
                       {designSuggestions.map((suggestion) => (
                         <div key={suggestion.id} className="border rounded-lg p-6 hover:shadow-lg transition-shadow">
                           <div className="flex justify-between items-start mb-4">
-                            <h4 className="text-lg font-semibold text-gray-900">{suggestion.title}</h4>
+                            <h4 className="text-lg font-semibold text-text">{suggestion.title}</h4>
                             <div className="flex space-x-1">
                               {suggestion.tags.map((tag) => (
                                 <span key={tag} className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs rounded-full">
@@ -894,17 +894,17 @@ const ProductDesigner: React.FC = () => {
                             </div>
                           </div>
                           
-                          <p className="text-gray-600 mb-3">{suggestion.description}</p>
-                          <p className="text-sm text-gray-500 mb-4">{suggestion.reasoning}</p>
+                          <p className="text-muted mb-3">{suggestion.description}</p>
+                          <p className="text-sm text-muted mb-4">{suggestion.reasoning}</p>
                           
                           {suggestion.colorPalette && (
                             <div className="mb-4">
-                              <p className="text-sm font-medium text-gray-700 mb-2">Color Palette:</p>
+                              <p className="text-sm font-medium text-text mb-2">Color Palette:</p>
                               <div className="flex space-x-2">
                                 {suggestion.colorPalette.map((color, index) => (
                                   <div
                                     key={index}
-                                    className="w-8 h-8 rounded-full border border-gray-200"
+                                    className="w-8 h-8 rounded-full border card-border"
                                     style={{ backgroundColor: color }}
                                     title={color}
                                   ></div>
@@ -915,8 +915,8 @@ const ProductDesigner: React.FC = () => {
                           
                           {suggestion.typography && (
                             <div className="mb-4">
-                              <p className="text-sm font-medium text-gray-700 mb-2">Typography:</p>
-                              <div className="text-sm text-gray-600">
+                              <p className="text-sm font-medium text-text mb-2">Typography:</p>
+                              <div className="text-sm text-muted">
                                 {suggestion.typography.fontFamily} • {suggestion.typography.fontSize}px • {suggestion.typography.fontWeight}
                               </div>
                             </div>
@@ -957,7 +957,7 @@ const ProductDesigner: React.FC = () => {
                       )}
                     </button>
                     {elements.length === 0 && (
-                      <p className="text-sm text-gray-500 mt-2">Add some elements to your design first</p>
+                      <p className="text-sm text-muted mt-2">Add some elements to your design first</p>
                     )}
                   </div>
 
@@ -967,7 +967,7 @@ const ProductDesigner: React.FC = () => {
                         <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-full mb-4">
                           <span className="text-2xl font-bold text-indigo-600">{designAnalysis.overallRating}/10</span>
                         </div>
-                        <h3 className="text-lg font-semibold text-gray-900">Overall Design Score</h3>
+                        <h3 className="text-lg font-semibold text-text">Overall Design Score</h3>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1005,7 +1005,7 @@ const ProductDesigner: React.FC = () => {
                           <h4 className="font-semibold text-blue-800 mb-3">Specific Suggestions</h4>
                           <div className="space-y-3">
                             {designAnalysis.suggestions.map((suggestion) => (
-                              <div key={suggestion.id} className="bg-white rounded p-3">
+                              <div key={suggestion.id} className="bg-card rounded p-3">
                                 <h5 className="font-medium text-blue-900">{suggestion.title}</h5>
                                 <p className="text-sm text-blue-700 mb-1">{suggestion.description}</p>
                                 <p className="text-xs text-blue-600">{suggestion.reasoning}</p>
@@ -1038,9 +1038,9 @@ const ProductDesigner: React.FC = () => {
               {/* Chat Assistant Tab */}
               {assistantTab === 'chat' && (
                 <div className="flex flex-col h-96">
-                  <div className="flex-1 overflow-y-auto mb-4 border rounded-lg p-4 bg-gray-50">
+                  <div className="flex-1 overflow-y-auto mb-4 border rounded-lg p-4 bg-card">
                     {chatMessages.length === 0 ? (
-                      <div className="text-center text-gray-500 py-8">
+                      <div className="text-center text-muted py-8">
                         <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                         </svg>
@@ -1062,11 +1062,11 @@ const ProductDesigner: React.FC = () => {
                             <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                               message.type === 'user' 
                                 ? 'bg-indigo-600 text-white'
-                                : 'bg-white border text-gray-900'
+                                : 'bg-card border text-text'
                             }`}>
                               <p className="text-sm">{message.content}</p>
                               <p className={`text-xs mt-1 ${
-                                message.type === 'user' ? 'text-indigo-200' : 'text-gray-500'
+                                message.type === 'user' ? 'text-indigo-200' : 'text-muted'
                               }`}>
                                 {new Date(message.timestamp).toLocaleTimeString()}
                               </p>
@@ -1075,7 +1075,7 @@ const ProductDesigner: React.FC = () => {
                         ))}
                         {isChatting && (
                           <div className="flex justify-start">
-                            <div className="bg-white border rounded-lg px-4 py-2">
+                            <div className="bg-card border rounded-lg px-4 py-2">
                               <div className="flex space-x-1">
                                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
@@ -1094,7 +1094,7 @@ const ProductDesigner: React.FC = () => {
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       placeholder="Ask me anything about design..."
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="flex-1 px-4 py-2 border card-border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       onKeyPress={(e) => {
                         if (e.key === 'Enter' && !isChatting) {
                           sendChatMessage()

@@ -170,14 +170,14 @@ const UserProfilePage: React.FC = () => {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center">
-          <div className="bg-white rounded-lg shadow p-8">
-            <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+          <div className="bg-card rounded-lg shadow p-8">
+            <div className="w-16 h-16 mx-auto mb-4 bg-card rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">No Profile Found</h1>
-            <p className="text-gray-600 mb-6">
+            <h1 className="text-2xl font-bold text-text mb-2">No Profile Found</h1>
+            <p className="text-muted mb-6">
               {isAccountRoute 
                 ? "It looks like you don't have a profile set up yet. One will be created automatically when you sign up."
                 : "The user profile you're looking for doesn't exist or is private."
@@ -198,7 +198,7 @@ const UserProfilePage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Profile Header */}
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
+      <div className="bg-card rounded-lg shadow p-6 mb-8">
         <div className="flex items-start justify-between">
           <div className="flex items-start space-x-6">
             <img
@@ -208,7 +208,7 @@ const UserProfilePage: React.FC = () => {
             />
             <div className="flex-1">
               <div className="flex items-center space-x-3 mb-2">
-                <h1 className="text-2xl font-bold text-gray-900">{profile.displayName}</h1>
+                <h1 className="text-2xl font-bold text-text">{profile.displayName}</h1>
                 {isOwnProfile && (
                   <button
                     onClick={() => navigate('/account/profile/edit')}
@@ -220,9 +220,9 @@ const UserProfilePage: React.FC = () => {
                   </button>
                 )}
               </div>
-              <p className="text-gray-600 text-sm mb-1">@{profile.username}</p>
+              <p className="text-muted text-sm mb-1">@{profile.username}</p>
               {profile.location && (
-                <p className="text-gray-500 text-sm mb-3 flex items-center">
+                <p className="text-muted text-sm mb-3 flex items-center">
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   </svg>
@@ -230,7 +230,7 @@ const UserProfilePage: React.FC = () => {
                 </p>
               )}
               {profile.bio && (
-                <p className="text-gray-700 mb-4">{profile.bio}</p>
+                <p className="text-text mb-4">{profile.bio}</p>
               )}
               
               {/* Social Links */}
@@ -240,7 +240,7 @@ const UserProfilePage: React.FC = () => {
                     href={profile.website}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-gray-500 hover:text-gray-700"
+                    className="text-muted hover:text-text"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
@@ -286,14 +286,14 @@ const UserProfilePage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4 text-center">
               <div>
                 <p className="text-2xl font-bold text-purple-600">{profile.totalOrders}</p>
-                <p className="text-sm text-gray-500">Orders</p>
+                <p className="text-sm text-muted">Orders</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-green-600">${profile.totalSpent.toLocaleString()}</p>
-                <p className="text-sm text-gray-500">Spent</p>
+                <p className="text-sm text-muted">Spent</p>
               </div>
             </div>
-            <p className="text-sm text-gray-500 mt-2">
+            <p className="text-sm text-muted mt-2">
               Joined {new Date(profile.joinedDate).toLocaleDateString()}
             </p>
           </div>
@@ -302,16 +302,16 @@ const UserProfilePage: React.FC = () => {
         {/* Badges */}
         {profile.badges.length > 0 && (
           <div className="mt-6 pt-6 border-t">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Achievements</h3>
+            <h3 className="text-sm font-medium text-text mb-3">Achievements</h3>
             <div className="flex flex-wrap gap-3">
               {profile.badges.map((badge) => (
                 <div
                   key={badge.id}
-                  className="flex items-center space-x-2 bg-gray-100 rounded-full px-3 py-1"
+                  className="flex items-center space-x-2 bg-card rounded-full px-3 py-1"
                   title={badge.description}
                 >
                   <span className="text-lg">{badge.icon}</span>
-                  <span className="text-sm font-medium text-gray-700">{badge.name}</span>
+                  <span className="text-sm font-medium text-text">{badge.name}</span>
                 </div>
               ))}
             </div>
@@ -320,7 +320,7 @@ const UserProfilePage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', label: 'Overview', icon: '📊' },
@@ -334,7 +334,7 @@ const UserProfilePage: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 activeTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -347,26 +347,26 @@ const UserProfilePage: React.FC = () => {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Activity Overview</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Activity Overview</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="text-center">
                 <div className="text-3xl font-bold text-blue-600">{designs.length}</div>
-                <div className="text-sm text-gray-500">Designs Created</div>
+                <div className="text-sm text-muted">Designs Created</div>
               </div>
               <div className="text-center">
                 <div className="text-3xl font-bold text-green-600">{models.length}</div>
-                <div className="text-sm text-gray-500">3D Models</div>
+                <div className="text-sm text-muted">3D Models</div>
               </div>
               <div className="text-center">
                 <div className="text-3xl font-bold text-purple-600">{profile.badges.length}</div>
-                <div className="text-sm text-gray-500">Badges Earned</div>
+                <div className="text-sm text-muted">Badges Earned</div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Favorite Categories</h3>
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Favorite Categories</h3>
             <div className="flex flex-wrap gap-2">
               {profile.favoriteCategories.map((category) => (
                 <span
@@ -382,21 +382,21 @@ const UserProfilePage: React.FC = () => {
       )}
 
       {activeTab === 'orders' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Order History</h3>
+        <div className="bg-card rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Order History</h3>
           </div>
           <div className="divide-y divide-gray-200">
             {orders.map((order) => (
               <div key={order.id} className="p-6 flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-gray-900">Order #{order.id}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium text-text">Order #{order.id}</p>
+                  <p className="text-sm text-muted">
                     {new Date(order.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium text-gray-900">${order.total}</p>
+                  <p className="font-medium text-text">${order.total}</p>
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                     order.status === 'delivered' ? 'bg-green-100 text-green-800' :
                     order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
@@ -414,15 +414,15 @@ const UserProfilePage: React.FC = () => {
       {activeTab === 'designs' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {designs.map((design) => (
-            <div key={design.id} className="bg-white rounded-lg shadow overflow-hidden">
+            <div key={design.id} className="bg-card rounded-lg shadow overflow-hidden">
               <img
                 src={design.images[0]}
                 alt={design.name}
                 className="w-full h-48 object-cover"
               />
               <div className="p-4">
-                <h3 className="font-medium text-gray-900 mb-1">{design.name}</h3>
-                <p className="text-sm text-gray-600 mb-2">{design.description}</p>
+                <h3 className="font-medium text-text mb-1">{design.name}</h3>
+                <p className="text-sm text-muted mb-2">{design.description}</p>
                 <p className="text-lg font-bold text-purple-600">${design.price}</p>
               </div>
             </div>
@@ -433,20 +433,20 @@ const UserProfilePage: React.FC = () => {
       {activeTab === 'models' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {models.map((model) => (
-            <div key={model.id} className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-center h-32 bg-gray-100 rounded-lg mb-4">
+            <div key={model.id} className="bg-card rounded-lg shadow p-6">
+              <div className="flex items-center justify-center h-32 bg-card rounded-lg mb-4">
                 <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
               </div>
-              <h3 className="font-medium text-gray-900 mb-2">{model.title}</h3>
-              <p className="text-sm text-gray-600 mb-3">{model.description}</p>
+              <h3 className="font-medium text-text mb-2">{model.title}</h3>
+              <p className="text-sm text-muted mb-3">{model.description}</p>
               <div className="flex items-center justify-between text-sm">
-                <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded">
+                <span className="bg-card text-gray-800 px-2 py-1 rounded">
                   {model.category}
                 </span>
                 <div className="flex items-center space-x-3">
-                  <span className="text-gray-500">👍 {model.votes}</span>
+                  <span className="text-muted">👍 {model.votes}</span>
                   <span className="text-purple-600">⭐ {model.points}</span>
                 </div>
               </div>

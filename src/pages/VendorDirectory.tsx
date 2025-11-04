@@ -266,14 +266,14 @@ const VendorDirectory: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Vendor Directory</h1>
-        <p className="text-gray-600">
+        <h1 className="text-3xl font-bold text-text mb-2">Vendor Directory</h1>
+        <p className="text-muted">
           Discover and connect with verified wholesale suppliers
         </p>
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
+      <div className="bg-card rounded-lg shadow p-6 mb-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6">
           <div className="flex-1 lg:mr-6 mb-4 lg:mb-0">
             <div className="relative">
@@ -282,7 +282,7 @@ const VendorDirectory: React.FC = () => {
                 placeholder="Search vendors, products, or categories..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500"
+                className="w-full pl-10 pr-4 py-2 border card-border rounded-md focus:ring-purple-500 focus:border-purple-500"
               />
               <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -379,7 +379,7 @@ const VendorDirectory: React.FC = () => {
 
       {/* Results Count */}
       <div className="mb-6">
-        <p className="text-gray-600">
+        <p className="text-muted">
           Showing {filteredVendors.length} of {vendors.length} vendors
         </p>
       </div>
@@ -404,8 +404,8 @@ const VendorDirectory: React.FC = () => {
           <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No vendors found</h3>
-          <p className="text-gray-500">Try adjusting your search criteria or filters</p>
+          <h3 className="text-lg font-medium text-text mb-2">No vendors found</h3>
+          <p className="text-muted">Try adjusting your search criteria or filters</p>
         </div>
       )}
     </div>
@@ -417,7 +417,7 @@ const VendorCard: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
   const navigate = useNavigate()
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow">
+    <div className="bg-card rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow">
       {vendor.coverImage && (
         <img
           src={vendor.coverImage}
@@ -437,7 +437,7 @@ const VendorCard: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
               />
             )}
             <div>
-              <h3 className="text-lg font-medium text-gray-900 flex items-center">
+              <h3 className="text-lg font-medium text-text flex items-center">
                 {vendor.companyName}
                 {vendor.isVerified && (
                   <svg className="w-4 h-4 text-blue-500 ml-1" fill="currentColor" viewBox="0 0 24 24">
@@ -450,12 +450,12 @@ const VendorCard: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
                   </span>
                 )}
               </h3>
-              <p className="text-sm text-gray-500">{vendor.address.city}, {vendor.address.state}</p>
+              <p className="text-sm text-muted">{vendor.address.city}, {vendor.address.state}</p>
             </div>
           </div>
         </div>
 
-        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{vendor.businessDescription}</p>
+        <p className="text-muted text-sm mb-4 line-clamp-2">{vendor.businessDescription}</p>
 
         <div className="flex items-center mb-4">
           <div className="flex items-center mr-4">
@@ -471,21 +471,21 @@ const VendorCard: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
                 </svg>
               ))}
             </div>
-            <span className="ml-1 text-sm text-gray-500">({vendor.reviewCount})</span>
+            <span className="ml-1 text-sm text-muted">({vendor.reviewCount})</span>
           </div>
         </div>
 
         <div className="space-y-2 mb-4">
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Products:</span>
+            <span className="text-muted">Products:</span>
             <span className="font-medium">{vendor.productCount}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Min Order:</span>
+            <span className="text-muted">Min Order:</span>
             <span className="font-medium">${vendor.minimumOrderValue}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Lead Time:</span>
+            <span className="text-muted">Lead Time:</span>
             <span className="font-medium">{vendor.leadTime} days</span>
           </div>
         </div>
@@ -500,7 +500,7 @@ const VendorCard: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
             </span>
           ))}
           {vendor.categories.length > 3 && (
-            <span className="text-xs text-gray-500">+{vendor.categories.length - 3} more</span>
+            <span className="text-xs text-muted">+{vendor.categories.length - 3} more</span>
           )}
         </div>
 
@@ -525,7 +525,7 @@ const VendorListItem: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
   const navigate = useNavigate()
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="bg-card rounded-lg shadow p-6">
       <div className="flex items-start justify-between">
         <div className="flex items-start">
           {vendor.logo && (
@@ -536,7 +536,7 @@ const VendorListItem: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
             />
           )}
           <div className="flex-1">
-            <h3 className="text-xl font-medium text-gray-900 flex items-center mb-2">
+            <h3 className="text-xl font-medium text-text flex items-center mb-2">
               {vendor.companyName}
               {vendor.isVerified && (
                 <svg className="w-5 h-5 text-blue-500 ml-2" fill="currentColor" viewBox="0 0 24 24">
@@ -549,7 +549,7 @@ const VendorListItem: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
                 </span>
               )}
             </h3>
-            <p className="text-gray-600 mb-3">{vendor.businessDescription}</p>
+            <p className="text-muted mb-3">{vendor.businessDescription}</p>
             
             <div className="flex items-center space-x-6 mb-3">
               <div className="flex items-center">
@@ -565,14 +565,14 @@ const VendorListItem: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
                     </svg>
                   ))}
                 </div>
-                <span className="ml-1 text-sm text-gray-500">({vendor.reviewCount} reviews)</span>
+                <span className="ml-1 text-sm text-muted">({vendor.reviewCount} reviews)</span>
               </div>
               
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-muted">
                 {vendor.address.city}, {vendor.address.state}
               </span>
               
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-muted">
                 {vendor.productCount} products
               </span>
             </div>
@@ -593,11 +593,11 @@ const VendorListItem: React.FC<{ vendor: WholesaleVendor }> = ({ vendor }) => {
         <div className="text-right ml-6">
           <div className="space-y-2 mb-4">
             <div>
-              <p className="text-sm text-gray-500">Min Order</p>
+              <p className="text-sm text-muted">Min Order</p>
               <p className="font-medium">${vendor.minimumOrderValue}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Lead Time</p>
+              <p className="text-sm text-muted">Lead Time</p>
               <p className="font-medium">{vendor.leadTime} days</p>
             </div>
           </div>

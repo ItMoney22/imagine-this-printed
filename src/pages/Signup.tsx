@@ -62,13 +62,13 @@ const Signup: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-card py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-text">
             Create your account
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
+          <p className="mt-2 text-center text-sm text-muted">
             Already have an account?{' '}
             <Link to="/login" className="font-medium text-purple-600 hover:text-purple-500">
               Sign in
@@ -85,7 +85,7 @@ const Signup: React.FC = () => {
                 onChange={(e) => setFirstName(e.target.value)}
                 placeholder="First Name"
                 required
-                className="px-3 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="px-3 py-3 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <input
                 type="text"
@@ -93,7 +93,7 @@ const Signup: React.FC = () => {
                 onChange={(e) => setLastName(e.target.value)}
                 placeholder="Last Name"
                 required
-                className="px-3 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="px-3 py-3 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>
 
@@ -103,7 +103,7 @@ const Signup: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               required
-              className="w-full px-3 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-3 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
 
             <input
@@ -113,7 +113,7 @@ const Signup: React.FC = () => {
               placeholder="Password"
               required
               minLength={6}
-              className="w-full px-3 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-3 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
           </div>
 
@@ -140,7 +140,7 @@ const Signup: React.FC = () => {
         )}
 
         <div className="text-center">
-          <Link to="/" className="text-sm text-gray-600 hover:text-gray-500">
+          <Link to="/" className="text-sm text-muted hover:text-muted">
             ← Back to home
           </Link>
         </div>

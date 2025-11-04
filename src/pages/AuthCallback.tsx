@@ -133,14 +133,14 @@ export default function AuthCallback() {
 
   // Render status-specific UI
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-card flex items-center justify-center p-6">
       <div className="text-center max-w-md">
         {status === 'error' ? (
           <>
             <div className="text-red-500 text-6xl mb-4">✕</div>
             <h2 className="text-xl font-semibold text-gray-800 mb-2">Authentication Error</h2>
             <p className="text-sm text-red-600 mb-4">{error}</p>
-            <p className="text-xs text-gray-500">Redirecting to login page...</p>
+            <p className="text-xs text-muted">Redirecting to login page...</p>
           </>
         ) : (
           <>
@@ -151,7 +151,7 @@ export default function AuthCallback() {
               {status === 'verifying' && 'Verifying session...'}
               {status === 'redirecting' && 'Redirecting...'}
             </h2>
-            <p className="text-sm text-gray-600">Please wait while we sign you in</p>
+            <p className="text-sm text-muted">Please wait while we sign you in</p>
           </>
         )}
       </div>

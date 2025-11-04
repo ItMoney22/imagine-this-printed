@@ -13,12 +13,12 @@ export default function AuthError() {
   }, [error, errorDescription]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+    <div className="min-h-screen bg-card flex items-center justify-center p-6">
+      <div className="bg-card rounded-lg shadow-lg p-8 max-w-md w-full">
         <div className="text-center">
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Authentication Failed</h1>
-          <p className="text-gray-600 mb-6">{errorDescription}</p>
+          <h1 className="text-2xl font-bold text-text mb-2">Authentication Failed</h1>
+          <p className="text-muted mb-6">{errorDescription}</p>
 
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-left">
             <p className="text-sm font-medium text-red-800 mb-1">Error Code:</p>
@@ -35,15 +35,15 @@ export default function AuthError() {
 
             <button
               onClick={() => navigate('/', { replace: true })}
-              className="w-full bg-gray-200 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+              className="w-full bg-gray-200 text-text py-3 px-4 rounded-lg font-medium hover:bg-gray-300 transition-colors"
             >
               Go to Home
             </button>
           </div>
 
           <div className="mt-6 text-left">
-            <p className="text-xs font-semibold text-gray-700 mb-2">Common Issues:</p>
-            <ul className="text-xs text-gray-600 space-y-1">
+            <p className="text-xs font-semibold text-text mb-2">Common Issues:</p>
+            <ul className="text-xs text-muted space-y-1">
               <li>• Check your internet connection</li>
               <li>• Verify your email/password is correct</li>
               <li>• Clear browser cache and try again</li>

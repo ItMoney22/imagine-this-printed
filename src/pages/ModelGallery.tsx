@@ -139,8 +139,8 @@ const ModelGallery: React.FC = () => {
       <div className="mb-8">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">3D Model Gallery</h1>
-            <p className="text-gray-600">Discover and download amazing 3D models from our community</p>
+            <h1 className="text-3xl font-bold text-text mb-2">3D Model Gallery</h1>
+            <p className="text-muted">Discover and download amazing 3D models from our community</p>
           </div>
           <button
             onClick={() => setShowUploadModal(true)}
@@ -161,7 +161,7 @@ const ModelGallery: React.FC = () => {
               className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 selectedCategory === category.id
                   ? 'bg-purple-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-card text-text hover:bg-gray-200'
               }`}
             >
               {category.name}
@@ -173,7 +173,7 @@ const ModelGallery: React.FC = () => {
       {/* Models Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredModels.map((model) => (
-          <div key={model.id} className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+          <div key={model.id} className="bg-card rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
             <div className="relative">
               <img 
                 src={model.previewUrl || 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=300&h=300&fit=crop'} 
@@ -188,14 +188,14 @@ const ModelGallery: React.FC = () => {
             </div>
             
             <div className="p-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{model.title}</h3>
-              <p className="text-gray-600 text-sm mb-3 line-clamp-2">{model.description}</p>
+              <h3 className="text-lg font-semibold text-text mb-2">{model.title}</h3>
+              <p className="text-muted text-sm mb-3 line-clamp-2">{model.description}</p>
               
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={() => handleVote(model.id)}
-                    className="flex items-center space-x-1 text-gray-600 hover:text-purple-600"
+                    className="flex items-center space-x-1 text-muted hover:text-purple-600"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
@@ -228,7 +228,7 @@ const ModelGallery: React.FC = () => {
                 </button>
               </div>
               
-              <div className="mt-3 text-xs text-gray-500">
+              <div className="mt-3 text-xs text-muted">
                 Uploaded on {new Date(model.createdAt).toLocaleDateString()}
               </div>
             </div>
@@ -241,20 +241,20 @@ const ModelGallery: React.FC = () => {
           <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No models found</h3>
-          <p className="text-gray-600">No 3D models available in this category yet.</p>
+          <h3 className="text-lg font-medium text-text mb-2">No models found</h3>
+          <p className="text-muted">No 3D models available in this category yet.</p>
         </div>
       )}
 
       {/* Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-card rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">Upload 3D Model</h3>
+              <h3 className="text-lg font-semibold text-text">Upload 3D Model</h3>
               <button
                 onClick={() => setShowUploadModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-muted"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -264,33 +264,33 @@ const ModelGallery: React.FC = () => {
 
             <form onSubmit={handleUpload} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Model Title</label>
+                <label className="block text-sm font-medium text-text mb-2">Model Title</label>
                 <input
                   type="text"
                   value={newModel.title}
                   onChange={(e) => setNewModel(prev => ({ ...prev, title: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <label className="block text-sm font-medium text-text mb-2">Description</label>
                 <textarea
                   value={newModel.description}
                   onChange={(e) => setNewModel(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <label className="block text-sm font-medium text-text mb-2">Category</label>
                 <select
                   value={newModel.category}
                   onChange={(e) => setNewModel(prev => ({ ...prev, category: e.target.value as any }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   {categories.slice(1).map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -299,15 +299,15 @@ const ModelGallery: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">3D Model File</label>
+                <label className="block text-sm font-medium text-text mb-2">3D Model File</label>
                 <input
                   type="file"
                   accept=".stl,.3mf,.obj,.glb"
                   onChange={(e) => setNewModel(prev => ({ ...prev, file: e.target.files?.[0] || null }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">Supported formats: .stl, .3mf, .obj, .glb</p>
+                <p className="text-xs text-muted mt-1">Supported formats: .stl, .3mf, .obj, .glb</p>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
@@ -330,7 +330,7 @@ const ModelGallery: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 font-medium py-2 px-4 rounded transition-colors"
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-text font-medium py-2 px-4 rounded transition-colors"
                 >
                   Cancel
                 </button>

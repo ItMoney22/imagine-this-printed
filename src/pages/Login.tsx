@@ -120,17 +120,17 @@ const Login: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-card py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-text">
             {mode === 'signin' && 'Sign in to your account'}
             {mode === 'reset' && 'Reset your password'}
           </h2>
           {mode === 'signin' && (
-            <p className="mt-2 text-center text-sm text-gray-600">
+            <p className="mt-2 text-center text-sm text-muted">
               Don't have an account?{' '}
-              <Link to="/signup" className="font-medium text-purple-600 hover:text-purple-500">
+              <Link to="/signup" className="font-medium text-primary hover:text-secondary transition-colors">
                 Sign up
               </Link>
             </p>
@@ -146,7 +146,7 @@ const Login: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email address"
               required
-              className="w-full px-3 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-3 border card-border rounded-md bg-card text-text focus:outline-none focus:ring-2 focus:ring-primary"
             />
 
             {mode !== 'reset' && (
@@ -156,7 +156,7 @@ const Login: React.FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
                 required
-                className="w-full px-3 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-3 border card-border rounded-md bg-card text-text focus:outline-none focus:ring-2 focus:ring-primary"
               />
             )}
           </div>
@@ -165,7 +165,7 @@ const Login: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-primary to-secondary hover:shadow-glow focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:bg-gray-400 disabled:cursor-not-allowed transition-all hover:scale-[1.02]"
             >
               {loading ? 'Processing...' : (
                 mode === 'signin' ? 'Sign In' :
@@ -180,10 +180,10 @@ const Login: React.FC = () => {
           <>
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
+                <div className="w-full border-t card-border" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-gray-50 text-gray-500">Or continue with</span>
+                <span className="px-2 bg-card text-muted">Or continue with</span>
               </div>
             </div>
 
@@ -192,7 +192,7 @@ const Login: React.FC = () => {
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={loading}
-                className="group relative w-full flex justify-center py-3 px-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="group relative w-full flex justify-center py-3 px-4 border card-border text-sm font-medium rounded-md text-text bg-card hover:bg-card focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-card disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -209,7 +209,7 @@ const Login: React.FC = () => {
                 type="button"
                 onClick={handleMagicLinkSignIn}
                 disabled={loading || !email}
-                className="group relative w-full flex justify-center py-3 px-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="group relative w-full flex justify-center py-3 px-4 border card-border text-sm font-medium rounded-md text-text bg-card hover:bg-card focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-card disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -222,8 +222,8 @@ const Login: React.FC = () => {
 
         {message && (
           <div className={`mt-4 p-3 rounded-md ${
-            message.includes('error') || message.includes('Error') 
-              ? 'bg-red-50 text-red-700 border border-red-200' 
+            message.includes('error') || message.includes('Error')
+              ? 'bg-red-50 text-red-700 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
             {message}
@@ -236,7 +236,7 @@ const Login: React.FC = () => {
               <button
                 type="button"
                 onClick={() => switchMode('reset')}
-                className="text-sm font-medium text-purple-600 hover:text-purple-500"
+                className="text-sm font-medium text-primary hover:text-secondary transition-colors"
               >
                 Forgot your password?
               </button>
@@ -247,14 +247,14 @@ const Login: React.FC = () => {
             <button
               type="button"
               onClick={() => switchMode('signin')}
-              className="text-sm font-medium text-purple-600 hover:text-purple-500"
+              className="text-sm font-medium text-primary hover:text-secondary transition-colors"
             >
               Back to sign in
             </button>
           )}
 
           <div className="mt-4">
-            <Link to="/" className="text-sm text-gray-600 hover:text-gray-500">
+            <Link to="/" className="text-sm text-muted hover:text-text transition-colors">
               ← Back to home
             </Link>
           </div>

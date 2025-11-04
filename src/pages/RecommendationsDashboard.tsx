@@ -30,8 +30,8 @@ const RecommendationsDashboard: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Recommended for You</h1>
-        <p className="text-gray-600">Personalized product suggestions based on your preferences and activity</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Recommended for You</h1>
+        <p className="text-muted">Personalized product suggestions based on your preferences and activity</p>
       </div>
 
       {/* Category Filter */}
@@ -44,7 +44,7 @@ const RecommendationsDashboard: React.FC = () => {
               className={`px-4 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
                 selectedCategory === category.id
                   ? 'bg-purple-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-card text-text hover:bg-gray-200'
               }`}
             >
               <span className="mr-2">{category.icon}</span>
@@ -100,9 +100,9 @@ const RecommendationsDashboard: React.FC = () => {
 
         {/* Recently Viewed */}
         <div className="border-t pt-8">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-card rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">👁️ Recently Viewed</h3>
+              <h3 className="text-lg font-semibold text-text">👁️ Recently Viewed</h3>
               <button
                 onClick={() => navigate('/catalog')}
                 className="text-purple-600 hover:text-purple-700 font-medium text-sm"
@@ -137,14 +137,14 @@ const RecommendationsDashboard: React.FC = () => {
                   className="group cursor-pointer"
                   onClick={() => navigate(`/product/${product.id}`)}
                 >
-                  <div className="bg-gray-100 rounded-lg overflow-hidden mb-2 group-hover:shadow-md transition-shadow">
+                  <div className="bg-card rounded-lg overflow-hidden mb-2 group-hover:shadow-md transition-shadow">
                     <img
                       src={product.image}
                       alt={product.name}
                       className="w-full h-32 object-cover group-hover:scale-105 transition-transform duration-200"
                     />
                   </div>
-                  <h4 className="font-medium text-gray-900 text-sm group-hover:text-purple-600 transition-colors line-clamp-1">
+                  <h4 className="font-medium text-text text-sm group-hover:text-purple-600 transition-colors line-clamp-1">
                     {product.name}
                   </h4>
                   <p className="text-purple-600 font-semibold text-sm">
@@ -159,33 +159,33 @@ const RecommendationsDashboard: React.FC = () => {
         {/* Recommendation Insights */}
         <div className="border-t pt-8">
           <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">🧠 Your Recommendation Profile</h3>
+            <h3 className="text-lg font-semibold text-text mb-4">🧠 Your Recommendation Profile</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <div className="flex items-center mb-2">
                   <span className="text-2xl mr-2">🎨</span>
                   <h4 className="font-medium">Top Interest</h4>
                 </div>
                 <p className="text-purple-600 font-semibold">Custom Designs</p>
-                <p className="text-sm text-gray-600">Based on your activity</p>
+                <p className="text-sm text-muted">Based on your activity</p>
               </div>
               
-              <div className="bg-white rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <div className="flex items-center mb-2">
                   <span className="text-2xl mr-2">📊</span>
                   <h4 className="font-medium">Recommendation Accuracy</h4>
                 </div>
                 <p className="text-green-600 font-semibold">92%</p>
-                <p className="text-sm text-gray-600">You liked 11 of 12 suggestions</p>
+                <p className="text-sm text-muted">You liked 11 of 12 suggestions</p>
               </div>
               
-              <div className="bg-white rounded-lg p-4">
+              <div className="bg-card rounded-lg p-4">
                 <div className="flex items-center mb-2">
                   <span className="text-2xl mr-2">⚡</span>
                   <h4 className="font-medium">New Recommendations</h4>
                 </div>
                 <p className="text-blue-600 font-semibold">Daily</p>
-                <p className="text-sm text-gray-600">Updated based on trends</p>
+                <p className="text-sm text-muted">Updated based on trends</p>
               </div>
             </div>
             

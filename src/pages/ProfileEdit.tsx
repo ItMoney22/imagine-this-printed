@@ -183,23 +183,23 @@ const ProfileEdit: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Edit Profile</h1>
-        <p className="text-gray-600">Manage your public profile information</p>
+        <h1 className="text-3xl font-bold text-text">Edit Profile</h1>
+        <p className="text-muted">Manage your public profile information</p>
       </div>
 
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Profile Information</h3>
+      <div className="bg-card rounded-lg shadow">
+        <div className="px-6 py-4 border-b card-border">
+          <h3 className="text-lg font-medium text-text">Profile Information</h3>
         </div>
         
         <div className="p-6 space-y-6">
           {/* Profile Image */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-text mb-2">
               Profile Picture
             </label>
             <div className="flex items-center space-x-6">
-              <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100">
+              <div className="w-24 h-24 rounded-full overflow-hidden bg-card">
                 <img
                   src={previewUrl || 'https://via.placeholder.com/96x96?text=Profile'}
                   alt="Profile"
@@ -220,7 +220,7 @@ const ProfileEdit: React.FC = () => {
                 >
                   Upload Photo
                 </label>
-                <p className="text-sm text-gray-500 mt-1">JPG, PNG up to 5MB</p>
+                <p className="text-sm text-muted mt-1">JPG, PNG up to 5MB</p>
               </div>
             </div>
           </div>
@@ -228,7 +228,7 @@ const ProfileEdit: React.FC = () => {
           {/* Basic Information */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Username *
               </label>
               <input
@@ -238,11 +238,11 @@ const ProfileEdit: React.FC = () => {
                 className="form-input w-full"
                 placeholder="johndoe"
               />
-              <p className="text-sm text-gray-500 mt-1">Your unique username for public profile URL</p>
+              <p className="text-sm text-muted mt-1">Your unique username for public profile URL</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Display Name *
               </label>
               <input
@@ -255,7 +255,7 @@ const ProfileEdit: React.FC = () => {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Bio
               </label>
               <textarea
@@ -268,7 +268,7 @@ const ProfileEdit: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Location
               </label>
               <input
@@ -281,7 +281,7 @@ const ProfileEdit: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Website
               </label>
               <input
@@ -296,10 +296,10 @@ const ProfileEdit: React.FC = () => {
 
           {/* Social Links */}
           <div>
-            <h4 className="text-lg font-medium text-gray-900 mb-4">Social Links</h4>
+            <h4 className="text-lg font-medium text-text mb-4">Social Links</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Twitter
                 </label>
                 <input
@@ -312,7 +312,7 @@ const ProfileEdit: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Instagram
                 </label>
                 <input
@@ -325,7 +325,7 @@ const ProfileEdit: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   LinkedIn
                 </label>
                 <input
@@ -341,7 +341,7 @@ const ProfileEdit: React.FC = () => {
 
           {/* Privacy Settings */}
           <div>
-            <h4 className="text-lg font-medium text-gray-900 mb-4">Privacy Settings</h4>
+            <h4 className="text-lg font-medium text-text mb-4">Privacy Settings</h4>
             <div className="space-y-4">
               <label className="flex items-center">
                 <input
@@ -350,7 +350,7 @@ const ProfileEdit: React.FC = () => {
                   onChange={(e) => handleInputChange('isPublic', e.target.checked)}
                   className="form-checkbox"
                 />
-                <span className="ml-2 text-sm text-gray-700">
+                <span className="ml-2 text-sm text-text">
                   Make my profile public (others can view your profile)
                 </span>
               </label>
@@ -362,7 +362,7 @@ const ProfileEdit: React.FC = () => {
                   onChange={(e) => handleInputChange('showOrderHistory', e.target.checked)}
                   className="form-checkbox"
                 />
-                <span className="ml-2 text-sm text-gray-700">
+                <span className="ml-2 text-sm text-text">
                   Show my order history on public profile
                 </span>
               </label>
@@ -374,7 +374,7 @@ const ProfileEdit: React.FC = () => {
                   onChange={(e) => handleInputChange('showDesigns', e.target.checked)}
                   className="form-checkbox"
                 />
-                <span className="ml-2 text-sm text-gray-700">
+                <span className="ml-2 text-sm text-text">
                   Show my designs on public profile
                 </span>
               </label>
@@ -386,7 +386,7 @@ const ProfileEdit: React.FC = () => {
                   onChange={(e) => handleInputChange('showModels', e.target.checked)}
                   className="form-checkbox"
                 />
-                <span className="ml-2 text-sm text-gray-700">
+                <span className="ml-2 text-sm text-text">
                   Show my 3D models on public profile
                 </span>
               </label>
@@ -394,7 +394,7 @@ const ProfileEdit: React.FC = () => {
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-t card-border flex items-center justify-between">
           <button
             onClick={() => navigate('/account/profile')}
             className="btn-secondary"

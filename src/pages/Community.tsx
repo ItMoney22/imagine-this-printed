@@ -128,7 +128,7 @@ const Community: React.FC = () => {
       case 'instagram': return 'bg-pink-500 text-white'
       case 'youtube': return 'bg-red-600 text-white'
       case 'twitter': return 'bg-blue-500 text-white'
-      default: return 'bg-gray-500 text-white'
+      default: return 'bg-card0 text-white'
     }
   }
 
@@ -152,8 +152,8 @@ const Community: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">Community Showcase</h1>
-        <p className="text-xl text-gray-600 mb-6">
+        <h1 className="text-4xl font-bold text-text mb-4">Community Showcase</h1>
+        <p className="text-xl text-muted mb-6">
           See how our customers bring their designs to life! Share your creations and get featured.
         </p>
         <button
@@ -165,12 +165,12 @@ const Community: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow mb-8">
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className="bg-card rounded-lg shadow mb-8">
+        <div className="px-6 py-4 border-b card-border">
           <div className="flex flex-wrap items-center gap-4">
             {/* Sort By */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Sort by</label>
+              <label className="block text-sm font-medium text-text mb-1">Sort by</label>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
@@ -184,7 +184,7 @@ const Community: React.FC = () => {
 
             {/* Platform Filter */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+              <label className="block text-sm font-medium text-text mb-1">Platform</label>
               <select
                 value={platformFilter}
                 onChange={(e) => setPlatformFilter(e.target.value)}
@@ -202,7 +202,7 @@ const Community: React.FC = () => {
 
         {/* Tag Filters */}
         <div className="px-6 py-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Filter by tags</label>
+          <label className="block text-sm font-medium text-text mb-2">Filter by tags</label>
           <div className="flex flex-wrap gap-2">
             {availableTags.map(tag => (
               <button
@@ -211,7 +211,7 @@ const Community: React.FC = () => {
                 className={`px-3 py-1 rounded-full text-sm transition-colors ${
                   tagFilter.includes(tag)
                     ? 'bg-purple-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    : 'bg-gray-200 text-text hover:bg-gray-300'
                 }`}
               >
                 #{tag}
@@ -227,15 +227,15 @@ const Community: React.FC = () => {
           <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m-9 0h10m-10 0a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2m-10 0V4" />
           </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No posts found</h3>
-          <p className="text-gray-600">Try adjusting your filters or be the first to submit content!</p>
+          <h3 className="text-lg font-medium text-text mb-2">No posts found</h3>
+          <p className="text-muted">Try adjusting your filters or be the first to submit content!</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {posts.map((post) => (
-            <div key={post.id} className="bg-white rounded-lg shadow overflow-hidden">
+            <div key={post.id} className="bg-card rounded-lg shadow overflow-hidden">
               {/* Post Header */}
-              <div className="px-4 py-3 border-b border-gray-200">
+              <div className="px-4 py-3 border-b card-border">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <img
@@ -244,8 +244,8 @@ const Community: React.FC = () => {
                       className="w-8 h-8 rounded-full"
                     />
                     <div>
-                      <p className="font-medium text-gray-900">{post.author.displayName}</p>
-                      <p className="text-sm text-gray-600">{post.author.username}</p>
+                      <p className="font-medium text-text">{post.author.displayName}</p>
+                      <p className="text-sm text-muted">{post.author.username}</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -280,7 +280,7 @@ const Community: React.FC = () => {
                         href={post.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="bg-white text-gray-900 px-4 py-2 rounded-full font-medium hover:bg-gray-100 transition-colors"
+                        className="bg-card text-text px-4 py-2 rounded-full font-medium hover:bg-card transition-colors"
                       >
                         View Original
                       </a>
@@ -291,21 +291,21 @@ const Community: React.FC = () => {
 
               {/* Post Info */}
               <div className="px-4 py-3">
-                <h3 className="font-medium text-gray-900 mb-2">{post.title}</h3>
+                <h3 className="font-medium text-text mb-2">{post.title}</h3>
                 {post.description && (
-                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">{post.description}</p>
+                  <p className="text-sm text-muted mb-3 line-clamp-2">{post.description}</p>
                 )}
 
                 {/* Tags */}
                 {post.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-3">
                     {post.tags.slice(0, 3).map(tag => (
-                      <span key={tag} className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
+                      <span key={tag} className="px-2 py-1 text-xs bg-card text-muted rounded">
                         #{tag}
                       </span>
                     ))}
                     {post.tags.length > 3 && (
-                      <span className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
+                      <span className="px-2 py-1 text-xs bg-card text-muted rounded">
                         +{post.tags.length - 3} more
                       </span>
                     )}
@@ -313,7 +313,7 @@ const Community: React.FC = () => {
                 )}
 
                 {/* Engagement Stats */}
-                <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                <div className="flex items-center justify-between text-sm text-muted mb-3">
                   <div className="flex items-center space-x-4">
                     <span>👀 {formatNumber(post.viewCount)}</span>
                     <span>❤️ {formatNumber(post.engagement.likes)}</span>
@@ -327,12 +327,12 @@ const Community: React.FC = () => {
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={() => handleVote(post.id, 'up')}
-                      className="flex items-center space-x-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+                      className="flex items-center space-x-1 px-3 py-1 text-sm bg-card hover:bg-gray-200 rounded-full transition-colors"
                     >
                       <span>👍</span>
                       <span>{post.votes}</span>
                     </button>
-                    <button className="flex items-center space-x-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
+                    <button className="flex items-center space-x-1 px-3 py-1 text-sm bg-card hover:bg-gray-200 rounded-full transition-colors">
                       <span>💬</span>
                       <span>{post.comments.length}</span>
                     </button>
@@ -355,13 +355,13 @@ const Community: React.FC = () => {
       {/* Submission Modal */}
       {showSubmissionModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200">
+          <div className="bg-card rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b card-border">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium text-gray-900">Submit Your Creation</h3>
+                <h3 className="text-lg font-medium text-text">Submit Your Creation</h3>
                 <button
                   onClick={() => setShowSubmissionModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-muted"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -382,7 +382,7 @@ const Community: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Post URL *
                 </label>
                 <input
@@ -393,13 +393,13 @@ const Community: React.FC = () => {
                   placeholder="https://www.tiktok.com/@user/video/123... or https://instagram.com/p/..."
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   Paste the full URL of your TikTok, Instagram, YouTube, or Twitter post
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Featured Products *
                 </label>
                 <input
@@ -410,13 +410,13 @@ const Community: React.FC = () => {
                   placeholder="Custom T-Shirt, DTF Transfer, etc."
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   List the products shown in your content (separated by commas)
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Your Handle (Optional)
                 </label>
                 <input
@@ -426,13 +426,13 @@ const Community: React.FC = () => {
                   className="form-input w-full"
                   placeholder="@yourusername"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted mt-1">
                   Your social media handle for attribution
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Description
                 </label>
                 <textarea
@@ -445,7 +445,7 @@ const Community: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Additional Notes
                 </label>
                 <textarea
@@ -458,7 +458,7 @@ const Community: React.FC = () => {
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+            <div className="px-6 py-4 border-t card-border flex items-center justify-between">
               <button
                 onClick={() => setShowSubmissionModal(false)}
                 className="btn-secondary"

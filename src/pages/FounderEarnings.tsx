@@ -142,8 +142,8 @@ const FounderEarningsPage: React.FC = () => {
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Founder Earnings</h1>
-            <p className="text-gray-600">Track your 35% profit share from internal product sales</p>
+            <h1 className="text-3xl font-bold text-text">Founder Earnings</h1>
+            <p className="text-muted">Track your 35% profit share from internal product sales</p>
           </div>
           <div className="flex items-center space-x-3">
             <select
@@ -161,7 +161,7 @@ const FounderEarningsPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', label: 'Overview', icon: '📊' },
@@ -175,7 +175,7 @@ const FounderEarningsPage: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -190,7 +190,7 @@ const FounderEarningsPage: React.FC = () => {
         <div className="space-y-6">
           {/* Key Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -198,8 +198,8 @@ const FounderEarningsPage: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Revenue</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Total Revenue</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(report.totalRevenue)}
                   </p>
                   {analytics?.trends && (
@@ -211,7 +211,7 @@ const FounderEarningsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -219,18 +219,18 @@ const FounderEarningsPage: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Gross Profit</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Gross Profit</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(report.grossProfit)}
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted">
                     {founderEarningsService.formatPercentage(report.averageMargin)} margin
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -238,16 +238,16 @@ const FounderEarningsPage: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Founder Earnings</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Founder Earnings</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(report.founderEarnings)}
                   </p>
-                  <p className="text-sm text-gray-500">35% of profit</p>
+                  <p className="text-sm text-muted">35% of profit</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,25 +255,25 @@ const FounderEarningsPage: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Pending Payout</p>
-                  <p className="text-2xl font-semibold text-gray-900">
+                  <p className="text-sm font-medium text-muted">Pending Payout</p>
+                  <p className="text-2xl font-semibold text-text">
                     {founderEarningsService.formatCurrency(pendingEarnings)}
                   </p>
-                  <p className="text-sm text-gray-500">Ready for withdrawal</p>
+                  <p className="text-sm text-muted">Ready for withdrawal</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Top Products */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Top Performing Products</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Top Performing Products</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
                 {report.topProducts.map((product: any, index: number) => (
-                  <div key={product.productId} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div key={product.productId} className="flex items-center justify-between p-4 bg-card rounded-lg">
                     <div className="flex items-center">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
                         index === 0 ? 'bg-yellow-500' : index === 1 ? 'bg-gray-400' : 'bg-orange-500'
@@ -281,12 +281,12 @@ const FounderEarningsPage: React.FC = () => {
                         {index + 1}
                       </div>
                       <div className="ml-4">
-                        <p className="font-medium text-gray-900">{product.productName}</p>
-                        <p className="text-sm text-gray-500">{product.units} units sold</p>
+                        <p className="font-medium text-text">{product.productName}</p>
+                        <p className="text-sm text-muted">{product.units} units sold</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-text">
                         {founderEarningsService.formatCurrency(product.revenue)}
                       </p>
                       <p className="text-sm text-green-600">
@@ -300,22 +300,22 @@ const FounderEarningsPage: React.FC = () => {
           </div>
 
           {/* Category Breakdown */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Revenue by Category</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Revenue by Category</h3>
             </div>
             <div className="p-6">
               <div className="space-y-4">
                 {report.categoryBreakdown.map((category: any) => (
                   <div key={category.category} className="flex items-center justify-between">
                     <div>
-                      <p className="font-medium text-gray-900 capitalize">{category.category}</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="font-medium text-text capitalize">{category.category}</p>
+                      <p className="text-sm text-muted">
                         {founderEarningsService.formatPercentage(category.margin)} margin
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-text">
                         {founderEarningsService.formatCurrency(category.revenue)}
                       </p>
                       <p className="text-sm text-green-600">
@@ -330,13 +330,13 @@ const FounderEarningsPage: React.FC = () => {
 
           {/* Quick Actions */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Request Payout</h3>
-              <p className="text-gray-600 mb-4">
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-text mb-4">Request Payout</h3>
+              <p className="text-muted mb-4">
                 Withdraw your pending founder earnings to your bank account.
               </p>
               <div className="flex items-center justify-between mb-4">
-                <span className="text-sm text-gray-500">Available:</span>
+                <span className="text-sm text-muted">Available:</span>
                 <span className="font-medium text-green-600">
                   {founderEarningsService.formatCurrency(pendingEarnings)}
                 </span>
@@ -350,23 +350,23 @@ const FounderEarningsPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Earnings Forecast</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-text mb-4">Earnings Forecast</h3>
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Monthly Projection</span>
+                  <span className="text-muted">Monthly Projection</span>
                   <span className="font-medium">
                     {analytics?.projections && founderEarningsService.formatCurrency(analytics.projections.monthlyRecurring)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Annual Projection</span>
+                  <span className="text-muted">Annual Projection</span>
                   <span className="font-medium">
                     {analytics?.projections && founderEarningsService.formatCurrency(analytics.projections.annualProjection)}
                   </span>
                 </div>
                 <div className="flex justify-between border-t pt-3">
-                  <span className="font-medium text-gray-900">Growth Rate</span>
+                  <span className="font-medium text-text">Growth Rate</span>
                   <span className="font-medium text-green-600">
                     {analytics?.trends && `+${analytics.trends.profitGrowth}%`}
                   </span>
@@ -381,10 +381,10 @@ const FounderEarningsPage: React.FC = () => {
       {selectedTab === 'earnings' && (
         <div className="space-y-6">
           {/* Filters */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-card rounded-lg shadow p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <label className="text-sm font-medium text-gray-700">Filter by status:</label>
+                <label className="text-sm font-medium text-text">Filter by status:</label>
                 <select
                   value={filter}
                   onChange={(e) => setFilter(e.target.value as any)}
@@ -406,50 +406,50 @@ const FounderEarningsPage: React.FC = () => {
           </div>
 
           {/* Earnings Table */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Earnings History</h3>
+          <div className="bg-card rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Earnings History</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-card">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Order ID
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Sale Amount
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       COGS
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Gross Profit
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Founder Share (35%)
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Date
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-card divide-y divide-gray-200">
                   {filteredEarnings.map((earning) => (
-                    <tr key={earning.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <tr key={earning.id} className="hover:bg-card">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
                         {earning.orderId}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {founderEarningsService.formatCurrency(earning.saleAmount)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {founderEarningsService.formatCurrency(earning.costOfGoods)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {founderEarningsService.formatCurrency(earning.grossProfit)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
@@ -464,7 +464,7 @@ const FounderEarningsPage: React.FC = () => {
                           {earning.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {new Date(earning.calculatedAt).toLocaleDateString()}
                       </td>
                     </tr>
@@ -479,57 +479,57 @@ const FounderEarningsPage: React.FC = () => {
       {/* COGS Tab */}
       {selectedTab === 'cogs' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Cost of Goods Sold (COGS) Management</h3>
-              <p className="text-sm text-gray-600">Manage product costs to optimize profit margins</p>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Cost of Goods Sold (COGS) Management</h3>
+              <p className="text-sm text-muted">Manage product costs to optimize profit margins</p>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-card">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Product
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Material Cost
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Labor Cost
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Overhead
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Total COGS
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Margin %
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-card divide-y divide-gray-200">
                   {productCOGS.map((cogs) => (
-                    <tr key={cogs.productId} className="hover:bg-gray-50">
+                    <tr key={cogs.productId} className="hover:bg-card">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <p className="text-sm font-medium text-gray-900">{cogs.productName}</p>
-                          <p className="text-sm text-gray-500 capitalize">{cogs.category}</p>
+                          <p className="text-sm font-medium text-text">{cogs.productName}</p>
+                          <p className="text-sm text-muted capitalize">{cogs.category}</p>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {founderEarningsService.formatCurrency(cogs.materialCost)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {founderEarningsService.formatCurrency(cogs.laborCost)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
                         {founderEarningsService.formatCurrency(cogs.overheadCost)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
                         {founderEarningsService.formatCurrency(cogs.totalCOGS)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -566,12 +566,12 @@ const FounderEarningsPage: React.FC = () => {
       {/* Analytics Tab */}
       {selectedTab === 'analytics' && analytics && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Earnings Analytics</h3>
-            <p className="text-gray-600">
+          <div className="bg-card rounded-lg shadow p-6">
+            <h3 className="text-lg font-medium text-text mb-4">Earnings Analytics</h3>
+            <p className="text-muted">
               Advanced analytics features will be implemented here, including:
             </p>
-            <ul className="mt-4 space-y-2 text-gray-600">
+            <ul className="mt-4 space-y-2 text-muted">
               <li>• Revenue and profit trend charts</li>
               <li>• Product performance analysis</li>
               <li>• Margin optimization insights</li>

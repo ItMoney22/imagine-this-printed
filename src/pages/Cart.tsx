@@ -25,8 +25,8 @@ const Cart: React.FC = () => {
           <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-3.5 7M7 13l-3.5 7m0 0h8m-8 0h8m0-10V9a3 3 0 013-3v0a3 3 0 013 3v4" />
           </svg>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h2>
-          <p className="text-gray-600 mb-6">Start shopping to add items to your cart</p>
+          <h2 className="text-2xl font-bold text-text mb-2">Your cart is empty</h2>
+          <p className="text-muted mb-6">Start shopping to add items to your cart</p>
           <Link to="/catalog" className="btn-primary">
             Browse Products
           </Link>
@@ -45,12 +45,12 @@ const Cart: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Shopping Cart</h1>
+      <h1 className="text-3xl font-bold text-text mb-8">Shopping Cart</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
+          <div className="bg-card rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b card-border">
               <h2 className="text-lg font-semibold">Cart Items ({state.items.length})</h2>
             </div>
             
@@ -64,8 +64,8 @@ const Cart: React.FC = () => {
                   />
                   
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900">{item.product.name}</h3>
-                    <p className="text-gray-600">{item.product.description}</p>
+                    <h3 className="text-lg font-semibold text-text">{item.product.name}</h3>
+                    <p className="text-muted">{item.product.description}</p>
                     {item.customDesign && (
                       <p className="text-sm text-purple-600 mt-1">Custom Design Included</p>
                     )}
@@ -77,14 +77,14 @@ const Cart: React.FC = () => {
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                      className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
+                      className="w-8 h-8 rounded-full border card-border flex items-center justify-center hover:bg-card"
                     >
                       -
                     </button>
                     <span className="w-12 text-center font-semibold">{item.quantity}</span>
                     <button
                       onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                      className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
+                      className="w-8 h-8 rounded-full border card-border flex items-center justify-center hover:bg-card"
                     >
                       +
                     </button>
@@ -108,7 +108,7 @@ const Cart: React.FC = () => {
         </div>
 
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow p-6 sticky top-8">
+          <div className="bg-card rounded-lg shadow p-6 sticky top-8">
             <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
             
             <div className="space-y-3 mb-6">
@@ -177,11 +177,11 @@ const Cart: React.FC = () => {
             <div className="space-y-3">
               <button
                 onClick={() => navigate('/checkout')}
-                className="w-full btn-primary"
+                className="w-full btn-primary shadow-glow hover:scale-[1.02] transition-all"
               >
                 Proceed to Checkout
               </button>
-              <Link 
+              <Link
                 to="/catalog"
                 className="w-full btn-secondary text-center block"
               >
@@ -189,9 +189,9 @@ const Cart: React.FC = () => {
               </Link>
             </div>
 
-            <div className="mt-6 pt-6 border-t">
-              <h3 className="font-semibold mb-2">Need Help?</h3>
-              <p className="text-sm text-gray-600">
+            <div className="mt-6 pt-6 border-t card-border">
+              <h3 className="font-semibold mb-2 text-text">Need Help?</h3>
+              <p className="text-sm text-muted">
                 Contact our support team for assistance with your order.
               </p>
             </div>

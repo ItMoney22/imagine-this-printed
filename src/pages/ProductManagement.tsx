@@ -321,12 +321,12 @@ const ProductManagement: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Product Management</h1>
-        <p className="text-gray-600">Manage store products and variations</p>
+        <h1 className="text-3xl font-bold text-text">Product Management</h1>
+        <p className="text-muted">Manage store products and variations</p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'list', label: 'Products', icon: '📦' },
@@ -341,7 +341,7 @@ const ProductManagement: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -355,7 +355,7 @@ const ProductManagement: React.FC = () => {
       {selectedTab === 'list' && (
         <div className="space-y-6">
           {/* Search and Filters */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-card rounded-lg shadow p-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <input
                 type="text"
@@ -388,15 +388,15 @@ const ProductManagement: React.FC = () => {
           {/* Products Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProducts.map((product) => (
-              <div key={product.id} className="bg-white rounded-lg shadow overflow-hidden">
+              <div key={product.id} className="bg-card rounded-lg shadow overflow-hidden">
                 <img
                   src={product.images[0]}
                   alt={product.name}
                   className="w-full h-48 object-cover"
                 />
                 <div className="p-4">
-                  <h3 className="font-medium text-gray-900 mb-1">{product.name}</h3>
-                  <p className="text-sm text-gray-600 mb-2 line-clamp-2">{product.description}</p>
+                  <h3 className="font-medium text-text mb-1">{product.name}</h3>
+                  <p className="text-sm text-muted mb-2 line-clamp-2">{product.description}</p>
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-lg font-bold text-purple-600">${product.price}</p>
                     <span className={`px-2 py-1 text-xs rounded-full ${
@@ -429,8 +429,8 @@ const ProductManagement: React.FC = () => {
               <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
-              <p className="text-gray-600">Try adjusting your search or add a new product</p>
+              <h3 className="text-lg font-medium text-text mb-2">No products found</h3>
+              <p className="text-muted">Try adjusting your search or add a new product</p>
             </div>
           )}
         </div>
@@ -439,9 +439,9 @@ const ProductManagement: React.FC = () => {
       {/* Add/Edit Product Form */}
       {(selectedTab === 'add' || selectedTab === 'edit') && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">
                 {selectedTab === 'edit' ? 'Edit Product' : 'Add New Product'}
               </h3>
             </div>
@@ -450,7 +450,7 @@ const ProductManagement: React.FC = () => {
               {/* Basic Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Product Name *
                   </label>
                   <input
@@ -463,7 +463,7 @@ const ProductManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Category *
                   </label>
                   <select
@@ -480,7 +480,7 @@ const ProductManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Base Price *
                   </label>
                   <input
@@ -502,13 +502,13 @@ const ProductManagement: React.FC = () => {
                       onChange={(e) => handleInputChange('inStock', e.target.checked)}
                       className="form-checkbox"
                     />
-                    <span className="ml-2 text-sm text-gray-700">In Stock</span>
+                    <span className="ml-2 text-sm text-text">In Stock</span>
                   </label>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Description *
                 </label>
                 <textarea
@@ -523,7 +523,7 @@ const ProductManagement: React.FC = () => {
               {/* Product Variations */}
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-lg font-medium text-gray-900">Product Variations</h4>
+                  <h4 className="text-lg font-medium text-text">Product Variations</h4>
                   <button
                     onClick={addVariation}
                     className="btn-secondary text-sm"
@@ -533,9 +533,9 @@ const ProductManagement: React.FC = () => {
                 </div>
 
                 {formData.variations.map((variation, variationIndex) => (
-                  <div key={variation.id} className="border border-gray-200 rounded-lg p-4 mb-4">
+                  <div key={variation.id} className="border card-border rounded-lg p-4 mb-4">
                     <div className="flex items-center justify-between mb-4">
-                      <h5 className="font-medium text-gray-900">Variation {variationIndex + 1}</h5>
+                      <h5 className="font-medium text-text">Variation {variationIndex + 1}</h5>
                       <button
                         onClick={() => removeVariation(variation.id)}
                         className="text-red-600 hover:text-red-800"
@@ -546,7 +546,7 @@ const ProductManagement: React.FC = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-text mb-2">
                           Variation Name
                         </label>
                         <input
@@ -559,7 +559,7 @@ const ProductManagement: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-text mb-2">
                           Type
                         </label>
                         <select
@@ -582,7 +582,7 @@ const ProductManagement: React.FC = () => {
                             onChange={(e) => updateVariation(variation.id, 'required', e.target.checked)}
                             className="form-checkbox"
                           />
-                          <span className="ml-2 text-sm text-gray-700">Required</span>
+                          <span className="ml-2 text-sm text-text">Required</span>
                         </label>
                       </div>
                     </div>
@@ -590,7 +590,7 @@ const ProductManagement: React.FC = () => {
                     {/* Variation Options */}
                     <div>
                       <div className="flex items-center justify-between mb-3">
-                        <label className="text-sm font-medium text-gray-700">Options</label>
+                        <label className="text-sm font-medium text-text">Options</label>
                         <button
                           onClick={() => addVariationOption(variation.id)}
                           className="text-purple-600 hover:text-purple-800 text-sm"
@@ -600,7 +600,7 @@ const ProductManagement: React.FC = () => {
                       </div>
 
                       {variation.options.map((option, _optionIndex) => (
-                        <div key={option.id} className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3 p-3 bg-gray-50 rounded">
+                        <div key={option.id} className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3 p-3 bg-card rounded">
                           <input
                             type="text"
                             value={option.value}
@@ -638,20 +638,20 @@ const ProductManagement: React.FC = () => {
 
               {/* Images */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Product Images
                 </label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <div className="border-2 border-dashed card-border rounded-lg p-6 text-center">
                   <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  <p className="text-gray-500 mb-2">Click to upload or drag and drop</p>
+                  <p className="text-muted mb-2">Click to upload or drag and drop</p>
                   <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
                 </div>
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+            <div className="px-6 py-4 border-t card-border flex items-center justify-between">
               <button
                 onClick={() => {
                   resetForm()

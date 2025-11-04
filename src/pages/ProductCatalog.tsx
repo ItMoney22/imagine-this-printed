@@ -102,13 +102,13 @@ const ProductCatalog: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">Product Catalog</h1>
-        <p className="text-gray-600">Browse our collection of custom printing products</p>
+        <h1 className="text-3xl font-bold text-text mb-4">Product Catalog</h1>
+        <p className="text-muted">Browse our collection of custom printing products</p>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
         <div className="lg:w-1/4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-card rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold mb-4">Categories</h3>
             <div className="space-y-2">
               {categories.map((cat) => (
@@ -118,7 +118,7 @@ const ProductCatalog: React.FC = () => {
                   className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
                     selectedCategory === cat.id
                       ? 'bg-purple-600 text-white'
-                      : 'text-gray-700 hover:bg-gray-100'
+                      : 'text-text hover:bg-card'
                   }`}
                 >
                   {cat.name}
@@ -130,7 +130,7 @@ const ProductCatalog: React.FC = () => {
 
         <div className="lg:w-3/4">
           <div className="mb-4 flex justify-between items-center">
-            <p className="text-gray-600">
+            <p className="text-muted">
               Showing {filteredProducts.length} products
             </p>
           </div>
@@ -147,7 +147,7 @@ const ProductCatalog: React.FC = () => {
 
           {filteredProducts.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-lg">No products found in this category.</p>
+              <p className="text-muted text-lg">No products found in this category.</p>
             </div>
           )}
         </div>

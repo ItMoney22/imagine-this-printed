@@ -32,7 +32,7 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> 
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 mb-6">
+    <div className="bg-card rounded-lg shadow p-6 mb-6">
       <h2 className="text-lg font-semibold mb-4">Express Checkout</h2>
       <ExpressCheckoutElement
         options={{
@@ -47,11 +47,11 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> 
         }}
         onConfirm={handleExpressPayment}
       />
-      <div className="mt-4 text-center text-sm text-gray-500">
+      <div className="mt-4 text-center text-sm text-muted">
         <div className="flex items-center">
-          <div className="flex-1 border-t border-gray-300"></div>
-          <div className="px-3 text-gray-500">or pay with card</div>
-          <div className="flex-1 border-t border-gray-300"></div>
+          <div className="flex-1 border-t card-border"></div>
+          <div className="px-3 text-muted">or pay with card</div>
+          <div className="flex-1 border-t card-border"></div>
         </div>
       </div>
     </div>
@@ -100,7 +100,7 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
       <ExpressCheckout total={total} items={items} shipping={shipping} />
       
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4">Payment Method</h2>
           <PaymentElement />
         </div>
@@ -236,8 +236,8 @@ const Checkout: React.FC = () => {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">No items to checkout</h2>
-          <p className="text-gray-600 mb-6">Add items to your cart before proceeding to checkout</p>
+          <h2 className="text-2xl font-bold text-text mb-2">No items to checkout</h2>
+          <p className="text-muted mb-6">Add items to your cart before proceeding to checkout</p>
           <button 
             onClick={() => navigate('/catalog')}
             className="btn-primary"
@@ -258,12 +258,12 @@ const Checkout: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Checkout</h1>
+      <h1 className="text-3xl font-bold text-text mb-8">Checkout</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
           <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-4">Contact Information</h2>
               <div className="space-y-4">
                 <input
@@ -273,12 +273,12 @@ const Checkout: React.FC = () => {
                   onChange={handleInputChange}
                   placeholder="Email address"
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-card rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-4">Shipping Address</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
@@ -288,7 +288,7 @@ const Checkout: React.FC = () => {
                   onChange={handleInputChange}
                   placeholder="First name"
                   required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <input
                   type="text"
@@ -297,7 +297,7 @@ const Checkout: React.FC = () => {
                   onChange={handleInputChange}
                   placeholder="Last name"
                   required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <input
                   type="text"
@@ -306,7 +306,7 @@ const Checkout: React.FC = () => {
                   onChange={handleInputChange}
                   placeholder="Address"
                   required
-                  className="md:col-span-2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="md:col-span-2 px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <input
                   type="text"
@@ -315,14 +315,14 @@ const Checkout: React.FC = () => {
                   onChange={handleInputChange}
                   placeholder="City"
                   required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <select
                   name="state"
                   value={formData.state}
                   onChange={handleInputChange}
                   required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="">Select State</option>
                   <option value="AL">Alabama</option>
@@ -338,13 +338,13 @@ const Checkout: React.FC = () => {
                   onChange={handleInputChange}
                   placeholder="ZIP Code"
                   required
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <select
                   name="country"
                   value={formData.country}
                   onChange={handleInputChange}
-                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="US">United States</option>
                   <option value="CA">Canada</option>
@@ -354,12 +354,12 @@ const Checkout: React.FC = () => {
 
             {/* Shipping Options */}
             {shippingCalculation && (
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-card rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold mb-4">Shipping Options</h2>
                 {loadingShipping ? (
                   <div className="text-center py-4">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
-                    <p className="mt-2 text-gray-600">Calculating shipping rates...</p>
+                    <p className="mt-2 text-muted">Calculating shipping rates...</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -369,7 +369,7 @@ const Checkout: React.FC = () => {
                         className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
                           rate.selected 
                             ? 'border-purple-500 bg-purple-50' 
-                            : 'border-gray-300 hover:border-gray-400'
+                            : 'card-border hover:border-gray-400'
                         }`}
                       >
                         <div className="flex items-center">
@@ -383,7 +383,7 @@ const Checkout: React.FC = () => {
                           />
                           <div>
                             <p className="font-medium">{rate.name}</p>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-muted">
                               {rate.provider} • {rate.estimatedDays} business days
                             </p>
                           </div>
@@ -400,9 +400,9 @@ const Checkout: React.FC = () => {
 
                 {/* Free Shipping Progress */}
                 {!shippingCalculation.isFreeShipping && (
-                  <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                  <div className="mt-4 p-3 bg-card rounded-lg">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm text-gray-600">Free shipping progress</span>
+                      <span className="text-sm text-muted">Free shipping progress</span>
                       <span className="text-sm font-medium">
                         ${shippingCalculation.freeShippingThreshold.toFixed(2)}
                       </span>
@@ -415,7 +415,7 @@ const Checkout: React.FC = () => {
                         }}
                       ></div>
                     </div>
-                    <p className="text-xs text-gray-600 mt-1">
+                    <p className="text-xs text-muted mt-1">
                       Add ${Math.max(0, shippingCalculation.freeShippingThreshold - subtotal).toFixed(2)} more for free shipping
                     </p>
                   </div>
@@ -437,7 +437,7 @@ const Checkout: React.FC = () => {
         </div>
 
         <div>
-          <div className="bg-white rounded-lg shadow p-6 sticky top-8">
+          <div className="bg-card rounded-lg shadow p-6 sticky top-8">
             <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
             
             <div className="space-y-4 mb-6">
@@ -450,7 +450,7 @@ const Checkout: React.FC = () => {
                   />
                   <div className="flex-1">
                     <p className="font-medium text-sm">{item.product.name}</p>
-                    <p className="text-gray-600 text-sm">Qty: {item.quantity}</p>
+                    <p className="text-muted text-sm">Qty: {item.quantity}</p>
                   </div>
                   <p className="font-semibold">
                     ${(item.product.price * item.quantity).toFixed(2)}
@@ -479,7 +479,7 @@ const Checkout: React.FC = () => {
             </div>
 
             <div className="mt-6 pt-6 border-t">
-              <div className="flex items-center text-sm text-gray-600">
+              <div className="flex items-center text-sm text-muted">
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>

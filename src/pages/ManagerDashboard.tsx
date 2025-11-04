@@ -161,12 +161,12 @@ const ManagerDashboard: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Manager Dashboard</h1>
-        <p className="text-gray-600">Cost Controls & AI Assistant</p>
+        <h1 className="text-3xl font-bold text-text">Manager Dashboard</h1>
+        <p className="text-muted">Cost Controls & AI Assistant</p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'variables', label: 'Cost Variables', icon: '💰' },
@@ -180,7 +180,7 @@ const ManagerDashboard: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 activeTab === tab.id
                   ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -192,16 +192,16 @@ const ManagerDashboard: React.FC = () => {
 
       {/* Cost Variables Tab */}
       {activeTab === 'variables' && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Cost Input System</h3>
-            <p className="text-sm text-gray-600">Configure your pricing variables</p>
+        <div className="bg-card rounded-lg shadow">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">Cost Input System</h3>
+            <p className="text-sm text-muted">Configure your pricing variables</p>
           </div>
           
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Filament Price per Gram ($)
                 </label>
                 <input
@@ -216,11 +216,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="0.025"
                 />
-                <p className="text-xs text-gray-500 mt-1">Cost of filament material per gram</p>
+                <p className="text-xs text-muted mt-1">Cost of filament material per gram</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Electricity Cost per Hour ($)
                 </label>
                 <input
@@ -235,11 +235,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="0.12"
                 />
-                <p className="text-xs text-gray-500 mt-1">Printer electricity usage cost per hour</p>
+                <p className="text-xs text-muted mt-1">Printer electricity usage cost per hour</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Average Packaging Cost ($)
                 </label>
                 <input
@@ -254,11 +254,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="2.50"
                 />
-                <p className="text-xs text-gray-500 mt-1">Cost of packaging materials per order</p>
+                <p className="text-xs text-muted mt-1">Cost of packaging materials per order</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Monthly Rent/Location ($)
                 </label>
                 <input
@@ -273,11 +273,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="3500"
                 />
-                <p className="text-xs text-gray-500 mt-1">Monthly facility/workspace cost</p>
+                <p className="text-xs text-muted mt-1">Monthly facility/workspace cost</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Overhead Percentage (%)
                 </label>
                 <input
@@ -293,11 +293,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="15"
                 />
-                <p className="text-xs text-gray-500 mt-1">Additional overhead costs as percentage</p>
+                <p className="text-xs text-muted mt-1">Additional overhead costs as percentage</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Default Margin Percentage (%)
                 </label>
                 <input
@@ -313,11 +313,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="25"
                 />
-                <p className="text-xs text-gray-500 mt-1">Default profit margin for pricing</p>
+                <p className="text-xs text-muted mt-1">Default profit margin for pricing</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-text mb-2">
                   Labor Rate per Hour ($)
                 </label>
                 <input
@@ -332,11 +332,11 @@ const ManagerDashboard: React.FC = () => {
                   className="form-input w-full"
                   placeholder="25.00"
                 />
-                <p className="text-xs text-gray-500 mt-1">Cost of labor per hour</p>
+                <p className="text-xs text-muted mt-1">Cost of labor per hour</p>
               </div>
             </div>
 
-            <div className="pt-4 border-t border-gray-200">
+            <div className="pt-4 border-t card-border">
               <button
                 onClick={saveCostVariables}
                 className="btn-primary"
@@ -351,16 +351,16 @@ const ManagerDashboard: React.FC = () => {
       {/* Cost Calculator Tab */}
       {activeTab === 'calculator' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Product Cost Builder</h3>
-              <p className="text-sm text-gray-600">Calculate detailed cost breakdown for products</p>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Product Cost Builder</h3>
+              <p className="text-sm text-muted">Calculate detailed cost breakdown for products</p>
             </div>
             
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Print Time (Hours)
                   </label>
                   <input
@@ -378,7 +378,7 @@ const ManagerDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Material Usage (Grams)
                   </label>
                   <input
@@ -396,7 +396,7 @@ const ManagerDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-text mb-2">
                     Custom Labor Hours (Optional)
                   </label>
                   <input
@@ -426,9 +426,9 @@ const ManagerDashboard: React.FC = () => {
 
           {/* Cost Breakdown Display */}
           {costBreakdown && (
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Cost Breakdown Results</h3>
+            <div className="bg-card rounded-lg shadow">
+              <div className="px-6 py-4 border-b card-border">
+                <h3 className="text-lg font-medium text-text">Cost Breakdown Results</h3>
               </div>
               
               <div className="p-6">
@@ -463,8 +463,8 @@ const ManagerDashboard: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-600 font-medium">Overhead ({costVariables?.overheadPercentage}%)</p>
+                  <div className="bg-card p-4 rounded-lg">
+                    <p className="text-sm text-muted font-medium">Overhead ({costVariables?.overheadPercentage}%)</p>
                     <p className="text-xl font-bold text-gray-800">
                       ${costBreakdown.overheadCost.toFixed(2)}
                     </p>
@@ -492,17 +492,17 @@ const ManagerDashboard: React.FC = () => {
 
       {/* AI Assistant Tab */}
       {activeTab === 'assistant' && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">GPT Cost Assistant</h3>
-            <p className="text-sm text-gray-600">Ask questions about pricing and cost strategy</p>
+        <div className="bg-card rounded-lg shadow">
+          <div className="px-6 py-4 border-b card-border">
+            <h3 className="text-lg font-medium text-text">GPT Cost Assistant</h3>
+            <p className="text-sm text-muted">Ask questions about pricing and cost strategy</p>
           </div>
           
           <div className="p-6">
             {/* Chat History */}
             <div className="mb-6 space-y-4 max-h-96 overflow-y-auto">
               {chatHistory.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-muted">
                   <div className="text-4xl mb-2">🤖</div>
                   <p>Ask me anything about cost calculations and pricing strategy!</p>
                   <div className="mt-4 text-sm">
@@ -523,7 +523,7 @@ const ManagerDashboard: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex justify-start">
-                      <div className="bg-gray-100 p-3 rounded-lg max-w-2xl">
+                      <div className="bg-card p-3 rounded-lg max-w-2xl">
                         <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ 
                           __html: entry.response.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') 
                         }} />
@@ -560,10 +560,10 @@ const ManagerDashboard: React.FC = () => {
       {/* Analytics Tab */}
       {activeTab === 'analytics' && analytics && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Cost Analytics Dashboard</h3>
-              <p className="text-sm text-gray-600">{analytics.period}</p>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Cost Analytics Dashboard</h3>
+              <p className="text-sm text-muted">{analytics.period}</p>
             </div>
             
             <div className="p-6">
@@ -592,14 +592,14 @@ const ManagerDashboard: React.FC = () => {
               {/* Low Margin Products */}
               {analytics.lowMarginProducts.length > 0 && (
                 <div className="mb-8">
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Products Needing Attention</h4>
+                  <h4 className="text-lg font-medium text-text mb-4">Products Needing Attention</h4>
                   <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                     <div className="space-y-3">
                       {analytics.lowMarginProducts.map((product, index) => (
                         <div key={index} className="flex items-center justify-between">
                           <div>
-                            <p className="font-medium text-gray-900">{product.productName}</p>
-                            <p className="text-sm text-gray-600">Current margin: {product.currentMargin.toFixed(1)}%</p>
+                            <p className="font-medium text-text">{product.productName}</p>
+                            <p className="text-sm text-muted">Current margin: {product.currentMargin.toFixed(1)}%</p>
                           </div>
                           <div className="text-right">
                             <p className="text-sm text-orange-600">Suggested: {product.suggestedMargin.toFixed(1)}%</p>
@@ -613,12 +613,12 @@ const ManagerDashboard: React.FC = () => {
 
               {/* Cost Trends */}
               <div>
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Recent Cost Trends</h4>
-                <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="text-lg font-medium text-text mb-4">Recent Cost Trends</h4>
+                <div className="bg-card rounded-lg p-4">
                   <div className="space-y-2">
                     {analytics.costTrends.map((trend, index) => (
                       <div key={index} className="flex items-center justify-between">
-                        <p className="text-sm text-gray-600">{new Date(trend.date).toLocaleDateString()}</p>
+                        <p className="text-sm text-muted">{new Date(trend.date).toLocaleDateString()}</p>
                         <div className="flex space-x-4">
                           <span className="text-sm">Cost: ${trend.averageCost.toFixed(2)}</span>
                           <span className="text-sm">Margin: {trend.averageMargin.toFixed(1)}%</span>

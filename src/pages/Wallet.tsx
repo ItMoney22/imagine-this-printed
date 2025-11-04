@@ -119,8 +119,8 @@ const Wallet: React.FC = () => {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
-          <p className="text-gray-600">Please log in to access your wallet.</p>
+          <h2 className="text-2xl font-bold text-text mb-4">Access Denied</h2>
+          <p className="text-muted">Please log in to access your wallet.</p>
         </div>
       </div>
     )
@@ -131,7 +131,7 @@ const Wallet: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading wallet data...</p>
+          <p className="mt-4 text-muted">Loading wallet data...</p>
         </div>
       </div>
     )
@@ -142,7 +142,7 @@ const Wallet: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
           <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
-          <p className="text-gray-600">{error}</p>
+          <p className="text-muted">{error}</p>
           <button 
             onClick={loadWalletData}
             className="mt-4 btn-primary"
@@ -156,28 +156,28 @@ const Wallet: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">My Wallet</h1>
+      <h1 className="text-3xl font-bold text-text mb-8">My Wallet</h1>
 
       {/* Wallet Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Points Balance</h3>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-text mb-2">Points Balance</h3>
           <p className="text-3xl font-bold text-green-600">{pointsBalance.toLocaleString()}</p>
-          <p className="text-sm text-gray-600">≈ ${(pointsBalance * pointsToUSD).toFixed(2)} USD</p>
+          <p className="text-sm text-muted">≈ ${(pointsBalance * pointsToUSD).toFixed(2)} USD</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">ITC Tokens</h3>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-text mb-2">ITC Tokens</h3>
           <p className="text-3xl font-bold text-purple-600">{itcBalance.toFixed(2)}</p>
-          <p className="text-sm text-gray-600">≈ ${(itcBalance / usdToITC).toFixed(2)} USD</p>
+          <p className="text-sm text-muted">≈ ${(itcBalance / usdToITC).toFixed(2)} USD</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Value</h3>
+        <div className="bg-card rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-text mb-2">Total Value</h3>
           <p className="text-3xl font-bold text-blue-600">
             ${((pointsBalance * pointsToUSD) + (itcBalance / usdToITC)).toFixed(2)}
           </p>
-          <p className="text-sm text-gray-600">Combined wallet value</p>
+          <p className="text-sm text-muted">Combined wallet value</p>
         </div>
       </div>
 
@@ -191,7 +191,7 @@ const Wallet: React.FC = () => {
               className={`px-4 py-2 rounded-md font-medium ${
                 selectedTab === tab
                   ? 'bg-purple-600 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
+                  : 'text-muted hover:text-text'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -203,7 +203,7 @@ const Wallet: React.FC = () => {
       {/* Tab Content */}
       {selectedTab === 'overview' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-card rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold mb-4">Recent Transactions</h3>
             <div className="space-y-3">
               {[...pointsHistory.slice(0, 3), ...itcHistory.slice(0, 3)]
@@ -213,7 +213,7 @@ const Wallet: React.FC = () => {
                 <div key={index} className="flex justify-between items-center py-2 border-b">
                   <div>
                     <p className="font-medium">{transaction.reason}</p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted">
                       {new Date((transaction as any).createdAt || transaction.createdAt).toLocaleDateString()}
                     </p>
                   </div>
@@ -231,34 +231,34 @@ const Wallet: React.FC = () => {
       )}
 
       {selectedTab === 'redeem' && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">Redeem Points</h3>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Points to Redeem
               </label>
               <input
                 type="number"
                 value={redeemAmount}
                 onChange={(e) => setRedeemAmount(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border card-border rounded-md"
                 placeholder="Enter points amount"
                 max={pointsBalance}
               />
-              <p className="text-sm text-gray-600 mt-1">
+              <p className="text-sm text-muted mt-1">
                 Available: {pointsBalance} points
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 Redeem For
               </label>
               <select
                 value={redeemType}
                 onChange={(e) => setRedeemType(e.target.value as any)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border card-border rounded-md"
               >
                 <option value="itc">ITC Tokens</option>
                 <option value="discount">Store Discount</option>
@@ -267,7 +267,7 @@ const Wallet: React.FC = () => {
             </div>
 
             {redeemType === 'itc' && redeemAmount && (
-              <div className="p-3 bg-gray-50 rounded-md">
+              <div className="p-3 bg-card rounded-md">
                 <p className="text-sm">
                   {redeemAmount} points = ${(parseInt(redeemAmount || '0') * pointsToUSD).toFixed(2)} = {((parseInt(redeemAmount || '0') * pointsToUSD) * usdToITC).toFixed(2)} ITC tokens
                 </p>
@@ -286,18 +286,18 @@ const Wallet: React.FC = () => {
       )}
 
       {selectedTab === 'purchase' && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">Purchase ITC Tokens</h3>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-text mb-2">
                 USD Amount
               </label>
               <input
                 type="number"
                 value={purchaseAmount}
                 onChange={(e) => setPurchaseAmount(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border card-border rounded-md"
                 placeholder="Enter USD amount"
                 min="1"
                 step="0.01"
@@ -305,11 +305,11 @@ const Wallet: React.FC = () => {
             </div>
 
             {purchaseAmount && (
-              <div className="p-3 bg-gray-50 rounded-md">
+              <div className="p-3 bg-card rounded-md">
                 <p className="text-sm">
                   ${purchaseAmount} = {stripeITCBridge.calculateITCAmount(parseFloat(purchaseAmount))} ITC tokens
                 </p>
-                <p className="text-xs text-gray-600">
+                <p className="text-xs text-muted">
                   Exchange rate: 1 USD = {1 / stripeITCBridge.getExchangeRate()} ITC
                 </p>
               </div>
@@ -327,14 +327,14 @@ const Wallet: React.FC = () => {
       )}
 
       {selectedTab === 'points' && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">Points History</h3>
           <div className="space-y-3">
             {pointsHistory.map((transaction) => (
               <div key={transaction.id} className="flex justify-between items-center py-2 border-b">
                 <div>
                   <p className="font-medium">{transaction.reason}</p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted">
                     {new Date((transaction as any).createdAt || transaction.createdAt).toLocaleDateString()}
                   </p>
                 </div>
@@ -350,18 +350,18 @@ const Wallet: React.FC = () => {
       )}
 
       {selectedTab === 'itc' && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-card rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">ITC Transaction History</h3>
           <div className="space-y-3">
             {itcHistory.map((transaction) => (
               <div key={transaction.id} className="flex justify-between items-center py-2 border-b">
                 <div>
                   <p className="font-medium">{transaction.reason}</p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted">
                     {new Date((transaction as any).createdAt || transaction.createdAt).toLocaleDateString()}
                   </p>
                   {(transaction as any).usdValue && (
-                    <p className="text-xs text-gray-500">≈ ${((transaction as any).usdValue as number).toFixed(2)} USD</p>
+                    <p className="text-xs text-muted">≈ ${((transaction as any).usdValue as number).toFixed(2)} USD</p>
                   )}
                 </div>
                 <p className={`font-semibold ${

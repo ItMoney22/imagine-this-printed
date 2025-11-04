@@ -171,12 +171,12 @@ const AdminPanel: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Panel</h1>
-        <p className="text-gray-600">Database Control Center - Direct access to all tables and operations</p>
+        <h1 className="text-3xl font-bold text-text mb-2">Admin Panel</h1>
+        <p className="text-muted">Database Control Center - Direct access to all tables and operations</p>
       </div>
 
       {/* Status Bar */}
-      <div className="mb-6 bg-white rounded-lg shadow p-4">
+      <div className="mb-6 bg-card rounded-lg shadow p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="flex items-center">
@@ -184,15 +184,15 @@ const AdminPanel: React.FC = () => {
                 prismaStats.status === 'connected' ? 'bg-green-500' : 
                 prismaStats.status === 'syncing' ? 'bg-yellow-500' : 'bg-red-500'
               }`}></div>
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-text">
                 Database: {prismaStats.status}
               </span>
             </div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted">
               Last sync: {new Date(prismaStats.lastSync).toLocaleString()}
             </div>
           </div>
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-muted">
             Logged in as: {user?.email} (Admin)
           </div>
         </div>
@@ -204,7 +204,7 @@ const AdminPanel: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', label: 'Overview', icon: '🏠' },
@@ -219,7 +219,7 @@ const AdminPanel: React.FC = () => {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
                 selectedTab === tab.id
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
@@ -233,41 +233,41 @@ const AdminPanel: React.FC = () => {
       {selectedTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Tables</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-2">Total Tables</h3>
               <p className="text-3xl font-bold text-blue-600">{tables.length}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Users</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-2">Total Users</h3>
               <p className="text-3xl font-bold text-green-600">
                 {tables.find(t => t.name === 'user_profiles')?.count || 0}
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Orders</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-2">Total Orders</h3>
               <p className="text-3xl font-bold text-purple-600">
                 {tables.find(t => t.name === 'orders')?.count || 0}
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Products</h3>
+            <div className="bg-card rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-text mb-2">Total Products</h3>
               <p className="text-3xl font-bold text-orange-600">
                 {tables.find(t => t.name === 'products')?.count || 0}
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Table Overview</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Table Overview</h3>
             </div>
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {tables.map((table) => (
-                  <div key={table.name} className="border rounded-lg p-4 hover:bg-gray-50">
+                  <div key={table.name} className="border rounded-lg p-4 hover:bg-card">
                     <div className="flex justify-between items-center">
-                      <h4 className="font-medium text-gray-900">{table.name}</h4>
-                      <span className="text-sm text-gray-500">{table.count} rows</span>
+                      <h4 className="font-medium text-text">{table.name}</h4>
+                      <span className="text-sm text-muted">{table.count} rows</span>
                     </div>
                     <button
                       onClick={() => loadTableData(table.name)}
@@ -286,9 +286,9 @@ const AdminPanel: React.FC = () => {
       {/* Tables Tab */}
       {selectedTab === 'tables' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Database Tables</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Database Tables</h3>
             </div>
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -296,13 +296,13 @@ const AdminPanel: React.FC = () => {
                   <button
                     key={table.name}
                     onClick={() => loadTableData(table.name)}
-                    className={`text-left border rounded-lg p-4 hover:bg-gray-50 ${
-                      selectedTable === table.name ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                    className={`text-left border rounded-lg p-4 hover:bg-card ${
+                      selectedTable === table.name ? 'border-blue-500 bg-blue-50' : 'card-border'
                     }`}
                   >
                     <div className="flex justify-between items-center">
-                      <h4 className="font-medium text-gray-900">{table.name}</h4>
-                      <span className="text-sm text-gray-500">{table.count} rows</span>
+                      <h4 className="font-medium text-text">{table.name}</h4>
+                      <span className="text-sm text-muted">{table.count} rows</span>
                     </div>
                   </button>
                 ))}
@@ -310,8 +310,8 @@ const AdminPanel: React.FC = () => {
 
               {selectedTable && (
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2 border-b">
-                    <h4 className="font-medium text-gray-900">
+                  <div className="bg-card px-4 py-2 border-b">
+                    <h4 className="font-medium text-text">
                       {selectedTable} ({tableData.length} rows)
                     </h4>
                   </div>
@@ -319,29 +319,29 @@ const AdminPanel: React.FC = () => {
                     {isLoading ? (
                       <div className="p-8 text-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                        <p className="mt-2 text-gray-500">Loading...</p>
+                        <p className="mt-2 text-muted">Loading...</p>
                       </div>
                     ) : tableData.length > 0 ? (
                       <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
+                        <thead className="bg-card">
                           <tr>
                             {Object.keys(tableData[0]).map((column) => (
                               <th
                                 key={column}
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider"
                               >
                                 {column}
                               </th>
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
+                        <tbody className="bg-card divide-y divide-gray-200">
                           {tableData.map((row, index) => (
-                            <tr key={index} className="hover:bg-gray-50">
+                            <tr key={index} className="hover:bg-card">
                               {Object.values(row).map((value, cellIndex) => (
                                 <td
                                   key={cellIndex}
-                                  className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
+                                  className="px-6 py-4 whitespace-nowrap text-sm text-text"
                                 >
                                   {formatValue(value)}
                                 </td>
@@ -351,7 +351,7 @@ const AdminPanel: React.FC = () => {
                         </tbody>
                       </table>
                     ) : (
-                      <div className="p-8 text-center text-gray-500">
+                      <div className="p-8 text-center text-muted">
                         No data found
                       </div>
                     )}
@@ -366,57 +366,57 @@ const AdminPanel: React.FC = () => {
       {/* Users Tab */}
       {selectedTab === 'users' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Add New User</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Add New User</h3>
             </div>
             <div className="p-6">
               <form onSubmit={createUser} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-text mb-1">
                       Full Name
                     </label>
                     <input
                       type="text"
                       value={newUserForm.name}
                       onChange={(e) => setNewUserForm(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-text mb-1">
                       Email
                     </label>
                     <input
                       type="email"
                       value={newUserForm.email}
                       onChange={(e) => setNewUserForm(prev => ({ ...prev, email: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-text mb-1">
                       Password
                     </label>
                     <input
                       type="password"
                       value={newUserForm.password}
                       onChange={(e) => setNewUserForm(prev => ({ ...prev, password: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-text mb-1">
                       Role
                     </label>
                     <select
                       value={newUserForm.role}
                       onChange={(e) => setNewUserForm(prev => ({ ...prev, role: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="customer">Customer</option>
                       <option value="vendor">Vendor</option>
@@ -441,15 +441,15 @@ const AdminPanel: React.FC = () => {
       {/* Prisma Tools Tab */}
       {selectedTab === 'prisma' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Prisma Operations</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Prisma Operations</h3>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between p-4 bg-card rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">Database Push</h4>
-                  <p className="text-sm text-gray-500">Push the Prisma schema to the database</p>
+                  <h4 className="font-medium text-text">Database Push</h4>
+                  <p className="text-sm text-muted">Push the Prisma schema to the database</p>
                 </div>
                 <button
                   onClick={runPrismaDbPush}
@@ -460,10 +460,10 @@ const AdminPanel: React.FC = () => {
                 </button>
               </div>
               
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between p-4 bg-card rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">Migration Dev</h4>
-                  <p className="text-sm text-gray-500">Create and apply database migrations</p>
+                  <h4 className="font-medium text-text">Migration Dev</h4>
+                  <p className="text-sm text-muted">Create and apply database migrations</p>
                 </div>
                 <button
                   onClick={runPrismaMigrateDev}
@@ -476,9 +476,9 @@ const AdminPanel: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Prisma Schema Viewer</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Prisma Schema Viewer</h3>
             </div>
             <div className="p-6">
               <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto">
@@ -509,15 +509,15 @@ datasource db {
       {/* Tools Tab */}
       {selectedTab === 'tools' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Database Tools</h3>
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border">
+              <h3 className="text-lg font-medium text-text">Database Tools</h3>
             </div>
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="border rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">Database Backup</h4>
-                  <p className="text-sm text-gray-500 mb-4">
+                  <h4 className="font-medium text-text mb-2">Database Backup</h4>
+                  <p className="text-sm text-muted mb-4">
                     Create a backup of the current database
                   </p>
                   <button className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700">
@@ -526,8 +526,8 @@ datasource db {
                 </div>
                 
                 <div className="border rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">Clear Cache</h4>
-                  <p className="text-sm text-gray-500 mb-4">
+                  <h4 className="font-medium text-text mb-2">Clear Cache</h4>
+                  <p className="text-sm text-muted mb-4">
                     Clear application cache and refresh data
                   </p>
                   <button className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700">
@@ -536,8 +536,8 @@ datasource db {
                 </div>
                 
                 <div className="border rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">System Health</h4>
-                  <p className="text-sm text-gray-500 mb-4">
+                  <h4 className="font-medium text-text mb-2">System Health</h4>
+                  <p className="text-sm text-muted mb-4">
                     Check overall system health and performance
                   </p>
                   <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
@@ -546,8 +546,8 @@ datasource db {
                 </div>
                 
                 <div className="border rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">Logs</h4>
-                  <p className="text-sm text-gray-500 mb-4">
+                  <h4 className="font-medium text-text mb-2">Logs</h4>
+                  <p className="text-sm text-muted mb-4">
                     View application logs and error reports
                   </p>
                   <button className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700">
