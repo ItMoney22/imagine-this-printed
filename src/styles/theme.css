@@ -37,21 +37,27 @@
 }
 
 .text-glow {
+  /* Fallback for browsers without color-mix() support (pre-2023) */
+  text-shadow: 0 0 18px rgba(179, 98, 255, 0.6);
+  /* Modern browsers with color-mix support */
   text-shadow: 0 0 18px color-mix(in oklab, var(--primary) 60%, transparent);
 }
 
 .btn-glow {
+  /* Fallback for browsers without color-mix() support */
+  box-shadow: 0 0 0 2px rgba(0, 191, 255, 0.55) inset;
+  /* Modern browsers with color-mix support */
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--secondary) 55%, transparent) inset;
   transition: all 0.3s ease;
 }
 
 .btn-glow:hover {
+  /* Fallback for browsers without color-mix() support */
+  box-shadow: 0 0 0 2px rgba(0, 191, 255, 0.7) inset,
+              0 0 16px rgba(0, 191, 255, 0.4);
+  /* Modern browsers with color-mix support */
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--secondary) 70%, transparent) inset,
               0 0 16px color-mix(in oklab, var(--secondary) 40%, transparent);
-}
-
-.card-border {
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 :root.dark .card-border {
