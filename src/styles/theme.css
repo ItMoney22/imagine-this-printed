@@ -1,0 +1,88 @@
+/* ============================================
+   CSS CUSTOM PROPERTIES - LIGHT & DARK THEMES
+   ============================================ */
+
+:root {
+  /* Light Theme */
+  --bg: #ffffff;
+  --card: #f7f7fb;
+  --text: #1b1b1f;
+  --muted: #555555;
+  --primary: #6A11CB;
+  --secondary: #2575FC;
+  --accent: #FF00FF;
+}
+
+:root.dark {
+  /* Dark Theme */
+  --bg: #0e0a1f;
+  --card: #14122a;
+  --text: #f3ecff;
+  --muted: #a9a9c5;
+  --primary: #b362ff;
+  --secondary: #00bfff;
+  --accent: #ff5cff;
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.neon-gradient {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+}
+
+.neon-gradient-light {
+  background: linear-gradient(135deg, #eef3ff, #f7f7fb);
+}
+
+.text-glow {
+  text-shadow: 0 0 18px color-mix(in oklab, var(--primary) 60%, transparent);
+}
+
+.btn-glow {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--secondary) 55%, transparent) inset;
+  transition: all 0.3s ease;
+}
+
+.btn-glow:hover {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--secondary) 70%, transparent) inset,
+              0 0 16px color-mix(in oklab, var(--secondary) 40%, transparent);
+}
+
+.card-border {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:root.dark .card-border {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:root:not(.dark) .card-border {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.glass {
+  background: rgba(10, 8, 24, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+:root:not(.dark) .glass {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================
+   TRANSITIONS
+   ============================================ */
+
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+button, a, input, textarea, select {
+  transition-property: all;
+}
