@@ -8,6 +8,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 // import './utils/env-check' // Environment diagnostic
 import Navbar from './components/Navbar'
 import { Header } from './components/Header'
+import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 import ChatBotWidget from './components/ChatBotWidget'
@@ -125,9 +126,12 @@ function App() {
               
               {/* Chatbot Widget - appears on all pages */}
               <ChatBotWidget />
-              
+
               {/* Floating Cart - appears on all pages */}
               <FloatingCart />
+
+              {/* Footer - appears on all pages */}
+              <Footer />
             </div>
             </Router>
           </KioskAuthProvider>
