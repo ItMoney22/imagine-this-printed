@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 // import './utils/connectivity-test' // Additional connectivity tests
 // import './utils/env-check' // Environment diagnostic
 import Navbar from './components/Navbar'
+import { Header } from './components/Header'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 import ChatBotWidget from './components/ChatBotWidget'
@@ -55,7 +56,8 @@ function App() {
         <CartProvider>
           <KioskAuthProvider>
             <Router>
-            <div className="min-h-screen bg-gray-50">
+            <div className="min-h-screen bg-bg text-text">
+              <Header />
               <Navbar />
               <Routes>
                 <Route path="/" element={<Home />} />
