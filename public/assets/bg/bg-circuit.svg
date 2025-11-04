@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" fill="none">
+  <defs>
+    <pattern id="circuit" x="0" y="0" width="120" height="120" patternUnits="userSpaceOnUse">
+      <!-- Horizontal lines -->
+      <line x1="0" y1="20" x2="40" y2="20" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+      <line x1="60" y1="20" x2="120" y2="20" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+      <!-- Vertical lines -->
+      <line x1="40" y1="0" x2="40" y2="20" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+      <line x1="40" y1="40" x2="40" y2="80" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+      <!-- Nodes -->
+      <circle cx="40" cy="20" r="2" fill="currentColor" opacity="0.4"/>
+      <circle cx="60" cy="20" r="1.5" fill="currentColor" opacity="0.3"/>
+      <!-- More circuit elements -->
+      <line x1="20" y1="60" x2="60" y2="60" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+      <line x1="60" y1="40" x2="60" y2="80" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+      <circle cx="60" cy="60" r="2" fill="currentColor" opacity="0.4"/>
+      <rect x="58" y="18" width="4" height="4" fill="currentColor" opacity="0.3"/>
+    </pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#circuit)"/>
+</svg>

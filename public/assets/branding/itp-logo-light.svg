@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="1200" viewBox="0 0 1200 1200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6A11CB"/>
+      <stop offset="100%" stop-color="#2575FC"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8A2EFF"/>
+      <stop offset="100%" stop-color="#00BFFF"/>
+    </linearGradient>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background transparent for flexibility on light UIs -->
+  <rect width="1200" height="1200" fill="none"/>
+
+  <!-- Bulb Icon -->
+  <g transform="translate(350,100)" filter="url(#softGlow)">
+    <path d="M250 0c-138 0-250 103-250 230 0 89 57 151 111 202 12 11 19 26 19 43v25h240v-25c0-17 7-32 19-43 54-51 111-113 111-202C500 103 388 0 250 0z"
+          fill="none" stroke="url(#neon)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M240 510h20" stroke="url(#neon)" stroke-width="22" stroke-linecap="round"/>
+    <path d="M205 540h90" stroke="url(#neon)" stroke-width="22" stroke-linecap="round"/>
+    <path d="M225 570h50" stroke="url(#neon)" stroke-width="22" stroke-linecap="round"/>
+    <path d="M240 130c40 40 40 110 0 150" stroke="url(#accent)" stroke-width="18" stroke-linecap="round"/>
+  </g>
+
+  <!-- Title Text -->
+  <g font-family="Poppins, Arial, Helvetica, sans-serif" font-weight="700" text-anchor="middle">
+    <text x="600" y="780" font-size="170" fill="#1B1B1F" letter-spacing="6">IMAGINE</text>
+    <text x="600" y="940" font-size="170" fill="#1B1B1F" letter-spacing="6">THIS</text>
+    <text x="600" y="1100" font-size="170" fill="url(#accent)" letter-spacing="6">PRINTED</text>
+  </g>
+</svg>
