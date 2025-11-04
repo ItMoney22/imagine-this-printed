@@ -4,12 +4,15 @@ import './styles/theme.css'
 import './index.css'
 import App from './App.tsx'
 import { attachAuthDebug } from './lib/authDebug'
+import { ThemeProvider } from './components/ThemeProvider'
 
 // Attach auth debugging hooks
 attachAuthDebug()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </StrictMode>,
 )
