@@ -44,34 +44,52 @@ export const useAuth = () => {
 // Helper function to convert Supabase user to our User interface
 const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User | null> => {
   try {
-    // Get user profile data
-    const { data: profile, error } = await supabase
-      .from('user_profiles')
-      .select(`
-        *,
-        user_wallets (
-          points,
-          itc_balance
-        )
-      `)
-      .eq('id', supabaseUser.id)
-      .single()
+    console.log('[AuthContext] 🔍 Fetching profile for user:', supabaseUser.id)
 
-    if (error) {
-      console.error('Error fetching user profile:', error)
+    // Fetch profile and wallet separately since PostgREST can't find the relationship
+    const queryPromise = Promise.all([
+      supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .single(),
+      supabase
+        .from('user_wallets')
+        .select('points, itc_balance')
+        .eq('user_id', supabaseUser.id)
+        .single()
+    ])
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Profile queries timed out after 5s')), 5000)
+    )
+
+    const [profileResult, walletResult] = await Promise.race([queryPromise, timeoutPromise]) as any
+
+    console.log('[AuthContext] 📊 Query results:', {
+      profile: profileResult.data,
+      profileError: profileResult.error,
+      wallet: walletResult.data,
+      walletError: walletResult.error
+    })
+
+    if (profileResult.error) {
+      console.error('[AuthContext] ❌ Error fetching user profile:', profileResult.error)
       return null
     }
 
-    if (!profile) {
+    if (!profileResult.data) {
+      console.warn('[AuthContext] ⚠️ No profile data returned')
       return null
     }
 
-    // PostgREST returns user_wallets as an array, get first item
-    const walletData = Array.isArray(profile.user_wallets)
-      ? profile.user_wallets[0]
-      : profile.user_wallets
+    const profile = profileResult.data
+    const walletData = walletResult.data
 
-    return {
+    console.log('[AuthContext] ✅ Profile data received, mapping to User object...')
+    console.log('[AuthContext] 💰 Wallet data:', walletData)
+
+    const mappedUser = {
       id: profile.id,
       email: profile.email,
       role: profile.role || 'customer',
@@ -86,8 +104,17 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
         itcBalance: Number(walletData.itc_balance) || 0
       } : undefined
     }
+
+    console.log('[AuthContext] 🎉 User mapped successfully:', {
+      id: mappedUser.id,
+      email: mappedUser.email,
+      role: mappedUser.role,
+      username: mappedUser.username
+    })
+
+    return mappedUser
   } catch (error) {
-    console.error('Error mapping Supabase user:', error)
+    console.error('[AuthContext] ❌ Error mapping Supabase user:', error)
     return null
   }
 }
