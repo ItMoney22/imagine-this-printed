@@ -15,7 +15,7 @@ const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [productAssets, setProductAssets] = useState<Record<string, Record<string, any[]>>>({})
+  const [productAssets, setProductAssets] = useState<Record<string, any>>({})
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
   const [productJobs, setProductJobs] = useState<Record<string, any[]>>({})
   const [loadingAction, setLoadingAction] = useState<string | null>(null)

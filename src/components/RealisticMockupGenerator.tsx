@@ -414,7 +414,7 @@ const RealisticMockupGenerator: React.FC<RealisticMockupGeneratorProps> = ({
           <div className="flex space-x-2">
             <button
               onClick={() => handleSelect(currentMockup.generationId)}
-              disabled={currentMockup.status === 'selected'}
+              disabled={currentMockup.status !== 'completed'}
               className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
             >
               ✅ Keep & Download
@@ -427,7 +427,7 @@ const RealisticMockupGenerator: React.FC<RealisticMockupGeneratorProps> = ({
             </button>
             <button
               onClick={() => handleDiscard(currentMockup.generationId)}
-              disabled={currentMockup.status === 'discarded'}
+              disabled={currentMockup.status !== 'completed'}
               className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
             >
               ❌ Discard & Refund

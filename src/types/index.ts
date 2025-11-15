@@ -1017,7 +1017,7 @@ export interface ProductAsset {
 export interface AIJob {
   id: string
   product_id: string
-  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup'
+  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup' | 'replicate_rembg'
   status: 'queued' | 'running' | 'succeeded' | 'failed'
   input: Record<string, any>
   output?: Record<string, any>

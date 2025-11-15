@@ -138,7 +138,7 @@ export class StripeITCService {
       }
 
       if (paymentIntent?.status === 'succeeded') {
-        const itcAmount = paymentIntent.metadata?.itcAmount
+        const itcAmount = (paymentIntent as any).metadata?.itcAmount
         return {
           success: true,
           paymentIntentId: paymentIntent.id,

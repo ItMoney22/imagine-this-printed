@@ -34,8 +34,8 @@ export default function AdminCreateProductWizard() {
   // Step 1: Describe
   const [prompt, setPrompt] = useState('')
   const [priceTarget, setPriceTarget] = useState(29.99)
-  const [mockupStyle, setMockupStyle] = useState<'casual' | 'lifestyle' | 'product'>('casual')
-  const [background, setBackground] = useState<'studio' | 'lifestyle' | 'urban'>('studio')
+  const [mockupStyle, setMockupStyle] = useState<'flat' | 'human'>('flat')
+  const [background, setBackground] = useState<'transparent' | 'studio'>('studio')
   const [tone, setTone] = useState<'professional' | 'playful' | 'minimal'>('professional')
   const [imageStyle, setImageStyle] = useState<'realistic' | 'cartoon' | 'semi-realistic'>('semi-realistic')
   const [category, setCategory] = useState<'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'>('shirts')
@@ -71,7 +71,7 @@ export default function AdminCreateProductWizard() {
           console.log('[Wizard] 📊 Status response:', response)
 
           const jobs = response.jobs || []
-          console.log('[Wizard] 📋 Jobs:', jobs.map(j => ({ id: j.id, type: j.type, status: j.status })))
+          console.log('[Wizard] 📋 Jobs:', jobs.map((j: any) => ({ id: j.id, type: j.type, status: j.status })))
           setJobs(jobs)
 
           // Update product and assets in real-time (for image previews)
