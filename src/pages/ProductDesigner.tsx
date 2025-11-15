@@ -1,13 +1,20 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Stage, Layer, Image as KonvaImage, Text, Transformer, Rect } from 'react-konva'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { replicateAPI } from '../utils/replicate'
 import { gptAssistant } from '../utils/gpt-assistant'
-import type { AIGenerationRequest } from '../types'
+import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/api'
+import { PRODUCT_TEMPLATES, type ProductTemplateType } from '../utils/product-templates'
+import MockupPreview from '../components/MockupPreview'
+import type { AIGenerationRequest, Product } from '../types'
 import type { DesignSuggestion, DesignAnalysis } from '../utils/gpt-assistant'
 
 const ProductDesigner: React.FC = () => {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const stageRef = useRef<any>(null)
   const transformerRef = useRef<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -19,6 +26,17 @@ const ProductDesigner: React.FC = () => {
   const [textColor, setTextColor] = useState('#000000')
   const [selectedTemplate, setSelectedTemplate] = useState<'shirt' | 'tumbler' | 'hoodie'>('shirt')
   const [previewMode, setPreviewMode] = useState(false)
+
+  // URL parameter states
+  const [loadedProduct, setLoadedProduct] = useState<Product | null>(null)
+  const [isLoadingProduct, setIsLoadingProduct] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  // Mockup preview states
+  const [mockupImageUrl, setMockupImageUrl] = useState<string>('')
+  const [isGeneratingMockup, setIsGeneratingMockup] = useState(false)
+  const [userItcBalance, setUserItcBalance] = useState<number>(0)
+  const [realisticMockupUrl, setRealisticMockupUrl] = useState<string>('')
   
   // AI Generation State
   const [showAIModal, setShowAIModal] = useState(false)
@@ -42,7 +60,7 @@ const ProductDesigner: React.FC = () => {
   const [targetAudience, setTargetAudience] = useState('general')
   
   const { addToCart } = useCart()
-  const { } = useAuth()
+  const { user } = useAuth()
 
   const AI_GENERATION_COST = 25 // ITC cost per generation
 
@@ -119,25 +137,167 @@ const ProductDesigner: React.FC = () => {
     document.body.removeChild(link)
   }
 
-  const addToCartWithDesign = () => {
-    const uri = stageRef.current.toDataURL()
-    const templatePrices = {
-      shirt: 24.99,
-      tumbler: 29.99,
-      hoodie: 45.99
+  const showPreviewModal = (mockupUrl: string | null): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div')
+      modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50'
+      modal.innerHTML = `
+        <div class="bg-card rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6">
+          <h3 class="text-xl font-bold text-text mb-4">Preview Your Design</h3>
+          <div class="mb-4 max-h-96 overflow-auto">
+            ${mockupUrl
+              ? `<img src="${mockupUrl}" alt="Design Preview" class="w-full rounded-lg" />`
+              : `<p class="text-muted text-center py-8">No realistic preview generated. Design will be saved as-is.</p>`
+            }
+          </div>
+          <div class="flex justify-end space-x-3">
+            <button id="preview-cancel" class="btn-secondary">Cancel</button>
+            <button id="preview-confirm" class="btn-primary">Add to Cart</button>
+          </div>
+        </div>
+      `
+
+      document.body.appendChild(modal)
+
+      const confirmBtn = modal.querySelector('#preview-confirm')
+      const cancelBtn = modal.querySelector('#preview-cancel')
+
+      const cleanup = () => {
+        document.body.removeChild(modal)
+      }
+
+      confirmBtn?.addEventListener('click', () => {
+        cleanup()
+        resolve(true)
+      })
+
+      cancelBtn?.addEventListener('click', () => {
+        cleanup()
+        resolve(false)
+      })
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          cleanup()
+          resolve(false)
+        }
+      })
+
+      document.addEventListener('keydown', function escapeHandler(e) {
+        if (e.key === 'Escape') {
+          cleanup()
+          document.removeEventListener('keydown', escapeHandler)
+          resolve(false)
+        }
+      })
+    })
+  }
+
+  const addToCartWithDesign = async () => {
+    try {
+      if (elements.length === 0) {
+        alert('Please add some design elements before adding to cart')
+        return
+      }
+
+      let finalMockupUrl = realisticMockupUrl
+
+      if (!finalMockupUrl) {
+        const shouldGenerate = window.confirm(
+          'Generate realistic preview before adding to cart?\n\n' +
+          'Cost: 25 ITC tokens\n' +
+          'This will show how your design will look on the final product.\n\n' +
+          'Click OK to generate, or Cancel to skip.'
+        )
+
+        if (shouldGenerate) {
+          setIsGeneratingMockup(true)
+
+          try {
+            await handleGenerateRealistic()
+            finalMockupUrl = realisticMockupUrl
+          } catch (error) {
+            console.error('[ProductDesigner] Failed to generate mockup for cart:', error)
+            alert('Failed to generate preview. Adding to cart without realistic mockup.')
+          } finally {
+            setIsGeneratingMockup(false)
+          }
+        }
+      }
+
+      const confirmed = await showPreviewModal(finalMockupUrl)
+
+      if (!confirmed) {
+        return
+      }
+
+      const canvasSnapshot = stageRef.current?.toDataURL()
+
+      const templatePrices = {
+        shirt: 24.99,
+        tumbler: 29.99,
+        hoodie: 45.99
+      }
+
+      const mockProduct = {
+        id: loadedProduct?.id || `custom-${selectedTemplate}`,
+        name: loadedProduct?.name || `Custom ${selectedTemplate.charAt(0).toUpperCase() + selectedTemplate.slice(1)}`,
+        description: loadedProduct?.description || `Your custom ${selectedTemplate} with personalized graphics`,
+        price: loadedProduct?.price || templatePrices[selectedTemplate],
+        images: loadedProduct?.images || [canvasSnapshot || ''],
+        category: loadedProduct?.category || (selectedTemplate === 'shirt' || selectedTemplate === 'hoodie' ? 'shirts' as const : 'tumblers' as const),
+        inStock: true
+      }
+
+      addToCart(mockProduct, 1, canvasSnapshot, {
+        elements,
+        template: selectedTemplate,
+        mockupUrl: finalMockupUrl || '',
+        canvasSnapshot
+      })
+
+      alert('Design added to cart!')
+
+      const goToCart = window.confirm('Go to cart now?')
+      if (goToCart) {
+        navigate('/cart')
+      }
+
+    } catch (error: any) {
+      console.error('[ProductDesigner] Error adding to cart:', error)
+      alert('Failed to add to cart: ' + error.message)
     }
-    
-    const mockProduct = {
-      id: `custom-${selectedTemplate}`,
-      name: `Custom ${selectedTemplate.charAt(0).toUpperCase() + selectedTemplate.slice(1)}`,
-      description: `Your custom ${selectedTemplate} with personalized graphics`,
-      price: templatePrices[selectedTemplate],
-      images: [uri],
-      category: selectedTemplate === 'shirt' || selectedTemplate === 'hoodie' ? 'shirts' as const : 'tumblers' as const,
-      inStock: true
+  }
+
+  const handleSaveDesign = async () => {
+    try {
+      if (elements.length === 0) {
+        alert('Please add some design elements before saving')
+        return
+      }
+
+      const designData = {
+        elements,
+        template: selectedTemplate,
+        timestamp: Date.now(),
+        productId: loadedProduct?.id,
+        mockupUrl: realisticMockupUrl
+      }
+
+      const savedDesigns = JSON.parse(localStorage.getItem('savedDesigns') || '[]')
+      savedDesigns.push(designData)
+      localStorage.setItem('savedDesigns', JSON.stringify(savedDesigns))
+
+      const snapshot = stageRef.current?.toDataURL()
+      if (snapshot) {
+        localStorage.setItem(`design-snapshot-${designData.timestamp}`, snapshot)
+      }
+
+      alert('Design saved successfully! You can load it later from your saved designs.')
+    } catch (error: any) {
+      console.error('[ProductDesigner] Error saving design:', error)
+      alert('Failed to save design: ' + error.message)
     }
-    addToCart(mockProduct, 1, uri)
-    alert(`Custom ${selectedTemplate} added to cart!`)
   }
 
   const generateAIImage = async () => {
@@ -289,25 +449,120 @@ const ProductDesigner: React.FC = () => {
         return el
       }))
     }
-    
+
     // Set suggested values for new elements
     if (suggestion.typography) {
       setFontFamily(suggestion.typography.fontFamily)
       setFontSize(suggestion.typography.fontSize)
     }
-    
+
     // Apply color suggestions (use first color as text color)
     if (suggestion.colorPalette && suggestion.colorPalette.length > 0) {
       setTextColor(suggestion.colorPalette[0])
     }
-    
+
     // Generate AI image if prompt provided
     if (suggestion.aiPrompt) {
       setAiPrompt(suggestion.aiPrompt)
       setAiStyle('realistic')
     }
-    
+
     alert(`Applied suggestion: ${suggestion.title}`)
+  }
+
+  const handleGenerateRealistic = async () => {
+    try {
+      setIsGeneratingMockup(true)
+      setLoadError(null)
+
+      console.log('[ProductDesigner] 🎨 Generate realistic preview clicked')
+
+      // Validate stage ref exists
+      if (!stageRef.current) {
+        throw new Error('Canvas not ready. Please wait a moment and try again.')
+      }
+
+      // Export current canvas as data URL
+      const canvasDataUrl = stageRef.current.toDataURL({
+        mimeType: 'image/png',
+        quality: 1.0,
+        pixelRatio: 2 // Higher quality export
+      })
+
+      console.log('[ProductDesigner] 📸 Canvas exported, size:', canvasDataUrl.length, 'characters')
+
+      // Determine product template
+      let productTemplate: 'shirts' | 'hoodies' | 'tumblers'
+      if (selectedTemplate === 'shirt') {
+        productTemplate = 'shirts'
+      } else if (selectedTemplate === 'hoodie') {
+        productTemplate = 'hoodies'
+      } else if (selectedTemplate === 'tumbler') {
+        productTemplate = 'tumblers'
+      } else {
+        productTemplate = 'shirts' // fallback
+      }
+
+      console.log('[ProductDesigner] 🏷️ Template:', productTemplate)
+      console.log('[ProductDesigner] 🚀 Calling backend API...')
+
+      // Call backend API
+      const response = await apiFetch('/api/designer/generate-mockup', {
+        method: 'POST',
+        body: JSON.stringify({
+          designImageUrl: canvasDataUrl,
+          productTemplate,
+          mockupType: 'flat'
+        })
+      })
+
+      // Validate response
+      if (!response.ok) {
+        throw new Error(response.error || 'Failed to generate mockup')
+      }
+
+      console.log('[ProductDesigner] ✅ Mockup generated successfully')
+      console.log('[ProductDesigner] 🖼️ Mockup URL:', response.mockupUrl?.substring(0, 100) + '...')
+      console.log('[ProductDesigner] 💰 Cost:', response.cost, 'ITC')
+      console.log('[ProductDesigner] 💵 New balance:', response.newBalance, 'ITC')
+
+      // Update state with new mockup URL
+      setRealisticMockupUrl(response.mockupUrl)
+      setUserItcBalance(response.newBalance)
+      setMockupImageUrl(response.mockupUrl)
+
+      // Show success message
+      const message = `Realistic mockup generated successfully!\n\n` +
+        `Cost: ${response.cost} ITC\n` +
+        `New balance: ${response.newBalance} ITC\n\n` +
+        `The mockup is now displayed in the preview panel.`
+
+      alert(message)
+
+    } catch (error: any) {
+      console.error('[ProductDesigner] ❌ Error generating mockup:', error)
+
+      // Parse error message
+      let errorMessage = error.message || 'Unknown error occurred'
+
+      // Check for specific error types
+      if (errorMessage.includes('Insufficient ITC balance')) {
+        setLoadError('Insufficient ITC balance. Please purchase more tokens from your wallet.')
+        alert('Insufficient ITC balance.\n\nYou need at least 25 ITC tokens to generate a realistic mockup.\nPlease visit your Wallet page to purchase more tokens.')
+      } else if (errorMessage.includes('Unauthorized')) {
+        setLoadError('Authentication error. Please log in again.')
+        alert('Authentication error. Please log in again.')
+      } else if (errorMessage.includes('Canvas not ready')) {
+        setLoadError(errorMessage)
+        alert(errorMessage)
+      } else {
+        setLoadError('Failed to generate realistic mockup: ' + errorMessage)
+        alert('Failed to generate realistic mockup.\n\nError: ' + errorMessage + '\n\nPlease try again in a moment.')
+      }
+
+    } finally {
+      setIsGeneratingMockup(false)
+    }
   }
 
   const handleElementClick = (e: any) => {
@@ -372,11 +627,172 @@ const ProductDesigner: React.FC = () => {
     }
   }, [selectedId, previewMode])
 
+  // Load ITC balance from user wallet
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('user_wallets')
+        .select('itc_balance')
+        .eq('user_id', user.id)
+        .single()
+        .then(({ data }) => {
+          if (data) setUserItcBalance(data.itc_balance || 0)
+        })
+    }
+  }, [user])
+
+  // Load product and design from URL parameters
+  useEffect(() => {
+    const loadProductAndDesign = async () => {
+      const productId = searchParams.get('productId')
+      const template = searchParams.get('template')
+      const designImage = searchParams.get('designImage')
+
+      console.log('[ProductDesigner] URL params:', { productId, template, designImage })
+
+      // Set initial template if provided
+      if (template) {
+        const validTemplates = ['shirt', 'tumbler', 'hoodie']
+        if (validTemplates.includes(template)) {
+          console.log('[ProductDesigner] Setting template from URL:', template)
+          setSelectedTemplate(template as 'shirt' | 'tumbler' | 'hoodie')
+        } else {
+          console.warn('[ProductDesigner] Invalid template in URL:', template)
+        }
+      }
+
+      // Load product from database if productId provided
+      if (productId) {
+        console.log('[ProductDesigner] Loading product from database:', productId)
+        setIsLoadingProduct(true)
+        setLoadError(null)
+
+        try {
+          const { data, error } = await supabase
+            .from('products')
+            .select('*')
+            .eq('id', productId)
+            .single()
+
+          if (error) {
+            console.error('[ProductDesigner] Error loading product:', error)
+            setLoadError(`Failed to load product: ${error.message}`)
+          } else if (data) {
+            console.log('[ProductDesigner] Product loaded successfully:', data)
+            setLoadedProduct(data as Product)
+
+            // Set template based on product category if not already set
+            if (!template && data.category) {
+              const categoryToTemplate: Record<string, 'shirt' | 'tumbler' | 'hoodie'> = {
+                'shirts': 'shirt',
+                'hoodies': 'hoodie',
+                'tumblers': 'tumbler'
+              }
+              const productTemplate = categoryToTemplate[data.category]
+              if (productTemplate) {
+                console.log('[ProductDesigner] Setting template from product category:', productTemplate)
+                setSelectedTemplate(productTemplate)
+              }
+            }
+          } else {
+            console.warn('[ProductDesigner] Product not found:', productId)
+            setLoadError('Product not found')
+          }
+        } catch (err) {
+          console.error('[ProductDesigner] Exception loading product:', err)
+          setLoadError('An error occurred while loading the product')
+        } finally {
+          setIsLoadingProduct(false)
+        }
+      }
+
+      // Auto-load design image if provided
+      if (designImage) {
+        const decodedImageUrl = decodeURIComponent(designImage)
+        console.log('[ProductDesigner] Auto-loading design image:', decodedImageUrl)
+
+        if (decodedImageUrl && decodedImageUrl !== 'undefined' && decodedImageUrl !== 'null') {
+          try {
+            const img = new window.Image()
+            img.crossOrigin = 'anonymous' // Handle CORS if needed
+
+            img.onload = () => {
+              console.log('[ProductDesigner] Design image loaded successfully')
+              const newElement = {
+                id: `image-${Date.now()}`,
+                type: 'image',
+                src: decodedImageUrl,
+                x: 280,
+                y: 150,
+                width: Math.min(200, img.width),
+                height: Math.min(200, img.height),
+                rotation: 0
+              }
+              setElements(prev => [...prev, newElement])
+            }
+
+            img.onerror = (err) => {
+              console.error('[ProductDesigner] Failed to load design image:', err)
+              // Don't show error to user, just log it
+            }
+
+            img.src = decodedImageUrl
+          } catch (err) {
+            console.error('[ProductDesigner] Exception loading design image:', err)
+          }
+        }
+      }
+    }
+
+    loadProductAndDesign()
+  }, [searchParams])
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-text mb-2">Product Designer</h1>
         <p className="text-muted">Create custom designs with our drag-and-drop editor</p>
+
+        {/* Loading state */}
+        {isLoadingProduct && (
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center">
+            <svg className="animate-spin h-5 w-5 text-blue-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-blue-800 font-medium">Loading product information...</span>
+          </div>
+        )}
+
+        {/* Error state */}
+        {loadError && (
+          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center">
+            <svg className="w-5 h-5 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-red-800 font-medium">{loadError}</span>
+          </div>
+        )}
+
+        {/* Loaded product info */}
+        {loadedProduct && (
+          <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-start">
+              <svg className="w-5 h-5 text-green-600 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1">
+                <h3 className="text-green-900 font-semibold">Customizing: {loadedProduct.name}</h3>
+                <p className="text-green-700 text-sm mt-1">{loadedProduct.description}</p>
+                <div className="flex items-center mt-2 text-sm">
+                  <span className="text-green-800 font-medium">${loadedProduct.price.toFixed(2)}</span>
+                  <span className="mx-2 text-green-600">•</span>
+                  <span className="text-green-700 capitalize">{loadedProduct.category}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -527,107 +943,171 @@ const ProductDesigner: React.FC = () => {
                 Download PNG
               </button>
               <button
-                onClick={addToCartWithDesign}
-                className="w-full btn-primary"
+                onClick={handleSaveDesign}
+                disabled={elements.length === 0}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center"
               >
-                Add to Cart
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                Save Design
+              </button>
+              <button
+                onClick={addToCartWithDesign}
+                disabled={isGeneratingMockup || elements.length === 0}
+                className="w-full btn-primary disabled:bg-gray-400 flex items-center justify-center"
+              >
+                {isGeneratingMockup ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Generating Preview...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    Add to Cart
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
 
         <div className="lg:col-span-3">
-          <div className="bg-card rounded-lg shadow p-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold">{getTemplateBackground().label}</h3>
-              <div className="text-sm text-muted">
-                {selectedTemplate && `${selectedTemplate.charAt(0).toUpperCase() + selectedTemplate.slice(1)} Template`}
-              </div>
-            </div>
-            <div className="border-2 border-dashed card-border rounded-lg overflow-hidden relative">
-              <Stage
-                ref={stageRef}
-                width={800}
-                height={600}
-                onClick={previewMode ? undefined : handleStageClick}
-                onTap={previewMode ? undefined : handleStageClick}
-              >
-                <Layer>
-                  {/* Template Background */}
-                  <Rect
-                    x={250}
-                    y={100}
-                    width={getTemplateBackground().width}
-                    height={getTemplateBackground().height}
-                    fill={getTemplateBackground().color}
-                    stroke={previewMode ? 'transparent' : '#9CA3AF'}
-                    strokeWidth={2}
-                    dash={previewMode ? [] : [5, 5]}
-                  />
-                  
-                  {elements.map((element) => {
-                    if (element.type === 'image') {
-                      const img = new window.Image()
-                      img.src = element.src
-                      return (
-                        <KonvaImage
-                          key={element.id}
-                          id={element.id}
-                          image={img}
-                          x={element.x}
-                          y={element.y}
-                          width={element.width}
-                          height={element.height}
-                          rotation={element.rotation}
-                          draggable={!previewMode}
-                          onClick={previewMode ? undefined : handleElementClick}
-                          onTap={previewMode ? undefined : handleElementClick}
-                          onDragEnd={previewMode ? undefined : handleDragEnd}
-                          onTransformEnd={previewMode ? undefined : handleTransformEnd}
-                        />
-                      )
-                    } else if (element.type === 'text') {
-                      return (
-                        <Text
-                          key={element.id}
-                          id={element.id}
-                          text={element.text}
-                          x={element.x}
-                          y={element.y}
-                          fontSize={element.fontSize}
-                          fontFamily={element.fontFamily}
-                          fill={element.fill}
-                          rotation={element.rotation}
-                          draggable={!previewMode}
-                          onClick={previewMode ? undefined : handleElementClick}
-                          onTap={previewMode ? undefined : handleElementClick}
-                          onDragEnd={previewMode ? undefined : handleDragEnd}
-                          onTransformEnd={previewMode ? undefined : handleTransformEnd}
-                        />
-                      )
-                    }
-                    return null
-                  })}
-                  
-                  {!previewMode && (
-                    <Transformer
-                      ref={transformerRef}
-                      boundBoxFunc={(oldBox, newBox) => {
-                        if (newBox.width < 5 || newBox.height < 5) {
-                          return oldBox
-                        }
-                        return newBox
-                      }}
+          {/* Two-Panel Layout: Canvas (Left) | Mockup Preview (Right) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Left Panel - Design Editor (Konva Canvas) */}
+            <div className="bg-card rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">Design Editor</h3>
+              <div className="border-2 border-dashed card-border rounded-lg overflow-auto relative flex items-center justify-center bg-gray-100">
+                <Stage
+                  ref={stageRef}
+                  width={800}
+                  height={600}
+                  onClick={previewMode ? undefined : handleStageClick}
+                  onTap={previewMode ? undefined : handleStageClick}
+                >
+                  <Layer>
+                    {/* Template Background */}
+                    <Rect
+                      x={250}
+                      y={100}
+                      width={getTemplateBackground().width}
+                      height={getTemplateBackground().height}
+                      fill={getTemplateBackground().color}
+                      stroke={previewMode ? 'transparent' : '#9CA3AF'}
+                      strokeWidth={2}
+                      dash={previewMode ? [] : [5, 5]}
                     />
-                  )}
-                </Layer>
-              </Stage>
+
+                    {/* Print Area Boundaries */}
+                    {(() => {
+                      const templateKey = selectedTemplate === 'shirt' ? 'shirts' : selectedTemplate === 'hoodie' ? 'hoodies' : 'tumblers'
+                      const template = PRODUCT_TEMPLATES[templateKey as ProductTemplateType]
+                      const printArea = {
+                        x: template.printArea.x * 800,
+                        y: template.printArea.y * 600,
+                        width: template.printArea.width * 800,
+                        height: template.printArea.height * 600
+                      }
+                      return (
+                        <Rect
+                          x={printArea.x}
+                          y={printArea.y}
+                          width={printArea.width}
+                          height={printArea.height}
+                          stroke="#8b5cf6"
+                          strokeWidth={2}
+                          dash={[5, 5]}
+                          listening={false}
+                        />
+                      )
+                    })()}
+
+                    {elements.map((element) => {
+                      if (element.type === 'image') {
+                        const img = new window.Image()
+                        img.src = element.src
+                        return (
+                          <KonvaImage
+                            key={element.id}
+                            id={element.id}
+                            image={img}
+                            x={element.x}
+                            y={element.y}
+                            width={element.width}
+                            height={element.height}
+                            rotation={element.rotation}
+                            draggable={!previewMode}
+                            onClick={previewMode ? undefined : handleElementClick}
+                            onTap={previewMode ? undefined : handleElementClick}
+                            onDragEnd={previewMode ? undefined : handleDragEnd}
+                            onTransformEnd={previewMode ? undefined : handleTransformEnd}
+                          />
+                        )
+                      } else if (element.type === 'text') {
+                        return (
+                          <Text
+                            key={element.id}
+                            id={element.id}
+                            text={element.text}
+                            x={element.x}
+                            y={element.y}
+                            fontSize={element.fontSize}
+                            fontFamily={element.fontFamily}
+                            fill={element.fill}
+                            rotation={element.rotation}
+                            draggable={!previewMode}
+                            onClick={previewMode ? undefined : handleElementClick}
+                            onTap={previewMode ? undefined : handleElementClick}
+                            onDragEnd={previewMode ? undefined : handleDragEnd}
+                            onTransformEnd={previewMode ? undefined : handleTransformEnd}
+                          />
+                        )
+                      }
+                      return null
+                    })}
+
+                    {!previewMode && (
+                      <Transformer
+                        ref={transformerRef}
+                        boundBoxFunc={(oldBox, newBox) => {
+                          if (newBox.width < 5 || newBox.height < 5) {
+                            return oldBox
+                          }
+                          return newBox
+                        }}
+                      />
+                    )}
+                  </Layer>
+                </Stage>
+              </div>
+              <p className="text-sm text-muted mt-2">
+                {previewMode
+                  ? 'Preview mode: See how your design will look on the product'
+                  : 'Edit mode: Click elements to select and transform. Drag to move, use handles to resize and rotate.'}
+              </p>
             </div>
-            <p className="text-sm text-muted mt-2">
-              {previewMode 
-                ? 'Preview mode: See how your design will look on the product'
-                : 'Edit mode: Click elements to select and transform. Drag to move, use handles to resize and rotate.'}
-            </p>
+
+            {/* Right Panel - Mockup Preview */}
+            <div className="bg-card rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-text mb-4">Mockup Preview</h3>
+              <MockupPreview
+                designElements={elements}
+                selectedTemplate={
+                  (selectedTemplate === 'shirt' ? 'shirts' : selectedTemplate === 'hoodie' ? 'hoodies' : 'tumblers') as ProductTemplateType
+                }
+                mockupImage={realisticMockupUrl || mockupImageUrl}
+                onGenerateRealistic={handleGenerateRealistic}
+                isGenerating={isGeneratingMockup}
+                itcBalance={userItcBalance}
+              />
+            </div>
           </div>
         </div>
       </div>

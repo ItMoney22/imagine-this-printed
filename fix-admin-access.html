@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix Admin Access</title>
+</head>
+<body>
+    <h1>Admin Access Fix</h1>
+    <p>This will clear your session and force a fresh login.</p>
+    <button onclick="fixAccess()" style="padding: 20px; font-size: 18px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
+        Click Here to Fix Admin Access
+    </button>
+    <div id="status" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; display: none;"></div>
+
+    <script>
+        async function fixAccess() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'Clearing session...';
+
+            try {
+                // Clear all localStorage
+                const keys = Object.keys(localStorage);
+                keys.forEach(key => {
+                    if (key.startsWith('sb-')) {
+                        localStorage.removeItem(key);
+                        console.log('Removed:', key);
+                    }
+                });
+
+                statusDiv.innerHTML = '✅ Session cleared!<br><br>Now redirecting to login...';
+
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:5173/login';
+                }, 2000);
+
+            } catch (error) {
+                statusDiv.innerHTML = '❌ Error: ' + error.message;
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

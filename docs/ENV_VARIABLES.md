@@ -226,6 +226,43 @@ STRIPE_WEBHOOK_SECRET="whsec_..." (for production webhook)
 
 **Usage:** Used for transactional emails (password reset, order confirmation, etc.)
 
+### AI Product Builder (Optional)
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `OPENAI_API_KEY` | OpenAI GPT API key (⚠️ KEEP SECRET) | `sk-...` | No |
+| `REPLICATE_API_TOKEN` | Replicate API token (⚠️ KEEP SECRET) | `r8_...` | No |
+| `REPLICATE_PRODUCT_MODEL_ID` | Replicate model ID for product images | `stability-ai/sdxl:latest` | No |
+| `REPLICATE_TRYON_MODEL_ID` | Replicate model ID for try-on mockups | `nano-banana/virtual-tryon:latest` | No |
+| `AI_WEBHOOK_SECRET` | Webhook verification secret (⚠️ KEEP SECRET) | Random 32+ character string | No |
+| `ASSET_BUCKET` | Supabase Storage bucket for assets | `products` | No |
+
+**Where to find OpenAI credentials:**
+
+1. Go to [OpenAI API Keys](https://platform.openai.com/api-keys)
+2. Create new secret key
+3. Copy the key (starts with `sk-`)
+
+**Where to find Replicate credentials:**
+
+1. Go to [Replicate Account Settings](https://replicate.com/account/api-tokens)
+2. Create or copy API token (starts with `r8_`)
+3. Model IDs can be found on model pages (e.g., `stability-ai/sdxl`, `nano-banana/virtual-tryon`)
+
+**How to generate AI_WEBHOOK_SECRET:**
+
+Linux/Mac:
+```bash
+openssl rand -base64 32
+```
+
+Windows (PowerShell):
+```powershell
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }) -as [byte[]])
+```
+
+**Usage:** Powers the AI Product Builder feature for automated product creation with GPT normalization and Replicate image generation.
+
 ### AWS S3 / File Storage (Optional but Recommended)
 
 | Variable | Description | Example | Required |

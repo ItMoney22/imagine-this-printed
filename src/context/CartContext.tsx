@@ -9,7 +9,7 @@ interface CartState {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, customDesign?: string) => void
+  addToCart: (product: Product, quantity?: number, customDesign?: string, designData?: CartItem['designData']) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -17,8 +17,8 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
-type CartAction = 
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; customDesign?: string } }
+type CartAction =
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; customDesign?: string; designData?: CartItem['designData'] } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -26,8 +26,8 @@ type CartAction =
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, customDesign } = action.payload
-      const existingItem = state.items.find(item => 
+      const { product, quantity, customDesign, designData } = action.payload
+      const existingItem = state.items.find(item =>
         item.product.id === product.id && item.customDesign === customDesign
       )
 
@@ -43,7 +43,8 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           id: `${product.id}-${Date.now()}`,
           product,
           quantity,
-          customDesign
+          customDesign,
+          designData
         }
         newItems = [...state.items, newItem]
       }
@@ -79,8 +80,8 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(cartReducer, { items: [], total: 0 })
 
-  const addToCart = (product: Product, quantity = 1, customDesign?: string) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, customDesign } })
+  const addToCart = (product: Product, quantity = 1, customDesign?: string, designData?: CartItem['designData']) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, customDesign, designData } })
   }
 
   const removeFromCart = (itemId: string) => {

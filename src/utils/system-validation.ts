@@ -1,5 +1,5 @@
 // Removed direct Prisma import - using API endpoints for validation
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 import { uploadFile } from './storage'
 import { chatbotService } from './chatbot-service'
 

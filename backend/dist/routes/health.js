@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { checkBucketAccess } from '../services/google-cloud-storage.js';
 const router = Router();
 const prisma = new PrismaClient();
 const tail = (s) => s ? `...${s.slice(-4)}` : 'none';
@@ -88,6 +89,48 @@ router.get('/auth', async (req, res) => {
         callbackUrl: `${frontendUrl}/auth/callback`,
         siteUrl: process.env.APP_URL || frontendUrl
     });
+});
+router.get('/gcs', async (req, res) => {
+    try {
+        const bucketName = process.env.GCS_BUCKET_NAME;
+        const projectId = process.env.GCS_PROJECT_ID;
+        const hasCredentials = !!process.env.GCS_CREDENTIALS;
+        if (!bucketName || !projectId || !hasCredentials) {
+            return res.status(500).json({
+                status: 'error',
+                message: 'GCS configuration incomplete',
+                details: {
+                    bucketName: !!bucketName,
+                    projectId: !!projectId,
+                    credentials: hasCredentials
+                }
+            });
+        }
+        const accessible = await checkBucketAccess();
+        if (accessible) {
+            return res.json({
+                status: 'ok',
+                message: 'Google Cloud Storage is configured and accessible',
+                bucket: bucketName,
+                projectId
+            });
+        }
+        else {
+            return res.status(500).json({
+                status: 'error',
+                message: 'GCS bucket not accessible',
+                bucket: bucketName
+            });
+        }
+    }
+    catch (error) {
+        console.error('[health/gcs] Error:', error);
+        return res.status(500).json({
+            status: 'error',
+            message: 'GCS health check failed',
+            error: error.message
+        });
+    }
 });
 router.get('/', async (req, res) => {
     res.status(200).json({ ok: true });

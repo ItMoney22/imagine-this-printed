@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useNavigate } from 'react-router-dom'
-import { profileService } from '../utils/profile-service'
-import type { UserProfile } from '../types'
+import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/api'
 
 const ProfileEdit: React.FC = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [profile, setProfile] = useState<Partial<UserProfile>>({
+
+  const [formData, setFormData] = useState({
     username: '',
     displayName: '',
     bio: '',
@@ -18,15 +19,14 @@ const ProfileEdit: React.FC = () => {
       instagram: '',
       linkedin: ''
     },
-    isPublic: true,
-    showOrderHistory: false,
-    showDesigns: true,
-    showModels: true
+    isPublic: true
   })
+
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [_profileImage, setProfileImage] = useState<File | null>(null)
+  const [profileImage, setProfileImage] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -37,61 +37,49 @@ const ProfileEdit: React.FC = () => {
   const loadUserProfile = async () => {
     try {
       setIsLoading(true)
-      
+      setError(null)
+
       if (!user) {
         throw new Error('User not authenticated')
       }
 
-      // Load profile using API service
-      const userProfile = await profileService.getProfile({ userId: user.id })
+      console.log('[ProfileEdit] Loading profile for user:', user.id)
 
-      if (userProfile) {
-        // Convert to component format
-        const loadedProfile: Partial<UserProfile> = {
-          username: userProfile.username,
-          displayName: userProfile.displayName,
-          bio: userProfile.bio || '',
-          location: userProfile.location || '',
-          website: userProfile.website || '',
-          socialLinks: userProfile.socialLinks || {
-            twitter: '',
-            instagram: '',
-            linkedin: ''
-          },
-          isPublic: userProfile.isPublic,
-          showOrderHistory: userProfile.showOrderHistory,
-          showDesigns: userProfile.showDesigns,
-          showModels: userProfile.showModels,
-          profileImage: userProfile.profileImage
-        }
-        
-        setProfile(loadedProfile)
-        if (userProfile.profileImage) {
-          setPreviewUrl(userProfile.profileImage)
-        }
-      } else {
-        // Create default profile if none exists
-        const defaultProfile: Partial<UserProfile> = {
-          username: user.username || '',
-          displayName: user.displayName || 'User',
-          bio: '',
-          location: '',
-          website: '',
-          socialLinks: {
-            twitter: '',
-            instagram: '',
-            linkedin: ''
-          },
-          isPublic: true,
-          showOrderHistory: false,
-          showDesigns: true,
-          showModels: true
-        }
-        
-        setProfile(defaultProfile)
+      // Load profile from Supabase
+      const { data: userProfile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+      if (profileError) {
+        console.error('[ProfileEdit] Error loading profile:', profileError)
+        throw profileError
       }
-    } catch (error) {
-      console.error('Error loading profile:', error)
+
+      console.log('[ProfileEdit] Profile loaded:', userProfile)
+
+      // Map to form data
+      setFormData({
+        username: userProfile.username || '',
+        displayName: userProfile.display_name || userProfile.username || '',
+        bio: userProfile.bio || '',
+        location: userProfile.location || '',
+        website: userProfile.website || '',
+        socialLinks: userProfile.social_links || {
+          twitter: '',
+          instagram: '',
+          linkedin: ''
+        },
+        isPublic: userProfile.is_public !== false
+      })
+
+      if (userProfile.avatar_url) {
+        setPreviewUrl(userProfile.avatar_url)
+      }
+    } catch (error: any) {
+      console.error('[ProfileEdit] Error loading profile:', error)
+      setError('Failed to load profile: ' + error.message)
     } finally {
       setIsLoading(false)
     }
@@ -100,7 +88,7 @@ const ProfileEdit: React.FC = () => {
   const handleInputChange = (field: string, value: any) => {
     if (field.includes('.')) {
       const [parent, child] = field.split('.')
-      setProfile(prev => ({
+      setFormData(prev => ({
         ...prev,
         [parent]: {
           ...(prev[parent as keyof typeof prev] as any),
@@ -108,7 +96,7 @@ const ProfileEdit: React.FC = () => {
         }
       }))
     } else {
-      setProfile(prev => ({
+      setFormData(prev => ({
         ...prev,
         [field]: value
       }))
@@ -118,43 +106,94 @@ const ProfileEdit: React.FC = () => {
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
+      // Validate file size (5MB max)
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Image must be less than 5MB')
+        return
+      }
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError('Please select an image file')
+        return
+      }
+
       setProfileImage(file)
       const url = URL.createObjectURL(file)
       setPreviewUrl(url)
+      setError(null)
     }
+  }
+
+  const convertImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        resolve(result)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
   }
 
   const saveProfile = async () => {
     try {
       setIsSaving(true)
-      
+      setError(null)
+
       if (!user) {
         throw new Error('User not authenticated')
       }
 
-      // Prepare profile data for API call
-      const profileData = {
-        username: profile.username,
-        displayName: profile.displayName,
-        bio: profile.bio || '',
-        location: profile.location || '',
-        website: profile.website || '',
-        socialLinks: profile.socialLinks || {},
-        avatarUrl: previewUrl || null,
-        isPublic: profile.isPublic,
-        showOrderHistory: profile.showOrderHistory,
-        showDesigns: profile.showDesigns,
-        showModels: profile.showModels
+      // Validate required fields
+      if (!formData.username || !formData.displayName) {
+        setError('Username and Display Name are required')
+        return
       }
 
-      // Update profile using API service
-      await profileService.updateProfile(profileData)
-      
-      alert('Profile updated successfully!')
-      navigate('/account/profile')
-    } catch (error) {
-      console.error('Error saving profile:', error)
-      alert('Failed to save profile. Please try again.')
+      console.log('[ProfileEdit] Saving profile...')
+
+      // Convert image to base64 if a new one was selected
+      let avatarImageBase64: string | null = null
+      if (profileImage) {
+        console.log('[ProfileEdit] Converting image to base64...')
+        avatarImageBase64 = await convertImageToBase64(profileImage)
+      }
+
+      // Prepare profile data for API call
+      const profileData = {
+        username: formData.username,
+        displayName: formData.displayName,
+        bio: formData.bio || '',
+        location: formData.location || '',
+        website: formData.website || '',
+        socialLinks: formData.socialLinks,
+        avatarImage: avatarImageBase64, // Send as base64 data URL
+        isPublic: formData.isPublic,
+        showOrderHistory: false,
+        showDesigns: true,
+        showModels: true
+      }
+
+      console.log('[ProfileEdit] Sending update request...')
+
+      // Update profile using backend API
+      const response = await apiFetch('/api/profile/update', {
+        method: 'POST',
+        body: JSON.stringify(profileData)
+      })
+
+      if (response.ok) {
+        console.log('[ProfileEdit] ✅ Profile updated successfully')
+        alert('Profile updated successfully!')
+        navigate('/account/profile')
+      } else {
+        throw new Error(response.error || 'Failed to update profile')
+      }
+    } catch (error: any) {
+      console.error('[ProfileEdit] Error saving profile:', error)
+      setError('Failed to save profile: ' + (error.response?.data?.error || error.message))
     } finally {
       setIsSaving(false)
     }
@@ -187,11 +226,17 @@ const ProfileEdit: React.FC = () => {
         <p className="text-muted">Manage your public profile information</p>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
       <div className="bg-card rounded-lg shadow">
-        <div className="px-6 py-4 border-b card-border">
+        <div className="px-6 py-4 border-b border-border">
           <h3 className="text-lg font-medium text-text">Profile Information</h3>
         </div>
-        
+
         <div className="p-6 space-y-6">
           {/* Profile Image */}
           <div>
@@ -199,12 +244,18 @@ const ProfileEdit: React.FC = () => {
               Profile Picture
             </label>
             <div className="flex items-center space-x-6">
-              <div className="w-24 h-24 rounded-full overflow-hidden bg-card">
-                <img
-                  src={previewUrl || 'https://via.placeholder.com/96x96?text=Profile'}
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                />
+              <div className="w-24 h-24 rounded-full overflow-hidden bg-secondary border-2 border-border">
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-4xl text-muted">
+                    👤
+                  </div>
+                )}
               </div>
               <div>
                 <input
@@ -216,11 +267,16 @@ const ProfileEdit: React.FC = () => {
                 />
                 <label
                   htmlFor="profile-image"
-                  className="btn-secondary cursor-pointer"
+                  className="btn-secondary cursor-pointer inline-block"
                 >
                   Upload Photo
                 </label>
                 <p className="text-sm text-muted mt-1">JPG, PNG up to 5MB</p>
+                {profileImage && (
+                  <p className="text-sm text-green-600 mt-1">
+                    ✓ New image selected: {profileImage.name}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -233,10 +289,11 @@ const ProfileEdit: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={profile.username || ''}
+                value={formData.username}
                 onChange={(e) => handleInputChange('username', e.target.value)}
                 className="form-input w-full"
                 placeholder="johndoe"
+                required
               />
               <p className="text-sm text-muted mt-1">Your unique username for public profile URL</p>
             </div>
@@ -247,10 +304,11 @@ const ProfileEdit: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={profile.displayName || ''}
+                value={formData.displayName}
                 onChange={(e) => handleInputChange('displayName', e.target.value)}
                 className="form-input w-full"
                 placeholder="John Doe"
+                required
               />
             </div>
 
@@ -259,7 +317,7 @@ const ProfileEdit: React.FC = () => {
                 Bio
               </label>
               <textarea
-                value={profile.bio || ''}
+                value={formData.bio}
                 onChange={(e) => handleInputChange('bio', e.target.value)}
                 rows={3}
                 className="form-input w-full"
@@ -273,7 +331,7 @@ const ProfileEdit: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={profile.location || ''}
+                value={formData.location}
                 onChange={(e) => handleInputChange('location', e.target.value)}
                 className="form-input w-full"
                 placeholder="San Francisco, CA"
@@ -286,7 +344,7 @@ const ProfileEdit: React.FC = () => {
               </label>
               <input
                 type="url"
-                value={profile.website || ''}
+                value={formData.website}
                 onChange={(e) => handleInputChange('website', e.target.value)}
                 className="form-input w-full"
                 placeholder="https://yourwebsite.com"
@@ -304,7 +362,7 @@ const ProfileEdit: React.FC = () => {
                 </label>
                 <input
                   type="url"
-                  value={profile.socialLinks?.twitter || ''}
+                  value={formData.socialLinks.twitter}
                   onChange={(e) => handleInputChange('socialLinks.twitter', e.target.value)}
                   className="form-input w-full"
                   placeholder="https://twitter.com/username"
@@ -317,7 +375,7 @@ const ProfileEdit: React.FC = () => {
                 </label>
                 <input
                   type="url"
-                  value={profile.socialLinks?.instagram || ''}
+                  value={formData.socialLinks.instagram}
                   onChange={(e) => handleInputChange('socialLinks.instagram', e.target.value)}
                   className="form-input w-full"
                   placeholder="https://instagram.com/username"
@@ -330,7 +388,7 @@ const ProfileEdit: React.FC = () => {
                 </label>
                 <input
                   type="url"
-                  value={profile.socialLinks?.linkedin || ''}
+                  value={formData.socialLinks.linkedin}
                   onChange={(e) => handleInputChange('socialLinks.linkedin', e.target.value)}
                   className="form-input w-full"
                   placeholder="https://linkedin.com/in/username"
@@ -343,81 +401,53 @@ const ProfileEdit: React.FC = () => {
           <div>
             <h4 className="text-lg font-medium text-text mb-4">Privacy Settings</h4>
             <div className="space-y-4">
-              <label className="flex items-center">
+              <label className="flex items-center cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={profile.isPublic || false}
+                  checked={formData.isPublic}
                   onChange={(e) => handleInputChange('isPublic', e.target.checked)}
-                  className="form-checkbox"
+                  className="form-checkbox h-5 w-5 text-primary border-border rounded focus:ring-primary focus:ring-offset-0"
                 />
-                <span className="ml-2 text-sm text-text">
+                <span className="ml-3 text-sm text-text">
                   Make my profile public (others can view your profile)
-                </span>
-              </label>
-
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={profile.showOrderHistory || false}
-                  onChange={(e) => handleInputChange('showOrderHistory', e.target.checked)}
-                  className="form-checkbox"
-                />
-                <span className="ml-2 text-sm text-text">
-                  Show my order history on public profile
-                </span>
-              </label>
-
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={profile.showDesigns || false}
-                  onChange={(e) => handleInputChange('showDesigns', e.target.checked)}
-                  className="form-checkbox"
-                />
-                <span className="ml-2 text-sm text-text">
-                  Show my designs on public profile
-                </span>
-              </label>
-
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={profile.showModels || false}
-                  onChange={(e) => handleInputChange('showModels', e.target.checked)}
-                  className="form-checkbox"
-                />
-                <span className="ml-2 text-sm text-text">
-                  Show my 3D models on public profile
                 </span>
               </label>
             </div>
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t card-border flex items-center justify-between">
+        <div className="px-6 py-4 border-t border-border flex items-center justify-between bg-secondary/20">
           <button
             onClick={() => navigate('/account/profile')}
             className="btn-secondary"
+            disabled={isSaving}
           >
             Cancel
           </button>
           <div className="flex items-center space-x-3">
-            {profile.username && (
+            {formData.username && (
               <a
-                href={`/profile/${profile.username}`}
+                href={`/profile/${formData.username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-purple-600 hover:text-purple-700"
+                className="text-sm text-primary hover:text-primary/80 font-medium"
               >
                 Preview Public Profile →
               </a>
             )}
             <button
               onClick={saveProfile}
-              disabled={isSaving || !profile.username || !profile.displayName}
+              disabled={isSaving || !formData.username || !formData.displayName}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSaving ? 'Saving...' : 'Save Profile'}
+              {isSaving ? (
+                <span className="flex items-center">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Saving...
+                </span>
+              ) : (
+                'Save Profile'
+              )}
             </button>
           </div>
         </div>
@@ -427,3 +457,4 @@ const ProfileEdit: React.FC = () => {
 }
 
 export default ProfileEdit
+

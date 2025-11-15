@@ -57,16 +57,24 @@ const Cart: React.FC = () => {
             <div className="divide-y divide-gray-200">
               {state.items.map((item) => (
                 <div key={item.id} className="p-6 flex items-center space-x-4">
-                  <img 
-                    src={item.product.images[0]} 
+                  <img
+                    src={item.designData?.mockupUrl || item.customDesign || item.product.images[0]}
                     alt={item.product.name}
                     className="w-20 h-20 object-cover rounded-md"
                   />
-                  
+
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-text">{item.product.name}</h3>
                     <p className="text-muted">{item.product.description}</p>
-                    {item.customDesign && (
+                    {item.designData?.mockupUrl && (
+                      <span className="inline-flex items-center text-xs text-green-600 mt-1">
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Custom Design with Mockup
+                      </span>
+                    )}
+                    {item.customDesign && !item.designData?.mockupUrl && (
                       <p className="text-sm text-purple-600 mt-1">Custom Design Included</p>
                     )}
                     <p className="text-lg font-bold text-purple-600 mt-2">

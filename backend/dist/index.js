@@ -9,6 +9,14 @@ import accountRoutes from './routes/account.js';
 import healthRoutes from './routes/health.js';
 import webhooksRoutes from './routes/webhooks.js';
 import userRoutes from './routes/user.js';
+import walletRoutes from './routes/wallet.js';
+import stripeRoutes from './routes/stripe.js';
+import ordersRouter from './routes/orders.js';
+import aiProductsRouter from './routes/admin/ai-products.js';
+import adminWalletRouter from './routes/admin/wallet.js';
+import replicateCallbackRouter from './routes/ai/replicate-callback.js';
+import mockupsRouter from './routes/mockups.js';
+import designerRouter from './routes/designer.js';
 import { requireAuth } from './middleware/supabaseAuth.js';
 dotenv.config();
 const logger = pino({
@@ -37,6 +45,14 @@ logger.info({
         DATABASE_URL: !!process.env.DATABASE_URL,
         ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
         JWT_SECRET: !!process.env.JWT_SECRET,
+        REPLICATE_API_TOKEN: !!process.env.REPLICATE_API_TOKEN,
+        REPLICATE_API_KEY: !!process.env.REPLICATE_API_KEY,
+        REPLICATE_PRODUCT_MODEL_ID: process.env.REPLICATE_PRODUCT_MODEL_ID,
+        REPLICATE_TRYON_MODEL_ID: process.env.REPLICATE_TRYON_MODEL_ID,
+        OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+        GCS_PROJECT_ID: process.env.GCS_PROJECT_ID,
+        GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME,
+        GCS_CREDENTIALS: !!process.env.GCS_CREDENTIALS,
     }
 }, 'Environment variables loaded');
 const app = express();
@@ -53,6 +69,7 @@ const corsOptions = {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 };
 app.use(cors(corsOptions));
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(pinoHttp({
@@ -77,6 +94,15 @@ app.use('/api/account', accountRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/profile', userRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api/stripe', stripeRoutes);
+app.use('/api/orders', ordersRouter);
+app.use('/api/admin/products/ai', aiProductsRouter);
+app.use('/api/admin/wallet', adminWalletRouter);
+app.use('/api/ai/replicate', replicateCallbackRouter);
+app.use('/api/mockups', mockupsRouter);
+app.use('/api/designer', designerRouter);
 app.get('/api/auth/me', requireAuth, (req, res) => {
     return res.json({ ok: true, user: req.user });
 });

@@ -64,3 +64,4 @@ All Supabase Keys: ${result.allSupabaseKeys.length} found
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `.trim();
 }
+

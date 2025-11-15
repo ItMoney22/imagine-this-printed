@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { supabase, STORAGE_KEY } from '@/lib/supabase'
+import { supabase, STORAGE_KEY } from '../lib/supabase'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 
 interface User {
@@ -61,7 +61,7 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
     ])
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Profile queries timed out after 5s')), 5000)
+      setTimeout(() => reject(new Error('Profile queries timed out after 15s')), 15000)
     )
 
     const [profileResult, walletResult] = await Promise.race([queryPromise, timeoutPromise]) as any
@@ -111,6 +111,13 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       role: mappedUser.role,
       username: mappedUser.username
     })
+
+    // CRITICAL: Verify role was properly mapped from database
+    if (!mappedUser.role || mappedUser.role === 'customer') {
+      console.warn('[AuthContext] ⚠️ ROLE CHECK: User role is', mappedUser.role)
+      console.warn('[AuthContext] 📊 Raw profile data:', profile)
+      console.warn('[AuthContext] 🔍 Profile.role value:', profile.role, 'Type:', typeof profile.role)
+    }
 
     return mappedUser
   } catch (error) {
@@ -177,8 +184,8 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
           console.log('[AuthContext] ✅ User profile loaded:', mappedUser.username)
           setUser(mappedUser)
         } else {
-          console.warn('[AuthContext] ⚠️ Failed to load user profile after sign in')
-          setUser(null)
+          console.warn('[AuthContext] ⚠️ Failed to load user profile, keeping existing user state')
+          // Don't set user to null - keep existing user data if profile fetch fails
         }
       } else {
         console.log('[AuthContext] 👋 User signed out')
@@ -431,3 +438,4 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
+

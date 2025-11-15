@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,

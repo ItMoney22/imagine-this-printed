@@ -4,7 +4,7 @@ import { useCart } from '../context/CartContext'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator } from '../utils/shipping-calculator'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
@@ -494,3 +494,4 @@ const Checkout: React.FC = () => {
 }
 
 export default Checkout
+

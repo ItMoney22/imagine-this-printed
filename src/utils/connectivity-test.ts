@@ -1,5 +1,5 @@
 // Simple connectivity test that can be run from browser console
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 
 export const testConnectivity = async () => {
   console.log('🔍 Starting connectivity test...')

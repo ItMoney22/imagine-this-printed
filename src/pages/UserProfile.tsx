@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { profileService } from '../utils/profile-service'
+import { supabase } from '../lib/supabase'
 import type { UserProfile, Order, Product, ThreeDModel } from '../types'
 
 const UserProfilePage: React.FC = () => {
@@ -28,37 +28,78 @@ const UserProfilePage: React.FC = () => {
     setIsLoading(true)
     try {
       // Determine which profile to load
-      let identifier: { username?: string; userId?: string } = {}
-      
+      let userId: string | undefined
+
       if (isAccountRoute) {
         // For account route, use current user's ID
         if (!user) {
-          throw new Error('User not authenticated')
+          navigate('/login')
+          return
         }
-        identifier.userId = user.id
+        userId = user.id
       } else {
-        // For public profile, load by username
-        identifier.username = username
+        // For public profile, load by username - need to get user ID first
+        if (!username) {
+          throw new Error('Username required')
+        }
+        const { data: userProfile } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('username', username)
+          .single()
+
+        if (!userProfile) {
+          throw new Error('Profile not found')
+        }
+        userId = userProfile.id
       }
 
-      // Load profile using API service
-      const userProfile = await profileService.getProfile(identifier)
-      
+      // Load profile from Supabase
+      const { data: userProfile, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+
+      if (error) throw error
+
       if (userProfile) {
-        setProfile(userProfile)
-        
+        // Map to UserProfile type
+        const mappedProfile: UserProfile = {
+          id: userProfile.id,
+          userId: userProfile.id,
+          username: userProfile.username || '',
+          displayName: userProfile.display_name || userProfile.username || 'User',
+          profileImage: userProfile.avatar_url || '',
+          bio: userProfile.bio || '',
+          location: userProfile.location || '',
+          website: userProfile.website || '',
+          socialLinks: {
+            twitter: userProfile.social_twitter || '',
+            instagram: userProfile.social_instagram || '',
+            linkedin: userProfile.social_linkedin || ''
+          },
+          isPublic: userProfile.is_public !== false,
+          showOrderHistory: true,
+          showDesigns: true,
+          showModels: true,
+          joinedDate: userProfile.created_at || new Date().toISOString(),
+          totalOrders: 0,
+          totalSpent: 0,
+          favoriteCategories: [],
+          badges: []
+        }
+
+        setProfile(mappedProfile)
+
         // Check if this is the current user's profile
         const isOwn = isAccountRoute || (user && user.id === userProfile.id)
         setIsOwnProfile(isOwn || false)
 
-        // Load additional data if profile allows it
-        if (userProfile.showOrderHistory || isOwn) {
+        // Load additional data (only for own profile for now)
+        if (isOwn) {
           loadOrders()
-        }
-        if (userProfile.showDesigns || isOwn) {
           loadDesigns()
-        }
-        if (userProfile.showModels || isOwn) {
           loadModels()
         }
       } else {
@@ -247,7 +288,7 @@ const UserProfilePage: React.FC = () => {
                     </svg>
                   </a>
                 )}
-                {profile.socialLinks.twitter && (
+                {profile.socialLinks?.twitter && (
                   <a
                     href={profile.socialLinks.twitter}
                     target="_blank"
@@ -257,7 +298,7 @@ const UserProfilePage: React.FC = () => {
                     🐦
                   </a>
                 )}
-                {profile.socialLinks.instagram && (
+                {profile.socialLinks?.instagram && (
                   <a
                     href={profile.socialLinks.instagram}
                     target="_blank"
@@ -267,7 +308,7 @@ const UserProfilePage: React.FC = () => {
                     📷
                   </a>
                 )}
-                {profile.socialLinks.linkedin && (
+                {profile.socialLinks?.linkedin && (
                   <a
                     href={profile.socialLinks.linkedin}
                     target="_blank"

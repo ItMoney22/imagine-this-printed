@@ -12,6 +12,15 @@ import accountRoutes from './routes/account.js'
 import healthRoutes from './routes/health.js'
 import webhooksRoutes from './routes/webhooks.js'
 import userRoutes from './routes/user.js'
+import walletRoutes from './routes/wallet.js'
+import stripeRoutes from './routes/stripe.js'
+import ordersRouter from './routes/orders.js'
+import aiProductsRouter from './routes/admin/ai-products.js'
+import adminWalletRouter from './routes/admin/wallet.js'
+import replicateCallbackRouter from './routes/ai/replicate-callback.js'
+import mockupsRouter from './routes/mockups.js'
+import designerRouter from './routes/designer.js'
+import realisticMockupsRouter from './routes/realistic-mockups.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -48,6 +57,14 @@ logger.info({
     DATABASE_URL: !!process.env.DATABASE_URL,
     ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
     JWT_SECRET: !!process.env.JWT_SECRET,
+    REPLICATE_API_TOKEN: !!process.env.REPLICATE_API_TOKEN,
+    REPLICATE_API_KEY: !!process.env.REPLICATE_API_KEY,
+    REPLICATE_PRODUCT_MODEL_ID: process.env.REPLICATE_PRODUCT_MODEL_ID,
+    REPLICATE_TRYON_MODEL_ID: process.env.REPLICATE_TRYON_MODEL_ID,
+    OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+    GCS_PROJECT_ID: process.env.GCS_PROJECT_ID,
+    GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME,
+    GCS_CREDENTIALS: !!process.env.GCS_CREDENTIALS,
   }
 }, 'Environment variables loaded')
 
@@ -61,14 +78,24 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .map(origin => origin.trim())
   .filter(Boolean)
 
+// In development, allow all localhost origins
+const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
+
 const corsOptions: CorsOptions = {
-  origin: allowedOrigins.length > 0 ? allowedOrigins : [/^https:\/\/.*imaginethisprinted\.com$/],
+  origin: isDevelopment
+    ? true // Allow all origins in development
+    : allowedOrigins.length > 0
+      ? allowedOrigins
+      : [/^https:\/\/.*imaginethisprinted\.com$/],
   credentials: true,
   allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }
 
 app.use(cors(corsOptions))
+
+// Stripe webhook needs raw body, so we apply it before JSON parsing
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }))
 
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
@@ -96,6 +123,16 @@ app.use('/api/account', accountRoutes)
 app.use('/api/health', healthRoutes)
 app.use('/api/webhooks', webhooksRoutes)
 app.use('/api/users', userRoutes)
+app.use('/api/profile', userRoutes)
+app.use('/api/wallet', walletRoutes)
+app.use('/api/stripe', stripeRoutes)
+app.use('/api/orders', ordersRouter)
+app.use('/api/admin/products/ai', aiProductsRouter)
+app.use('/api/admin/wallet', adminWalletRouter)
+app.use('/api/ai/replicate', replicateCallbackRouter)
+app.use('/api/mockups', mockupsRouter)
+app.use('/api/designer', designerRouter)
+app.use('/api/realistic-mockups', realisticMockupsRouter)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

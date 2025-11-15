@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 
 export interface SupportEmailRequest {
   to: string

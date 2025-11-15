@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 // Removed direct Prisma import - using API endpoints instead
 
 interface DbTable {

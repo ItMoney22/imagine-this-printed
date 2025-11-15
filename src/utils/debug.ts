@@ -1,5 +1,5 @@
 // Debug utilities for authentication troubleshooting
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 
 export const testDatabaseConnectivity = async () => {
   console.log('🔍 Testing database connectivity...')

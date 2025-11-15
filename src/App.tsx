@@ -42,13 +42,16 @@ import AdminControlPanel from './pages/AdminControlPanel'
 import AdminPanel from './pages/AdminPanel'
 import WholesalePortal from './pages/WholesalePortal'
 import VendorStorefront from './pages/VendorStorefront'
-import ProductManagement from './pages/ProductManagement'
+// Removed: ProductManagement (duplicate of AdminDashboard Products tab)
 import ManagerDashboard from './pages/ManagerDashboard'
 import AdminCostOverride from './pages/AdminCostOverride'
 import KioskManagement from './pages/KioskManagement'
 import KioskAnalytics from './pages/KioskAnalytics'
 import Community from './pages/Community'
+import ImageDebug from './pages/ImageDebug'
+import AdminAIProductBuilder from './pages/AdminAIProductBuilder'
 import SocialContentManagement from './pages/SocialContentManagement'
+import UserMediaGallery from './pages/UserMediaGallery'
 
 function App() {
   return (
@@ -59,7 +62,6 @@ function App() {
             <Router>
             <div className="min-h-screen bg-bg text-text">
               <Header />
-              <Navbar />
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />
@@ -90,6 +92,7 @@ function App() {
                 <Route path="/account/profile/edit" element={<ProfileEdit />} />
                 <Route path="/profile/:username" element={<UserProfile />} />
                 <Route path="/account/messages" element={<CustomerMessages />} />
+                <Route path="/account/media" element={<ProtectedRoute><UserMediaGallery /></ProtectedRoute>} />
                 
                 {/* Vendor Routes */}
                 <Route path="/vendor/dashboard" element={<VendorDashboard />} />
@@ -108,12 +111,13 @@ function App() {
                 <Route path="/admin/orders" element={<OrderManagement />} />
                 <Route path="/admin/crm" element={<CRM />} />
                 <Route path="/admin/marketing" element={<MarketingTools />} />
-                <Route path="/admin/products" element={<ProductManagement />} />
+                {/* Removed: /admin/products route - use AdminDashboard Products tab instead */}
                 <Route path="/admin/cost-override" element={<AdminCostOverride />} />
                 <Route path="/admin/kiosks" element={<KioskManagement />} />
                 <Route path="/admin/kiosk-analytics" element={<KioskAnalytics />} />
                 <Route path="/admin/social-content" element={<SocialContentManagement />} />
-                
+                <Route path="/admin/ai/products/create" element={<AdminAIProductBuilder />} />
+
                 {/* Manager Routes */}
                 <Route path="/manager/dashboard" element={<ManagerDashboard />} />
                 
@@ -122,6 +126,9 @@ function App() {
                 
                 {/* Business Routes */}
                 <Route path="/wholesale" element={<WholesalePortal />} />
+
+                {/* Debug Route */}
+                <Route path="/debug/images" element={<ImageDebug />} />
               </Routes>
               
               {/* Chatbot Widget - appears on all pages */}
@@ -142,3 +149,4 @@ function App() {
 }
 
 export default App
+

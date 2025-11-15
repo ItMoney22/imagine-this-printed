@@ -23,3 +23,4 @@ export function attachAuthDebug() {
 
   console.log('[authDebug] ✅ Auth debug listeners attached');
 }
+

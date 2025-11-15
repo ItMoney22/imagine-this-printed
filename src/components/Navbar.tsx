@@ -1,13 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { Palette } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import DesignStudioModal from './DesignStudioModal'
 
 const Navbar: React.FC = () => {
   const { state } = useCart()
   const { user, signOut } = useAuth()
   const [showAccountMenu, setShowAccountMenu] = useState(false)
+  const [showDesignModal, setShowDesignModal] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
+
+  // DEBUG: Log user role on component mount and when user changes
+  useEffect(() => {
+    if (user) {
+      console.log('[Navbar] 👤 User role check:', {
+        email: user.email,
+        role: user.role,
+        roleType: typeof user.role,
+        isAdmin: user.role === 'admin',
+        isManager: user.role === 'manager',
+        fullUser: user
+      })
+    }
+  }, [user])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -59,9 +76,13 @@ const Navbar: React.FC = () => {
             <Link to="/catalog" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
               Products
             </Link>
-            <Link to="/designer" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
-              Designer
-            </Link>
+            <button
+              onClick={() => setShowDesignModal(true)}
+              className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium flex items-center gap-1.5 bg-gradient-to-r from-purple-600/10 to-pink-600/10 border border-purple-600/20 hover:border-purple-600/40 transition-all"
+            >
+              <Palette className="w-4 h-4" />
+              Design Studio
+            </button>
             <Link to="/models" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
               3D Models
             </Link>
@@ -103,7 +124,11 @@ const Navbar: React.FC = () => {
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-1 z-10 border border-gray-200">
                   <div className="px-4 py-2 text-sm text-gray-700 border-b">
                     <div className="font-medium">{user.email}</div>
-                    <div className="text-xs text-gray-500 capitalize">{user.role}</div>
+                    <div className="text-xs text-gray-500">
+                      Role: <span className="capitalize font-semibold">{user.role}</span>
+                      {user.role === 'admin' && <span className="ml-2 text-green-600">✓ Admin</span>}
+                      {user.role === 'manager' && <span className="ml-2 text-blue-600">✓ Manager</span>}
+                    </div>
                   </div>
                   
                   {/* Account Section */}
@@ -239,7 +264,7 @@ const Navbar: React.FC = () => {
                         Marketing Tools
                       </Link>
                       <Link
-                        to="/admin/products"
+                        to="/admin?tab=products"
                         onClick={closeAccountMenu}
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                       >
@@ -274,6 +299,13 @@ const Navbar: React.FC = () => {
                             className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           >
                             Social Content
+                          </Link>
+                          <Link
+                            to="/admin/ai/products/create"
+                            onClick={closeAccountMenu}
+                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          >
+                            AI Product Builder
                           </Link>
                         </>
                       )}
@@ -352,6 +384,10 @@ const Navbar: React.FC = () => {
         </div>
       </div>
 
+      <DesignStudioModal
+        isOpen={showDesignModal}
+        onClose={() => setShowDesignModal(false)}
+      />
     </nav>
   )
 }

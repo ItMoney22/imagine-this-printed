@@ -17,6 +17,12 @@ export interface CartItem {
   product: Product
   quantity: number
   customDesign?: string
+  designData?: {
+    elements: any[]
+    template: string
+    mockupUrl: string
+    canvasSnapshot?: string
+  }
 }
 
 export interface User {
@@ -94,6 +100,35 @@ export interface PointsTransaction {
   reason: string
   relatedId?: string
   createdAt: string
+}
+
+export interface WalletTransaction {
+  id: string
+  user_id: string
+  type: 'admin_credit' | 'admin_debit' | 'admin_adjust' | 'redeem' | 'purchase' | 'reward'
+  currency: 'points' | 'itc'
+  amount: number
+  balance_before: number
+  balance_after: number
+  reason: string
+  admin_id?: string
+  metadata?: Record<string, any>
+  created_at: string
+}
+
+export interface UserWallet {
+  user_id: string
+  points: number
+  itc_balance: number
+  updated_at: string
+}
+
+export interface UserWalletInfo {
+  id: string
+  username: string
+  email: string
+  role: string
+  user_wallets: UserWallet[]
 }
 
 export interface ITCTransactionOld {
@@ -956,4 +991,89 @@ export interface SocialAnalytics {
     submissions: number
     approvals: number
   }>
+}
+
+// AI Product Builder Types
+export interface ProductCategory {
+  id: string
+  slug: string
+  name: string
+  description?: string
+  created_at: string
+}
+
+export interface ProductAsset {
+  id: string
+  product_id: string
+  kind: 'source' | 'mockup' | 'variant' | 'thumb'
+  path: string
+  url: string
+  width?: number
+  height?: number
+  meta: Record<string, any>
+  created_at: string
+}
+
+export interface AIJob {
+  id: string
+  product_id: string
+  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup'
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  input: Record<string, any>
+  output?: Record<string, any>
+  error?: string
+  prediction_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductTag {
+  product_id: string
+  tag: string
+}
+
+export interface ProductVariant {
+  id: string
+  product_id: string
+  name: string
+  price_cents?: number
+  sku?: string
+  stock: number
+  created_at: string
+}
+
+export interface NormalizedProduct {
+  category_slug: string
+  category_name: string
+  title: string
+  summary: string
+  description: string
+  tags: string[]
+  seo_title: string
+  seo_description: string
+  suggested_price_cents: number
+  variants: Array<{
+    name: string
+    priceDeltaCents?: number
+  }>
+  mockup_style: 'flat' | 'human'
+  background: 'transparent' | 'studio'
+}
+
+export interface AIProductCreationRequest {
+  prompt: string
+  priceTarget?: number
+  mockupStyle?: 'flat' | 'human'
+  background?: 'transparent' | 'studio'
+  tone?: string
+  imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'
+  category?: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+  numImages?: number
+  useSearch?: boolean
+}
+
+export interface AIProductCreationResponse {
+  productId: string
+  product: Product & { normalized: NormalizedProduct }
+  jobs: AIJob[]
 }

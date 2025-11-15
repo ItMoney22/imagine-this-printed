@@ -1,12 +1,15 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Palette, Sparkles } from 'lucide-react'
 import { Hero } from '../components/Hero'
 import ProductRecommendations from '../components/ProductRecommendations'
 import FeaturedSocialContent from '../components/FeaturedSocialContent'
 import ProductCard from '../components/ProductCard'
+import DesignStudioModal from '../components/DesignStudioModal'
 import type { Product } from '../types'
 
 const Home: React.FC = () => {
+  const [showDesignModal, setShowDesignModal] = useState(false)
   const featuredProducts: Product[] = [
     {
       id: '1',
@@ -41,6 +44,29 @@ const Home: React.FC = () => {
     <div className="bg-bg">
       {/* Hero Section */}
       <Hero />
+
+      {/* Design Studio CTA */}
+      <section className="py-12 bg-gradient-to-r from-primary/20 via-secondary/20 to-accent/20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <Sparkles className="w-8 h-8 text-primary animate-pulse" />
+              <h2 className="text-3xl font-bold text-text">Unleash Your Creativity</h2>
+              <Sparkles className="w-8 h-8 text-secondary animate-pulse" />
+            </div>
+            <p className="text-muted text-lg mb-6 max-w-2xl mx-auto">
+              Design custom products with our powerful visual editor. Add text, images, and create stunning designs in minutes.
+            </p>
+            <button
+              onClick={() => setShowDesignModal(true)}
+              className="bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-glowLg text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-glow mx-auto"
+            >
+              <Palette className="w-6 h-6" />
+              Create Your Design
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -125,6 +151,11 @@ const Home: React.FC = () => {
           </div>
         </div>
       </section>
+
+      <DesignStudioModal
+        isOpen={showDesignModal}
+        onClose={() => setShowDesignModal(false)}
+      />
     </div>
   )
 }

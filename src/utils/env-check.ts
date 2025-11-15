@@ -1,5 +1,5 @@
 // Environment variable diagnostic utility
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 
 export const checkEnvironment = () => {
   console.log('🔍 ENVIRONMENT DIAGNOSTIC REPORT')

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Test - DTF Transfers</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .product {
+            background: #2a2a2a;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        .product h2 {
+            color: #60a5fa;
+            margin-top: 0;
+        }
+        .images {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .images img {
+            width: 150px;
+            height: 150px;
+            object-fit: cover;
+            border: 2px solid #4a4a4a;
+            border-radius: 4px;
+        }
+        .images img.error {
+            border-color: red;
+        }
+        .images img.loaded {
+            border-color: green;
+        }
+        .info {
+            color: #888;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 DTF Transfer Images Test</h1>
+    <p class="info">Loading products from database...</p>
+    <div id="products"></div>
+
+    <script type="module">
+        const { createClient } = supabase;
+
+        const client = createClient(
+            'https://czzyrmizvjqlifcivrhn.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6enlybWl6dmpxbGlmY2l2cmhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0Mjk2MDMsImV4cCI6MjA2ODAwNTYwM30.x81uOOyApsnues3CA7QJeETIypgk0rBvC_bzxlZ_VGs'
+        );
+
+        async function loadProducts() {
+            const { data, error } = await client
+                .from('products')
+                .select('*')
+                .eq('category', 'dtf-transfers')
+                .order('name');
+
+            if (error) {
+                document.getElementById('products').innerHTML =
+                    `<div class="product"><h2>❌ Error</h2><p>${error.message}</p></div>`;
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                document.getElementById('products').innerHTML =
+                    '<div class="product"><h2>⚠️ No DTF Transfer products found</h2></div>';
+                return;
+            }
+
+            const html = data.map(product => `
+                <div class="product">
+                    <h2>${product.name}</h2>
+                    <p class="info">
+                        ID: ${product.id}<br>
+                        Price: $${product.price}<br>
+                        Images in database: <strong>${product.images?.length || 0}</strong>
+                    </p>
+                    ${product.images && product.images.length > 0 ? `
+                        <div class="images">
+                            ${product.images.map((img, idx) => `
+                                <img
+                                    src="${img}"
+                                    alt="${product.name} - ${idx + 1}"
+                                    onload="this.classList.add('loaded')"
+                                    onerror="this.classList.add('error'); this.alt='Failed to load';"
+                                />
+                            `).join('')}
+                        </div>
+                    ` : '<p style="color: red;">⚠️ NO IMAGES</p>'}
+                </div>
+            `).join('');
+
+            document.getElementById('products').innerHTML = html;
+        }
+
+        loadProducts();
+    </script>
+</body>
+</html>

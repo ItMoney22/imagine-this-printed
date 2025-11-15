@@ -32,3 +32,4 @@ backend/.env
 backend/.env.local
 
 /src/generated/prisma
+nul

@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { Palette, ShoppingCart, Zap } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
+import DesignStudioModal from '../components/DesignStudioModal'
 import type { Product } from '../types'
 
 const ProductPage: React.FC = () => {
@@ -13,41 +16,51 @@ const ProductPage: React.FC = () => {
   const { user } = useAuth()
   const [quantity, setQuantity] = useState(1)
   const [selectedImage, setSelectedImage] = useState(0)
+  const [product, setProduct] = useState<Product | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showDesignModal, setShowDesignModal] = useState(false)
 
-  const products: Product[] = [
-    {
-      id: '1',
-      name: 'Premium DTF Transfer',
-      description: 'High-quality direct-to-film transfer for vibrant prints. Perfect for cotton, polyester, and cotton/poly blends. Easy application with heat press.',
-      price: 15.99,
-      images: [
-        'https://images.unsplash.com/photo-1503341338985-95ad5e163e51?w=600&h=600&fit=crop',
-        'https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=600&h=600&fit=crop'
-      ],
-      category: 'dtf-transfers',
-      inStock: true
-    },
-    {
-      id: '2',
-      name: 'Custom Logo Transfer',
-      description: 'Professional logo transfers for business apparel',
-      price: 12.99,
-      images: ['https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=600&h=600&fit=crop'],
-      category: 'dtf-transfers',
-      inStock: true
-    },
-    {
-      id: '3',
-      name: 'Premium Cotton T-Shirt',
-      description: 'Soft, comfortable 100% cotton tee in multiple colors',
-      price: 24.99,
-      images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&h=600&fit=crop'],
-      category: 'shirts',
-      inStock: true
+  // Load product from database
+  useEffect(() => {
+    const loadProduct = async () => {
+      if (!id) {
+        setLoading(false)
+        return
+      }
+
+      try {
+        setLoading(true)
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .eq('id', id)
+          .single()
+
+        if (error) throw error
+
+        if (data) {
+          const mappedProduct: Product = {
+            id: data.id,
+            name: data.name,
+            description: data.description || '',
+            price: data.price || 0,
+            images: data.images || [],
+            category: data.category || 'shirts',
+            inStock: data.is_active !== false,
+            createdAt: data.created_at,
+            updatedAt: data.updated_at
+          }
+          setProduct(mappedProduct)
+        }
+      } catch (error) {
+        console.error('Error loading product:', error)
+      } finally {
+        setLoading(false)
+      }
     }
-  ]
 
-  const product = products.find(p => p.id === id)
+    loadProduct()
+  }, [id])
 
   // Track product view for recommendations
   useEffect(() => {
@@ -58,6 +71,16 @@ const ProductPage: React.FC = () => {
       })
     }
   }, [product, user])
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex justify-center items-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    )
+  }
 
   if (!product) {
     return (
@@ -100,14 +123,19 @@ const ProductPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
           <div className="mb-4">
-            <img 
-              src={product.images[selectedImage]} 
+            <img
+              src={product.images && product.images.length > 0
+                ? product.images[selectedImage]
+                : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
               alt={product.name}
               className="w-full h-96 object-cover rounded-lg shadow-lg"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+              }}
             />
           </div>
-          
-          {product.images.length > 1 && (
+
+          {product.images && product.images.length > 1 && (
             <div className="flex space-x-2 overflow-x-auto">
               {product.images.map((image, index) => (
                 <button
@@ -117,10 +145,13 @@ const ProductPage: React.FC = () => {
                     selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
                   }`}
                 >
-                  <img 
-                    src={image} 
+                  <img
+                    src={image}
                     alt={`${product.name} ${index + 1}`}
                     className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+                    }}
                   />
                 </button>
               ))}
@@ -171,26 +202,29 @@ const ProductPage: React.FC = () => {
 
             <div className="space-y-3">
               <button
+                onClick={() => setShowDesignModal(true)}
+                className="w-full bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-glowLg text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-glow"
+              >
+                <Palette className="w-6 h-6" />
+                Start Designing
+              </button>
+
+              <button
                 onClick={handleAddToCart}
                 disabled={!product.inStock}
-                className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                <ShoppingCart className="w-4 h-4" />
                 {product.inStock ? 'Add to Cart' : 'Out of Stock'}
               </button>
 
               <button
                 onClick={handleBuyNow}
                 disabled={!product.inStock}
-                className="w-full btn-secondary disabled:bg-gray-400 disabled:cursor-not-allowed"
+                className="w-full btn-secondary disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                <Zap className="w-4 h-4" />
                 Buy Now
-              </button>
-
-              <button
-                onClick={() => navigate('/designer')}
-                className="w-full bg-gradient-to-r from-primary to-secondary hover:shadow-glow text-white font-semibold py-2 px-4 rounded-lg transition-all"
-              >
-                Customize Design
               </button>
             </div>
           </div>
@@ -239,6 +273,14 @@ const ProductPage: React.FC = () => {
           }}
         />
       </div>
+
+      <DesignStudioModal
+        isOpen={showDesignModal}
+        onClose={() => setShowDesignModal(false)}
+        product={product}
+        template={product.category === 'shirts' || product.category === 'hoodies' ? 'shirt' : 'tumbler'}
+        initialDesignImage={product.images?.[0]}
+      />
     </div>
   )
 }

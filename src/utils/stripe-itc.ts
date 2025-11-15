@@ -1,174 +1,195 @@
-import { apiFetch } from '@/lib/api'
+import { loadStripe, type Stripe, type StripeElements, type PaymentIntent } from '@stripe/stripe-js'
+import { apiFetch } from '../lib/api'
 
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
-const ITC_WALLET_ADDRESS = import.meta.env.VITE_ITC_WALLET_ADDRESS || '43XyoLPb3aek3poicnYXjrtMU6PUynRb93Q71FULKZ3Q'
-const ITC_USD_RATE = parseFloat(import.meta.env.VITE_ITC_USD_RATE || '0.10')
 
-export interface StripePaymentRequest {
-  amount: number // USD amount in cents
-  currency: string
-  description: string
-  metadata?: Record<string, string>
+export interface ITCPackage {
+  itcAmount: number
+  priceUSD: number
+  popular?: boolean
+  bonusPercent?: number
+}
+
+export const ITC_PACKAGES: ITCPackage[] = [
+  {
+    itcAmount: 50,
+    priceUSD: 5.00,
+    bonusPercent: 0
+  },
+  {
+    itcAmount: 100,
+    priceUSD: 10.00,
+    bonusPercent: 0
+  },
+  {
+    itcAmount: 250,
+    priceUSD: 22.50,
+    bonusPercent: 10,
+    popular: true
+  },
+  {
+    itcAmount: 500,
+    priceUSD: 40.00,
+    bonusPercent: 20
+  },
+  {
+    itcAmount: 1000,
+    priceUSD: 70.00,
+    bonusPercent: 30
+  }
+]
+
+export interface PaymentIntentResponse {
+  clientSecret: string
+  paymentIntentId: string
+  itcAmount: number
+  bonusPercent: number
 }
 
 export interface ITCPurchaseResult {
   success: boolean
   paymentIntentId?: string
-  itcAmount: number
-  transactionHash?: string
+  itcAmount?: number
   error?: string
 }
 
-export class StripeITCBridge {
-  private stripe: any = null
+export class StripeITCService {
+  private stripe: Stripe | null = null
+  private initPromise: Promise<void> | null = null
 
   constructor() {
-    this.initializeStripe()
+    this.initPromise = this.initializeStripe()
   }
 
-  private async initializeStripe() {
+  private async initializeStripe(): Promise<void> {
     if (!STRIPE_PUBLISHABLE_KEY) {
-      console.error('STRIPE_PUBLISHABLE_KEY not configured')
-      return
+      console.error('VITE_STRIPE_PUBLISHABLE_KEY not configured')
+      throw new Error('Stripe publishable key not configured')
     }
 
     try {
-      const { loadStripe } = await import('@stripe/stripe-js')
       this.stripe = await loadStripe(STRIPE_PUBLISHABLE_KEY)
+      if (!this.stripe) {
+        throw new Error('Failed to load Stripe')
+      }
     } catch (error) {
-      console.error('Failed to load Stripe:', error)
+      console.error('Failed to initialize Stripe:', error)
+      throw error
     }
   }
 
-  async purchaseITC(usdAmount: number, userId: string): Promise<ITCPurchaseResult> {
+  async ensureInitialized(): Promise<Stripe> {
+    if (this.initPromise) {
+      await this.initPromise
+      this.initPromise = null
+    }
+
+    if (!this.stripe) {
+      throw new Error('Stripe not initialized')
+    }
+
+    return this.stripe
+  }
+
+  async createPaymentIntent(packagePrice: number): Promise<PaymentIntentResponse> {
     try {
-      const itcAmount = Math.floor(usdAmount / ITC_USD_RATE)
-      const amountInCents = Math.round(usdAmount * 100)
+      // Convert dollars to cents
+      const amountInCents = Math.round(packagePrice * 100)
 
-      if (!this.stripe || !STRIPE_PUBLISHABLE_KEY) {
-        return {
-          success: false,
-          itcAmount: 0,
-          error: 'Stripe not properly initialized'
-        }
-      }
-
-      // In real app, create payment intent on backend
-      const { client_secret } = await apiFetch('/api/create-payment-intent', {
+      const response = await apiFetch('/api/stripe/create-payment-intent', {
         method: 'POST',
         body: JSON.stringify({
           amount: amountInCents,
           currency: 'usd',
-          description: `Purchase ${itcAmount} ITC tokens`,
-          metadata: {
-            userId,
-            itcAmount: itcAmount.toString(),
-            walletAddress: ITC_WALLET_ADDRESS
-          }
+          description: `Purchase ITC tokens - $${packagePrice.toFixed(2)}`
         })
       })
 
-      // Confirm payment with Stripe
-      const result = await this.stripe.confirmCardPayment(client_secret, {
-        payment_method: {
-          card: {
-            // Card details would be collected via Stripe Elements
-          },
-          billing_details: {
-            name: 'Customer Name',
-          },
-        }
+      return response as PaymentIntentResponse
+    } catch (error: any) {
+      console.error('Failed to create payment intent:', error)
+      throw new Error(error.message || 'Failed to create payment intent')
+    }
+  }
+
+  async confirmPayment(
+    clientSecret: string,
+    elements: StripeElements
+  ): Promise<ITCPurchaseResult> {
+    try {
+      const stripe = await this.ensureInitialized()
+
+      // Confirm the payment using the Elements instance
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        clientSecret,
+        confirmParams: {
+          return_url: `${window.location.origin}/wallet?payment=success`
+        },
+        redirect: 'if_required'
       })
 
-      if (result.error) {
+      if (error) {
+        console.error('Payment confirmation error:', error)
         return {
           success: false,
-          itcAmount: 0,
-          error: result.error.message
+          error: error.message || 'Payment failed'
         }
       }
 
-      // In real app, backend would handle ITC transfer after successful payment
-      const transactionHash = await this.transferITC(ITC_WALLET_ADDRESS, itcAmount)
-
-      return {
-        success: true,
-        paymentIntentId: result.paymentIntent.id,
-        itcAmount,
-        transactionHash
+      if (paymentIntent?.status === 'succeeded') {
+        const itcAmount = paymentIntent.metadata?.itcAmount
+        return {
+          success: true,
+          paymentIntentId: paymentIntent.id,
+          itcAmount: itcAmount ? parseInt(itcAmount) : undefined
+        }
       }
 
-    } catch (error) {
-      console.error('Error processing ITC purchase:', error)
+      // Handle other statuses
+      if (paymentIntent?.status === 'requires_action') {
+        return {
+          success: false,
+          error: 'Payment requires additional action'
+        }
+      }
+
       return {
         success: false,
-        itcAmount: 0,
-        error: 'Payment processing failed'
+        error: 'Payment not completed'
+      }
+    } catch (error: any) {
+      console.error('Payment confirmation failed:', error)
+      return {
+        success: false,
+        error: error.message || 'Payment confirmation failed'
       }
     }
   }
 
-  private async transferITC(_walletAddress: string, amount: number): Promise<string> {
-    // In real app, this would interact with the ITC blockchain
-    // For demo, return mock transaction hash
-    return 'mock_transfer_' + Date.now() + '_' + amount
+  getPackages(): ITCPackage[] {
+    return ITC_PACKAGES
   }
 
-  calculateITCAmount(usdAmount: number): number {
-    return Math.floor(usdAmount / ITC_USD_RATE)
+  findPackageByPrice(price: number): ITCPackage | undefined {
+    return ITC_PACKAGES.find(pkg => pkg.priceUSD === price)
   }
 
-  calculateUSDAmount(itcAmount: number): number {
-    return itcAmount * ITC_USD_RATE
-  }
-
-  getExchangeRate(): number {
-    return ITC_USD_RATE
-  }
-
-  getWalletAddress(): string {
-    return ITC_WALLET_ADDRESS
+  findPackageByITC(itcAmount: number): ITCPackage | undefined {
+    return ITC_PACKAGES.find(pkg => pkg.itcAmount === itcAmount)
   }
 }
 
-export const stripeITCBridge = new StripeITCBridge()
+// Singleton instance
+export const stripeITCService = new StripeITCService()
 
-// Webhook handler interface for backend
-export interface StripeWebhookEvent {
-  type: string
-  data: {
-    object: {
-      id: string
-      amount: number
-      currency: string
-      status: string
-      metadata: Record<string, string>
-    }
-  }
+// Legacy compatibility
+export const stripeITCBridge = {
+  calculateITCAmount: (usdAmount: number) => {
+    const pkg = ITC_PACKAGES.find(p => p.priceUSD === usdAmount)
+    return pkg?.itcAmount || 0
+  },
+  getExchangeRate: () => 0.10,
+  calculateUSDAmount: (itcAmount: number) => itcAmount * 0.10
 }
 
-export const handleStripeWebhook = async (event: StripeWebhookEvent) => {
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-      // Handle successful payment
-      const paymentIntent = event.data.object
-      const { userId, itcAmount } = paymentIntent.metadata
-      
-      // In real app:
-      // 1. Verify payment amount matches expected
-      // 2. Transfer ITC to user's wallet
-      // 3. Record transaction in database
-      // 4. Send confirmation email to user
-      
-      console.log(`Payment succeeded for user ${userId}: ${itcAmount} ITC`)
-      break
-      
-    case 'payment_intent.payment_failed':
-      // Handle failed payment
-      console.log('Payment failed:', event.data.object.id)
-      break
-      
-    default:
-      console.log(`Unhandled event type: ${event.type}`)
-  }
-}

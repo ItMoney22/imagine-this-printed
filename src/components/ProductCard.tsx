@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Palette } from 'lucide-react'
 import { socialService } from '../utils/social-service'
 import SocialBadge from './SocialBadge'
+import DesignStudioModal from './DesignStudioModal'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -12,6 +14,7 @@ interface ProductCardProps {
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [showDesignModal, setShowDesignModal] = useState(false)
 
   useEffect(() => {
     if (showSocialBadges) {
@@ -60,14 +63,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const featuredPlatforms = getFeaturedPlatforms()
   const topPlatform = getMostEngagedPlatform()
 
+  // Fallback image if no images available
+  const productImage = product.images && product.images.length > 0
+    ? product.images[0]
+    : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+
   return (
     <div className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
       <div className="relative">
         <Link to={`/product/${product.id}`}>
-          <img 
-            src={product.images[0]} 
+          <img
+            src={productImage}
             alt={product.name}
             className="w-full h-48 object-cover hover:scale-105 transition-transform"
+            onError={(e) => {
+              // Fallback if image fails to load
+              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+            }}
           />
         </Link>
         
@@ -124,14 +136,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         <div className="flex justify-between items-center mb-3">
           <span className="text-xl font-bold text-purple-600">${product.price}</span>
         </div>
-        
-        <Link 
-          to={`/product/${product.id}`}
-          className="btn-primary w-full text-center block"
-        >
-          View Details
-        </Link>
+
+        <div className="space-y-2">
+          <Link
+            to={`/product/${product.id}`}
+            className="btn-primary w-full text-center block"
+          >
+            View Details
+          </Link>
+
+          <button
+            onClick={() => setShowDesignModal(true)}
+            className="w-full bg-gradient-to-r from-primary to-secondary hover:shadow-glow text-white font-semibold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
+          >
+            <Palette className="w-4 h-4" />
+            Customize
+          </button>
+        </div>
       </div>
+
+      <DesignStudioModal
+        isOpen={showDesignModal}
+        onClose={() => setShowDesignModal(false)}
+        product={product}
+        template={product.category === 'shirts' || product.category === 'hoodies' ? 'shirt' : 'tumbler'}
+        initialDesignImage={product.images?.[0]}
+      />
     </div>
   )
 }

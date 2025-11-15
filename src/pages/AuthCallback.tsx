@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
-import { verifyPkceStorage, getPkceDebugInfo } from '@/utils/verifyPkce';
+import { verifyPkceStorage, getPkceDebugInfo } from '../utils/verifyPkce';
 
 type CallbackStatus = 'parsing' | 'exchanging' | 'verifying' | 'redirecting' | 'error';
 
@@ -158,3 +158,4 @@ export default function AuthCallback() {
     </div>
   );
 }
+

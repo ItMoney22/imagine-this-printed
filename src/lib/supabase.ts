@@ -59,3 +59,4 @@ if (typeof window !== "undefined") {
   // @ts-ignore
   window.supabase = supabase;
 }
+

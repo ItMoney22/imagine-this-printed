@@ -1,5 +1,5 @@
 import type { ReferralCode, ReferralTransaction } from '../types'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '../lib/api'
 // Removed direct Prisma import - using API endpoints for referral operations
 
 export interface ReferralReward {

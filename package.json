@@ -23,6 +23,7 @@
     "@types/react-router-dom": "^5.3.3",
     "autoprefixer": "^10.4.21",
     "bcryptjs": "^3.0.2",
+    "canvas-confetti": "^1.9.4",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -30,6 +31,7 @@
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "konva": "^9.3.22",
+    "lucide-react": "^0.553.0",
     "openai": "^5.9.0",
     "pg": "^8.16.3",
     "postcss": "^8.5.6",
@@ -44,6 +46,7 @@
   "devDependencies": {
     "@eslint/js": "^9.30.1",
     "@types/bcryptjs": "^2.4.6",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/cookie-parser": "^1.4.9",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/pg": "^8.15.4",

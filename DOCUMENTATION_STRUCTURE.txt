@@ -1,0 +1,130 @@
+ImagineThisPrinted Documentation Structure
+==========================================
+Last Updated: November 10, 2025
+
+📁 imagine-this-printed/
+│
+├── 📄 CLAUDE.md ★ PRIMARY DEV GUIDE
+│   └── Complete development guidance, architecture, patterns
+│
+├── 📄 README.md
+│   └── Project overview, quick start, tech stack
+│
+├── 📄 RUNBOOK.md
+│   └── Operational procedures, monitoring, troubleshooting
+│
+├── 📄 DESIGN_STUDIO_MODAL_SUMMARY.md
+│   └── Design Studio feature implementation
+│
+├── 📄 DOCUMENTATION_CLEANUP_SUMMARY.md
+│   └── This cleanup report
+│
+├── 📁 docs/
+│   │
+│   ├── 📄 README.md ★ DOCUMENTATION INDEX
+│   │   └── Complete index of all documentation with categories
+│   │
+│   ├── 📋 Setup & Configuration
+│   │   ├── ENV_VARIABLES.md (Environment config reference)
+│   │   ├── SUPABASE_SETUP_COMPLETE.md (Database setup)
+│   │   └── TASK-5-TRIGGERS-SETUP.md (Database triggers)
+│   │
+│   ├── 📋 Feature Documentation
+│   │   ├── AI_PRODUCT_BUILDER.md (AI product builder)
+│   │   ├── CUSTOMER_AI_PRODUCT_BUILDER.md (Customer guide)
+│   │   ├── WALLET_SYSTEM_COMPLETE.md (Wallet system)
+│   │   └── DESIGN_STUDIO_QUICKSTART.md (Design studio guide)
+│   │
+│   ├── 📋 System Documentation
+│   │   ├── deployment-checklist.md (Deployment steps)
+│   │   ├── PRODUCTION_READINESS_CHECKLIST.md (Pre-release checks)
+│   │   ├── PRODUCT_SYSTEM_IMPROVEMENTS_NEEDED.md (Backlog)
+│   │   └── MOCKUP_GENERATOR_PERFORMANCE.md (Performance guide)
+│   │
+│   ├── 📁 plans/
+│   │   ├── 2025-10-29-supabase-infrastructure-setup.md
+│   │   ├── 2025-11-04-neon-2-overhaul.md
+│   │   ├── 2025-11-04-ai-product-builder.md
+│   │   └── 2025-11-06-sitewide-premium-ui-update.md
+│   │
+│   └── 📁 archive/ (49 archived files)
+│       │
+│       ├── 📄 README.md (Archive index and guide)
+│       │
+│       ├── 📦 Task Completion Reports (10 files)
+│       │   └── TASK_*_COMPLETION_REPORT.md, etc.
+│       │
+│       ├── 📦 Fix & Debug Reports (8 files)
+│       │   └── FIXES_SUMMARY.md, CRITICAL-FIX-REPORT.md, etc.
+│       │
+│       ├── 📦 Auth Documentation (8 files)
+│       │   └── PKCE_*.md, AUTH_*.md, etc.
+│       │
+│       ├── 📦 Feature Implementation (6 files)
+│       │   └── DESIGNER_*.md, MOCKUP_*.md, etc.
+│       │
+│       ├── 📦 Test Reports (4 files)
+│       │   └── *_TEST_*.md, TESTING_SUMMARY.md, etc.
+│       │
+│       ├── 📦 API Test Results (3 files)
+│       │   └── *_API_TEST*.md, etc.
+│       │
+│       ├── 📦 Old Deployment Docs (5 files)
+│       │   └── DEPLOYMENT*.md, RAILWAY_*.md, etc.
+│       │
+│       └── 📦 Miscellaneous (5 files)
+│           └── AI_WORKFLOW.md, LAUNCH-PLAN.md, etc.
+│
+└── 📁 backend/
+    └── 📄 README.md (Backend guide)
+
+
+QUICK START GUIDES
+==================
+
+For Developers:
+1. Start with: CLAUDE.md
+2. Config: docs/ENV_VARIABLES.md
+3. Database: docs/SUPABASE_SETUP_COMPLETE.md
+4. Find docs: docs/README.md
+
+For Operations:
+1. Operations: RUNBOOK.md
+2. Deploy: docs/deployment-checklist.md
+3. Pre-release: docs/PRODUCTION_READINESS_CHECKLIST.md
+4. Config: docs/ENV_VARIABLES.md
+
+For Features:
+1. Wallet: docs/WALLET_SYSTEM_COMPLETE.md
+2. AI Builder: docs/AI_PRODUCT_BUILDER.md
+3. Design Studio: docs/DESIGN_STUDIO_QUICKSTART.md
+4. Plans: docs/plans/
+
+
+STATISTICS
+==========
+
+Active Documentation:
+- Root: 5 files
+- docs/: 12 files
+- docs/plans/: 4 files
+- Total Active: 21 files
+
+Archived: 49 files + 1 README
+
+Cleanup Impact:
+- 90% reduction in root clutter
+- All docs categorized and indexed
+- Clear structure established
+- History preserved in archive
+
+
+KEY DOCUMENTS
+=============
+
+★ CLAUDE.md               - Primary development guide
+★ docs/README.md          - Documentation index
+★ README.md               - Project overview
+★ RUNBOOK.md              - Operations guide
+★ docs/ENV_VARIABLES.md   - Configuration reference
+

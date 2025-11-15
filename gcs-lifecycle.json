@@ -1,0 +1,21 @@
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": {"type": "Delete"},
+        "condition": {
+          "matchesPrefix": ["temp/"],
+          "age": 1
+        }
+      },
+      {
+        "action": {"type": "Delete"},
+        "condition": {
+          "matchesPrefix": ["users/"],
+          "customTimeBefore": "2024-01-01",
+          "numNewerVersions": 0
+        }
+      }
+    ]
+  }
+}
