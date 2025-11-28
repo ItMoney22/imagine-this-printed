@@ -7,7 +7,13 @@
       "Bash(cat:*)",
       "Bash(npm run build:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nfix: resolve TypeScript compilation errors for production build\n\nTypeScript Fixes:\n- Added vite.config.ts (was mistakenly deleted)\n- Fixed AdminCreateProductWizard: changed mockupStyle and background types\n- Fixed AIJob type to include ''replicate_rembg'' job type\n- Fixed RealisticMockupGenerator: corrected button disabled logic\n- Fixed AdminDashboard: updated productAssets type to support complex assets\n- Fixed stripe-itc: added type assertion for PaymentIntent metadata\n\nBuild Status:\n- TypeScript compilation: ✓ Success\n- Vite build: ✓ Success (4.70s)\n- No type errors\n- Bundle size: 1.24 MB (gzipped: 296 KB)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nfix: resolve TypeScript compilation errors for production build\n\nTypeScript Fixes:\n- Added vite.config.ts (was mistakenly deleted)\n- Fixed AdminCreateProductWizard: changed mockupStyle and background types\n- Fixed AIJob type to include ''replicate_rembg'' job type\n- Fixed RealisticMockupGenerator: corrected button disabled logic\n- Fixed AdminDashboard: updated productAssets type to support complex assets\n- Fixed stripe-itc: added type assertion for PaymentIntent metadata\n\nBuild Status:\n- TypeScript compilation: ✓ Success\n- Vite build: ✓ Success (4.70s)\n- No type errors\n- Bundle size: 1.24 MB (gzipped: 296 KB)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "WebFetch(domain:imaginethisprinted.com)",
+      "Bash(curl:*)",
+      "Bash(node -e:*)",
+      "Bash(node check-products.js:*)",
+      "Bash(DOTENV_CONFIG_PATH=../.env.local node:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

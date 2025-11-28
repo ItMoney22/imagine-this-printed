@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Lightbulb, Sparkles } from 'lucide-react'
 import DesignStudioModal from './DesignStudioModal'
 
 export function Hero() {
@@ -7,69 +8,57 @@ export function Hero() {
 
   return (
     <>
-      <section className="relative overflow-hidden">
-        {/* Gradient Background */}
-        <div className="neon-gradient dark:neon-gradient light:neon-gradient-light">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-24 sm:py-32 lg:py-40">
-            <div className="text-center relative z-10">
-              {/* Main Heading */}
-              <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white text-glow tracking-tight">
-                Imagine This Printed
-              </h1>
+      <section className="relative overflow-hidden min-h-[80vh] flex items-center justify-center bg-bg">
+        {/* Background Elements */}
+        <div className="absolute inset-0 bg-[url('/assets/bg/grid.svg')] opacity-20"></div>
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-4xl bg-primary/20 blur-[120px] rounded-full pointer-events-none"></div>
 
-              {/* Subheading */}
-              <p className="mt-6 max-w-2xl mx-auto text-base sm:text-lg md:text-xl text-white/90 font-medium">
-                Transform your creative vision into reality with custom DTF transfers,
-                premium apparel, and cutting-edge 3D printing solutions.
-              </p>
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          {/* Neon Lightbulb Icon */}
+          <div className="mb-8 relative inline-block">
+            <div className="absolute inset-0 bg-primary blur-[40px] opacity-50 animate-pulse"></div>
+            <Lightbulb className="w-32 h-32 text-white drop-shadow-[0_0_15px_rgba(168,85,247,0.8)] mx-auto relative z-10" strokeWidth={1.5} />
+          </div>
 
-              {/* CTA Buttons */}
-              <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
-                <Link
-                  to="/products"
-                  className="group relative px-8 py-4 bg-white dark:bg-text text-bg rounded-2xl font-bold text-lg shadow-glowLg hover:scale-[1.02] transition-all duration-300"
-                >
-                  <span className="relative z-10">Shop Products</span>
-                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-primary to-secondary opacity-0 group-hover:opacity-20 transition-opacity"></div>
-                </Link>
+          {/* Main Heading */}
+          <h1 className="font-display text-6xl sm:text-7xl md:text-8xl font-bold text-transparent bg-clip-text bg-gradient-to-b from-gray-900 to-primary/80 dark:from-white dark:to-primary/50 drop-shadow-none dark:drop-shadow-[0_0_25px_rgba(168,85,247,0.5)] tracking-tighter mb-4">
+            IMAGINE
+            <br />
+            <span className="text-primary drop-shadow-[0_0_15px_rgba(168,85,247,0.5)] dark:drop-shadow-[0_0_30px_rgba(168,85,247,0.8)]">THIS</span>
+            <br />
+            PRINTED
+          </h1>
 
-                <button
-                  onClick={() => setShowDesignModal(true)}
-                  className="px-8 py-4 border-2 border-white/30 dark:border-white/30 text-white rounded-2xl font-semibold text-lg hover:bg-white/10 dark:hover:bg-white/10 shadow-glowSm transition-all duration-300 backdrop-blur-sm"
-                >
-                  Create Design
-                </button>
-              </div>
+          {/* Subheading */}
+          <p className="mt-8 max-w-2xl mx-auto text-lg sm:text-xl text-muted font-light tracking-wide">
+            Custom printing solutions for your creative vision.
+            <br />
+            From DTF transfers to personalized apparel.
+          </p>
 
-            {/* Feature Pills */}
-            <div className="mt-12 flex flex-wrap justify-center gap-3">
-              <div className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-sm font-medium">
-                ⚡ Same-Day Printing
-              </div>
-              <div className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-sm font-medium">
-                🎨 Custom Designs
-              </div>
-              <div className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-sm font-medium">
-                🚀 Fast Shipping
-              </div>
-            </div>
+          {/* CTA Buttons */}
+          <div className="mt-12 flex flex-col sm:flex-row justify-center gap-6">
+            <Link
+              to="/catalog"
+              className="group relative px-8 py-4 bg-transparent border border-primary/50 text-primary hover:text-white hover:bg-primary/20 hover:border-primary rounded-lg font-display tracking-wider text-sm uppercase transition-all duration-300 shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)]"
+            >
+              Shop Products
+            </Link>
+
+            <button
+              onClick={() => setShowDesignModal(true)}
+              className="group relative px-8 py-4 bg-transparent border border-secondary/50 text-secondary hover:text-white hover:bg-secondary/20 hover:border-secondary rounded-lg font-display tracking-wider text-sm uppercase transition-all duration-300 shadow-[0_0_20px_rgba(59,130,246,0.2)] hover:shadow-[0_0_30px_rgba(59,130,246,0.6)]"
+            >
+              Create Design
+            </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Circuit Pattern Overlay */}
-      <img
-        src="/assets/bg/bg-circuit.svg"
-        alt=""
-        aria-hidden="true"
-        className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-20 pointer-events-none text-white dark:text-purple-300"
+      <DesignStudioModal
+        isOpen={showDesignModal}
+        onClose={() => setShowDesignModal(false)}
       />
-    </section>
-
-    <DesignStudioModal
-      isOpen={showDesignModal}
-      onClose={() => setShowDesignModal(false)}
-    />
     </>
   )
 }

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Stage, Layer, Image as KonvaImage, Text, Transformer, Rect } from 'react-konva'
+import useImage from 'use-image'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { replicateAPI } from '../utils/replicate'
@@ -24,6 +25,27 @@ interface DesignStudioModalProps {
 const BACKGROUND_REMOVAL_COST = 10 // ITC tokens
 const IMAGE_UPSCALE_COST = 15 // ITC tokens
 const AI_GENERATION_COST = 25 // ITC tokens
+
+// Optimized Image Component
+const URLImage = ({ element, previewMode, onSelect, onDragEnd, onTransformEnd }: any) => {
+  const [image] = useImage(element.src);
+  return (
+    <KonvaImage
+      id={element.id}
+      image={image}
+      x={element.x}
+      y={element.y}
+      width={element.width}
+      height={element.height}
+      rotation={element.rotation}
+      draggable={!previewMode}
+      onClick={previewMode ? undefined : onSelect}
+      onTap={previewMode ? undefined : onSelect}
+      onDragEnd={previewMode ? undefined : onDragEnd}
+      onTransformEnd={previewMode ? undefined : onTransformEnd}
+    />
+  );
+};
 
 const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
   isOpen,
@@ -63,7 +85,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
   const [assistantTab, setAssistantTab] = useState<'suggestions' | 'analysis' | 'chat'>('suggestions')
   const [designSuggestions, setDesignSuggestions] = useState<DesignSuggestion[]>([])
   const [designAnalysis, setDesignAnalysis] = useState<DesignAnalysis | null>(null)
-  const [chatMessages, setChatMessages] = useState<Array<{id: string, type: 'user' | 'assistant', content: string, timestamp: string}>>([])
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string, type: 'user' | 'assistant', content: string, timestamp: string }>>([])
   const [chatInput, setChatInput] = useState('')
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -481,13 +503,13 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
       setElements(elements.map(el =>
         el.id === id
           ? {
-              ...el,
-              x: node.x(),
-              y: node.y(),
-              width: node.width() * scaleX,
-              height: node.height() * scaleY,
-              rotation: node.rotation()
-            }
+            ...el,
+            x: node.x(),
+            y: node.y(),
+            width: node.width() * scaleX,
+            height: node.height() * scaleY,
+            rotation: node.rotation()
+          }
           : el
       ))
 
@@ -503,14 +525,12 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
 
   const modalContent = (
     <div
-      className={`fixed inset-0 z-[9999] flex items-center justify-center transition-all duration-200 ${
-        isAnimating ? 'bg-black/70 backdrop-blur-sm' : 'bg-black/0 backdrop-blur-none'
-      }`}
+      className={`fixed inset-0 z-[9999] flex items-center justify-center transition-all duration-200 ${isAnimating ? 'bg-black/70 backdrop-blur-sm' : 'bg-black/0 backdrop-blur-none'
+        }`}
       onClick={(e) => e.target === e.currentTarget && handleClose()}
     >
-      <div className={`relative w-full h-full max-w-[98vw] max-h-[98vh] bg-bg border-2 border-primary/30 rounded-lg shadow-glowLg overflow-hidden flex flex-col transition-all duration-200 ${
-        isAnimating ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-      }`}>
+      <div className={`relative w-full h-full max-w-[98vw] max-h-[98vh] bg-bg border-2 border-primary/30 rounded-lg shadow-glowLg overflow-hidden flex flex-col transition-all duration-200 ${isAnimating ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+        }`}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-primary/20 bg-card/50">
           <div>
@@ -543,16 +563,15 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
                 </h3>
                 <div className="grid grid-cols-1 gap-2">
                   {[{ id: 'shirt', name: 'T-Shirt', price: '$24.99' },
-                    { id: 'tumbler', name: 'Tumbler', price: '$29.99' },
-                    { id: 'hoodie', name: 'Hoodie', price: '$45.99' }].map((template) => (
+                  { id: 'tumbler', name: 'Tumbler', price: '$29.99' },
+                  { id: 'hoodie', name: 'Hoodie', price: '$45.99' }].map((template) => (
                     <button
                       key={template.id}
                       onClick={() => setSelectedTemplate(template.id as any)}
-                      className={`p-3 text-left rounded-md border transition-all ${
-                        selectedTemplate === template.id
-                          ? 'border-primary bg-primary/10 text-primary shadow-glow'
-                          : 'border-primary/20 hover:border-primary/40 hover:bg-card'
-                      }`}
+                      className={`p-3 text-left rounded-md border transition-all ${selectedTemplate === template.id
+                        ? 'border-primary bg-primary/10 text-primary shadow-glow'
+                        : 'border-primary/20 hover:border-primary/40 hover:bg-card'
+                        }`}
                     >
                       <div className="font-medium">{template.name}</div>
                       <div className="text-sm text-muted">{template.price}</div>
@@ -762,38 +781,50 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
                           height: template.printArea.height * 600
                         }
                         return (
-                          <Rect
-                            x={printArea.x}
-                            y={printArea.y}
-                            width={printArea.width}
-                            height={printArea.height}
-                            stroke="#8b5cf6"
-                            strokeWidth={2}
-                            dash={[5, 5]}
-                            listening={false}
-                          />
+                          <>
+                            {/* Template Outline Visuals */}
+                            <KonvaImage
+                              image={(() => {
+                                const img = new window.Image();
+                                // Map template types to their corresponding image paths
+                                const templateImages: Record<string, string> = {
+                                  shirt: '/templates/shirt.png',
+                                  hoodie: '/templates/hoodie.png',
+                                  tumbler: '/templates/tumbler.png'
+                                };
+                                img.src = templateImages[selectedTemplate] || '/templates/shirt.png';
+                                return img;
+                              })()}
+                              width={800}
+                              height={600}
+                              opacity={0.8} // Slight transparency to see grid if needed
+                              listening={false} // Don't interfere with clicks
+                            />
+
+                            <Rect
+                              x={printArea.x}
+                              y={printArea.y}
+                              width={printArea.width}
+                              height={printArea.height}
+                              stroke="#8b5cf6"
+                              strokeWidth={2}
+                              dash={[5, 5]}
+                              listening={false}
+                            />
+                          </>
                         )
                       })()}
 
                       {elements.map((element) => {
                         if (element.type === 'image') {
-                          const img = new window.Image()
-                          img.src = element.src
                           return (
-                            <KonvaImage
+                            <URLImage
                               key={element.id}
-                              id={element.id}
-                              image={img}
-                              x={element.x}
-                              y={element.y}
-                              width={element.width}
-                              height={element.height}
-                              rotation={element.rotation}
-                              draggable={!previewMode}
-                              onClick={previewMode ? undefined : handleElementClick}
-                              onTap={previewMode ? undefined : handleElementClick}
-                              onDragEnd={previewMode ? undefined : handleDragEnd}
-                              onTransformEnd={previewMode ? undefined : handleTransformEnd}
+                              element={element}
+                              previewMode={previewMode}
+                              onSelect={handleElementClick}
+                              onDragEnd={handleDragEnd}
+                              onTransformEnd={handleTransformEnd}
                             />
                           )
                         } else if (element.type === 'text') {
@@ -871,7 +902,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div >
   )
 
   // Render modal using portal to ensure it's above all other content

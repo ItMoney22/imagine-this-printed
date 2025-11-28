@@ -46,14 +46,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   const getMostEngagedPlatform = () => {
     if (socialPosts.length === 0) return null
-    
+
     const platformEngagement = socialPosts.reduce((acc, post) => {
       const totalEngagement = post.engagement.likes + post.engagement.shares + post.engagement.comments
       acc[post.platform] = (acc[post.platform] || 0) + totalEngagement
       return acc
     }, {} as Record<string, number>)
 
-    const topPlatform = Object.entries(platformEngagement).reduce((a, b) => 
+    const topPlatform = Object.entries(platformEngagement).reduce((a, b) =>
       a[1] > b[1] ? a : b
     )[0]
 
@@ -69,32 +69,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
     : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
 
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
-      <div className="relative">
+    <div className="group relative bg-card border border-white/10 rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1">
+      <div className="relative aspect-square overflow-hidden">
         <Link to={`/product/${product.id}`}>
           <img
             src={productImage}
             alt={product.name}
-            className="w-full h-48 object-cover hover:scale-105 transition-transform"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
             onError={(e) => {
               // Fallback if image fails to load
               (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
             }}
           />
         </Link>
-        
+
         {/* Social Badges Overlay */}
         {showSocialBadges && !isLoading && socialPosts.length > 0 && (
-          <div className="absolute top-2 left-2 space-y-1">
+          <div className="absolute top-2 left-2 space-y-1 z-10">
             {featuredPlatforms.length > 0 && (
-              <SocialBadge 
+              <SocialBadge
                 platform={featuredPlatforms[0] as any}
                 type="featured_in"
                 size="small"
               />
             )}
             {!featuredPlatforms.includes(topPlatform || '') && topPlatform && (
-              <SocialBadge 
+              <SocialBadge
                 platform={topPlatform as any}
                 type="as_seen_on"
                 size="small"
@@ -104,50 +104,53 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         )}
 
         {/* Stock Status Badge */}
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 right-2 z-10">
           {product.inStock ? (
-            <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
+            <span className="bg-green-500/20 backdrop-blur-md border border-green-500/50 text-green-400 text-xs font-bold px-2 py-1 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.3)]">
               In Stock
             </span>
           ) : (
-            <span className="bg-red-100 text-red-800 text-xs font-medium px-2 py-1 rounded-full">
+            <span className="bg-red-500/20 backdrop-blur-md border border-red-500/50 text-red-400 text-xs font-bold px-2 py-1 rounded-full shadow-[0_0_10px_rgba(248,113,113,0.3)]">
               Out of Stock
             </span>
           )}
         </div>
+
+        {/* Overlay Gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-transparent to-transparent opacity-60"></div>
       </div>
 
-      <div className="p-4">
+      <div className="p-5 relative">
         <Link to={`/product/${product.id}`}>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2 hover:text-purple-600 line-clamp-1">
+          <h3 className="text-lg font-display font-bold text-text mb-2 group-hover:text-primary transition-colors line-clamp-1">
             {product.name}
           </h3>
         </Link>
-        <p className="text-gray-600 text-sm mb-3 line-clamp-2">{product.description}</p>
-        
+        <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>
+
         {/* Social Stats */}
         {showSocialBadges && socialPosts.length > 0 && (
-          <div className="flex items-center space-x-3 text-xs text-gray-500 mb-3">
+          <div className="flex items-center space-x-3 text-xs text-muted mb-4">
             <span>📱 {socialPosts.length} social mentions</span>
             <span>⭐ {socialPosts.filter(p => p.isFeatured).length} featured</span>
           </div>
         )}
 
-        <div className="flex justify-between items-center mb-3">
-          <span className="text-xl font-bold text-purple-600">${product.price}</span>
+        <div className="flex justify-between items-center mb-4">
+          <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <Link
             to={`/product/${product.id}`}
-            className="btn-primary w-full text-center block"
+            className="btn-primary w-full text-center block text-sm uppercase tracking-wider"
           >
             View Details
           </Link>
 
           <button
             onClick={() => setShowDesignModal(true)}
-            className="w-full bg-gradient-to-r from-primary to-secondary hover:shadow-glow text-white font-semibold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
+            className="w-full bg-transparent border border-secondary/50 text-secondary hover:text-white hover:bg-secondary/20 hover:border-secondary font-bold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]"
           >
             <Palette className="w-4 h-4" />
             Customize

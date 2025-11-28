@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -16,13 +17,13 @@ module.exports = {
         accent: "var(--accent)",
       },
       boxShadow: {
-        glow: "0 0 24px rgba(179, 98, 255, 0.45)",
-        glowSm: "0 0 12px rgba(0, 191, 255, 0.35)",
-        glowLg: "0 0 36px rgba(179, 98, 255, 0.6)",
+        glow: "0 0 20px var(--primary)",
+        glowSm: "0 0 10px var(--secondary)",
+        glowLg: "0 0 40px var(--accent)",
       },
       fontFamily: {
-        display: ["Poppins", "ui-sans-serif", "system-ui", "sans-serif"],
-        tech: ["Orbitron", "Poppins", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Orbitron", "sans-serif"],
+        body: ["Inter", "sans-serif"],
       },
       animation: {
         'glow-pulse': 'glow-pulse 2s ease-in-out infinite',

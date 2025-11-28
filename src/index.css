@@ -3,17 +3,53 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Light Mode Defaults */
+    --bg: #ffffff;
+    --card: #f3f4f6;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --primary: #9333ea; /* Purple */
+    --secondary: #3b82f6; /* Blue */
+    --accent: #ec4899; /* Pink */
+  }
+
+  .dark {
+    /* Dark Mode (Neon Theme) */
+    --bg: #030014; /* Very dark blue/black */
+    --card: #0f0a29; /* Dark purple/blue */
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --primary: #a855f7; /* Neon Purple */
+    --secondary: #3b82f6; /* Neon Blue */
+    --accent: #f472b6; /* Neon Pink */
+  }
+
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    @apply bg-bg text-text transition-colors duration-300;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Orbitron', sans-serif;
+    @apply tracking-wider;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+    @apply bg-primary hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all shadow-glow hover:shadow-glowLg;
   }
   
   .btn-secondary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+    @apply bg-transparent border-2 border-secondary text-secondary hover:bg-secondary hover:text-white font-bold py-3 px-6 rounded-lg transition-all shadow-glowSm hover:shadow-glow;
+  }
+
+  .glass {
+    @apply bg-opacity-20 backdrop-blur-lg border border-white/10;
+  }
+
+  .card-border {
+    @apply border border-white/10;
   }
 }
