@@ -22,6 +22,8 @@ const ProductCatalog: React.FC = () => {
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .neq('status', 'draft')
+        .eq('is_active', true)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -35,7 +37,9 @@ const ProductCatalog: React.FC = () => {
         category: p.category || 'shirts',
         inStock: p.is_active !== false,
         createdAt: p.created_at,
-        updatedAt: p.updated_at
+        updatedAt: p.updated_at,
+        metadata: p.metadata || {},
+        isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false
       }))
 
       setProducts(mappedProducts)
@@ -51,11 +55,12 @@ const ProductCatalog: React.FC = () => {
     { id: 'dtf-transfers', name: 'DTF Transfers' },
     { id: 'shirts', name: 'T-Shirts' },
     { id: 'tumblers', name: 'Tumblers' },
-    { id: 'hoodies', name: 'Hoodies' }
+    { id: 'hoodies', name: 'Hoodies' },
+    { id: '3d-prints', name: '3D Prints' }
   ]
 
-  const filteredProducts = selectedCategory === 'all' 
-    ? products 
+  const filteredProducts = selectedCategory === 'all'
+    ? products
     : products.filter(product => product.category === selectedCategory)
 
   useEffect(() => {
@@ -80,11 +85,10 @@ const ProductCatalog: React.FC = () => {
                 <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
-                    selectedCategory === cat.id
-                      ? 'bg-primary text-white shadow-glow'
-                      : 'text-text hover:bg-card'
-                  }`}
+                  className={`w-full text-left px-3 py-2 rounded-md transition-colors ${selectedCategory === cat.id
+                    ? 'bg-primary text-white shadow-glow'
+                    : 'text-text hover:bg-card'
+                    }`}
                 >
                   {cat.name}
                 </button>

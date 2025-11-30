@@ -19,6 +19,8 @@ const ProductPage: React.FC = () => {
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
   const [showDesignModal, setShowDesignModal] = useState(false)
+  const [selectedSize, setSelectedSize] = useState<string>('')
+  const [selectedColor, setSelectedColor] = useState<string>('')
 
   // Load product from database
   useEffect(() => {
@@ -48,7 +50,9 @@ const ProductPage: React.FC = () => {
             category: data.category || 'shirts',
             inStock: data.is_active !== false,
             createdAt: data.created_at,
-            updatedAt: data.updated_at
+            updatedAt: data.updated_at,
+            metadata: data.metadata || {},
+            isThreeForTwentyFive: data.metadata?.isThreeForTwentyFive || false
           }
           setProduct(mappedProduct)
         }
@@ -99,13 +103,33 @@ const ProductPage: React.FC = () => {
   }
 
   const handleAddToCart = () => {
-    addToCart(product, quantity)
-    alert('Product added to cart!')
+    if (product?.sizes?.length && !selectedSize) {
+      alert('Please select a size')
+      return
+    }
+    if (product?.colors?.length && !selectedColor) {
+      alert('Please select a color')
+      return
+    }
+    if (product) {
+      addToCart(product, quantity, selectedSize, selectedColor)
+      alert('Product added to cart!')
+    }
   }
 
   const handleBuyNow = () => {
-    addToCart(product, quantity)
-    navigate('/checkout')
+    if (product?.sizes?.length && !selectedSize) {
+      alert('Please select a size')
+      return
+    }
+    if (product?.colors?.length && !selectedColor) {
+      alert('Please select a color')
+      return
+    }
+    if (product) {
+      addToCart(product, quantity, selectedSize, selectedColor)
+      navigate('/checkout')
+    }
   }
 
   return (
@@ -141,9 +165,8 @@ const ProductPage: React.FC = () => {
                 <button
                   key={index}
                   onClick={() => setSelectedImage(index)}
-                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 ${
-                    selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
-                  }`}
+                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 ${selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
+                    }`}
                 >
                   <img
                     src={image}
@@ -181,6 +204,47 @@ const ProductPage: React.FC = () => {
           </div>
 
           <div className="border-t card-border pt-6">
+            {/* Variants */}
+            {product.sizes && product.sizes.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">Size</label>
+                <div className="flex flex-wrap gap-2">
+                  {product.sizes.map(size => (
+                    <button
+                      key={size}
+                      onClick={() => setSelectedSize(size)}
+                      className={`px-4 py-2 rounded-md border transition-colors ${selectedSize === size
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-gray-700 hover:border-gray-500 text-text'
+                        }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {product.colors && product.colors.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">Color</label>
+                <div className="flex flex-wrap gap-2">
+                  {product.colors.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => setSelectedColor(color)}
+                      className={`px-4 py-2 rounded-md border transition-colors ${selectedColor === color
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-gray-700 hover:border-gray-500 text-text'
+                        }`}
+                    >
+                      {color}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center space-x-4 mb-4">
               <label className="text-sm font-medium text-text">Quantity:</label>
               <div className="flex items-center border card-border rounded-md">
@@ -232,8 +296,8 @@ const ProductPage: React.FC = () => {
           <div className="bg-card card-border p-4 rounded-lg">
             <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
             <p className="text-sm text-muted">
-              • Free shipping on orders over $50<br/>
-              • Standard delivery: 3-5 business days<br/>
+              • Free shipping on orders over $50<br />
+              • Standard delivery: 3-5 business days<br />
               • Express delivery: 1-2 business days
             </p>
           </div>

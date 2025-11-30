@@ -5,7 +5,7 @@ import { aiProducts } from '../lib/api'
 import type { AIProductCreationRequest, AIProductCreationResponse, AIJob } from '../types'
 import { supabase } from '../lib/supabase'
 
-type WizardStep = 'describe' | 'review' | 'generate' | 'success'
+type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'success'
 
 interface NormalizedProduct {
   title: string
@@ -54,6 +54,10 @@ export default function AdminCreateProductWizard() {
   const [removingBackground, setRemovingBackground] = useState(false)
   const [creatingMockups, setCreatingMockups] = useState(false)
 
+  // Step 3.5: Select Image (for multi-model)
+  const [sourceImages, setSourceImages] = useState<any[]>([])
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
+
   // Step 4: Success
   const [finalProduct, setFinalProduct] = useState<any>(null)
   const [productAssets, setProductAssets] = useState<any[]>([])
@@ -77,6 +81,16 @@ export default function AdminCreateProductWizard() {
           // Update product and assets in real-time (for image previews)
           setFinalProduct(response.product)
           setProductAssets(response.assets || [])
+
+          // Check if image generation is complete with multiple source images
+          const imageJob = jobs.find((j: any) => j.type === 'replicate_image')
+          const sourceAssets = (response.assets || []).filter((a: any) => a.kind === 'source')
+
+          if (imageJob?.status === 'succeeded' && sourceAssets.length > 1) {
+            console.log('[Wizard] 🎨 Multiple source images detected, transitioning to select-image step')
+            setSourceImages(sourceAssets)
+            setCurrentStep('select-image')
+          }
         } catch (err: any) {
           console.error('[Wizard] ❌ Error polling status:', err)
         }
@@ -221,6 +235,59 @@ export default function AdminCreateProductWizard() {
     })
 
     setCurrentStep('success')
+  }
+
+  const handleSelectImage = async (imageId: string) => {
+    if (!productId) return
+
+    setLoading(true)
+    try {
+      // Find the rejected image
+      const rejectedImage = sourceImages.find(img => img.id !== imageId)
+
+      // Delete the rejected image from the database
+      if (rejectedImage) {
+        console.log('[Wizard] 🗑️ Deleting rejected image:', rejectedImage.id)
+        const { error: deleteError } = await supabase
+          .from('product_assets')
+          .delete()
+          .eq('id', rejectedImage.id)
+
+        if (deleteError) {
+          console.error('[Wizard] ❌ Error deleting rejected image:', deleteError)
+        } else {
+          console.log('[Wizard] ✅ Rejected image deleted successfully')
+        }
+      }
+
+      setSelectedImageId(imageId)
+      setCurrentStep('generate') // Go back to generation step to continue with mockups
+    } catch (error: any) {
+      console.error('[Wizard] ❌ Error selecting image:', error)
+      setError(error.message || 'Failed to select image')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownloadImage = async (imageUrl: string, imageName: string) => {
+    try {
+      console.log('[Wizard] 📥 Downloading image:', imageName)
+      const response = await fetch(imageUrl)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = imageName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      console.log('[Wizard] ✅ Image downloaded successfully')
+    } catch (error: any) {
+      console.error('[Wizard] ❌ Error downloading image:', error)
+      setError('Failed to download image')
+    }
   }
 
   const getJobStatusIcon = (status: AIJob['status']) => {
@@ -973,6 +1040,137 @@ export default function AdminCreateProductWizard() {
                   </svg>
                 </span>
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3.5: Select Image (Multi-Model) */}
+      {currentStep === 'select-image' && (
+        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+              <svg className="w-8 h-8 mr-3 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Choose Your AI-Generated Image
+            </h2>
+            <p className="text-muted text-lg">
+              Our AI generated images using multiple models. Select the one you prefer for your product.
+            </p>
+          </div>
+
+          {/* Image Selection Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            {sourceImages.map((image, index) => (
+              <div
+                key={image.id}
+                className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl p-6 border transition-all duration-300 shadow-xl ${
+                  selectedImageId === image.id
+                    ? 'border-primary/70 ring-2 ring-primary/50 shadow-[0_0_30px_rgba(168,85,247,0.3)]'
+                    : 'border-white/10 hover:border-primary/30'
+                }`}
+              >
+                {/* Model Badge */}
+                <div className="absolute top-4 left-4 z-10 bg-gradient-to-r from-primary/90 to-purple-600/90 backdrop-blur-sm text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  <span className="font-semibold text-sm">
+                    {image.metadata?.model_name || `Model ${index + 1}`}
+                  </span>
+                </div>
+
+                {/* Image Preview */}
+                <div className="bg-bg/60 rounded-xl overflow-hidden mb-4 border border-white/5">
+                  <img
+                    src={image.url}
+                    alt={`AI generated image from ${image.metadata?.model_name}`}
+                    className="w-full h-auto object-cover"
+                  />
+                </div>
+
+                {/* Image Metadata */}
+                <div className="bg-card/30 rounded-lg p-4 mb-4 border border-white/5">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-muted font-medium">Model:</p>
+                      <p className="text-text">{image.metadata?.model_name || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted font-medium">Generated:</p>
+                      <p className="text-text">
+                        {image.metadata?.generated_at
+                          ? new Date(image.metadata.generated_at).toLocaleTimeString()
+                          : 'Unknown'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted font-medium">Size:</p>
+                      <p className="text-text">
+                        {image.width}x{image.height}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted font-medium">Format:</p>
+                      <p className="text-text">PNG</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col space-y-3">
+                  <button
+                    onClick={() => handleSelectImage(image.id)}
+                    disabled={loading}
+                    className="group bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-6 py-4 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Use This Image</span>
+                      <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => handleDownloadImage(image.url, `${image.metadata?.model_name?.replace(/\s+/g, '-').toLowerCase() || 'image'}-${image.id}.png`)}
+                    disabled={loading}
+                    className="group bg-card/50 hover:bg-card/70 text-text border border-white/20 hover:border-primary/50 font-semibold px-6 py-3 rounded-xl transition-all shadow-md hover:shadow-lg transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="flex items-center justify-center space-x-2">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      <span>Download Image</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Info Notice */}
+          <div className="bg-primary/10 border border-primary/30 rounded-xl p-6 backdrop-blur-sm">
+            <div className="flex items-start space-x-3">
+              <svg className="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-text font-semibold mb-1">Important:</p>
+                <p className="text-muted text-sm">
+                  The image you don't select will be permanently deleted from the database. However, you can download it before making your selection if you want to keep it for reference.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+              <p className="text-red-400">{error}</p>
             </div>
           )}
         </div>

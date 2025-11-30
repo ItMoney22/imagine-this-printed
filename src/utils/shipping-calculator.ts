@@ -29,9 +29,10 @@ export class ShippingCalculator {
   async calculateShipping(
     items: any[],
     toAddress: ShippingAddress,
+    subtotal: number,
     fromAddress?: ShippingAddress
   ): Promise<ShippingCalculation> {
-    const subtotal = items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+    // const subtotal = items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
     const isFreeShipping = subtotal >= this.freeShippingThreshold
 
     if (isFreeShipping) {
@@ -91,7 +92,7 @@ export class ShippingCalculator {
 
     try {
       const shipment = await this.shippoApi.createShipment(shipFrom, toAddress, [parcel])
-      
+
       const rates: ShippingRate[] = shipment.rates.map((rate: any) => ({
         id: rate.object_id,
         name: rate.servicelevel.name,
@@ -118,7 +119,7 @@ export class ShippingCalculator {
       }
     } catch (error) {
       console.error('Shipping calculation error:', error)
-      
+
       // Fallback to standard rates if API fails
       const fallbackRates: ShippingRate[] = [
         {

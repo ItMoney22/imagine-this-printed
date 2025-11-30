@@ -3,7 +3,11 @@ import { useParams, Navigate } from 'react-router-dom'
 import { kioskService } from '../utils/kiosk-service'
 import type { Kiosk, Product, CartItem, KioskOrder } from '../types'
 
-const KioskInterface: React.FC = () => {
+interface KioskInterfaceProps {
+  previewData?: Kiosk
+}
+
+const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
   const { kioskId } = useParams<{ kioskId: string }>()
   const [kiosk, setKiosk] = useState<Kiosk | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -14,7 +18,7 @@ const KioskInterface: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash' | 'itc_wallet'>('card')
   const [paymentProcessing, setPaymentProcessing] = useState(false)
   const [currentOrder, setCurrentOrder] = useState<KioskOrder | null>(null)
-  
+
   // Customer info for receipt (optional)
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
@@ -30,10 +34,15 @@ const KioskInterface: React.FC = () => {
   const [_sessionTimeout, setSessionTimeout] = useState<number>(0)
 
   useEffect(() => {
-    if (kioskId) {
+    if (previewData) {
+      setKiosk(previewData)
+      // Load mock products for preview
+      kioskService.getVendorProducts('preview_vendor').then(setProducts)
+      setIsLoading(false)
+    } else if (kioskId) {
       loadKioskData()
     }
-  }, [kioskId])
+  }, [kioskId, previewData])
 
   // Session timeout handler
   useEffect(() => {
@@ -41,7 +50,7 @@ const KioskInterface: React.FC = () => {
       const timeout = setTimeout(() => {
         resetSession()
       }, kiosk.settings.sessionTimeout * 60 * 1000)
-      
+
       return () => clearTimeout(timeout)
     }
   }, [cart.length, kiosk?.settings.sessionTimeout])
@@ -67,7 +76,7 @@ const KioskInterface: React.FC = () => {
   const loadKioskData = async () => {
     try {
       setIsLoading(true)
-      
+
       if (!kioskId) return
 
       const [kioskData, productsData] = await Promise.all([
@@ -192,7 +201,7 @@ const KioskInterface: React.FC = () => {
             'terminal_123', // In real app, get from kiosk settings
             { orderId: order.id, kioskId: kiosk.id }
           )
-          
+
           if (paymentResult.status !== 'succeeded') {
             throw new Error('Card payment failed')
           }
@@ -202,7 +211,7 @@ const KioskInterface: React.FC = () => {
           if (cashReceived < total) {
             throw new Error('Insufficient cash received')
           }
-          
+
           paymentResult = await kioskService.processCashPayment(
             total,
             cashReceived,
@@ -247,7 +256,7 @@ const KioskInterface: React.FC = () => {
     }
   }
 
-  if (!kioskId) {
+  if (!kioskId && !previewData) {
     return <Navigate to="/" replace />
   }
 
@@ -276,9 +285,8 @@ const KioskInterface: React.FC = () => {
     )
   }
 
-
   return (
-    <div className="min-h-screen bg-card" style={{ 
+    <div className="min-h-screen bg-card" style={{
       fontFamily: kiosk.settings.touchOptimized ? 'system-ui, sans-serif' : 'inherit',
       fontSize: kiosk.settings.touchOptimized ? '1.125rem' : 'inherit'
     }}>
@@ -295,7 +303,7 @@ const KioskInterface: React.FC = () => {
                 <p className="text-muted">{kiosk.location}</p>
               </div>
             </div>
-            
+
             {/* Cart Summary */}
             <div className="flex items-center space-x-4">
               <div className="text-right">
@@ -341,11 +349,10 @@ const KioskInterface: React.FC = () => {
                 <button
                   key={category}
                   onClick={() => setSelectedCategory(category)}
-                  className={`px-6 py-3 rounded-lg font-medium touch-manipulation transition-colors ${
-                    selectedCategory === category
-                      ? 'text-white'
-                      : 'bg-card text-text hover:bg-card'
-                  }`}
+                  className={`px-6 py-3 rounded-lg font-medium touch-manipulation transition-colors ${selectedCategory === category
+                    ? 'text-white'
+                    : 'bg-card text-text hover:bg-card'
+                    }`}
                   style={{
                     backgroundColor: selectedCategory === category ? kiosk.settings.primaryColor : undefined
                   }}
@@ -398,7 +405,7 @@ const KioskInterface: React.FC = () => {
                 ← Continue Shopping
               </button>
             </div>
-            
+
             <div className="p-6">
               {cart.length === 0 ? (
                 <div className="text-center py-8">
@@ -463,7 +470,7 @@ const KioskInterface: React.FC = () => {
                   {/* Checkout Button */}
                   <button
                     onClick={() => setCurrentView('checkout')}
-                    className="w-full py-4 rounded-lg text-white text-xl font-bold touch-manipulation"
+                    className="w-full py-4 rounded-lg text-white font-bold text-xl touch-manipulation shadow-lg"
                     style={{ backgroundColor: kiosk.settings.primaryColor }}
                   >
                     Proceed to Checkout
@@ -474,9 +481,9 @@ const KioskInterface: React.FC = () => {
           </div>
         )}
 
-        {/* Checkout View */}
+        {/* Checkout View (Payment Selection) */}
         {currentView === 'checkout' && (
-          <div className="bg-card rounded-lg shadow-sm">
+          <div className="bg-card rounded-lg shadow-sm max-w-2xl mx-auto">
             <div className="px-6 py-4 border-b card-border flex items-center justify-between">
               <h2 className="text-2xl font-bold text-text">Checkout</h2>
               <button
@@ -486,228 +493,155 @@ const KioskInterface: React.FC = () => {
                 ← Back to Cart
               </button>
             </div>
-            
-            <div className="p-6 space-y-6">
-              {/* Customer Info (Optional) */}
-              {kiosk.settings.requireCustomerInfo && (
-                <div>
-                  <h3 className="text-lg font-medium text-text mb-4">Customer Information</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <input
-                      type="text"
-                      placeholder="Name"
-                      value={customerInfo.name}
-                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, name: e.target.value }))}
-                      className="form-input text-lg py-3 touch-manipulation"
-                    />
-                    <input
-                      type="email"
-                      placeholder="Email"
-                      value={customerInfo.email}
-                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
-                      className="form-input text-lg py-3 touch-manipulation"
-                    />
-                    <input
-                      type="tel"
-                      placeholder="Phone"
-                      value={customerInfo.phone}
-                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, phone: e.target.value }))}
-                      className="form-input text-lg py-3 touch-manipulation"
-                    />
-                  </div>
-                </div>
-              )}
 
-              {/* Payment Method Selection */}
-              <div>
-                <h3 className="text-lg font-medium text-text mb-4">Payment Method</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-6">
+              <div className="mb-8">
+                <h3 className="text-lg font-medium mb-4">Select Payment Method</h3>
+                <div className="grid grid-cols-1 gap-4">
                   {kiosk.settings.allowStripeTerminal && (
                     <button
                       onClick={() => setPaymentMethod('card')}
-                      className={`p-6 border-2 rounded-lg touch-manipulation transition-colors ${
-                        paymentMethod === 'card'
-                          ? 'border-current text-white'
-                          : 'card-border text-text hover:card-border'
-                      }`}
-                      style={{
-                        backgroundColor: paymentMethod === 'card' ? kiosk.settings.primaryColor : undefined,
-                        borderColor: paymentMethod === 'card' ? kiosk.settings.primaryColor : undefined
-                      }}
+                      className={`p-6 rounded-lg border-2 text-left transition-colors ${paymentMethod === 'card'
+                        ? 'border-purple-600 bg-purple-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
                     >
-                      <div className="text-center">
-                        <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                        </svg>
-                        <p className="font-medium">Card Payment</p>
-                      </div>
+                      <span className="block text-lg font-bold mb-1">Card Payment</span>
+                      <span className="text-muted">Tap, insert, or swipe your card</span>
                     </button>
                   )}
 
                   {kiosk.settings.allowCash && (
                     <button
                       onClick={() => setPaymentMethod('cash')}
-                      className={`p-6 border-2 rounded-lg touch-manipulation transition-colors ${
-                        paymentMethod === 'cash'
-                          ? 'border-current text-white'
-                          : 'card-border text-text hover:card-border'
-                      }`}
-                      style={{
-                        backgroundColor: paymentMethod === 'cash' ? kiosk.settings.primaryColor : undefined,
-                        borderColor: paymentMethod === 'cash' ? kiosk.settings.primaryColor : undefined
-                      }}
+                      className={`p-6 rounded-lg border-2 text-left transition-colors ${paymentMethod === 'cash'
+                        ? 'border-purple-600 bg-purple-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
                     >
-                      <div className="text-center">
-                        <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                        <p className="font-medium">Cash Payment</p>
-                      </div>
+                      <span className="block text-lg font-bold mb-1">Cash</span>
+                      <span className="text-muted">Pay at the counter</span>
                     </button>
                   )}
 
                   {kiosk.settings.allowITCWallet && (
                     <button
                       onClick={() => setPaymentMethod('itc_wallet')}
-                      className={`p-6 border-2 rounded-lg touch-manipulation transition-colors ${
-                        paymentMethod === 'itc_wallet'
-                          ? 'border-current text-white'
-                          : 'card-border text-text hover:card-border'
-                      }`}
-                      style={{
-                        backgroundColor: paymentMethod === 'itc_wallet' ? kiosk.settings.primaryColor : undefined,
-                        borderColor: paymentMethod === 'itc_wallet' ? kiosk.settings.primaryColor : undefined
-                      }}
+                      className={`p-6 rounded-lg border-2 text-left transition-colors ${paymentMethod === 'itc_wallet'
+                        ? 'border-purple-600 bg-purple-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
                     >
-                      <div className="text-center">
-                        <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                        </svg>
-                        <p className="font-medium">ITC Wallet</p>
-                      </div>
+                      <span className="block text-lg font-bold mb-1">ITC Wallet</span>
+                      <span className="text-muted">Pay with your account balance</span>
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Cash Input */}
-              {paymentMethod === 'cash' && (
-                <div>
-                  <h3 className="text-lg font-medium text-text mb-4">Cash Payment</h3>
-                  <div className="bg-card p-4 rounded-lg">
-                    <p className="text-lg mb-4">Total: {formatCurrency(getCartTotal())}</p>
-                    <div className="flex items-center space-x-4">
-                      <label className="text-sm font-medium text-text">Cash Received:</label>
+              {/* Customer Info (Optional) */}
+              {kiosk.settings.requireCustomerInfo && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-medium mb-4">Your Information</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted mb-1">Name</label>
                       <input
-                        type="number"
-                        step="0.01"
-                        min={getCartTotal()}
-                        value={cashReceived || ''}
-                        onChange={(e) => setCashReceived(parseFloat(e.target.value) || 0)}
-                        className="form-input text-lg py-2 touch-manipulation"
-                        placeholder="0.00"
+                        type="text"
+                        value={customerInfo.name}
+                        onChange={e => setCustomerInfo(prev => ({ ...prev, name: e.target.value }))}
+                        className="w-full bg-background border border-input rounded-lg px-4 py-3"
+                        placeholder="John Doe"
                       />
                     </div>
-                    {cashReceived > getCartTotal() && (
-                      <p className="text-green-600 mt-2">
-                        Change: {formatCurrency(cashReceived - getCartTotal())}
-                      </p>
-                    )}
+                    <div>
+                      <label className="block text-sm font-medium text-muted mb-1">Email (for receipt)</label>
+                      <input
+                        type="email"
+                        value={customerInfo.email}
+                        onChange={e => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
+                        className="w-full bg-background border border-input rounded-lg px-4 py-3"
+                        placeholder="john@example.com"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* ITC Wallet Info */}
-              {paymentMethod === 'itc_wallet' && (
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <p className="text-blue-800">
-                    This will deduct {Math.ceil(getCartTotal() * 10)} ITC tokens from the customer's wallet.
-                  </p>
-                  {customerInfo.email && (
-                    <p className="text-sm text-blue-600 mt-1">
-                      Wallet: {customerInfo.email}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Order Summary */}
-              <div className="border-t card-border pt-4">
-                <h3 className="text-lg font-medium text-text mb-4">Order Summary</h3>
-                <div className="space-y-2 mb-4">
-                  {cart.map(item => (
-                    <div key={item.id} className="flex justify-between">
-                      <span>{item.product.name} x{item.quantity}</span>
-                      <span>{formatCurrency(item.product.price * item.quantity)}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-2xl font-bold flex justify-between">
-                  <span>Total:</span>
+              <div className="border-t card-border pt-6">
+                <div className="flex justify-between text-xl font-bold mb-6">
+                  <span>Total to Pay:</span>
                   <span style={{ color: kiosk.settings.primaryColor }}>
                     {formatCurrency(getCartTotal())}
                   </span>
                 </div>
-              </div>
 
-              {/* Process Payment Button */}
-              <button
-                onClick={processPayment}
-                disabled={paymentProcessing || (paymentMethod === 'cash' && cashReceived < getCartTotal())}
-                className="w-full py-4 rounded-lg text-white text-xl font-bold touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ backgroundColor: kiosk.settings.primaryColor }}
-              >
-                {paymentProcessing ? 'Processing...' : `Pay ${formatCurrency(getCartTotal())}`}
-              </button>
+                <button
+                  onClick={processPayment}
+                  disabled={paymentProcessing}
+                  className="w-full py-4 rounded-lg text-white font-bold text-xl touch-manipulation shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  style={{ backgroundColor: kiosk.settings.primaryColor }}
+                >
+                  {paymentProcessing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    'Pay Now'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}
 
         {/* Receipt View */}
         {currentView === 'receipt' && currentOrder && (
-          <div className="bg-card rounded-lg shadow-sm">
-            <div className="px-6 py-4 border-b card-border text-center">
-              <h2 className="text-2xl font-bold text-green-600">Payment Successful!</h2>
+          <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
+            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
             </div>
-            
-            <div className="p-6 text-center">
-              <div className="text-6xl mb-4">✓</div>
-              <h3 className="text-xl font-medium text-text mb-4">Thank you for your purchase!</h3>
-              
-              <div className="bg-card p-4 rounded-lg mb-6 text-left max-w-md mx-auto">
-                <h4 className="font-medium text-text mb-2">Receipt</h4>
-                <div className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span>Order ID:</span>
-                    <span>{currentOrder.id}</span>
+
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Payment Successful!</h2>
+            <p className="text-gray-600 mb-8">Thank you for your purchase.</p>
+
+            <div className="border-t border-b border-gray-200 py-4 mb-6">
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Order ID:</span>
+                  <span>{currentOrder.id}</span>
+                </div>
+                {currentOrder.customerIdentifier && (
+                  <div className="flex justify-between font-bold text-purple-600">
+                    <span>Pickup Code:</span>
+                    <span>{currentOrder.customerIdentifier}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Date:</span>
-                    <span>{new Date().toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Payment:</span>
-                    <span className="capitalize">{currentOrder.paymentMethod.replace('_', ' ')}</span>
-                  </div>
-                  <div className="flex justify-between font-bold pt-2 border-t">
-                    <span>Total:</span>
-                    <span>{formatCurrency(currentOrder.total)}</span>
-                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Date:</span>
+                  <span>{new Date().toLocaleDateString()}</span>
+                </div>
+                <div className="flex justify-between font-bold text-lg mt-2">
+                  <span>Total:</span>
+                  <span>{formatCurrency(currentOrder.total)}</span>
                 </div>
               </div>
-
-              <p className="text-muted mb-6">
-                A new order will start automatically in a few seconds.
-              </p>
-
-              <button
-                onClick={resetSession}
-                className="px-8 py-3 rounded-lg text-white font-medium touch-manipulation"
-                style={{ backgroundColor: kiosk.settings.primaryColor }}
-              >
-                Start New Order
-              </button>
             </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              A receipt has been sent to {currentOrder.customerEmail || 'your email'}.
+            </p>
+
+            <button
+              onClick={resetSession}
+              className="w-full py-3 rounded-lg font-medium text-white"
+              style={{ backgroundColor: kiosk.settings.primaryColor }}
+            >
+              Start New Order
+            </button>
           </div>
         )}
       </main>

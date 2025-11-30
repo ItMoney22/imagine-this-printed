@@ -1,3 +1,4 @@
+import { supabase } from '../lib/supabase'
 import type { Product, User, CartItem } from '../types'
 
 export interface RecommendationScore {
@@ -38,35 +39,48 @@ export class ProductRecommender {
   private trendingProducts: string[] = []
 
   constructor() {
-    this.initializeMockData()
   }
 
   // Main recommendation method
   async getRecommendations(context: RecommendationContext): Promise<Product[]> {
-    const { user, currentProduct: _currentProduct, cartItems: _cartItems, page, limit = 6, excludeIds = [] } = context
+    const { limit = 6, excludeIds = [] } = context
 
-    // Get scored recommendations
-    const scores = await this.calculateRecommendationScores(context)
-    
-    // Filter out excluded products
-    const filteredScores = scores.filter(score => !excludeIds.includes(score.productId))
-    
-    // Sort by score and take top results
-    const topScores = filteredScores
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .limit(20) // Fetch more to allow for random selection
 
-    // Convert to products (mock implementation)
-    const recommendedProducts = await this.getProductsByIds(
-      topScores.map(score => score.productId)
-    )
+      if (error) throw error
 
-    // Track recommendation impression
-    if (user) {
-      this.trackRecommendationImpression(user.id, topScores, page)
+      if (!data) return []
+
+      // Map to Product type and filter excluded
+      let products: Product[] = data
+        .map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description || '',
+          price: p.price || 0,
+          images: p.images || [],
+          category: p.category || 'shirts',
+          inStock: p.is_active !== false,
+          is_featured: p.is_featured,
+          isThreeForTwentyFive: p.isThreeForTwentyFive
+        }))
+        .filter(p => !excludeIds.includes(p.id))
+
+      // Shuffle array
+      products = products.sort(() => 0.5 - Math.random())
+
+      // Return requested limit
+      return products.slice(0, limit)
+
+    } catch (error) {
+      console.error('Error fetching recommendations:', error)
+      return []
     }
-
-    return recommendedProducts
   }
 
   // Calculate recommendation scores using multiple algorithms
@@ -120,10 +134,10 @@ export class ProductRecommender {
 
     // Find similar users based on purchase history
     const similarUsers = await this.findSimilarUsers(user.id)
-    
+
     similarUsers.forEach(similarUser => {
       const weight = similarUser.similarity * 0.3 // 30% weight for collaborative filtering
-      
+
       similarUser.purchasedProducts.forEach(productId => {
         if (!userBehavior.purchasedProducts.includes(productId)) {
           const score = scores.get(productId)
@@ -151,12 +165,12 @@ export class ProductRecommender {
 
     // Calculate user's category preferences
     const categoryPreferences = userBehavior.categoryPreferences
-    
+
     const products = await this.getAllProducts()
     products.forEach((product: any) => {
       const categoryScore = categoryPreferences[product.category] || 0
       const weight = categoryScore * 0.25 // 25% weight for content-based
-      
+
       if (weight > 0) {
         const score = scores.get(product.id)
         if (score) {
@@ -184,7 +198,7 @@ export class ProductRecommender {
     userBehavior.viewedProducts.slice(-10).forEach((viewedProductId, index) => {
       const recency = (index + 1) / 10 // More recent = higher weight
       const similarProducts = this.getSimilarProducts(viewedProductId)
-      
+
       similarProducts.forEach(similarProduct => {
         const weight = similarProduct.similarity * recency * 0.2 // 20% weight
         const score = scores.get(similarProduct.productId)
@@ -207,7 +221,7 @@ export class ProductRecommender {
     _allProducts: Product[]
   ): Promise<void> {
     const similarProducts = this.getSimilarProducts(currentProduct.id)
-    
+
     similarProducts.forEach(similar => {
       const weight = similar.similarity * 0.4 // 40% weight for similar products
       const score = scores.get(similar.productId)
@@ -238,7 +252,7 @@ export class ProductRecommender {
     }
 
     const complementaryCategories = crossSellRules[currentProduct.category] || []
-    
+
     allProducts.forEach(product => {
       if (complementaryCategories.includes(product.category)) {
         const weight = 0.15 // 15% weight for cross-sell
@@ -262,29 +276,29 @@ export class ProductRecommender {
     allProducts: Product[]
   ): Promise<void> {
     const cartCategories = [...new Set(cartItems.map(item => item.product.category))]
-    
+
     // Recommend products that complete the set
     allProducts.forEach(product => {
       if (!cartItems.find(item => item.product.id === product.id)) {
         let weight = 0
-        
+
         // Boost products in same categories as cart items
         if (cartCategories.includes(product.category)) {
           weight += 0.2
         }
-        
+
         // Boost complementary products
         cartCategories.forEach(cartCategory => {
           const crossSellRules: Record<string, string[]> = {
             'shirts': ['dtf-transfers'],
             'dtf-transfers': ['shirts', 'hoodies', 'tumblers']
           }
-          
+
           if (crossSellRules[cartCategory]?.includes(product.category)) {
             weight += 0.15
           }
         })
-        
+
         if (weight > 0) {
           const score = scores.get(product.id)
           if (score) {
@@ -308,11 +322,11 @@ export class ProductRecommender {
   ): Promise<void> {
     // Boost trending products, especially on home page
     const trendingWeight = page === 'home' ? 0.25 : 0.1
-    
+
     this.trendingProducts.forEach((productId, index) => {
       const trendScore = (this.trendingProducts.length - index) / this.trendingProducts.length
       const weight = trendingWeight * trendScore
-      
+
       const score = scores.get(productId)
       if (score) {
         score.score += weight
@@ -359,7 +373,7 @@ export class ProductRecommender {
     return this.userBehaviors.get(userId)
   }
 
-  private async findSimilarUsers(userId: string): Promise<Array<{similarity: number, purchasedProducts: string[]}>> {
+  private async findSimilarUsers(userId: string): Promise<Array<{ similarity: number, purchasedProducts: string[] }>> {
     // Mock implementation - in real app, this would use ML algorithms
     const userBehavior = this.getUserBehavior(userId)
     if (!userBehavior) return []
@@ -377,7 +391,7 @@ export class ProductRecommender {
     ]
   }
 
-  private getSimilarProducts(productId: string): Array<{productId: string, similarity: number}> {
+  private getSimilarProducts(productId: string): Array<{ productId: string, similarity: number }> {
     const similarities = this.productSimilarity.get(productId)
     if (!similarities) return []
 
@@ -484,7 +498,7 @@ export class ProductRecommender {
     data: any
   ): void {
     let behavior = this.userBehaviors.get(userId)
-    
+
     if (!behavior) {
       behavior = {
         userId,
@@ -504,12 +518,12 @@ export class ProductRecommender {
     switch (action) {
       case 'view':
         behavior.viewedProducts.push(data.productId)
-        behavior.categoryPreferences[data.category] = 
+        behavior.categoryPreferences[data.category] =
           (behavior.categoryPreferences[data.category] || 0) + 1
         break
       case 'purchase':
         behavior.purchasedProducts.push(data.productId)
-        behavior.categoryPreferences[data.category] = 
+        behavior.categoryPreferences[data.category] =
           (behavior.categoryPreferences[data.category] || 0) + 3
         break
       case 'cart_add':
@@ -544,7 +558,7 @@ export class ProductRecommender {
         ['product_2', 0.5]
       ])]
     ])
-    
+
     this.productSimilarity = similarities
 
     // Mock trending products

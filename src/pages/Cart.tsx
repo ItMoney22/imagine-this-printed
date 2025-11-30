@@ -53,7 +53,7 @@ const Cart: React.FC = () => {
             <div className="px-6 py-4 border-b card-border">
               <h2 className="text-lg font-semibold">Cart Items ({state.items.length})</h2>
             </div>
-            
+
             <div className="divide-y divide-gray-200">
               {state.items.map((item) => (
                 <div key={item.id} className="p-6 flex items-center space-x-4">
@@ -66,6 +66,12 @@ const Cart: React.FC = () => {
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-text">{item.product.name}</h3>
                     <p className="text-muted">{item.product.description}</p>
+                    {item.selectedSize && (
+                      <p className="text-sm text-muted mt-1">Size: <span className="font-medium text-text">{item.selectedSize}</span></p>
+                    )}
+                    {item.selectedColor && (
+                      <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{item.selectedColor}</span></p>
+                    )}
                     {item.designData?.mockupUrl && (
                       <span className="inline-flex items-center text-xs text-green-600 mt-1">
                         <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,7 +124,7 @@ const Cart: React.FC = () => {
         <div className="lg:col-span-1">
           <div className="bg-card rounded-lg shadow p-6 sticky top-8">
             <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
-            
+
             <div className="space-y-3 mb-6">
               <div className="flex justify-between">
                 <span>Subtotal</span>

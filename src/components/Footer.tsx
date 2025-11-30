@@ -9,9 +9,9 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div className="col-span-1">
-            <h3 className="font-display text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
-              Imagine This Printed
-            </h3>
+            <Link to="/" className="block mb-4">
+              <img src="/logo-tech.png" alt="Imagine This Printed" className="h-10 w-auto object-contain" />
+            </Link>
             <p className="mt-3 text-sm text-muted max-w-xs">
               Your one-stop shop for custom printing solutions, from DTF transfers to 3D prints.
             </p>

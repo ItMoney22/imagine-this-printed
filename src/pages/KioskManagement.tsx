@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { kioskService } from '../utils/kiosk-service'
 import type { Kiosk, KioskSettings, User } from '../types'
+import KioskInterface from './KioskInterface'
 
 const KioskManagement: React.FC = () => {
   const { user } = useAuth()
@@ -10,7 +11,9 @@ const KioskManagement: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedKiosk, setSelectedKiosk] = useState<Kiosk | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
 
   // Create kiosk form state
   const [createForm, setCreateForm] = useState({
@@ -113,7 +116,7 @@ const KioskManagement: React.FC = () => {
       // In real app, this would call an API to toggle status
       const updatedKiosk = { ...kiosk, isActive: !kiosk.isActive }
       setKiosks(prev => prev.map(k => k.id === kioskId ? updatedKiosk : k))
-      
+
       console.log(`Kiosk ${kioskId} ${updatedKiosk.isActive ? 'activated' : 'deactivated'}`)
     } catch (error) {
       console.error('Error toggling kiosk status:', error)
@@ -122,7 +125,7 @@ const KioskManagement: React.FC = () => {
 
   const generateKioskAccess = (kioskId: string) => {
     const { url, pwaManifest, qrCode: _qrCode } = kioskService.generateKioskAccess(kioskId)
-    
+
     // Show access information modal
     const accessInfo = `
 Kiosk Access Information:
@@ -139,7 +142,7 @@ Setup Instructions:
 
 PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
     `
-    
+
     alert(accessInfo)
   }
 
@@ -197,11 +200,10 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
             <button
               key={tab.id}
               onClick={() => setSelectedTab(tab.id as any)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
-                selectedTab === tab.id
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-muted hover:text-text hover:card-border'
-              }`}
+              className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${selectedTab === tab.id
+                ? 'border-purple-500 text-purple-600'
+                : 'border-transparent text-muted hover:text-text hover:card-border'
+                }`}
             >
               <span className="mr-2">{tab.icon}</span>
               {tab.label}
@@ -240,7 +242,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                     </span>
                   </div>
                 </div>
-                
+
                 <div className="p-6 space-y-4">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
@@ -286,11 +288,10 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
                     </button>
                     <button
                       onClick={() => toggleKioskStatus(kiosk.id)}
-                      className={`text-sm px-3 py-2 rounded ${
-                        kiosk.isActive 
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200' 
-                          : 'bg-green-100 text-green-700 hover:bg-green-200'
-                      }`}
+                      className={`text-sm px-3 py-2 rounded ${kiosk.isActive
+                        ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        }`}
                     >
                       {kiosk.isActive ? 'Disable' : 'Enable'}
                     </button>
@@ -325,7 +326,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
             <h3 className="text-lg font-medium text-text">Create New Kiosk</h3>
             <p className="text-sm text-muted">Set up a new point of sale kiosk</p>
           </div>
-          
+
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -408,7 +409,7 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
             {/* Kiosk Settings */}
             <div>
               <h4 className="text-lg font-medium text-text mb-4">Kiosk Settings</h4>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-text mb-2">
@@ -509,13 +510,21 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
               >
                 Reset Form
               </button>
-              <button
-                onClick={createKiosk}
-                disabled={!createForm.name || !createForm.vendorId || !createForm.location}
-                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Create Kiosk
-              </button>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowPreview(true)}
+                  className="btn-secondary"
+                >
+                  Preview Kiosk
+                </button>
+                <button
+                  onClick={createKiosk}
+                  disabled={!createForm.name || !createForm.vendorId || !createForm.location}
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create Kiosk
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -637,7 +646,34 @@ PWA Manifest: ${JSON.stringify(pwaManifest, null, 2)}
           </div>
         </div>
       )}
-    </div>
+
+
+      {/* Kiosk Preview Modal */}
+      {
+        showPreview && (
+          <div className="fixed inset-0 z-[60] bg-white">
+            <div className="absolute top-4 right-4 z-[70]">
+              <button
+                onClick={() => setShowPreview(false)}
+                className="bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg font-bold hover:bg-red-700 transition-colors"
+              >
+                Close Preview
+              </button>
+            </div>
+            <KioskInterface previewData={{
+              id: 'preview',
+              ...createForm,
+              kioskUserId: 'preview',
+              isActive: true,
+              totalSales: 0,
+              totalOrders: 0,
+              createdAt: new Date().toISOString(),
+              accessUrl: 'preview'
+            }} />
+          </div>
+        )
+      }
+    </div >
   )
 }
 

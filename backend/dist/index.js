@@ -17,6 +17,7 @@ import adminWalletRouter from './routes/admin/wallet.js';
 import replicateCallbackRouter from './routes/ai/replicate-callback.js';
 import mockupsRouter from './routes/mockups.js';
 import designerRouter from './routes/designer.js';
+import realisticMockupsRouter from './routes/realistic-mockups.js';
 import { requireAuth } from './middleware/supabaseAuth.js';
 dotenv.config();
 const logger = pino({
@@ -62,8 +63,13 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map(origin => origin.trim())
     .filter(Boolean);
+const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 const corsOptions = {
-    origin: allowedOrigins.length > 0 ? allowedOrigins : [/^https:\/\/.*imaginethisprinted\.com$/],
+    origin: isDevelopment
+        ? true
+        : allowedOrigins.length > 0
+            ? allowedOrigins
+            : [/^https:\/\/.*imaginethisprinted\.com$/],
     credentials: true,
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
@@ -103,6 +109,7 @@ app.use('/api/admin/wallet', adminWalletRouter);
 app.use('/api/ai/replicate', replicateCallbackRouter);
 app.use('/api/mockups', mockupsRouter);
 app.use('/api/designer', designerRouter);
+app.use('/api/realistic-mockups', realisticMockupsRouter);
 app.get('/api/auth/me', requireAuth, (req, res) => {
     return res.json({ ok: true, user: req.user });
 });

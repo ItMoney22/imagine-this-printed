@@ -12,11 +12,12 @@
     "watch": "tsx watch --env-file=.env index.ts",
     "worker": "tsx --env-file=.env worker/index.ts",
     "worker:dev": "tsx watch --env-file=.env worker/index.ts",
+    "dev:full": "concurrently \"npm:watch\" \"npm:worker:dev\" --names \"API,Worker\" --prefix-colors \"blue,magenta\"",
     "generate:stock-models": "tsx --env-file=.env scripts/generate-stock-models.ts",
     "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop imagine-this-printed-api",
-    "pm2:restart": "pm2 restart imagine-this-printed-api",
-    "pm2:logs": "pm2 logs imagine-this-printed-api"
+    "pm2:stop": "pm2 stop ecosystem.config.js",
+    "pm2:restart": "pm2 restart ecosystem.config.js",
+    "pm2:logs": "pm2 logs"
   },
   "keywords": [
     "express",
@@ -58,6 +59,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.19.0",
     "@types/node-fetch": "^2.6.13",
+    "concurrently": "^9.2.1",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"

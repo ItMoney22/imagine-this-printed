@@ -49,11 +49,12 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
 
     if (error) {
       console.error('[admin/wallet/users] Error fetching users:', error)
-      logWalletError(new Error(error.message), {
+      logWalletError({
+        error: error.message,
         userId: 'system',
         action: 'list',
         currency: 'points',
-        adminId: adminId!
+        metadata: { adminId: adminId! }
       })
       return res.status(500).json({ error: 'Failed to fetch user wallets' })
     }
@@ -69,11 +70,12 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
     })
   } catch (error: any) {
     console.error('[admin/wallet/users] Error:', error)
-    logWalletError(error, {
+    logWalletError({
+      error: error.message || String(error),
       userId: 'system',
       action: 'list',
       currency: 'points',
-      adminId: req.user?.sub!
+      metadata: { adminId: req.user?.sub! }
     })
     return res.status(500).json({ error: error.message })
   }
@@ -196,12 +198,15 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
 
     if (updateError) {
       console.error('[admin/wallet/credit] Error updating wallet:', updateError)
-      logWalletError(new Error(updateError.message), {
+      logWalletError({
+        error: updateError.message,
         userId,
         action: 'credit',
         currency,
-        amount,
-        adminId: adminId!
+        metadata: {
+          amount,
+          adminId: adminId!
+        }
       })
       return res.status(500).json({ error: 'Failed to credit wallet' })
     }
@@ -231,10 +236,12 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       action: 'credit',
       currency,
       amount,
-      reason,
-      balanceBefore,
-      balanceAfter,
-      adminId: adminId!
+      adminId: adminId!,
+      metadata: {
+        reason,
+        balanceBefore,
+        balanceAfter
+      }
     })
 
     return res.json({
@@ -251,12 +258,15 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
     })
   } catch (error: any) {
     console.error('[admin/wallet/credit] Error:', error)
-    logWalletError(error, {
+    logWalletError({
+      error: error.message || String(error),
       userId: req.body.userId,
       action: 'credit',
       currency: req.body.currency,
-      amount: req.body.amount,
-      adminId: req.user?.sub!
+      metadata: {
+        amount: req.body.amount,
+        adminId: req.user?.sub!
+      }
     })
     return res.status(500).json({ error: error.message })
   }
@@ -327,12 +337,15 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
 
     if (updateError) {
       console.error('[admin/wallet/debit] Error updating wallet:', updateError)
-      logWalletError(new Error(updateError.message), {
+      logWalletError({
+        error: updateError.message,
         userId,
         action: 'debit',
         currency,
-        amount,
-        adminId: adminId!
+        metadata: {
+          amount,
+          adminId: adminId!
+        }
       })
       return res.status(500).json({ error: 'Failed to debit wallet' })
     }
@@ -362,10 +375,12 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
       action: 'debit',
       currency,
       amount,
-      reason,
-      balanceBefore,
-      balanceAfter,
-      adminId: adminId!
+      adminId: adminId!,
+      metadata: {
+        reason,
+        balanceBefore,
+        balanceAfter
+      }
     })
 
     return res.json({
@@ -382,12 +397,15 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
     })
   } catch (error: any) {
     console.error('[admin/wallet/debit] Error:', error)
-    logWalletError(error, {
+    logWalletError({
+      error: error.message || String(error),
       userId: req.body.userId,
       action: 'debit',
       currency: req.body.currency,
-      amount: req.body.amount,
-      adminId: req.user?.sub!
+      metadata: {
+        amount: req.body.amount,
+        adminId: req.user?.sub!
+      }
     })
     return res.status(500).json({ error: error.message })
   }
@@ -448,12 +466,15 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
 
     if (updateError) {
       console.error('[admin/wallet/adjust] Error updating wallet:', updateError)
-      logWalletError(new Error(updateError.message), {
+      logWalletError({
+        error: updateError.message,
         userId,
         action: 'adjust',
         currency,
-        amount: difference,
-        adminId: adminId!
+        metadata: {
+          amount: difference,
+          adminId: adminId!
+        }
       })
       return res.status(500).json({ error: 'Failed to adjust wallet' })
     }
@@ -483,11 +504,13 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
       action: 'adjust',
       currency,
       amount: difference,
-      reason,
-      balanceBefore,
-      balanceAfter: newBalance,
       adminId: adminId!,
-      metadata: { adjustmentType: difference > 0 ? 'increase' : 'decrease' }
+      metadata: { 
+        reason,
+        balanceBefore,
+        balanceAfter: newBalance,
+        adjustmentType: difference > 0 ? 'increase' : 'decrease' 
+      }
     })
 
     return res.json({
@@ -504,11 +527,12 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
     })
   } catch (error: any) {
     console.error('[admin/wallet/adjust] Error:', error)
-    logWalletError(error, {
+    logWalletError({
+      error: error.message || String(error),
       userId: req.body.userId,
       action: 'adjust',
       currency: req.body.currency,
-      adminId: req.user?.sub!
+      metadata: { adminId: req.user?.sub! }
     })
     return res.status(500).json({ error: error.message })
   }

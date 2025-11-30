@@ -30,7 +30,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
   const loadRecommendations = async () => {
     setIsLoading(true)
     setError(null)
-    
+
     try {
       const recommendationContext: RecommendationContext = {
         ...context,
@@ -42,7 +42,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
           lastName: (user as any).lastName
         } : undefined
       }
-      
+
       const products = await productRecommender.getRecommendations(recommendationContext)
       setRecommendations(products)
     } catch (err) {
@@ -62,14 +62,14 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
         context.page,
         position
       )
-      
+
       // Update user behavior
       productRecommender.updateUserBehavior(user.id, 'view', {
         productId: product.id,
         category: product.category
       })
     }
-    
+
     if (onProductClick) {
       onProductClick(product, position)
     }
@@ -77,8 +77,9 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
 
   if (isLoading) {
     return (
-      <div className={`bg-white rounded-lg shadow p-6 ${className}`}>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+
+      <div className={`bg-card rounded-lg shadow-glow p-6 border border-white/10 ${className}`}>
+        <h3 className="text-lg font-semibold text-text mb-4">{title}</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[...Array(6)].map((_, index) => (
             <div key={index} className="animate-pulse">
@@ -94,8 +95,8 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
 
   if (error) {
     return (
-      <div className={`bg-white rounded-lg shadow p-6 ${className}`}>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+      <div className={`bg-card rounded-lg shadow-glow p-6 border border-white/10 ${className}`}>
+        <h3 className="text-lg font-semibold text-text mb-4">{title}</h3>
         <div className="text-center py-8">
           <p className="text-gray-500">{error}</p>
           <button
@@ -114,17 +115,17 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
   }
 
   return (
-    <div className={`bg-white rounded-lg shadow p-6 ${className}`}>
+    <div className={`bg-card rounded-lg shadow-glow p-6 border border-white/10 ${className}`}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        <h3 className="text-lg font-semibold text-text">{title}</h3>
         <div className="flex items-center text-sm text-gray-500">
           <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
           </svg>
           Personalized for you
         </div>
       </div>
-      
+
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {recommendations.map((product, index) => (
           <div
@@ -147,7 +148,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
                 </div>
               </div>
             </div>
-            
+
             <div>
               <h4 className="font-medium text-gray-900 text-sm group-hover:text-purple-600 transition-colors line-clamp-2">
                 {product.name}
@@ -155,13 +156,13 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
               <p className="text-purple-600 font-semibold text-sm mt-1">
                 ${product.price.toFixed(2)}
               </p>
-              
+
               {showReason && (
                 <p className="text-xs text-gray-500 mt-1">
                   Trending this week
                 </p>
               )}
-              
+
               {!product.inStock && (
                 <span className="inline-block bg-red-100 text-red-800 text-xs px-2 py-1 rounded mt-1">
                   Out of Stock
@@ -171,7 +172,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
           </div>
         ))}
       </div>
-      
+
       <div className="mt-4 text-center">
         <button className="text-purple-600 hover:text-purple-700 font-medium text-sm">
           View All Recommendations →

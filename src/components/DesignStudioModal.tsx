@@ -455,10 +455,12 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
       price: product?.price || templatePrices[selectedTemplate],
       images: product?.images || [canvasSnapshot || ''],
       category: product?.category || (selectedTemplate === 'shirt' || selectedTemplate === 'hoodie' ? 'shirts' as const : 'tumblers' as const),
-      inStock: true
+      inStock: true,
+      metadata: product?.metadata || {},
+      isThreeForTwentyFive: product?.isThreeForTwentyFive || product?.metadata?.isThreeForTwentyFive || false
     }
 
-    addToCart(mockProduct, 1, canvasSnapshot, {
+    addToCart(mockProduct, 1, undefined, undefined, canvasSnapshot, {
       elements,
       template: selectedTemplate,
       mockupUrl: realisticMockupUrl || '',

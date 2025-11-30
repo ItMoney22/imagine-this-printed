@@ -116,6 +116,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           )}
         </div>
 
+        {/* Promo Badge */}
+        {(product.isThreeForTwentyFive || product.metadata?.isThreeForTwentyFive) && (
+          <div className="absolute top-2 left-2 z-10 mt-8">
+            <span className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20 animate-pulse">
+              3 for $25!
+            </span>
+          </div>
+        )}
+
         {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-transparent to-transparent opacity-60"></div>
       </div>

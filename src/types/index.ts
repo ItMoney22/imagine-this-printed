@@ -10,6 +10,16 @@ export interface Product {
   approved?: boolean
   createdAt?: string
   updatedAt?: string
+  isThreeForTwentyFive?: boolean
+  metadata?: Record<string, any>
+  productType?: 'physical' | 'digital' | 'both'
+  digitalPrice?: number
+  fileUrl?: string
+  shippingCost?: number
+  stock?: number
+  is_featured?: boolean
+  sizes?: string[]
+  colors?: string[]
 }
 
 export interface CartItem {
@@ -17,6 +27,8 @@ export interface CartItem {
   product: Product
   quantity: number
   customDesign?: string
+  selectedSize?: string
+  selectedColor?: string
   designData?: {
     elements: any[]
     template: string
@@ -62,6 +74,7 @@ export interface Order {
   internalNotes?: string
   shippingAddress?: ShippingAddress
   estimatedDelivery?: string
+  customerIdentifier?: string // Added for Kiosk orders
 }
 
 export interface ThreeDModel {
@@ -90,6 +103,11 @@ export interface VendorProduct {
   approved: boolean
   commissionRate: number
   createdAt: string
+  productType?: 'physical' | 'digital' | 'both'
+  digitalPrice?: number
+  fileUrl?: string
+  shippingCost?: number
+  stock?: number
 }
 
 export interface PointsTransaction {
@@ -831,10 +849,11 @@ export interface KioskOrder {
   customerPhone?: string
   receiptEmail?: string
   notes?: string
+  customerIdentifier?: string
   commission: {
     vendorAmount: number
     platformFee: number
-    partnerCommission?: number
+    partnerCommission: number
   }
   createdAt: string
   completedAt?: string

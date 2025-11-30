@@ -18,49 +18,143 @@ export interface ReplicateTryOnInput {
   product_type?: 'shirts' | 'hoodies' | 'tumblers' | 'dtf-transfers'
 }
 
-export async function generateProductImage(input: ReplicateImageInput) {
-  const modelId = process.env.REPLICATE_PRODUCT_MODEL_ID!
+// Multi-model configuration
+const MODELS = [
+  {
+    id: 'google/imagen-4',
+    name: 'Google Imagen 4',
+    isSynchronous: true, // Uses replicate.run()
+  },
+  {
+    id: 'leonardoai/lucid-origin',
+    name: 'Leonardo Lucid Origin',
+    isSynchronous: true, // Uses replicate.run() - returns array of outputs
+  }
+]
 
-  console.log('[replicate] 🔍 Environment check - REPLICATE_PRODUCT_MODEL_ID:', process.env.REPLICATE_PRODUCT_MODEL_ID)
-  console.log('[replicate] 🎨 Generating product image:', { modelId, prompt: input.prompt })
+// Helper function to generate with a single model
+async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: ReplicateImageInput) {
+  const modelId = modelConfig.id
+  const modelName = modelConfig.name
+  const isSynchronous = modelConfig.isSynchronous
+
+  console.log(`[replicate] 🎨 Generating with ${modelName}:`, { modelId, prompt: input.prompt.substring(0, 50) + '...' })
 
   // Build input parameters based on model
   let modelInput: any = {
     prompt: input.prompt,
   }
 
-  // Recraft V3 parameters
-  if (modelId.includes('recraft-ai/recraft-v3')) {
-    modelInput.size = '1024x1024'
-    modelInput.style = 'realistic_image' // Use realistic style for product photography
+  // Synchronous models - Use replicate.run()
+  if (isSynchronous) {
+    // Google Imagen 4 parameters
+    if (modelId.includes('imagen-4') || modelId.includes('imagen-3') || modelId.includes('google/')) {
+      modelInput.aspect_ratio = '1:1'
+      modelInput.safety_filter_level = 'block_only_high'
+      modelInput.output_format = 'png'
+    }
+    // Leonardo Lucid Origin parameters
+    else if (modelId.includes('leonardoai/lucid-origin')) {
+      modelInput.aspect_ratio = '1:1'
+    }
+    // Generic fallback
+    else {
+      modelInput.aspect_ratio = '1:1'
+      modelInput.output_format = 'png'
+    }
+
+    console.log(`[replicate] 🔍 Using replicate.run() for ${modelName}`)
+
+    // Use replicate.run() which returns the output directly
+    const output = await replicate.run(modelId as any, { input: modelInput }) as any
+
+    console.log(`[replicate] ✅ ${modelName} generation complete`)
+    console.log(`[replicate] 🔍 ${modelName} raw output type:`, typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
+
+    // Get the URL from the output
+    let imageUrl: string
+
+    // Leonardo returns array of objects with .url() method
+    if (Array.isArray(output) && output.length > 0) {
+      imageUrl = typeof output[0].url === 'function' ? output[0].url() : output[0]
+    }
+    // Imagen returns string directly or object with url
+    else {
+      imageUrl = typeof output.url === 'function' ? output.url() : output
+    }
+
+    console.log(`[replicate] 🔍 ${modelName} Image URL:`, imageUrl)
+
+    return {
+      modelId,
+      modelName,
+      isSynchronous: true,
+      url: imageUrl,
+      status: 'succeeded',
+    }
   }
-  // Google Imagen parameters (fallback)
+  // Asynchronous models - Use predictions API for async execution
   else {
-    modelInput.aspect_ratio = '1:1'
-    modelInput.output_format = 'png'
-    modelInput.output_quality = 90
+    // Check if it's a version hash (contains :)
+    const isVersion = modelId.includes(':')
+
+    // Recraft V3 parameters
+    if (modelId.includes('recraft-ai/recraft-v3')) {
+      modelInput.size = '1024x1024'
+      modelInput.style = 'realistic_image'
+    }
+    // Generic fallback
+    else {
+      modelInput.aspect_ratio = '1:1'
+      modelInput.output_format = 'png'
+      modelInput.output_quality = 90
+    }
+
+    const params: any = {
+      input: modelInput,
+      webhook: `${process.env.PUBLIC_URL}/api/ai/replicate/callback`,
+      webhook_events_filter: ['completed'],
+    }
+
+    // Set model or version
+    if (isVersion) {
+      params.version = modelId.split(':')[1]
+    } else {
+      params.model = modelId
+    }
+
+    console.log(`[replicate] 🔍 Using predictions.create() for ${modelName}`)
+
+    const prediction = await replicate.predictions.create(params)
+    console.log(`[replicate] ✅ ${modelName} prediction created:`, prediction.id)
+
+    return {
+      modelId,
+      modelName,
+      isSynchronous: false,
+      predictionId: prediction.id,
+      status: 'processing',
+    }
   }
+}
 
-  const params: any = {
-    input: modelInput,
-    webhook: `${process.env.PUBLIC_URL}/api/ai/replicate/callback`,
-    webhook_events_filter: ['completed'],
+export async function generateProductImage(input: ReplicateImageInput) {
+  console.log('[replicate] 🎨🎨 Multi-model generation started with', MODELS.length, 'models')
+
+  // Generate with all configured models
+  const results = await Promise.all(
+    MODELS.map(model => generateWithSingleModel(model, input))
+  )
+
+  console.log('[replicate] ✅ Multi-model generation complete:', results.length, 'outputs')
+
+  // Return a multi-model result object
+  return {
+    id: 'multi-model-' + Date.now(),
+    status: 'succeeded',
+    outputs: results,
+    isMultiModel: true,
   }
-
-  // Check if modelId is a version hash (contains :)
-  if (modelId.includes(':')) {
-    params.version = modelId.split(':')[1]
-  } else {
-    params.model = modelId
-  }
-
-  console.log('[replicate] 🔍 Full params:', JSON.stringify(params, null, 2))
-
-  const prediction = await replicate.predictions.create(params)
-
-  console.log('[replicate] ✅ Prediction created:', prediction.id)
-
-  return prediction
 }
 
 export async function removeBackground(imageUrl: string) {

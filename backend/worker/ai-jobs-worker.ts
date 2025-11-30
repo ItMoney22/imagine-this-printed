@@ -97,20 +97,86 @@ async function startJob(job: any) {
     .eq('id', job.id)
 
   if (job.type === 'replicate_image') {
-    // Generate product image
-    const prediction = await generateProductImage(job.input)
+    // Generate product image with multiple models
+    const result = await generateProductImage(job.input)
 
-    // Update job with prediction ID
-    await supabase
-      .from('ai_jobs')
-      .update({
-        prediction_id: prediction.id,
-        output: { prediction_id: prediction.id },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', job.id)
+    // Check if this is a multi-model result
+    if (result.isMultiModel && result.outputs) {
+      console.log('[worker] 🎨 Multi-model generation result:', result.outputs.length, 'models')
 
-    console.log('[worker] ✅ Image generation started:', prediction.id)
+      // Store the multi-model output metadata
+      await supabase
+        .from('ai_jobs')
+        .update({
+          prediction_id: result.id,
+          output: {
+            isMultiModel: true,
+            outputs: result.outputs,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+
+      // Process synchronous results immediately (Imagen 4)
+      for (const modelOutput of result.outputs) {
+        if (modelOutput.isSynchronous && modelOutput.url) {
+          console.log(`[worker] 🚀 Processing synchronous result from ${modelOutput.modelName}`)
+
+          // Upload immediately to GCS
+          const productSlug = await getProductSlug(job.product_id)
+          const timestamp = Date.now()
+          const modelSlug = modelOutput.modelName.toLowerCase().replace(/\s+/g, '-')
+          const filename = `${productSlug}-${modelSlug}-${timestamp}.png`
+          const gcsPath = `graphics/${productSlug}/original/${filename}`
+
+          console.log('[worker] 📤 Uploading synchronous image to GCS:', gcsPath)
+
+          // Upload to Google Cloud Storage
+          const { publicUrl, path } = await uploadImageFromUrl(modelOutput.url, gcsPath)
+
+          console.log('[worker] ✅ Synchronous image uploaded to GCS:', publicUrl)
+
+          // Save to product_assets with model metadata
+          const { error: assetError } = await supabase
+            .from('product_assets')
+            .insert({
+              product_id: job.product_id,
+              kind: 'source',
+              path: path,
+              url: publicUrl,
+              width: 1024,
+              height: 1024,
+              metadata: {
+                model_id: modelOutput.modelId,
+                model_name: modelOutput.modelName,
+                generated_at: new Date().toISOString(),
+              },
+            })
+
+          if (assetError) {
+            console.error('[worker] ❌ Error saving synchronous asset:', assetError)
+          } else {
+            console.log(`[worker] ✅ Saved asset for ${modelOutput.modelName}:`, publicUrl)
+          }
+        } else if (modelOutput.predictionId) {
+          console.log(`[worker] ⏳ Async prediction created for ${modelOutput.modelName}:`, modelOutput.predictionId)
+        }
+      }
+
+      console.log('[worker] ✅ Multi-model generation processed')
+    } else {
+      // Legacy single-model result (backward compatibility)
+      await supabase
+        .from('ai_jobs')
+        .update({
+          prediction_id: result.id,
+          output: { prediction_id: result.id },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+
+      console.log('[worker] ✅ Image generation started:', result.id)
+    }
   } else if (job.type === 'replicate_rembg') {
     // Remove background from source image - get the most recent source image
     const { data: sourceAsset } = await supabase
@@ -356,7 +422,148 @@ async function startJob(job: any) {
 async function checkJobStatus(job: any) {
   if (!job.prediction_id) return
 
-  console.log('[worker] 🔍 Checking prediction:', job.prediction_id)
+  console.log('[worker] 🔍 Checking job:', job.id, 'prediction:', job.prediction_id)
+
+  // Check if this is a multi-model job
+  if (job.prediction_id.startsWith('multi-model-') && job.output?.isMultiModel) {
+    console.log('[worker] 🎨 Multi-model job detected, checking async predictions')
+
+    // Get async predictions that haven't been processed yet
+    const asyncOutputs = job.output.outputs.filter((o: any) => !o.isSynchronous && o.predictionId)
+
+    if (asyncOutputs.length === 0) {
+      console.log('[worker] ✅ All multi-model outputs processed (synchronous only or all async complete)')
+
+      // Mark job as succeeded if all outputs are done
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'succeeded',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+
+      return
+    }
+
+    // Check each async prediction
+    let allCompleted = true
+    const updatedOutputs = [...job.output.outputs]
+
+    for (let i = 0; i < updatedOutputs.length; i++) {
+      const modelOutput = updatedOutputs[i]
+
+      if (!modelOutput.isSynchronous && modelOutput.predictionId && modelOutput.status !== 'succeeded') {
+        try {
+          console.log(`[worker] 🔍 Checking async prediction for ${modelOutput.modelName}:`, modelOutput.predictionId)
+
+          const prediction = await getPrediction(modelOutput.predictionId)
+
+          if (prediction.status === 'succeeded') {
+            console.log(`[worker] ✅ Async prediction succeeded for ${modelOutput.modelName}`)
+
+            // Get the output URL
+            let replicateUrl: string
+            if (Array.isArray(prediction.output)) {
+              replicateUrl = prediction.output[0]
+            } else {
+              replicateUrl = prediction.output
+            }
+
+            if (!replicateUrl) {
+              console.error(`[worker] ❌ No output URL for ${modelOutput.modelName}`)
+              updatedOutputs[i].status = 'failed'
+              updatedOutputs[i].error = 'No output URL in prediction'
+              continue
+            }
+
+            console.log(`[worker] 📸 ${modelOutput.modelName} output URL:`, replicateUrl)
+
+            // Upload to GCS
+            const productSlug = await getProductSlug(job.product_id)
+            const timestamp = Date.now()
+            const modelSlug = modelOutput.modelName.toLowerCase().replace(/\s+/g, '-')
+            const filename = `${productSlug}-${modelSlug}-${timestamp}.png`
+            const gcsPath = `graphics/${productSlug}/original/${filename}`
+
+            console.log(`[worker] 📤 Uploading ${modelOutput.modelName} image to GCS:`, gcsPath)
+
+            const { publicUrl, path } = await uploadImageFromUrl(replicateUrl, gcsPath)
+
+            console.log(`[worker] ✅ ${modelOutput.modelName} image uploaded to GCS:`, publicUrl)
+
+            // Save to product_assets with model metadata
+            const { error: assetError } = await supabase
+              .from('product_assets')
+              .insert({
+                product_id: job.product_id,
+                kind: 'source',
+                path: path,
+                url: publicUrl,
+                width: (prediction as any).output_width || 1024,
+                height: (prediction as any).output_height || 1024,
+                metadata: {
+                  model_id: modelOutput.modelId,
+                  model_name: modelOutput.modelName,
+                  generated_at: new Date().toISOString(),
+                },
+              })
+
+            if (assetError) {
+              console.error(`[worker] ❌ Error saving ${modelOutput.modelName} asset:`, assetError)
+              updatedOutputs[i].status = 'failed'
+              updatedOutputs[i].error = assetError.message
+            } else {
+              console.log(`[worker] ✅ Saved asset for ${modelOutput.modelName}:`, publicUrl)
+              updatedOutputs[i].status = 'succeeded'
+              updatedOutputs[i].url = publicUrl
+              updatedOutputs[i].gcs_path = path
+            }
+
+          } else if (prediction.status === 'failed') {
+            console.error(`[worker] ❌ ${modelOutput.modelName} prediction failed:`, prediction.error)
+            updatedOutputs[i].status = 'failed'
+            updatedOutputs[i].error = prediction.error?.toString() || 'Prediction failed'
+
+          } else if (prediction.status === 'canceled') {
+            console.warn(`[worker] ⚠️ ${modelOutput.modelName} prediction canceled`)
+            updatedOutputs[i].status = 'failed'
+            updatedOutputs[i].error = 'Prediction was canceled'
+
+          } else {
+            console.log(`[worker] ⏳ ${modelOutput.modelName} still processing:`, prediction.status)
+            allCompleted = false
+          }
+
+        } catch (error: any) {
+          console.error(`[worker] ❌ Error checking ${modelOutput.modelName} prediction:`, error.message)
+          allCompleted = false
+        }
+      }
+    }
+
+    // Update job with latest output statuses
+    await supabase
+      .from('ai_jobs')
+      .update({
+        output: {
+          isMultiModel: true,
+          outputs: updatedOutputs,
+        },
+        status: allCompleted ? 'succeeded' : 'running',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+
+    if (allCompleted) {
+      console.log('[worker] ✅ All multi-model outputs completed')
+    }
+
+    return
+  }
+
+  // Legacy single-prediction handling (for old jobs or non-multi-model jobs)
+  console.log('[worker] 🔍 Checking single prediction:', job.prediction_id)
 
   const prediction = await getPrediction(job.prediction_id)
 

@@ -98,7 +98,7 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
   return (
     <div className="space-y-6">
       <ExpressCheckout total={total} items={items} shipping={shipping} />
-      
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-card rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4">Payment Method</h2>
@@ -106,11 +106,10 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
         </div>
 
         {message && (
-          <div className={`p-3 rounded-md ${
-            message.includes('successful') 
-              ? 'bg-green-50 text-green-700 border border-green-200' 
-              : 'bg-red-50 text-red-700 border border-red-200'
-          }`}>
+          <div className={`p-3 rounded-md ${message.includes('successful')
+            ? 'bg-green-50 text-green-700 border border-green-200'
+            : 'bg-red-50 text-red-700 border border-red-200'
+            }`}>
             {message}
           </div>
         )}
@@ -171,7 +170,7 @@ const Checkout: React.FC = () => {
         state: 'CA',
         zip: '90210',
         country: 'US'
-      })
+      }, state.total)
       setShippingCalculation(defaultCalculation)
       return
     }
@@ -188,7 +187,7 @@ const Checkout: React.FC = () => {
         email: formData.email
       }
 
-      const calculation = await shippingCalculator.calculateShipping(state.items, shippingAddress)
+      const calculation = await shippingCalculator.calculateShipping(state.items, shippingAddress, state.total)
       setShippingCalculation(calculation)
     } catch (error) {
       console.error('Error calculating shipping:', error)
@@ -217,14 +216,14 @@ const Checkout: React.FC = () => {
 
   const handleShippingRateChange = (rateId: string) => {
     if (!shippingCalculation) return
-    
+
     const updatedRates = shippingCalculation.rates.map(rate => ({
       ...rate,
       selected: rate.id === rateId
     }))
-    
+
     const selectedRate = updatedRates.find(rate => rate.selected)
-    
+
     setShippingCalculation({
       ...shippingCalculation,
       rates: updatedRates,
@@ -238,7 +237,7 @@ const Checkout: React.FC = () => {
         <div className="text-center py-12">
           <h2 className="text-2xl font-bold text-text mb-2">No items to checkout</h2>
           <p className="text-muted mb-6">Add items to your cart before proceeding to checkout</p>
-          <button 
+          <button
             onClick={() => navigate('/catalog')}
             className="btn-primary"
           >
@@ -366,11 +365,10 @@ const Checkout: React.FC = () => {
                     {shippingCalculation.rates.map((rate) => (
                       <label
                         key={rate.id}
-                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                          rate.selected 
-                            ? 'border-purple-500 bg-purple-50' 
-                            : 'card-border hover:border-gray-400'
-                        }`}
+                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${rate.selected
+                          ? 'border-purple-500 bg-purple-50'
+                          : 'card-border hover:border-gray-400'
+                          }`}
                       >
                         <div className="flex items-center">
                           <input
@@ -410,8 +408,8 @@ const Checkout: React.FC = () => {
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
                         className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-                        style={{ 
-                          width: `${Math.min(100, (subtotal / shippingCalculation.freeShippingThreshold) * 100)}%` 
+                        style={{
+                          width: `${Math.min(100, (subtotal / shippingCalculation.freeShippingThreshold) * 100)}%`
                         }}
                       ></div>
                     </div>
@@ -425,8 +423,8 @@ const Checkout: React.FC = () => {
 
             {clientSecret && (
               <Elements stripe={stripePromise} options={{ clientSecret }}>
-                <CheckoutForm 
-                  clientSecret={clientSecret} 
+                <CheckoutForm
+                  clientSecret={clientSecret}
                   total={total}
                   items={state.items}
                   shipping={formData}
@@ -439,12 +437,12 @@ const Checkout: React.FC = () => {
         <div>
           <div className="bg-card rounded-lg shadow p-6 sticky top-8">
             <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
-            
+
             <div className="space-y-4 mb-6">
               {state.items.map((item) => (
                 <div key={item.id} className="flex items-center space-x-3">
-                  <img 
-                    src={item.product.images[0]} 
+                  <img
+                    src={item.product.images[0]}
                     alt={item.product.name}
                     className="w-12 h-12 object-cover rounded"
                   />

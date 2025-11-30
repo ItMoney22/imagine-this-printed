@@ -6,7 +6,8 @@ export async function requireAuth(req, res, next) {
         const auth = req.header("authorization") || req.header("Authorization");
         if (!auth?.startsWith("Bearer ")) {
             console.log("[auth] Missing bearer token");
-            return res.status(401).json({ error: "Missing bearer token" });
+            res.status(401).json({ error: "Missing bearer token" });
+            return;
         }
         const token = auth.substring(7);
         const { jwtVerify, decodeJwt } = await jose();
@@ -28,18 +29,20 @@ export async function requireAuth(req, res, next) {
             email: typeof payload.email === "string" ? payload.email : undefined,
             role,
         };
-        return next();
+        next();
     }
     catch (err) {
         console.error("[auth] ❌ JWT verification failed:", err.message);
         console.error("[auth] Error code:", err.code);
-        return res.status(401).json({ error: "Invalid token", detail: err?.message });
+        res.status(401).json({ error: "Invalid token", detail: err?.message });
+        return;
     }
 }
 export function requireRole(allowedRoles) {
     return async (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({ error: "Unauthorized" });
+            res.status(401).json({ error: "Unauthorized" });
+            return;
         }
         if (!req.user.role) {
             const { supabase } = await import('../lib/supabase.js');
@@ -53,7 +56,8 @@ export function requireRole(allowedRoles) {
             }
         }
         if (!req.user.role || !allowedRoles.includes(req.user.role)) {
-            return res.status(403).json({ error: "Insufficient permissions" });
+            res.status(403).json({ error: "Insufficient permissions" });
+            return;
         }
         next();
     };

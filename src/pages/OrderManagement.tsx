@@ -53,6 +53,39 @@ const OrderManagement: React.FC = () => {
         internalNotes: ''
       },
       {
+        id: 'ORD-KIOSK-001',
+        userId: 'kiosk_user_123',
+        items: [
+          {
+            id: 'item_k1',
+            product: {
+              id: '1',
+              name: 'Custom T-Shirt',
+              description: 'Custom designed t-shirt',
+              price: 24.99,
+              images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=300&h=300&fit=crop'],
+              category: 'shirts',
+              inStock: true
+            },
+            quantity: 1
+          }
+        ],
+        total: 24.99,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        customerIdentifier: 'JOHN-4829',
+        shippingAddress: {
+          name: 'John Smith',
+          address1: 'Kiosk Order',
+          city: 'Store Pickup',
+          state: 'CA',
+          zip: '00000',
+          country: 'US',
+          email: 'john@example.com'
+        },
+        internalNotes: 'Kiosk Order - Pickup'
+      },
+      {
         id: 'ORD-002',
         userId: 'user2',
         items: [
@@ -124,8 +157,8 @@ const OrderManagement: React.FC = () => {
   }, [])
 
   const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
-    setOrders(prev => prev.map(order => 
-      order.id === orderId 
+    setOrders(prev => prev.map(order =>
+      order.id === orderId
         ? { ...order, status: newStatus, updatedAt: new Date().toISOString() }
         : order
     ))
@@ -135,8 +168,8 @@ const OrderManagement: React.FC = () => {
   }
 
   const updateOrderNotes = async (orderId: string, internal: string, customer: string) => {
-    setOrders(prev => prev.map(order => 
-      order.id === orderId 
+    setOrders(prev => prev.map(order =>
+      order.id === orderId
         ? { ...order, internalNotes: internal, customerNotes: customer }
         : order
     ))
@@ -177,15 +210,15 @@ const OrderManagement: React.FC = () => {
       const label = await shippoAPI.createLabel(shipment.rates[0].object_id)
 
       // Update order with shipping info
-      setOrders(prev => prev.map(o => 
-        o.id === order.id 
-          ? { 
-              ...o, 
-              status: 'shipped',
-              shippingLabelUrl: label.labelUrl,
-              trackingNumber: label.trackingNumber,
-              estimatedDelivery: label.estimatedDelivery
-            }
+      setOrders(prev => prev.map(o =>
+        o.id === order.id
+          ? {
+            ...o,
+            status: 'shipped',
+            shippingLabelUrl: label.labelUrl,
+            trackingNumber: label.trackingNumber,
+            estimatedDelivery: label.estimatedDelivery
+          }
           : o
       ))
 
@@ -215,8 +248,8 @@ const OrderManagement: React.FC = () => {
     }
   }
 
-  const filteredOrders = selectedTab === 'all' 
-    ? orders 
+  const filteredOrders = selectedTab === 'all'
+    ? orders
     : orders.filter(order => order.status === selectedTab)
 
   if (user?.role !== 'admin' && user?.role !== 'manager') {
@@ -316,11 +349,10 @@ const OrderManagement: React.FC = () => {
             <button
               key={tab}
               onClick={() => setSelectedTab(tab as any)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                selectedTab === tab
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-muted hover:text-text hover:card-border'
-              }`}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${selectedTab === tab
+                ? 'border-purple-500 text-purple-600'
+                : 'border-transparent text-muted hover:text-text hover:card-border'
+                }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1).replace('_', ' ')}
             </button>
@@ -350,6 +382,9 @@ const OrderManagement: React.FC = () => {
                     <div className="text-sm font-medium text-text">{order.id}</div>
                     {order.trackingNumber && (
                       <div className="text-xs text-muted">Tracking: {order.trackingNumber}</div>
+                    )}
+                    {order.customerIdentifier && (
+                      <div className="text-xs font-bold text-purple-600">Pickup: {order.customerIdentifier}</div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -437,6 +472,9 @@ const OrderManagement: React.FC = () => {
                   {selectedOrder.trackingNumber && (
                     <p><span className="font-medium">Tracking:</span> {selectedOrder.trackingNumber}</p>
                   )}
+                  {selectedOrder.customerIdentifier && (
+                    <p className="text-purple-600"><span className="font-medium">Pickup Code:</span> {selectedOrder.customerIdentifier}</p>
+                  )}
                 </div>
               </div>
 
@@ -462,11 +500,10 @@ const OrderManagement: React.FC = () => {
                   <button
                     key={status}
                     onClick={() => updateOrderStatus(selectedOrder.id, status as Order['status'])}
-                    className={`px-4 py-2 rounded text-sm font-medium ${
-                      selectedOrder.status === status
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-gray-200 text-text hover:bg-gray-300'
-                    }`}
+                    className={`px-4 py-2 rounded text-sm font-medium ${selectedOrder.status === status
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-200 text-text hover:bg-gray-300'
+                      }`}
                   >
                     {status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}
                   </button>
@@ -539,7 +576,7 @@ const OrderManagement: React.FC = () => {
               <p className="text-sm text-muted mb-4">
                 This will generate a shipping label for order {selectedOrder.id} and mark it as shipped.
               </p>
-              
+
               <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
                 <div className="flex">
                   <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -548,8 +585,8 @@ const OrderManagement: React.FC = () => {
                   <div>
                     <h4 className="text-sm font-medium text-blue-900">Shipping Details</h4>
                     <p className="text-sm text-blue-700 mt-1">
-                      Service: USPS Priority Mail<br/>
-                      Estimated Cost: $8.50<br/>
+                      Service: USPS Priority Mail<br />
+                      Estimated Cost: $8.50<br />
                       Estimated Delivery: 1-3 business days
                     </p>
                   </div>

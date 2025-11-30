@@ -240,7 +240,7 @@ export async function processReferralFirstPurchase(
     // Get referral code
     const { data: referralCode } = await supabase
       .from('referral_codes')
-      .select('code')
+      .select('id, code')
       .eq('user_id', profile.referred_by)
       .eq('is_active', true)
       .single()

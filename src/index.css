@@ -9,28 +9,48 @@
     --card: #f3f4f6;
     --text: #1f2937;
     --muted: #6b7280;
-    --primary: #9333ea; /* Purple */
-    --secondary: #3b82f6; /* Blue */
-    --accent: #ec4899; /* Pink */
+    --primary: #9333ea;
+    /* Purple */
+    --secondary: #3b82f6;
+    /* Blue */
+    --accent: #ec4899;
+    /* Pink */
   }
 
   .dark {
     /* Dark Mode (Neon Theme) */
-    --bg: #030014; /* Very dark blue/black */
-    --card: #0f0a29; /* Dark purple/blue */
+    --bg: #030014;
+    /* Very dark blue/black */
+    --card: #0f0a29;
+    /* Dark purple/blue */
     --text: #e2e8f0;
     --muted: #94a3b8;
-    --primary: #a855f7; /* Neon Purple */
-    --secondary: #3b82f6; /* Neon Blue */
-    --accent: #f472b6; /* Neon Pink */
+    --primary: #a855f7;
+    /* Neon Purple */
+    --secondary: #3b82f6;
+    /* Neon Blue */
+    --accent: #f472b6;
+    /* Neon Pink */
   }
 
   body {
     @apply bg-bg text-text transition-colors duration-300;
     font-family: 'Inter', sans-serif;
+    background-color: #030014;
+    background-image:
+      radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+      linear-gradient(rgba(168, 85, 247, 0.15) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168, 85, 247, 0.15) 1px, transparent 1px);
+    background-size: 50px 50px;
+    background-attachment: fixed;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: 'Orbitron', sans-serif;
     @apply tracking-wider;
   }
@@ -40,7 +60,7 @@
   .btn-primary {
     @apply bg-primary hover:bg-opacity-80 text-white font-bold py-3 px-6 rounded-lg transition-all shadow-glow hover:shadow-glowLg;
   }
-  
+
   .btn-secondary {
     @apply bg-transparent border-2 border-secondary text-secondary hover:bg-secondary hover:text-white font-bold py-3 px-6 rounded-lg transition-all shadow-glowSm hover:shadow-glow;
   }

@@ -249,7 +249,7 @@ const ProductDesigner: React.FC = () => {
         inStock: true
       }
 
-      addToCart(mockProduct, 1, canvasSnapshot, {
+      addToCart(mockProduct, 1, undefined, undefined, canvasSnapshot, {
         elements,
         template: selectedTemplate,
         mockupUrl: finalMockupUrl || '',

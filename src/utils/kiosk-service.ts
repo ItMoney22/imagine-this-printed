@@ -1,8 +1,8 @@
-import type { 
-  Kiosk, 
-  KioskSettings, 
-  KioskOrder, 
-  KioskAnalytics, 
+import type {
+  Kiosk,
+  KioskSettings,
+  KioskOrder,
+  KioskAnalytics,
   StripeTerminalPayment,
   Product
 } from '../types'
@@ -40,7 +40,7 @@ export class KioskService {
           welcomeMessage: 'Welcome! Browse and order custom prints'
         }
       }
-      
+
       return mockKiosk
     } catch (error) {
       console.error('Error fetching kiosk:', error)
@@ -113,13 +113,31 @@ export class KioskService {
   // Create kiosk order
   async createKioskOrder(order: Partial<KioskOrder>): Promise<KioskOrder> {
     try {
-      const platformFeeRate = 0.07 // 7%
-      const partnerCommissionRate = 0.05 // 5%
+      // Fetch kiosk to get current commission rates
+      const kiosk = await this.getKiosk(order.kioskId || '')
+
+      // Default to standard rates if kiosk not found or rates not set
+      const platformFeeRate = 0.07 // 7% base platform fee
+      // Use kiosk specific commission rate if available (this is the partner's cut)
+      const partnerCommissionRate = kiosk?.commissionRate || 0.15
 
       const total = order.total || 0
-      const platformFee = total * platformFeeRate
+
+      // Calculate commissions
+      // Partner gets their configured rate (e.g. 15%)
       const partnerCommission = total * partnerCommissionRate
+
+      // Platform gets the fee
+      const platformFee = total * platformFeeRate
+
+      // Vendor gets the rest
       const vendorAmount = total - platformFee - partnerCommission
+
+      // Generate Customer Identifier
+      // Format: First Name (or Guest) + Last 4 of ID
+      const namePart = (order.customerName || 'Guest').split(' ')[0].toUpperCase()
+      const idPart = Math.floor(1000 + Math.random() * 9000) // 4 digit random number
+      const customerIdentifier = `${namePart}-${idPart}`
 
       const kioskOrder: KioskOrder = {
         id: `kiosk_order_${Date.now()}`,
@@ -136,6 +154,7 @@ export class KioskService {
         customerPhone: order.customerPhone,
         receiptEmail: order.receiptEmail,
         notes: order.notes,
+        customerIdentifier, // Store the identifier
         commission: {
           vendorAmount,
           platformFee,
@@ -146,7 +165,7 @@ export class KioskService {
 
       // In real app, save to database
       console.log('Creating kiosk order:', kioskOrder)
-      
+
       return kioskOrder
     } catch (error) {
       console.error('Error creating kiosk order:', error)
@@ -221,7 +240,7 @@ export class KioskService {
       // Mock ITC wallet processing - in real app, integrate with blockchain/wallet service
       const itcAmount = amount * 10 // $1 = 10 ITC tokens
       const mockCurrentBalance = 1000 // User's current ITC balance
-      
+
       if (mockCurrentBalance < itcAmount) {
         throw new Error('Insufficient ITC balance')
       }
@@ -229,12 +248,12 @@ export class KioskService {
       const newBalance = mockCurrentBalance - itcAmount
       const transactionId = `itc_${kioskId}_${Date.now()}`
 
-      console.log('ITC wallet payment processed:', { 
-        amount, 
-        itcAmount, 
-        customerEmail, 
-        transactionId, 
-        newBalance 
+      console.log('ITC wallet payment processed:', {
+        amount,
+        itcAmount,
+        customerEmail,
+        transactionId,
+        newBalance
       })
 
       return {
@@ -330,7 +349,7 @@ export class KioskService {
     try {
       const kioskId = `kiosk_${Date.now()}`
       const kioskUserId = `kiosk_user_${Date.now()}`
-      
+
       const newKiosk: Kiosk = {
         id: kioskId,
         name: kioskData.name || 'New Kiosk',
@@ -360,7 +379,7 @@ export class KioskService {
 
       // In real app, save to database and create kiosk user account
       console.log('Created new kiosk:', newKiosk)
-      
+
       return newKiosk
     } catch (error) {
       console.error('Error creating kiosk:', error)
@@ -446,7 +465,7 @@ export class KioskService {
       }
 
       updatedKiosk.settings = { ...updatedKiosk.settings, ...settings }
-      
+
       console.log('Updated kiosk settings:', updatedKiosk)
       return updatedKiosk
     } catch (error) {
@@ -458,7 +477,7 @@ export class KioskService {
   // Generate kiosk access URL or PWA manifest
   generateKioskAccess(kioskId: string): { url: string; pwaManifest: any; qrCode: string } {
     const url = `${window.location.origin}/kiosk/${kioskId}`
-    
+
     const pwaManifest = {
       name: `Kiosk ${kioskId}`,
       short_name: 'Kiosk',

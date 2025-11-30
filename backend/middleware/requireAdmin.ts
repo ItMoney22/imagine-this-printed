@@ -1,12 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 
-export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = req.user?.sub
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized - No user found' })
+      res.status(401).json({ error: 'Unauthorized - No user found' })
+      return
     }
 
     // Fetch user profile to check role
@@ -18,15 +19,17 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 
     if (error || !profile) {
       console.error('[requireAdmin] Error fetching user profile:', error)
-      return res.status(403).json({ error: 'Forbidden - Unable to verify user role' })
+      res.status(403).json({ error: 'Forbidden - Unable to verify user role' })
+      return
     }
 
     if (profile.role !== 'admin') {
       console.warn(`[requireAdmin] Access denied for user ${userId} with role: ${profile.role}`)
-      return res.status(403).json({
+      res.status(403).json({
         error: 'Forbidden - Admin access required',
         userRole: profile.role
       })
+      return
     }
 
     // User is admin, proceed
@@ -34,6 +37,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     next()
   } catch (error: any) {
     console.error('[requireAdmin] Unexpected error:', error)
-    return res.status(500).json({ error: 'Internal server error', detail: error.message })
+    res.status(500).json({ error: 'Internal server error', detail: error.message })
+    return
   }
 }

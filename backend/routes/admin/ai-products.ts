@@ -1,16 +1,18 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { normalizeProduct } from '../../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
+import { getPrediction } from '../../services/replicate.js' // Added import for getPrediction
 
 const router = Router()
 
 // Middleware to verify admin/manager role
-async function requireAdmin(req: Request, res: Response, next: any): Promise<any> {
+async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' })
+    res.status(401).json({ error: 'Unauthorized' })
+    return
   }
 
   const { data: profile } = await supabase
@@ -20,7 +22,8 @@ async function requireAdmin(req: Request, res: Response, next: any): Promise<any
     .single()
 
   if (!profile || !['admin', 'manager'].includes(profile.role)) {
-    return res.status(403).json({ error: 'Forbidden: Admin access required' })
+    res.status(403).json({ error: 'Forbidden: Admin access required' })
+    return
   }
 
   next()
@@ -216,6 +219,58 @@ router.get('/:id/status', requireAuth, requireAdmin, async (req: Request, res: R
       .select('*')
       .eq('product_id', id)
       .order('created_at', { ascending: true })
+
+    // ACTIVE CHECK: If any job is running or queued, check Replicate status
+    // This is crucial for local development where webhooks might fail
+    if (jobs && jobs.length > 0) {
+      for (let i = 0; i < jobs.length; i++) {
+        const job = jobs[i];
+        if ((job.status === 'queued' || job.status === 'running') && job.replicate_id) {
+          try {
+            req.log?.info({ jobId: job.id, replicateId: job.replicate_id }, '[ai-products] 📡 Polling Replicate for job status');
+            const prediction = await getPrediction(job.replicate_id);
+            
+            let newStatus = job.status;
+            let output = job.output;
+            let error = job.error;
+
+            if (prediction.status === 'succeeded') {
+              newStatus = 'succeeded';
+              output = prediction.output;
+            } else if (prediction.status === 'failed' || prediction.status === 'canceled') {
+              newStatus = 'failed';
+              error = prediction.error;
+            } else if (prediction.status === 'processing' || prediction.status === 'starting') {
+              newStatus = 'running';
+            }
+
+            if (newStatus !== job.status) {
+              req.log?.info({ jobId: job.id, oldStatus: job.status, newStatus: newStatus }, '[ai-products] 🔄 Updating job status in DB');
+              
+              const { data: updatedJob, error: updateError } = await supabase
+                .from('ai_jobs')
+                .update({ 
+                  status: newStatus,
+                  output: output,
+                  error: error,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', job.id)
+                .select()
+                .single();
+
+              if (updateError) {
+                req.log?.error({ updateError }, '[ai-products] ❌ Error updating job status');
+              } else if (updatedJob) {
+                jobs[i] = updatedJob; // Update the job in the array being sent back
+              }
+            }
+          } catch (err: any) {
+            req.log?.error({ jobId: job.id, err: err.message }, '[ai-products] ⚠️ Failed to sync job with Replicate');
+          }
+        }
+      }
+    }
 
     res.json({
       product: product,

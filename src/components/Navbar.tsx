@@ -60,20 +60,20 @@ const Navbar: React.FC = () => {
   }
 
   return (
-    <nav className="bg-white shadow-lg">
+    <nav className="bg-[#0f0a29] shadow-lg border-b border-white/10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0">
-              <h1 className="text-2xl font-bold text-purple-600">ImagineThisPrinted</h1>
+              <img src="/logo-tech.png" alt="Imagine This Printed" className="h-12 w-auto object-contain" />
             </Link>
           </div>
 
           <div className="hidden md:flex items-center space-x-8">
-            <Link to="/" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
+            <Link to="/" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Home
             </Link>
-            <Link to="/catalog" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
+            <Link to="/catalog" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Products
             </Link>
             <button
@@ -105,10 +105,10 @@ const Navbar: React.FC = () => {
                 </span>
               )}
             </Link>
-            
+
             {user ? (
               <div className="relative" ref={accountMenuRef}>
-                <button 
+                <button
                   onClick={toggleAccountMenu}
                   className="flex items-center text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium"
                 >
@@ -122,234 +122,234 @@ const Navbar: React.FC = () => {
                 </button>
                 {showAccountMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-1 z-10 border border-gray-200">
-                  <div className="px-4 py-2 text-sm text-gray-700 border-b">
-                    <div className="font-medium">{user.email}</div>
-                    <div className="text-xs text-gray-500">
-                      Role: <span className="capitalize font-semibold">{user.role}</span>
-                      {user.role === 'admin' && <span className="ml-2 text-green-600">✓ Admin</span>}
-                      {user.role === 'manager' && <span className="ml-2 text-blue-600">✓ Manager</span>}
+                    <div className="px-4 py-2 text-sm text-gray-700 border-b">
+                      <div className="font-medium">{user.email}</div>
+                      <div className="text-xs text-gray-500">
+                        Role: <span className="capitalize font-semibold">{user.role}</span>
+                        {user.role === 'admin' && <span className="ml-2 text-green-600">✓ Admin</span>}
+                        {user.role === 'manager' && <span className="ml-2 text-blue-600">✓ Manager</span>}
+                      </div>
                     </div>
-                  </div>
-                  
-                  {/* Account Section */}
-                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Account
-                  </div>
-                  <Link
-                    to="/account/profile"
-                    onClick={closeAccountMenu}
-                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    My Profile
-                  </Link>
-                  <Link
-                    to="/account/messages"
-                    onClick={closeAccountMenu}
-                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Messages
-                  </Link>
-                  <Link
-                    to="/wallet"
-                    onClick={closeAccountMenu}
-                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Wallet & Rewards
-                  </Link>
-                  <Link
-                    to="/referrals"
-                    onClick={closeAccountMenu}
-                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Referral Program
-                  </Link>
-                  
-                  {/* Role-specific dashboards */}
-                  {user.role === 'founder' && (
-                    <>
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
-                        Founder
-                      </div>
-                      <Link
-                        to="/founder/dashboard"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Dashboard
-                      </Link>
-                      <Link
-                        to="/founder/earnings"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Earnings
-                      </Link>
-                    </>
-                  )}
-                  
-                  {user.role === 'vendor' && (
-                    <>
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
-                        Vendor
-                      </div>
-                      <Link
-                        to="/vendor/dashboard"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Dashboard
-                      </Link>
-                      <Link
-                        to="/vendor/messages"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Customer Messages
-                      </Link>
-                      <Link
-                        to="/vendor/payouts"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Payouts
-                      </Link>
-                      <Link
-                        to="/admin/kiosk-analytics"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Kiosk Analytics
-                      </Link>
-                    </>
-                  )}
-                  
-                  {(user.role === 'admin' || user.role === 'manager') && (
-                    <>
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
-                        Admin
-                      </div>
-                      <Link
-                        to="/admin/dashboard"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Dashboard
-                      </Link>
-                      <Link
-                        to="/admin/control-panel"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Control Panel
-                      </Link>
-                      <Link
-                        to="/admin/orders"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Order Management
-                      </Link>
-                      <Link
-                        to="/admin/crm"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        CRM & Customers
-                      </Link>
-                      <Link
-                        to="/admin/marketing"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Marketing Tools
-                      </Link>
-                      <Link
-                        to="/admin?tab=products"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Product Management
-                      </Link>
-                      {user.role === 'admin' && (
-                        <>
-                          <Link
-                            to="/admin/cost-override"
-                            onClick={closeAccountMenu}
-                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            Cost Override
-                          </Link>
-                          <Link
-                            to="/admin/kiosks"
-                            onClick={closeAccountMenu}
-                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            Kiosk Management
-                          </Link>
-                          <Link
-                            to="/admin/kiosk-analytics"
-                            onClick={closeAccountMenu}
-                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            Kiosk Analytics
-                          </Link>
-                          <Link
-                            to="/admin/social-content"
-                            onClick={closeAccountMenu}
-                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            Social Content
-                          </Link>
-                          <Link
-                            to="/admin/ai/products/create"
-                            onClick={closeAccountMenu}
-                            className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            AI Product Builder
-                          </Link>
-                        </>
-                      )}
-                    </>
-                  )}
-                  
-                  {(user.role === 'manager' || user.role === 'admin' || user.role === 'founder') && (
-                    <>
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
-                        Manager
-                      </div>
-                      <Link
-                        to="/manager/dashboard"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Cost Controls
-                      </Link>
-                    </>
-                  )}
-                  
-                  {user.role === 'wholesale' && (
-                    <>
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
-                        Business
-                      </div>
-                      <Link
-                        to="/wholesale"
-                        onClick={closeAccountMenu}
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Wholesale Portal
-                      </Link>
-                    </>
-                  )}
-                  
-                  <div className="border-t mt-2 pt-2">
-                    <button
-                      onClick={handleSignOut}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+
+                    {/* Account Section */}
+                    <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Account
+                    </div>
+                    <Link
+                      to="/account/profile"
+                      onClick={closeAccountMenu}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                     >
-                      Sign Out
-                    </button>
-                  </div>
+                      My Profile
+                    </Link>
+                    <Link
+                      to="/account/messages"
+                      onClick={closeAccountMenu}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Messages
+                    </Link>
+                    <Link
+                      to="/wallet"
+                      onClick={closeAccountMenu}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Wallet & Rewards
+                    </Link>
+                    <Link
+                      to="/referrals"
+                      onClick={closeAccountMenu}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Referral Program
+                    </Link>
+
+                    {/* Role-specific dashboards */}
+                    {user.role === 'founder' && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
+                          Founder
+                        </div>
+                        <Link
+                          to="/founder/dashboard"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Dashboard
+                        </Link>
+                        <Link
+                          to="/founder/earnings"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Earnings
+                        </Link>
+                      </>
+                    )}
+
+                    {user.role === 'vendor' && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
+                          Vendor
+                        </div>
+                        <Link
+                          to="/vendor/dashboard"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Dashboard
+                        </Link>
+                        <Link
+                          to="/vendor/messages"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Customer Messages
+                        </Link>
+                        <Link
+                          to="/vendor/payouts"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Payouts
+                        </Link>
+                        <Link
+                          to="/admin/kiosk-analytics"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Kiosk Analytics
+                        </Link>
+                      </>
+                    )}
+
+                    {(user.role === 'admin' || user.role === 'manager') && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
+                          Admin
+                        </div>
+                        <Link
+                          to="/admin/dashboard"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Dashboard
+                        </Link>
+                        <Link
+                          to="/admin/control-panel"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Control Panel
+                        </Link>
+                        <Link
+                          to="/admin/orders"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Order Management
+                        </Link>
+                        <Link
+                          to="/admin/crm"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          CRM & Customers
+                        </Link>
+                        <Link
+                          to="/admin/marketing"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Marketing Tools
+                        </Link>
+                        <Link
+                          to="/admin?tab=products"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Product Management
+                        </Link>
+                        {user.role === 'admin' && (
+                          <>
+                            <Link
+                              to="/admin/cost-override"
+                              onClick={closeAccountMenu}
+                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              Cost Override
+                            </Link>
+                            <Link
+                              to="/admin/kiosks"
+                              onClick={closeAccountMenu}
+                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              Kiosk Management
+                            </Link>
+                            <Link
+                              to="/admin/kiosk-analytics"
+                              onClick={closeAccountMenu}
+                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              Kiosk Analytics
+                            </Link>
+                            <Link
+                              to="/admin/social-content"
+                              onClick={closeAccountMenu}
+                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              Social Content
+                            </Link>
+                            <Link
+                              to="/admin/ai/products/create"
+                              onClick={closeAccountMenu}
+                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                              AI Product Builder
+                            </Link>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {(user.role === 'manager' || user.role === 'admin' || user.role === 'founder') && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
+                          Manager
+                        </div>
+                        <Link
+                          to="/manager/dashboard"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Cost Controls
+                        </Link>
+                      </>
+                    )}
+
+                    {user.role === 'wholesale' && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
+                          Business
+                        </div>
+                        <Link
+                          to="/wholesale"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Wholesale Portal
+                        </Link>
+                      </>
+                    )}
+
+                    <div className="border-t mt-2 pt-2">
+                      <button
+                        onClick={handleSignOut}
+                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        Sign Out
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

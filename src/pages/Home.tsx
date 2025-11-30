@@ -8,37 +8,43 @@ import ProductCard from '../components/ProductCard'
 import DesignStudioModal from '../components/DesignStudioModal'
 import type { Product } from '../types'
 
+import { supabase } from '../lib/supabase'
+
 const Home: React.FC = () => {
   const [showDesignModal, setShowDesignModal] = useState(false)
-  const featuredProducts: Product[] = [
-    {
-      id: '1',
-      name: 'Custom DTF Transfer',
-      description: 'High-quality direct-to-film transfer for vibrant prints',
-      price: 15.99,
-      images: ['https://images.unsplash.com/photo-1503341338985-95ad5e163e51?w=400&h=400&fit=crop'],
-      category: 'dtf-transfers',
-      inStock: true
-    },
-    {
-      id: '2',
-      name: 'Premium T-Shirt',
-      description: 'Soft, comfortable 100% cotton tee in multiple colors',
-      price: 24.99,
-      images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&h=400&fit=crop'],
-      category: 'shirts',
-      inStock: true
-    },
-    {
-      id: '3',
-      name: 'Insulated Tumbler',
-      description: '20oz stainless steel tumbler with custom printing',
-      price: 29.99,
-      images: ['https://images.unsplash.com/photo-1544441892-794166f1e3be?w=400&h=400&fit=crop'],
-      category: 'tumblers',
-      inStock: true
+  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
+
+  React.useEffect(() => {
+    const fetchFeaturedProducts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .eq('is_featured', true)
+          .eq('is_active', true)
+          .limit(3)
+
+        if (error) throw error
+
+        if (data) {
+          setFeaturedProducts(data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description || '',
+            price: p.price || 0,
+            images: p.images || [],
+            category: p.category || 'shirts',
+            inStock: p.is_active !== false,
+            is_featured: p.is_featured
+          })))
+        }
+      } catch (error) {
+        console.error('Error fetching featured products:', error)
+      }
     }
-  ]
+
+    fetchFeaturedProducts()
+  }, [])
 
   return (
     <div className="bg-bg">
@@ -76,12 +82,12 @@ const Home: React.FC = () => {
               Discover our most popular items and start creating something amazing today.
             </p>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {featuredProducts.map((product) => (
-              <ProductCard 
-                key={product.id} 
-                product={product} 
+              <ProductCard
+                key={product.id}
+                product={product}
                 showSocialBadges={true}
               />
             ))}
@@ -98,7 +104,7 @@ const Home: React.FC = () => {
               See how our customers are using our products and sharing their amazing creations on social media.
             </p>
           </div>
-          
+
           <FeaturedSocialContent limit={5} />
         </div>
       </section>
