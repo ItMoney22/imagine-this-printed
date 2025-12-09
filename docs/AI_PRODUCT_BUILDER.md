@@ -1,5 +1,10 @@
 # AI Product Builder
 
+**Status:** CURRENT
+**Last Updated:** 2025-12-09
+
+---
+
 The AI Product Builder is a powerful feature that allows administrators and managers to create complete product listings using natural language descriptions. The system leverages OpenAI GPT-4 for product normalization and Replicate's AI models for high-quality image generation.
 
 ## Overview
