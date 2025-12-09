@@ -13,7 +13,7 @@
         "Verify 2 mockup jobs created (flat_lay + mr_imagine)",
         "Verify final product has exactly 3 images (1 selected + 2 mockups)"
       ],
-      "done": false
+      "done": true
     },
     {
       "id": 2,
