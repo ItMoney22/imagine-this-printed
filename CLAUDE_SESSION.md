@@ -12,8 +12,8 @@
 - [x] Add status headers to key active docs
 - [x] Create Puppeteer browser verification system
 - [x] Fix voice-chat 401 error (user.id vs user.sub mismatch)
-- [ ] Test /create-design feature end-to-end
-- [ ] Commit all uncommitted work
+- [x] Commit all uncommitted work (8 commits)
+- [ ] Test /create-design feature end-to-end (needs backend running)
 
 ## Session Context
 Setting up a robust session continuity system so Claude can resume work after disconnections. The system uses:
