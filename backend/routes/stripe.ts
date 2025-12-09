@@ -7,6 +7,7 @@ import {
   findPackageByUSD,
   isValidPackageAmount
 } from '../config/itc-pricing.js'
+import { processRoyaltyPayment, calculateRoyalty } from '../services/user-royalties.js'
 
 const router = Router()
 
@@ -199,10 +200,38 @@ router.post('/webhook', async (req: Request, res: Response): Promise<any> => {
 
 // Handle successful payment
 async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent, req: Request) {
+  const { userId, itcAmount, packagePriceUSD, orderId, productId } = paymentIntent.metadata
+
+  // Determine payment type: ITC purchase or product order
+  const isITCPurchase = itcAmount && packagePriceUSD
+  const isProductOrder = orderId && productId
+
+  if (!userId) {
+    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing userId in metadata')
+    throw new Error('Missing userId in metadata')
+  }
+
+  // Handle ITC token purchase
+  if (isITCPurchase) {
+    await handleITCPurchase(paymentIntent, req)
+  }
+
+  // Handle product order payment
+  if (isProductOrder) {
+    await handleProductOrderPayment(paymentIntent, req)
+  }
+
+  if (!isITCPurchase && !isProductOrder) {
+    req.log?.warn({ metadata: paymentIntent.metadata }, 'Payment type could not be determined')
+  }
+}
+
+// Handle ITC token purchase
+async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Request) {
   const { userId, itcAmount, packagePriceUSD } = paymentIntent.metadata
 
   if (!userId || !itcAmount) {
-    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing required metadata')
+    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing required metadata for ITC purchase')
     throw new Error('Missing required metadata')
   }
 
@@ -279,7 +308,94 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent, req: Re
     itcAmount: itcAmountNum,
     newBalance,
     paymentIntentId: paymentIntent.id
-  }, 'Payment processed successfully')
+  }, 'ITC purchase processed successfully')
+}
+
+// Handle product order payment and royalties
+async function handleProductOrderPayment(paymentIntent: Stripe.PaymentIntent, req: Request) {
+  const { userId, orderId, productId } = paymentIntent.metadata
+
+  if (!userId || !orderId || !productId) {
+    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing required metadata for product order')
+    throw new Error('Missing required metadata')
+  }
+
+  req.log?.info({
+    orderId,
+    productId,
+    userId,
+    amount: paymentIntent.amount
+  }, 'Processing product order payment')
+
+  // Check if product is user-generated
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .select('id, name, price, is_user_generated, created_by_user_id')
+    .eq('id', productId)
+    .single()
+
+  if (productError || !product) {
+    req.log?.error({ err: productError, productId }, 'Product not found')
+    throw new Error('Product not found')
+  }
+
+  // Update order status to paid
+  const { error: orderUpdateError } = await supabase
+    .from('orders')
+    .update({
+      status: 'paid',
+      payment_intent_id: paymentIntent.id,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+
+  if (orderUpdateError) {
+    req.log?.error({ err: orderUpdateError, orderId }, 'Failed to update order status')
+    // Don't throw - continue with royalty processing
+  }
+
+  // Process royalty if product is user-generated
+  if (product.is_user_generated && product.created_by_user_id) {
+    try {
+      const priceCents = paymentIntent.amount // Amount is already in cents
+      const { royaltyAmountCents, itcAmount } = calculateRoyalty(priceCents)
+
+      await processRoyaltyPayment({
+        userId: product.created_by_user_id,
+        productId: product.id,
+        orderId,
+        salePriceCents: priceCents,
+        royaltyAmountCents,
+        itcAmount
+      })
+
+      req.log?.info({
+        creatorId: product.created_by_user_id,
+        productId: product.id,
+        royaltyAmount: royaltyAmountCents,
+        itcAmount
+      }, '💰 Royalty processed for user-generated product')
+    } catch (royaltyError: any) {
+      req.log?.error({
+        err: royaltyError,
+        productId: product.id,
+        creatorId: product.created_by_user_id
+      }, '❌ Failed to process royalty payment')
+      // Don't throw - order payment succeeded, royalty can be retried
+    }
+  } else {
+    req.log?.info({
+      productId: product.id,
+      isUserGenerated: product.is_user_generated,
+      hasCreator: !!product.created_by_user_id
+    }, 'Product order completed (no royalty - not user-generated)')
+  }
+
+  req.log?.info({
+    orderId,
+    productId,
+    paymentIntentId: paymentIntent.id
+  }, 'Product order payment processed successfully')
 }
 
 // Handle failed payment

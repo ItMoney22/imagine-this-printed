@@ -21,6 +21,15 @@ import replicateCallbackRouter from './routes/ai/replicate-callback.js'
 import mockupsRouter from './routes/mockups.js'
 import designerRouter from './routes/designer.js'
 import realisticMockupsRouter from './routes/realistic-mockups.js'
+import voiceRouter from './routes/ai/voice.js'
+import conciergeAvatarRouter from './routes/ai/concierge-avatar.js'
+import transcribeRouter from './routes/ai/transcribe.js'
+import chatRouter from './routes/ai/chat.js'
+import voiceChatRouter from './routes/ai/voice-chat.js'
+import mrImagineChatRouter from './routes/ai/mr-imagine-chat.js'
+import userProductsRouter from './routes/user-products.js'
+import userProductApprovalsRouter from './routes/admin/user-product-approvals.js'
+import adminSupportRouter from './routes/admin/support.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -133,6 +142,15 @@ app.use('/api/ai/replicate', replicateCallbackRouter)
 app.use('/api/mockups', mockupsRouter)
 app.use('/api/designer', designerRouter)
 app.use('/api/realistic-mockups', realisticMockupsRouter)
+app.use('/api/ai/voice', voiceRouter)
+app.use('/api/ai/concierge', conciergeAvatarRouter)
+app.use('/api/ai/transcribe', transcribeRouter)
+app.use('/api/ai/chat', chatRouter)
+app.use('/api/ai/voice-chat', voiceChatRouter)
+app.use('/api/ai/mr-imagine', mrImagineChatRouter)
+app.use('/api/user-products', userProductsRouter)
+app.use('/api/admin/user-products', userProductApprovalsRouter)
+app.use('/api/admin/support', adminSupportRouter)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

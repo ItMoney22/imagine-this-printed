@@ -1,4 +1,5 @@
 import Replicate from 'replicate'
+import { buildDTFPrompt } from './dtf-optimizer.js'
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
@@ -10,27 +11,75 @@ export interface ReplicateImageInput {
   width?: number
   height?: number
   background?: 'transparent' | 'studio'
+  shirtColor?: 'black' | 'white' | 'grey' | 'color'
+  printStyle?: 'clean' | 'halftone' | 'grunge'
+  // Model selection - defaults to first model if not specified
+  modelId?: 'google/imagen-4-ultra' | 'google/imagen-4' | 'black-forest-labs/flux-1.1-pro-ultra'
 }
 
 export interface ReplicateTryOnInput {
-  garment_image: string // URL or base64
+  garment_image: string // URL or base64 - the design to apply
   template?: 'flat_lay' | 'lifestyle'
   product_type?: 'shirts' | 'hoodies' | 'tumblers' | 'dtf-transfers'
+  shirtColor?: 'black' | 'white' | 'gray' | 'color' // DTF shirt color for mockup matching
+  productType?: 'tshirt' | 'hoodie' | 'tank' // Product type for Mr. Imagine mockups
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
 }
 
-// Multi-model configuration
+// Mr. Imagine mockup base URLs - using public assets from the frontend
+// These should be publicly accessible URLs to the Mr. Imagine mockup images
+const MR_IMAGINE_MOCKUPS: Record<string, Record<string, Record<string, string>>> = {
+  tshirt: {
+    front: {
+      black: '/mr-imagine/mockups/mr-imagine-tshirt-black-front.png',
+      white: '/mr-imagine/mockups/mr-imagine-tshirt-white-front.png',
+      gray: '/mr-imagine/mockups/mr-imagine-tshirt-gray-front.png',
+    },
+    back: {
+      black: '/mr-imagine/mockups/mr-imagine-tshirt-black-back.png',
+      white: '/mr-imagine/mockups/mr-imagine-tshirt-white-back.png',
+      gray: '/mr-imagine/mockups/mr-imagine-tshirt-gray-back.png',
+    },
+  },
+  hoodie: {
+    front: {
+      black: '/mr-imagine/mockups/mr-imagine-hoodie-black-front.png',
+      white: '/mr-imagine/mockups/mr-imagine-hoodie-white-front.png',
+    },
+    back: {
+      black: '/mr-imagine/mockups/mr-imagine-hoodie-black-back.png',
+      white: '/mr-imagine/mockups/mr-imagine-hoodie-white-back.png',
+    },
+  },
+  tank: {
+    front: {
+      black: '/mr-imagine/mockups/mr-imagine-tank-black-front.png',
+      white: '/mr-imagine/mockups/mr-imagine-tank-white-front.png',
+    },
+  },
+}
+
+// Multi-model configuration - 3 models for simultaneous generation
 const MODELS = [
   {
-    id: 'google/imagen-4',
-    name: 'Google Imagen 4',
-    isSynchronous: true, // Uses replicate.run()
+    id: 'google/imagen-4-ultra',
+    name: 'Google Imagen 4 Ultra',
+    isSynchronous: true,
+  },
+  {
+    id: 'black-forest-labs/flux-1.1-pro-ultra',
+    name: 'Flux 1.1 Pro Ultra',
+    isSynchronous: true,
   },
   {
     id: 'leonardoai/lucid-origin',
-    name: 'Leonardo Lucid Origin',
-    isSynchronous: true, // Uses replicate.run() - returns array of outputs
-  }
+    name: 'Lucid Origin',
+    isSynchronous: true,
+  },
 ]
+
+// Export available models for frontend display
+export const AVAILABLE_MODELS = MODELS.map(m => ({ id: m.id, name: m.name }))
 
 // Helper function to generate with a single model
 async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: ReplicateImageInput) {
@@ -47,15 +96,25 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
 
   // Synchronous models - Use replicate.run()
   if (isSynchronous) {
-    // Google Imagen 4 parameters
+    // Google Imagen 4/Ultra parameters
     if (modelId.includes('imagen-4') || modelId.includes('imagen-3') || modelId.includes('google/')) {
       modelInput.aspect_ratio = '1:1'
       modelInput.safety_filter_level = 'block_only_high'
       modelInput.output_format = 'png'
     }
-    // Leonardo Lucid Origin parameters
-    else if (modelId.includes('leonardoai/lucid-origin')) {
+    // Flux 1.1 Pro Ultra parameters
+    else if (modelId.includes('flux-1.1-pro-ultra') || modelId.includes('black-forest-labs/')) {
+      modelInput.raw = false
       modelInput.aspect_ratio = '1:1'
+      modelInput.output_format = 'png'
+      modelInput.safety_tolerance = 2
+    }
+    // Lucid Origin parameters (Leonardo AI)
+    else if (modelId.includes('lucid-origin') || modelId.includes('leonardoai/')) {
+      modelInput.width = 1024
+      modelInput.height = 1024
+      modelInput.num_outputs = 1
+      modelInput.output_format = 'png'
     }
     // Generic fallback
     else {
@@ -139,20 +198,54 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
 }
 
 export async function generateProductImage(input: ReplicateImageInput) {
-  console.log('[replicate] 🎨🎨 Multi-model generation started with', MODELS.length, 'models')
+  console.log('[replicate] 🎨 Generating images from ALL 3 models simultaneously')
 
-  // Generate with all configured models
-  const results = await Promise.all(
-    MODELS.map(model => generateWithSingleModel(model, input))
+  // Build DTF-aware prompt if shirt color and style are specified
+  let finalPrompt = input.prompt
+  if (input.shirtColor || input.printStyle) {
+    const shirtColor = input.shirtColor || 'black'
+    const printStyle = input.printStyle || 'clean'
+    finalPrompt = buildDTFPrompt(input.prompt, shirtColor, printStyle)
+    console.log('[replicate] 📝 Using DTF-aware prompt for:', { shirtColor, printStyle })
+  }
+
+  // Create input with final prompt
+  const finalInput = {
+    ...input,
+    prompt: finalPrompt,
+  }
+
+  // Generate from ALL 3 models in parallel
+  console.log('[replicate] 🚀 Starting parallel generation from:', MODELS.map(m => m.name).join(', '))
+
+  const results = await Promise.allSettled(
+    MODELS.map(model => generateWithSingleModel(model, finalInput))
   )
 
-  console.log('[replicate] ✅ Multi-model generation complete:', results.length, 'outputs')
+  // Process results - extract successful ones and log failures
+  const outputs: any[] = []
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      outputs.push(result.value)
+      console.log(`[replicate] ✅ ${MODELS[index].name} succeeded`)
+    } else {
+      console.error(`[replicate] ❌ ${MODELS[index].name} failed:`, result.reason?.message || result.reason)
+      // Still include failed model info so frontend knows what happened
+      outputs.push({
+        modelId: MODELS[index].id,
+        modelName: MODELS[index].name,
+        status: 'failed',
+        error: result.reason?.message || 'Generation failed',
+      })
+    }
+  })
 
-  // Return a multi-model result object
+  console.log('[replicate] ✅ Multi-model generation complete. Success:', outputs.filter(o => o.status === 'succeeded').length, '/', MODELS.length)
+
   return {
     id: 'multi-model-' + Date.now(),
     status: 'succeeded',
-    outputs: results,
+    outputs,
     isMultiModel: true,
   }
 }
@@ -187,32 +280,99 @@ export async function removeBackground(imageUrl: string) {
 export async function generateMockup(input: ReplicateTryOnInput) {
   const modelId = process.env.REPLICATE_TRYON_MODEL_ID!
 
-  console.log('[replicate] 👕 Generating mockup:', { modelId, template: input.template, product_type: input.product_type, garment_image: input.garment_image })
+  console.log('[replicate] 👕 Generating Mr. Imagine mockup:', {
+    modelId,
+    template: input.template,
+    product_type: input.product_type,
+    productType: input.productType,
+    shirtColor: input.shirtColor,
+    printPlacement: input.printPlacement,
+    garment_image: input.garment_image
+  })
 
-  // Google Nano Banana uses natural language prompts + image_input array
-  // CRITICAL: Must be VERY explicit about using the input image's design
+  // Determine product type and color for Mr. Imagine mockup selection
+  const productType = input.productType || (input.product_type === 'hoodies' ? 'hoodie' : 'tshirt')
+  const shirtColor = input.shirtColor || 'black'
+  const printPlacement = input.printPlacement || 'front-center'
 
+  // Determine front or back based on print placement
+  const side = printPlacement === 'back-only' ? 'back' : 'front'
+
+  // Get Mr. Imagine base mockup URL
+  const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
+  const mrImagineMockupPath = MR_IMAGINE_MOCKUPS[productType]?.[side]?.[shirtColor] ||
+                              MR_IMAGINE_MOCKUPS[productType]?.front?.[shirtColor] ||
+                              MR_IMAGINE_MOCKUPS['tshirt']['front']['black'] // Fallback
+  const mrImagineMockupUrl = `${siteUrl}${mrImagineMockupPath}`
+
+  console.log('[replicate] 🎭 Using Mr. Imagine mockup:', mrImagineMockupUrl)
+
+  // Map shirt color to fabric color description
+  const shirtColorMap: Record<string, string> = {
+    'black': 'black',
+    'white': 'white',
+    'gray': 'heather gray',
+    'grey': 'heather grey',
+    'color': 'colored'
+  }
+
+  const fabricColor = shirtColorMap[shirtColor] || 'black'
+
+  // Map product type to name
+  const productNameMap: Record<string, string> = {
+    'tshirt': 't-shirt',
+    'hoodie': 'hoodie',
+    'tank': 'tank top',
+    'shirts': 't-shirt',
+    'hoodies': 'hoodie',
+  }
+  const productName = productNameMap[productType] || productNameMap[input.product_type || 'shirts'] || 't-shirt'
+
+  // Placement-specific instructions for design positioning
+  const placementInstructions: Record<string, string> = {
+    'front-center': 'centered on the chest area of the shirt',
+    'left-pocket': 'small, positioned on the left chest pocket area',
+    'back-only': 'large, centered on the back of the shirt',
+    'pocket-front-back-full': 'small on the front left pocket and large on the back'
+  }
+
+  const placementDesc = placementInstructions[printPlacement] || placementInstructions['front-center']
+
+  // Build the prompt for Nano Banana with Mr. Imagine + Design fusion
   let prompt = ''
 
   if (input.template === 'flat_lay') {
-    const productName = input.product_type === 'shirts' ? 't-shirt' :
-                       input.product_type === 'hoodies' ? 'hoodie' :
-                       input.product_type === 'tumblers' ? 'tumbler' : 'product'
-    prompt = `Place the graphic design from the input image onto the center front of a ${productName}. IMPORTANT: Copy the graphic EXACTLY as it appears in the input - do NOT modify colors, do NOT add backgrounds, do NOT alter the design in any way. Show a professional flat lay product photography of the ${productName} with the original design printed on it. Studio lighting, clean white background for the product only, high quality product photography.`
+    prompt = `Create a professional product mockup: Take the graphic design from the SECOND input image and apply it ${placementDesc} on the ${fabricColor} ${productName} shown in the FIRST input image.
+
+CRITICAL INSTRUCTIONS:
+1. The FIRST image shows Mr. Imagine (a friendly purple furry character) wearing/modeling the ${fabricColor} ${productName} - keep Mr. Imagine exactly as shown
+2. The SECOND image is the graphic design to apply to the ${productName}
+3. Apply the design ${placementDesc}, making it look like a real printed DTF transfer
+4. Preserve Mr. Imagine's pose and the ${productName}'s original ${fabricColor} color
+5. Do NOT modify, distort, or change the design - copy it EXACTLY
+6. The result should look like a real product photo with Mr. Imagine modeling the custom printed ${productName}
+7. Professional studio lighting, clean background, high quality product photography`
   } else {
-    const productName = input.product_type === 'shirts' ? 't-shirt' :
-                       input.product_type === 'hoodies' ? 'hoodie' : 'product'
-    prompt = `A model wearing a ${productName} with a graphic design on the front. CRITICAL REQUIREMENT: The graphic on the ${productName} must be EXACTLY the same as shown in the input image - same colors, same design, same everything. Do NOT modify, do NOT add backgrounds, do NOT change anything about the graphic. Only show the model and ${productName}, with the input graphic perfectly preserved. Professional lifestyle photography.`
+    prompt = `Create a lifestyle product mockup featuring Mr. Imagine: The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing/modeling a ${fabricColor} ${productName}. The SECOND input image is a graphic design.
+
+CRITICAL INSTRUCTIONS:
+1. Keep Mr. Imagine exactly as shown in the FIRST image
+2. Apply the design from the SECOND image ${placementDesc} on the ${productName}
+3. The design should look like a real DTF printed graphic on the fabric
+4. Preserve Mr. Imagine's character, pose, and the ${fabricColor} color of the ${productName}
+5. Copy the graphic EXACTLY as it appears - same colors, same design elements
+6. Professional lifestyle photography style with natural lighting
+7. The result should look like Mr. Imagine is proudly showing off the custom ${productName}`
   }
 
-  // Nano Banana parameters
+  // Nano Banana parameters with TWO input images: Mr. Imagine mockup + design
   const params: any = {
     input: {
       prompt: prompt,
-      image_input: [input.garment_image], // Array of input images - the product design
-      aspect_ratio: '1:1', // Square format for product images
-      output_format: 'png', // PNG for transparency support
-      num_outputs: 1, // Generate only 1 image per prediction
+      image_input: [mrImagineMockupUrl, input.garment_image], // Array: [Mr. Imagine base, Design to apply]
+      aspect_ratio: '1:1',
+      output_format: 'png',
+      
     },
     webhook: `${process.env.PUBLIC_URL}/api/ai/replicate/callback`,
     webhook_events_filter: ['completed'],
@@ -225,11 +385,11 @@ export async function generateMockup(input: ReplicateTryOnInput) {
     params.model = modelId
   }
 
-  console.log('[replicate] 🔍 Full params being sent to Replicate:', JSON.stringify(params, null, 2))
+  console.log('[replicate] 🔍 Full Mr. Imagine mockup params:', JSON.stringify(params, null, 2))
 
   const prediction = await replicate.predictions.create(params)
 
-  console.log('[replicate] ✅ Mockup prediction created:', prediction.id)
+  console.log('[replicate] ✅ Mr. Imagine mockup prediction created:', prediction.id)
   console.log('[replicate] 🔍 Full prediction response:', JSON.stringify(prediction, null, 2))
 
   return prediction

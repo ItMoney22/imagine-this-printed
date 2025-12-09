@@ -12,6 +12,10 @@ export interface ProductNormalizationInput {
   tone?: string
   imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'
   searchContext?: string
+  // DTF Print Settings
+  productType?: 'tshirt' | 'hoodie' | 'tank'
+  shirtColor?: 'black' | 'white' | 'gray'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
 }
 
 export interface NormalizedProduct {
@@ -47,7 +51,7 @@ const SYSTEM_PROMPT = `You are a witty product copywriter for a custom-print sho
 - variants: array of variant objects with name and optional priceDeltaCents
 - mockup_style: "flat" or "human"
 - background: "transparent" or "studio"
-- image_prompt: A detailed, specific prompt for AI image generation. Focus on the GRAPHIC/DESIGN itself (NOT the product it's on). Be extremely specific about visual elements, colors, style, composition. Include any context from search results to ensure accuracy. This prompt will be used to generate the actual artwork.
+- image_prompt: A detailed, specific prompt for AI image generation optimized for DTF (Direct-to-Film) printing. Focus on the GRAPHIC/DESIGN itself (NOT the product it's on).
 
 CRITICAL RULES FOR image_prompt:
 1. **YOU MUST USE THE SEARCH CONTEXT IF PROVIDED** - This is MANDATORY. The search context contains accurate, current information about the subject.
@@ -55,14 +59,31 @@ CRITICAL RULES FOR image_prompt:
 3. If context mentions a game/movie genre (shooter, RPG, action, horror), incorporate visual elements typical of that genre
 4. If context mentions specific characters, weapons, vehicles, or settings - DESCRIBE THOSE EXACT ELEMENTS in detail
 5. DO NOT make assumptions or use generic imagery - if context says "sci-fi extraction shooter", describe futuristic soldiers with advanced gear, alien planets, extraction pods, etc.
-6. Specify the artistic style based on user preference (realistic/cartoon/semi-realistic) AND what the context suggests
-7. Build a complete visual scene: foreground subjects, background elements, lighting, atmosphere, color scheme
-8. DO NOT mention "on a t-shirt" or "product mockup" - just describe the artwork itself
-9. Make it 2-3 sentences minimum with rich visual detail
+
+ART STYLE INTEGRATION (CRITICAL):
+6. The user specifies an image style: "realistic", "cartoon", or "semi-realistic"
+   - For "realistic": Use photorealistic rendering, detailed textures, natural lighting, high detail photography style
+   - For "cartoon": Use bold outlines, flat colors, stylized proportions, animated/illustrated look, vibrant saturated colors
+   - For "semi-realistic": Blend realistic detail with artistic stylization, digital art style, balanced between photo and illustration
+7. ALWAYS include the art style explicitly in your image_prompt (e.g., "photorealistic style" or "cartoon illustrated style" or "semi-realistic digital art")
+
+PRINT PLACEMENT AWARENESS:
+8. Consider the print placement when designing the composition:
+   - "front-center": Full design, can be detailed and complex
+   - "left-pocket": Smaller, simpler design suitable for pocket area (logo, icon, small graphic)
+   - "back-only": Full back print, can be large and dramatic
+   - "pocket-front-back-full": Small front pocket design + larger back design (consider this for dual compositions)
+
+DESIGN GUIDELINES:
+9. Build a complete visual scene: foreground subjects, background elements, lighting, atmosphere, color scheme
+10. DO NOT mention "on a t-shirt" or "product mockup" - just describe the artwork itself
+11. Make it 2-3 sentences minimum with rich visual detail
+12. Consider the shirt color when suggesting design colors (e.g., for black shirts use bright/neon colors that pop)
 
 Example:
 - Context: "Arc Raiders is a sci-fi extraction shooter set on a war-torn Earth invaded by mysterious machines"
-- Good image_prompt: "Futuristic soldiers in tactical armor fighting against massive mechanical invaders, sci-fi extraction shooter aesthetic, war-torn Earth environment with destroyed buildings, dramatic action scene, blue and orange lighting, realistic military sci-fi art style"
+- Image style: "realistic"
+- Good image_prompt: "Futuristic soldiers in tactical armor fighting against massive mechanical invaders, photorealistic military sci-fi art style, war-torn Earth environment with destroyed buildings, dramatic action scene, blue and orange cinematic lighting, highly detailed textures and realistic rendering"
 - Bad image_prompt: "Raiders logo" or "Generic soldiers"
 
 Output ONLY valid JSON, no markdown code blocks or explanations.`
@@ -71,6 +92,14 @@ export async function normalizeProduct(
   input: ProductNormalizationInput
 ): Promise<NormalizedProduct> {
   console.log('[ai-product] 🤖 Normalizing product:', input.prompt)
+
+  // Map print placement to description
+  const placementDescriptions: Record<string, string> = {
+    'front-center': 'full center chest design',
+    'left-pocket': 'small pocket-sized design (logo/icon)',
+    'back-only': 'large full-back design',
+    'pocket-front-back-full': 'dual design: small front pocket + large back print'
+  }
 
   const userPrompt = `${input.prompt}
 
@@ -81,7 +110,12 @@ Additional preferences:
 - Mockup style: ${input.mockupStyle || 'auto-detect'}
 - Background: ${input.background || 'transparent'}
 - Tone: ${input.tone || 'professional and appealing'}
-- Image style: ${input.imageStyle || 'semi-realistic'} (use this for the image_prompt field to determine artistic style)`
+- Image style: ${input.imageStyle || 'semi-realistic'} (CRITICAL: use this exact style for the image_prompt - realistic=photorealistic, cartoon=illustrated, semi-realistic=digital art)
+
+DTF Print Settings:
+- Product type: ${input.productType || 'tshirt'}
+- Shirt color: ${input.shirtColor || 'black'} (design colors should complement/contrast with this)
+- Print placement: ${input.printPlacement || 'front-center'} (${placementDescriptions[input.printPlacement || 'front-center']})`
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4-turbo-preview',
