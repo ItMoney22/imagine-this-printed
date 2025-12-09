@@ -11,7 +11,11 @@
     "start": "node server-static.mjs",
     "test": "vitest run",
     "test:e2e": "vitest run --config e2e/vitest.config.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify": "node scripts/verify/critical-paths.js",
+    "verify:home": "node scripts/verify/critical-paths.js home",
+    "verify:products": "node scripts/verify/critical-paths.js products",
+    "verify:auth": "node scripts/verify/critical-paths.js auth"
   },
   "engines": {
     "node": ">=18.17"
@@ -33,6 +37,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^4.18.2",
+    "framer-motion": "^12.23.25",
     "jsonwebtoken": "^9.0.2",
     "konva": "^9.3.22",
     "lucide-react": "^0.553.0",
