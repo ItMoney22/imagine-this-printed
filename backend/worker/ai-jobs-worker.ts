@@ -1,7 +1,9 @@
 import { supabase } from '../lib/supabase.js'
 import { generateProductImage, generateMockup, removeBackground, upscaleImage, getPrediction } from '../services/replicate.js'
 import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
-import { uploadImageFromUrl, uploadImageFromBase64 } from '../services/google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
+import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mockup.js'
 
 const POLL_INTERVAL = 5000 // 5 seconds
 
@@ -20,7 +22,7 @@ export async function processQueuedJobs() {
     }
 
     if (queuedJobs && queuedJobs.length > 0) {
-      console.log('[worker] 📋 Processing', queuedJobs.length, 'queued jobs')
+      console.log('[worker] 📋 Processing', queuedJobs.length, 'queued jobs:', queuedJobs.map(j => ({ id: j.id.substring(0, 8), type: j.type, template: j.input?.template })))
       for (const job of queuedJobs) {
         try {
           await startJob(job)
@@ -82,6 +84,89 @@ async function getProductSlug(productId: string): Promise<string> {
       .replace(/(^-|-$)/g, '')
   }
   return productId.substring(0, 8) // Fallback to short ID
+}
+
+// Helper to auto-queue mockup job after image generation
+async function autoQueueMockupJob(imageJob: any) {
+  try {
+    console.log('[worker] 🎭 Auto-queueing Mr. Imagine mockup job for product:', imageJob.product_id)
+
+    // Get product category for mockup type
+    const { data: product } = await supabase
+      .from('products')
+      .select('category')
+      .eq('id', imageJob.product_id)
+      .single()
+
+    // Check if mockup job already exists for this product
+    const { data: existingMockupJobs } = await supabase
+      .from('ai_jobs')
+      .select('id')
+      .eq('product_id', imageJob.product_id)
+      .eq('type', 'replicate_mockup')
+      .limit(1)
+
+    if (existingMockupJobs && existingMockupJobs.length > 0) {
+      console.log('[worker] ⏭️ Mockup job already exists, skipping auto-queue')
+      return
+    }
+
+    // Create mockup job with Mr. Imagine
+    const mockupJob = {
+      product_id: imageJob.product_id,
+      type: 'replicate_mockup',
+      status: 'queued',
+      input: {
+        template: 'flat_lay',
+        product_type: product?.category || 'shirts',
+        // Pass DTF settings from original image job
+        productType: imageJob.input?.productType || 'tshirt',
+        shirtColor: imageJob.input?.shirtColor || 'black',
+        printPlacement: imageJob.input?.printPlacement || 'front-center',
+      },
+    }
+
+    const { data: createdJob, error: jobError } = await supabase
+      .from('ai_jobs')
+      .insert(mockupJob)
+      .select()
+      .single()
+
+    if (jobError) {
+      console.error('[worker] ❌ Failed to auto-queue mockup job:', jobError)
+    } else {
+      console.log('[worker] ✅ Auto-queued Mr. Imagine mockup job:', createdJob.id)
+    }
+  } catch (error: any) {
+    console.error('[worker] ❌ Error auto-queueing mockup job:', error.message)
+  }
+}
+
+// Helper to apply DTF optimization and upload optimized PNG
+async function optimizeAndUploadDTF(
+  sourceUrl: string,
+  productSlug: string,
+  options: DTFOptimizationOptions
+): Promise<{ publicUrl: string; path: string }> {
+  console.log('[worker] 🎨 Applying DTF optimization:', options)
+
+  // Apply DTF optimization
+  const optimizedBuffer = await optimizeForDTF(sourceUrl, options)
+
+  // Upload optimized PNG to GCS
+  const timestamp = Date.now()
+  const styleSlug = options.printStyle === 'clean' ? '' : `-${options.printStyle}`
+  const filename = `${productSlug}-dtf-${options.shirtColor}${styleSlug}-${timestamp}.png`
+  const gcsPath = `graphics/${productSlug}/dtf-optimized/${filename}`
+
+  console.log('[worker] 📤 Uploading DTF-optimized PNG to GCS:', gcsPath)
+
+  // Upload buffer directly to GCS
+  const { publicUrl, path } = await uploadImageFromBuffer(optimizedBuffer, gcsPath, 'image/png')
+
+  console.log('[worker] ✅ DTF-optimized PNG uploaded:', publicUrl)
+
+  return { publicUrl, path }
 }
 
 async function startJob(job: any) {
@@ -146,6 +231,9 @@ async function startJob(job: any) {
               url: publicUrl,
               width: 1024,
               height: 1024,
+              asset_role: 'design',
+              is_primary: false,
+              display_order: 99,
               metadata: {
                 model_id: modelOutput.modelId,
                 model_name: modelOutput.modelName,
@@ -158,12 +246,89 @@ async function startJob(job: any) {
           } else {
             console.log(`[worker] ✅ Saved asset for ${modelOutput.modelName}:`, publicUrl)
           }
+
+          // Apply DTF optimization if DTF parameters are present
+          if (job.input?.shirtColor || job.input?.printStyle) {
+            try {
+              const dtfOptions: DTFOptimizationOptions = {
+                shirtColor: job.input.shirtColor || 'black',
+                printStyle: job.input.printStyle || 'clean',
+              }
+
+              const { publicUrl: dtfUrl, path: dtfPath } = await optimizeAndUploadDTF(
+                publicUrl,
+                productSlug,
+                dtfOptions
+              )
+
+              // Save DTF-optimized asset
+              await supabase
+                .from('product_assets')
+                .insert({
+                  product_id: job.product_id,
+                  kind: 'dtf',
+                  path: dtfPath,
+                  url: dtfUrl,
+                  width: 1024,
+                  height: 1024,
+                  asset_role: 'design',
+                  is_primary: false,
+                  display_order: 99,
+                  metadata: {
+                    model_id: modelOutput.modelId,
+                    model_name: modelOutput.modelName,
+                    shirt_color: dtfOptions.shirtColor,
+                    print_style: dtfOptions.printStyle,
+                    optimized_at: new Date().toISOString(),
+                  },
+                })
+
+              console.log(`[worker] ✅ DTF-optimized asset saved for ${modelOutput.modelName}:`, dtfUrl)
+            } catch (dtfError: any) {
+              console.error('[worker] ❌ DTF optimization failed:', dtfError.message)
+              // Don't fail the job, just log the error
+            }
+          }
         } else if (modelOutput.predictionId) {
           console.log(`[worker] ⏳ Async prediction created for ${modelOutput.modelName}:`, modelOutput.predictionId)
         }
       }
 
-      console.log('[worker] ✅ Multi-model generation processed')
+      // Check if all models completed (either succeeded or failed) - we don't want to hang if one fails
+      const allSyncProcessed = result.outputs.every((o: any) => o.isSynchronous && (o.status === 'succeeded' || o.status === 'failed'))
+      const successCount = result.outputs.filter((o: any) => o.status === 'succeeded').length
+
+      if (allSyncProcessed && successCount > 0) {
+        // At least one model succeeded - mark job as succeeded so flow can continue
+        console.log('[worker] ✅ Multi-model generation processed (Success:', successCount, '/', result.outputs.length, ')')
+        console.log('[worker] 🎨 User will now select from', successCount, 'images before mockup generation')
+
+        await supabase
+          .from('ai_jobs')
+          .update({
+            status: 'succeeded',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.id)
+
+        // NOTE: Do NOT auto-queue mockup job here!
+        // User must first select their preferred image from the 3 generated options.
+        // The frontend will call /api/admin/products/ai/:id/select-image
+        // which creates the mockup job with the selected asset.
+      } else if (allSyncProcessed && successCount === 0) {
+        // All failed
+        console.error('[worker] ❌ All models failed synchronous generation')
+        await supabase
+          .from('ai_jobs')
+          .update({
+            status: 'failed',
+            error: 'All models failed to generate images',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.id)
+      } else {
+        console.log('[worker] ⏳ Multi-model generation in progress - waiting for async models or user selection')
+      }
     } else {
       // Legacy single-model result (backward compatibility)
       await supabase
@@ -178,15 +343,40 @@ async function startJob(job: any) {
       console.log('[worker] ✅ Image generation started:', result.id)
     }
   } else if (job.type === 'replicate_rembg') {
-    // Remove background from source image - get the most recent source image
-    const { data: sourceAsset } = await supabase
-      .from('product_assets')
-      .select('url')
-      .eq('product_id', job.product_id)
-      .eq('kind', 'source')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
+    // Remove background from source image
+    // If user selected a specific asset, use that one; otherwise get the most recent source image
+    let sourceAsset: { url: string } | null = null
+
+    if (job.input?.selected_asset_id) {
+      console.log('[worker] 🎯 Using user-selected asset for background removal:', job.input.selected_asset_id)
+
+      const { data: selectedAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('id', job.input.selected_asset_id)
+        .single()
+
+      if (selectedAsset) {
+        sourceAsset = selectedAsset
+        console.log('[worker] ✅ Found selected asset:', selectedAsset.url)
+      } else {
+        console.warn('[worker] ⚠️ Selected asset not found, falling back to most recent source')
+      }
+    }
+
+    // Fallback: get the most recent source image
+    if (!sourceAsset) {
+      const { data: fallbackAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'source')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      sourceAsset = fallbackAsset
+    }
 
     if (!sourceAsset) {
       console.error('[worker] ❌ Source image not found for background removal!')
@@ -228,6 +418,9 @@ async function startJob(job: any) {
           url: publicUrl,
           width: 1024,
           height: 1024,
+          asset_role: 'auxiliary',
+          is_primary: false,
+          display_order: 99,
         })
 
       if (assetError) {
@@ -307,21 +500,63 @@ async function startJob(job: any) {
       console.log('[worker] ⚠️ Background removal failed, will use source image for mockup')
     }
 
-    // Try to get the no-background asset first (if background removal was done)
-    const { data: nobgAsset } = await supabase
-      .from('product_assets')
-      .select('url')
-      .eq('product_id', job.product_id)
-      .eq('kind', 'nobg')
-      .single()
+    // Priority order: Selected asset > DTF-optimized > no-background > source
+    let garmentImageUrl: string | undefined
 
-    // If no nobg asset, fall back to source image (for "Skip to Mockups" workflow)
-    let garmentImageUrl: string
-    if (nobgAsset) {
-      garmentImageUrl = nobgAsset.url
-      console.log('[worker] 📸 Using no-background image for mockup:', garmentImageUrl)
-    } else {
-      // Get the most recent source image
+    // If user selected a specific asset, use that one
+    if (job.input?.selected_asset_id) {
+      console.log('[worker] 🎯 Using user-selected asset:', job.input.selected_asset_id)
+
+      // Get the selected asset
+      const { data: selectedAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('id', job.input.selected_asset_id)
+        .single()
+
+      if (selectedAsset) {
+        garmentImageUrl = selectedAsset.url
+        console.log('[worker] ✅ Using selected image for mockup:', garmentImageUrl)
+      } else {
+        console.error('[worker] ❌ Selected asset not found, falling back to default priority')
+      }
+    }
+
+    // If no selected asset or not found, fall back to priority order
+    if (!garmentImageUrl) {
+      // Try DTF-optimized asset first (if DTF optimization was done)
+      const { data: dtfAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'dtf')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (dtfAsset) {
+        garmentImageUrl = dtfAsset.url
+        console.log('[worker] 🎨 Using DTF-optimized image for mockup:', garmentImageUrl)
+      }
+    }
+
+    if (!garmentImageUrl) {
+      // Try to get the no-background asset (if background removal was done)
+      const { data: nobgAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'nobg')
+        .single()
+
+      if (nobgAsset) {
+        garmentImageUrl = nobgAsset.url
+        console.log('[worker] 📸 Using no-background image for mockup:', garmentImageUrl)
+      }
+    }
+
+    if (!garmentImageUrl) {
+      // Get the most recent source image (for "Skip to Mockups" workflow)
       const { data: sourceAsset } = await supabase
         .from('product_assets')
         .select('url')
@@ -345,7 +580,7 @@ async function startJob(job: any) {
       }
 
       garmentImageUrl = sourceAsset.url
-      console.log('[worker] 📸 Using source image for mockup (background removal skipped):', garmentImageUrl)
+      console.log('[worker] 📸 Using source image for mockup (no optimization):', garmentImageUrl)
     }
 
     // Store template info in job metadata for organized upload later
@@ -359,24 +594,103 @@ async function startJob(job: any) {
       })
       .eq('id', job.id)
 
-    // Generate mockup with the selected image
-    const prediction = await generateMockup({
-      garment_image: garmentImageUrl,
+    // Get DTF settings from original image generation job
+    const { data: imageJob } = await supabase
+      .from('ai_jobs')
+      .select('input')
+      .eq('product_id', job.product_id)
+      .eq('type', 'replicate_image')
+      .single()
+
+    const shirtColor = imageJob?.input?.shirtColor
+    const productType = imageJob?.input?.productType
+    const printPlacement = imageJob?.input?.printPlacement
+
+    // Generate mockup with Gemini (synchronous - returns image directly)
+    console.log('[worker] 🎭 Starting Gemini mockup generation...')
+    const geminiResult = await generateGeminiMockup({
+      designImageUrl: garmentImageUrl!, // Safe: we would have returned early if not set
       template: job.input.template,
-      product_type: job.input.product_type,
+      productType: productType || 'tshirt',
+      shirtColor: shirtColor || 'black',
+      printPlacement: printPlacement || 'front-center',
     })
 
-    // Update job with prediction ID
+    if (!geminiResult.success || !geminiResult.imageBase64) {
+      console.error('[worker] ❌ Gemini mockup generation failed:', geminiResult.error)
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'failed',
+          error: geminiResult.error || 'Mockup generation failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+      return
+    }
+
+    console.log('[worker] ✅ Gemini mockup generated successfully')
+
+    // Upload the mockup image to GCS
+    const productSlug = await getProductSlug(job.product_id)
+    const timestamp = Date.now()
+    const template = job.input?.template || 'default'
+    const filename = `${productSlug}-${template}-${timestamp}.png`
+    const gcsPath = `mockups/${productSlug}/${template}/${filename}`
+
+    console.log('[worker] 📤 Uploading mockup to GCS:', gcsPath)
+
+    const { publicUrl, path } = await uploadImageFromBase64(
+      `data:${geminiResult.mimeType};base64,${geminiResult.imageBase64}`,
+      gcsPath
+    )
+
+    console.log('[worker] ✅ Mockup uploaded to GCS:', publicUrl)
+
+    // Determine asset_role and display_order based on template
+    const assetRole = template === 'flat_lay' ? 'mockup_flat_lay' :
+                      template === 'mr_imagine' ? 'mockup_mr_imagine' :
+                      'mockup_flat_lay'
+    const displayOrder = template === 'flat_lay' ? 2 :
+                         template === 'mr_imagine' ? 3 :
+                         2
+
+    // Save to product_assets
+    const { error: assetError } = await supabase
+      .from('product_assets')
+      .insert({
+        product_id: job.product_id,
+        kind: 'mockup',
+        path: path,
+        url: publicUrl,
+        width: 1024,
+        height: 1024,
+        asset_role: assetRole,
+        is_primary: false,
+        display_order: displayOrder,
+        metadata: {
+          template: template,
+          generated_with: 'gemini',
+          generated_at: new Date().toISOString(),
+        },
+      })
+
+    if (assetError) {
+      console.error('[worker] ❌ Error saving mockup asset:', assetError)
+      throw assetError
+    }
+
+    // Update job as succeeded
     await supabase
       .from('ai_jobs')
       .update({
-        prediction_id: prediction.id,
-        output: { prediction_id: prediction.id },
+        status: 'succeeded',
+        output: { url: publicUrl, gcs_path: path },
         updated_at: new Date().toISOString(),
       })
       .eq('id', job.id)
 
-    console.log('[worker] ✅ Mockup generation started:', prediction.id)
+    console.log('[worker] ✅ Mockup job completed:', job.id, publicUrl)
   } else if (job.type === 'replicate_upscale') {
     // Upscale the most recent source or nobg image
     const { data: assets } = await supabase
@@ -502,6 +816,9 @@ async function checkJobStatus(job: any) {
                 url: publicUrl,
                 width: (prediction as any).output_width || 1024,
                 height: (prediction as any).output_height || 1024,
+                asset_role: 'design',
+                is_primary: false,
+                display_order: 99,
                 metadata: {
                   model_id: modelOutput.modelId,
                   model_name: modelOutput.modelName,
@@ -518,6 +835,50 @@ async function checkJobStatus(job: any) {
               updatedOutputs[i].status = 'succeeded'
               updatedOutputs[i].url = publicUrl
               updatedOutputs[i].gcs_path = path
+
+              // Apply DTF optimization if DTF parameters are present
+              if (job.input?.shirtColor || job.input?.printStyle) {
+                try {
+                  const dtfOptions: DTFOptimizationOptions = {
+                    shirtColor: job.input.shirtColor || 'black',
+                    printStyle: job.input.printStyle || 'clean',
+                  }
+
+                  const { publicUrl: dtfUrl, path: dtfPath } = await optimizeAndUploadDTF(
+                    publicUrl,
+                    productSlug,
+                    dtfOptions
+                  )
+
+                  // Save DTF-optimized asset
+                  await supabase
+                    .from('product_assets')
+                    .insert({
+                      product_id: job.product_id,
+                      kind: 'dtf',
+                      path: dtfPath,
+                      url: dtfUrl,
+                      width: (prediction as any).output_width || 1024,
+                      height: (prediction as any).output_height || 1024,
+                      asset_role: 'design',
+                      is_primary: false,
+                      display_order: 99,
+                      metadata: {
+                        model_id: modelOutput.modelId,
+                        model_name: modelOutput.modelName,
+                        shirt_color: dtfOptions.shirtColor,
+                        print_style: dtfOptions.printStyle,
+                        optimized_at: new Date().toISOString(),
+                      },
+                    })
+
+                  console.log(`[worker] ✅ DTF-optimized asset saved for ${modelOutput.modelName}:`, dtfUrl)
+                  updatedOutputs[i].dtf_url = dtfUrl
+                } catch (dtfError: any) {
+                  console.error('[worker] ❌ DTF optimization failed:', dtfError.message)
+                  // Don't fail the job, just log the error
+                }
+              }
             }
 
           } else if (prediction.status === 'failed') {
@@ -557,6 +918,12 @@ async function checkJobStatus(job: any) {
 
     if (allCompleted) {
       console.log('[worker] ✅ All multi-model outputs completed')
+      // NOTE: Mockup jobs are now created by the /select-image endpoint when user selects their favorite image.
+      // This ensures:
+      // 1. User can choose which image they like before mockup generation
+      // 2. Non-selected images are deleted
+      // 3. Both flat_lay and mr_imagine mockups are created
+      console.log('[worker] 🎨 Ready for user selection - mockups will be created via /select-image endpoint')
     }
 
     return
@@ -589,9 +956,9 @@ async function checkJobStatus(job: any) {
 
     // Determine asset kind based on job type
     const assetKind = job.type === 'replicate_image' ? 'source' :
-                      job.type === 'replicate_rembg' ? 'nobg' :
-                      job.type === 'replicate_upscale' ? 'upscaled' :
-                      'mockup'
+      job.type === 'replicate_rembg' ? 'nobg' :
+        job.type === 'replicate_upscale' ? 'upscaled' :
+          'mockup'
 
     // Get product slug for organized folder structure
     const productSlug = await getProductSlug(job.product_id)
@@ -627,6 +994,21 @@ async function checkJobStatus(job: any) {
 
     console.log('[worker] ✅ Image uploaded to GCS:', publicUrl)
 
+    // Determine asset_role and display_order based on kind
+    let legacyAssetRole: string
+    let legacyDisplayOrder: number
+    if (assetKind === 'source') {
+      legacyAssetRole = 'design'
+      legacyDisplayOrder = 99
+    } else if (assetKind === 'mockup') {
+      const template = job.input?.template || 'flat_lay'
+      legacyAssetRole = template === 'mr_imagine' ? 'mockup_mr_imagine' : 'mockup_flat_lay'
+      legacyDisplayOrder = template === 'mr_imagine' ? 3 : 2
+    } else {
+      legacyAssetRole = 'auxiliary'
+      legacyDisplayOrder = 99
+    }
+
     // Save to product_assets with GCS URL
     const { error: assetError } = await supabase
       .from('product_assets')
@@ -637,6 +1019,9 @@ async function checkJobStatus(job: any) {
         url: publicUrl,
         width: (prediction as any).output_width || 1024,
         height: (prediction as any).output_height || 1024,
+        asset_role: legacyAssetRole,
+        is_primary: false,
+        display_order: legacyDisplayOrder,
       })
 
     if (assetError) {

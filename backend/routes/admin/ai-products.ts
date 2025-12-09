@@ -4,9 +4,17 @@ import { normalizeProduct } from '../../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
-import { getPrediction } from '../../services/replicate.js' // Added import for getPrediction
+import { getPrediction, AVAILABLE_MODELS } from '../../services/replicate.js'
 
 const router = Router()
+
+// GET /api/admin/products/ai/models - Get available image generation models
+router.get('/models', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  res.json({
+    models: AVAILABLE_MODELS,
+    default: AVAILABLE_MODELS[0].id
+  })
+})
 
 // Middleware to verify admin/manager role
 async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -32,7 +40,22 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction): Pr
 // POST /api/admin/products/ai/create
 router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { prompt, priceTarget, mockupStyle, background, tone, imageStyle, useSearch = true } = req.body
+    const {
+      prompt,
+      priceTarget,
+      mockupStyle,
+      background,
+      tone,
+      imageStyle,
+      useSearch = false, // Default OFF - only enable for pop culture/trending
+      // DTF Print Settings
+      productType = 'tshirt',
+      shirtColor = 'black',
+      printPlacement = 'front-center',
+      printStyle = 'clean',
+      // Model Selection - defaults to Imagen 4 Ultra
+      modelId = 'google/imagen-4-ultra'
+    } = req.body
 
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required' })
@@ -63,8 +86,12 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
       mockupStyle,
       background,
       tone,
-      imageStyle, // realistic or cartoon
+      imageStyle, // realistic, cartoon, or semi-realistic
       searchContext,
+      // DTF settings for context
+      productType,
+      shirtColor,
+      printPlacement,
     })
 
     // Step 2: Upsert category
@@ -116,6 +143,13 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
           image_style: imageStyle,
           created_with_search: useSearch,
           search_context: searchContext ? searchContext.substring(0, 500) : null,
+          // DTF Print Settings
+          product_type: productType,
+          shirt_color: shirtColor,
+          print_placement: printPlacement,
+          print_style: printStyle,
+          // Model used for image generation
+          model_id: modelId,
         },
       })
       .select()
@@ -162,6 +196,15 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
           width: 1024,
           height: 1024,
           background: normalized.background,
+          // DTF Print Settings
+          productType,
+          shirtColor,
+          printPlacement,
+          printStyle,
+          // Art style for image generation
+          imageStyle,
+          // Model selection
+          modelId,
         },
       },
     ]
@@ -192,9 +235,12 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
 })
 
 // GET /api/admin/products/ai/:id/status
+// Query params:
+//   display=true - Returns only display assets (primary design + mockups), ordered by display_order
 router.get('/:id/status', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
+    const displayOnly = req.query.display === 'true'
 
     // Get product with related data
     const { data: product, error: productError } = await supabase
@@ -207,11 +253,19 @@ router.get('/:id/status', requireAuth, requireAdmin, async (req: Request, res: R
       return res.status(404).json({ error: 'Product not found' })
     }
 
-    // Get assets
-    const { data: assets } = await supabase
+    // Get assets - filter for display if requested
+    let assetsQuery = supabase
       .from('product_assets')
       .select('*')
       .eq('product_id', id)
+
+    if (displayOnly) {
+      // Only get primary design and mockup assets for storefront display
+      assetsQuery = assetsQuery.or('is_primary.eq.true,asset_role.like.mockup_%')
+      assetsQuery = assetsQuery.order('display_order', { ascending: true })
+    }
+
+    const { data: assets } = await assetsQuery
 
     // Get jobs
     const { data: jobs } = await supabase
@@ -287,17 +341,20 @@ router.get('/:id/status', requireAuth, requireAdmin, async (req: Request, res: R
 router.post('/:id/remove-background', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
+    const { selectedAssetId } = req.body
 
-    req.log?.info({ productId: id }, '[ai-products] 🔄 Creating background removal job')
+    req.log?.info({ productId: id, selectedAssetId }, '[ai-products] 🔄 Creating background removal job')
 
-    // Create background removal job
+    // Create background removal job with selected asset ID
     const { data: job, error: jobError } = await supabase
       .from('ai_jobs')
       .insert({
         product_id: id,
         type: 'replicate_rembg',
         status: 'queued',
-        input: {},
+        input: {
+          selected_asset_id: selectedAssetId, // Pass the specific asset to process
+        },
       })
       .select()
       .single()
@@ -369,6 +426,140 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     req.log?.info({ count: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created')
 
     res.json({ jobs: createdJobs })
+  } catch (error: any) {
+    req.log?.error({ error }, '[ai-products] ❌ Error')
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// POST /api/admin/products/ai/:id/select-image
+// Select an image from the 3 generated options and trigger mockup generation
+router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { selectedAssetId } = req.body
+
+    if (!selectedAssetId) {
+      return res.status(400).json({ error: 'selectedAssetId is required' })
+    }
+
+    req.log?.info({ productId: id, selectedAssetId }, '[ai-products] 🎨 User selected image')
+
+    // Get the selected asset
+    const { data: selectedAsset, error: assetError } = await supabase
+      .from('product_assets')
+      .select('*')
+      .eq('id', selectedAssetId)
+      .eq('product_id', id)
+      .single()
+
+    if (assetError || !selectedAsset) {
+      return res.status(404).json({ error: 'Selected asset not found' })
+    }
+
+    // Mark the selected asset as primary with explicit fields
+    await supabase
+      .from('product_assets')
+      .update({
+        is_primary: true,
+        asset_role: 'design',
+        display_order: 1,
+        metadata: {
+          ...selectedAsset.metadata,
+          is_selected: true,
+          selected_at: new Date().toISOString()
+        }
+      })
+      .eq('id', selectedAssetId)
+
+    // DELETE non-selected source and DTF images (keep only the selected one)
+    // This ensures only 3 final images: selected design + 2 mockups
+    console.log('[ai-products] 🗑️ Deleting non-selected assets for product:', id, '(keeping selected:', selectedAssetId, ')')
+
+    const { data: deletedAssets, error: deleteError } = await supabase
+      .from('product_assets')
+      .delete()
+      .eq('product_id', id)
+      .in('kind', ['source', 'dtf']) // Delete source and DTF assets
+      .neq('id', selectedAssetId) // But NOT the selected one
+      .select('id')
+
+    if (deleteError) {
+      console.error('[ai-products] ❌ Failed to delete non-selected assets:', deleteError)
+      req.log?.warn({ error: deleteError }, '[ai-products] ⚠️ Failed to delete non-selected assets')
+    } else {
+      console.log('[ai-products] ✅ Deleted', deletedAssets?.length || 0, 'non-selected assets:', deletedAssets?.map(a => a.id))
+      req.log?.info({ deletedCount: deletedAssets?.length || 0 }, '[ai-products] 🗑️ Deleted non-selected assets')
+    }
+
+    // Get the image generation job to extract DTF settings
+    const { data: imageJob } = await supabase
+      .from('ai_jobs')
+      .select('input')
+      .eq('product_id', id)
+      .eq('type', 'replicate_image')
+      .single()
+
+    // Get product category
+    const { data: product } = await supabase
+      .from('products')
+      .select('category')
+      .eq('id', id)
+      .single()
+
+    // Create TWO mockup jobs:
+    // 1. Flat lay mockup (shirt on surface)
+    // 2. Mr. Imagine mockup (mascot wearing shirt)
+    const baseInput = {
+      product_type: product?.category || 'shirts',
+      productType: imageJob?.input?.productType || 'tshirt',
+      shirtColor: imageJob?.input?.shirtColor || 'black',
+      printPlacement: imageJob?.input?.printPlacement || 'front-center',
+      selected_asset_id: selectedAssetId,
+    }
+
+    const mockupJobs = [
+      {
+        product_id: id,
+        type: 'replicate_mockup',
+        status: 'queued',
+        input: {
+          ...baseInput,
+          template: 'flat_lay',
+        },
+      },
+      {
+        product_id: id,
+        type: 'replicate_mockup',
+        status: 'queued',
+        input: {
+          ...baseInput,
+          template: 'mr_imagine',
+        },
+      },
+    ]
+
+    console.log('[ai-products] 🎨 Creating mockup jobs:', mockupJobs.map(j => ({ type: j.type, template: j.input.template })))
+
+    const { data: createdJobs, error: jobError } = await supabase
+      .from('ai_jobs')
+      .insert(mockupJobs)
+      .select()
+
+    if (jobError) {
+      console.error('[ai-products] ❌ Mockup job creation error:', jobError)
+      req.log?.error({ error: jobError }, '[ai-products] ❌ Mockup job creation error')
+      return res.status(500).json({ error: 'Failed to create mockup jobs' })
+    }
+
+    console.log('[ai-products] ✅ Successfully created', createdJobs?.length, 'mockup jobs:', createdJobs?.map(j => ({ id: j.id, template: j.input?.template })))
+    req.log?.info({ jobCount: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + mr_imagine)')
+
+    res.json({
+      message: 'Image selected and mockup generation started',
+      selectedAsset,
+      mockupJobs: createdJobs
+    })
   } catch (error: any) {
     req.log?.error({ error }, '[ai-products] ❌ Error')
     res.status(500).json({ error: error.message })

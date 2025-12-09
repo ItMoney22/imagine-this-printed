@@ -1024,27 +1024,41 @@ export interface ProductCategory {
 export interface ProductAsset {
   id: string
   product_id: string
-  kind: 'source' | 'mockup' | 'variant' | 'thumb'
+  kind: 'source' | 'mockup' | 'variant' | 'thumb' | 'dtf' | 'nobg' | 'upscaled'
   path: string
   url: string
   width?: number
   height?: number
-  meta: Record<string, any>
+  meta?: Record<string, any>
+  metadata?: Record<string, any>
+  // New explicit asset tracking fields
+  asset_role?: 'design' | 'mockup_flat_lay' | 'mockup_mr_imagine' | 'auxiliary'
+  is_primary?: boolean
+  display_order?: number
   created_at: string
 }
 
 export interface AIJob {
   id: string
   product_id: string
-  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup' | 'replicate_rembg'
+  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup' | 'replicate_rembg' | 'replicate_upscale'
   status: 'queued' | 'running' | 'succeeded' | 'failed'
   input: Record<string, any>
   output?: Record<string, any>
   error?: string
   prediction_id?: string
+  replicate_id?: string
   created_at: string
   updated_at: string
 }
+
+// Multi-model AI image generation - all 3 models run in parallel
+// No user selection needed - system generates from all models simultaneously
+export const AI_GENERATION_MODELS = [
+  { id: 'google/imagen-4-ultra', name: 'Google Imagen 4 Ultra' },
+  { id: 'black-forest-labs/flux-1.1-pro-ultra', name: 'Flux 1.1 Pro Ultra' },
+  { id: 'leonardoai/lucid-origin', name: 'Lucid Origin' },
+] as const
 
 export interface ProductTag {
   product_id: string
@@ -1082,13 +1096,19 @@ export interface NormalizedProduct {
 export interface AIProductCreationRequest {
   prompt: string
   priceTarget?: number
-  mockupStyle?: 'flat' | 'human'
-  background?: 'transparent' | 'studio'
+  mockupStyle?: 'flat' | 'human' | 'casual' | 'lifestyle' | 'product'
+  background?: 'transparent' | 'studio' | 'lifestyle' | 'urban'
   tone?: string
   imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'
   category?: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
   numImages?: number
   useSearch?: boolean
+  // DTF Print Settings
+  productType?: 'tshirt' | 'hoodie' | 'tank'
+  shirtColor?: 'black' | 'white' | 'gray'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printStyle?: 'clean' | 'halftone' | 'grunge'
+  // Note: AI generates from all 3 models in parallel - no model selection needed
 }
 
 export interface AIProductCreationResponse {

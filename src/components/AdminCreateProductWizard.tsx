@@ -5,7 +5,7 @@ import { aiProducts } from '../lib/api'
 import type { AIProductCreationRequest, AIProductCreationResponse, AIJob } from '../types'
 import { supabase } from '../lib/supabase'
 
-type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'success'
+type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'enhance-image' | 'success'
 
 interface NormalizedProduct {
   title: string
@@ -43,7 +43,15 @@ export default function AdminCreateProductWizard() {
   const [primaryColors, setPrimaryColors] = useState('')
   const [designStyle, setDesignStyle] = useState('')
   const [numImages, setNumImages] = useState(1)
-  const [useSearch, setUseSearch] = useState(true)
+  const [useSearch, setUseSearch] = useState(false) // Default OFF - only enable for pop culture/trending topics
+
+  // DTF Print Optimization Settings
+  const [productType, setProductType] = useState<'tshirt' | 'hoodie' | 'tank'>('tshirt')
+  const [shirtColor, setShirtColor] = useState<'black' | 'white' | 'gray'>('black')
+  const [printPlacement, setPrintPlacement] = useState<'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'>('front-center')
+  const [printStyle, setPrintStyle] = useState<'clean' | 'halftone' | 'grunge'>('clean')
+
+  // Note: AI now generates from all 3 models in parallel - no model selection needed
 
   // Step 2: Review (normalized product from GPT)
   const [normalized, setNormalized] = useState<NormalizedProduct | null>(null)
@@ -57,6 +65,7 @@ export default function AdminCreateProductWizard() {
   // Step 3.5: Select Image (for multi-model)
   const [sourceImages, setSourceImages] = useState<any[]>([])
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
+  const [imageWaitCount, setImageWaitCount] = useState(0) // Track polling cycles while waiting for 3rd image
 
   // Step 4: Success
   const [finalProduct, setFinalProduct] = useState<any>(null)
@@ -66,7 +75,7 @@ export default function AdminCreateProductWizard() {
   // Poll job status every 2 seconds during generation
   useEffect(() => {
     if (currentStep === 'generate' && productId) {
-      console.log('[Wizard] 🔄 Starting polling for product:', productId)
+      console.log('[Wizard] 🔄 Starting polling for product:', productId, 'selectedImageId:', selectedImageId)
 
       const interval = setInterval(async () => {
         try {
@@ -84,12 +93,52 @@ export default function AdminCreateProductWizard() {
 
           // Check if image generation is complete with multiple source images
           const imageJob = jobs.find((j: any) => j.type === 'replicate_image')
+          const mockupJob = jobs.find((j: any) => j.type === 'replicate_mockup')
           const sourceAssets = (response.assets || []).filter((a: any) => a.kind === 'source')
 
-          if (imageJob?.status === 'succeeded' && sourceAssets.length > 1) {
-            console.log('[Wizard] 🎨 Multiple source images detected, transitioning to select-image step')
+          console.log('[Wizard] 📸 Source assets count:', sourceAssets.length, 'Image job status:', imageJob?.status, 'Mockup job status:', mockupJob?.status, 'Selected:', selectedImageId)
+
+          // CASE 1: User already selected an image - wait for mockup completion
+          if (selectedImageId) {
+            console.log('[Wizard] 🎯 Image already selected, monitoring mockup progress...')
+            if (mockupJob?.status === 'succeeded') {
+              console.log('[Wizard] ✅ Mockup complete after image selection, transitioning to success')
+              setCurrentStep('success')
+            } else if (mockupJob?.status === 'failed') {
+              console.error('[Wizard] ❌ Mockup generation failed')
+              setError('Mockup generation failed. Please try again.')
+            }
+            return // Don't run other checks
+          }
+
+          // CASE 2: Multiple source images ready - transition to image selection
+          // Wait for all 3 AI models to complete (or at least give time for all to finish)
+          // Check if we have at least 3 source images (from all 3 AI models)
+          if (imageJob?.status === 'succeeded' && sourceAssets.length >= 3) {
+            console.log('[Wizard] 🎨 All 3 source images ready (' + sourceAssets.length + '), transitioning to select-image step')
+            setImageWaitCount(0) // Reset counter
             setSourceImages(sourceAssets)
             setCurrentStep('select-image')
+          }
+          // Fallback: If only 2 images and job is complete, wait a bit for 3rd or proceed after timeout
+          else if (imageJob?.status === 'succeeded' && sourceAssets.length === 2) {
+            setImageWaitCount(prev => prev + 1)
+            console.log('[Wizard] ⏳ Only 2 images so far, waiting for 3rd... (poll #' + (imageWaitCount + 1) + ')')
+            // After 5 polling cycles (10 seconds), proceed with what we have
+            if (imageWaitCount >= 5) {
+              console.log('[Wizard] ⚠️ Timeout waiting for 3rd image, proceeding with 2 images')
+              setImageWaitCount(0)
+              setSourceImages(sourceAssets)
+              setCurrentStep('select-image')
+            }
+          }
+          // CASE 3: Single image case (fallback or single model)
+          else if (imageJob?.status === 'succeeded' && sourceAssets.length === 1) {
+            console.log('[Wizard] 📸 Single source image - checking for mockup job')
+            if (mockupJob?.status === 'succeeded') {
+              console.log('[Wizard] ✅ Mockup complete, transitioning to success')
+              setCurrentStep('success')
+            }
           }
         } catch (err: any) {
           console.error('[Wizard] ❌ Error polling status:', err)
@@ -98,7 +147,7 @@ export default function AdminCreateProductWizard() {
 
       return () => clearInterval(interval)
     }
-  }, [currentStep, productId])
+  }, [currentStep, productId, selectedImageId])
 
   const handleDescribe = async () => {
     if (!prompt.trim()) {
@@ -127,6 +176,12 @@ export default function AdminCreateProductWizard() {
         category,
         numImages,
         useSearch,
+        // DTF Print Settings
+        productType,
+        shirtColor,
+        printPlacement,
+        printStyle,
+        // Note: AI generates from all 3 models in parallel automatically
       }
 
       const response: AIProductCreationResponse = await aiProducts.create(request)
@@ -155,6 +210,9 @@ export default function AdminCreateProductWizard() {
     setFinalProduct(null)
     setProductAssets([])
     setError(null)
+    setSourceImages([])
+    setSelectedImageId(null)
+    setImageWaitCount(0)
   }
 
   const handleApprove = async () => {
@@ -240,33 +298,58 @@ export default function AdminCreateProductWizard() {
   const handleSelectImage = async (imageId: string) => {
     if (!productId) return
 
+    console.log('[Wizard] 🎯 Selecting image:', imageId, 'for product:', productId)
+
+    // Just store the selection and go to enhance-image step
+    // DON'T trigger mockup yet - let user choose Remove BG / Upscale first
+    setSelectedImageId(imageId)
+    setCurrentStep('enhance-image')
+  }
+
+  // Called when user clicks "Generate Mockups" from enhance-image step
+  const handleGenerateMockups = async () => {
+    if (!productId || !selectedImageId) return
+
     setLoading(true)
+    setError(null)
     try {
-      // Find the rejected image
-      const rejectedImage = sourceImages.find(img => img.id !== imageId)
+      console.log('[Wizard] 🎭 Generating mockups for image:', selectedImageId)
 
-      // Delete the rejected image from the database
-      if (rejectedImage) {
-        console.log('[Wizard] 🗑️ Deleting rejected image:', rejectedImage.id)
-        const { error: deleteError } = await supabase
-          .from('product_assets')
-          .delete()
-          .eq('id', rejectedImage.id)
+      // Call the backend API to select image and trigger mockup generation
+      const response = await aiProducts.selectImage(productId, selectedImageId)
 
-        if (deleteError) {
-          console.error('[Wizard] ❌ Error deleting rejected image:', deleteError)
-        } else {
-          console.log('[Wizard] ✅ Rejected image deleted successfully')
-        }
-      }
+      console.log('[Wizard] ✅ Mockup job created:', response.mockupJob?.id)
 
-      setSelectedImageId(imageId)
-      setCurrentStep('generate') // Go back to generation step to continue with mockups
+      setCurrentStep('generate') // Go back to generation step to monitor mockup progress
     } catch (error: any) {
-      console.error('[Wizard] ❌ Error selecting image:', error)
-      setError(error.message || 'Failed to select image')
+      console.error('[Wizard] ❌ Error generating mockups:', error)
+      setError(error.message || 'Failed to generate mockups')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Called when user clicks "Remove Background" from enhance-image step
+  const handleEnhanceRemoveBackground = async () => {
+    if (!productId || !selectedImageId) return
+
+    setRemovingBackground(true)
+    setError(null)
+    try {
+      console.log('[Wizard] ✂️ Removing background for image:', selectedImageId)
+
+      // Call the backend API to remove background for the selected asset
+      await aiProducts.removeBackground(productId, selectedImageId)
+
+      console.log('[Wizard] ✅ Background removal job created')
+
+      // Go back to generate step to monitor progress
+      setCurrentStep('generate')
+    } catch (error: any) {
+      console.error('[Wizard] ❌ Error removing background:', error)
+      setError(error.message || 'Failed to remove background')
+    } finally {
+      setRemovingBackground(false)
     }
   }
 
@@ -627,6 +710,253 @@ export default function AdminCreateProductWizard() {
                     <p className="text-sm text-muted">Illustrated, stylized, playful artwork</p>
                   </div>
                 </button>
+              </div>
+            </div>
+
+            {/* Multi-Model AI Generation Info */}
+            <div className="bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 rounded-2xl p-6 border border-cyan-500/20 shadow-xl backdrop-blur-sm">
+              <div className="flex items-start space-x-4">
+                <div className="flex-shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-lg">
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-text mb-2 flex items-center">
+                    Multi-Model AI Generation
+                    <span className="ml-2 px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-xs font-semibold rounded-full">NEW</span>
+                  </h3>
+                  <p className="text-muted text-sm mb-3">
+                    Your design will be generated by <strong className="text-text">3 different AI models</strong> simultaneously:
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2">
+                      <span className="text-lg">🌟</span>
+                      <span className="text-sm font-medium text-text">Google Imagen 4 Ultra</span>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2">
+                      <span className="text-lg">⚡</span>
+                      <span className="text-sm font-medium text-text">Flux 1.1 Pro Ultra</span>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2">
+                      <span className="text-lg">✨</span>
+                      <span className="text-sm font-medium text-text">Lucid Origin</span>
+                    </div>
+                  </div>
+                  <p className="text-muted text-xs mt-3">
+                    After generation, you'll select your favorite image, and it will be mocked up on Mr. Imagine.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* DTF Print Optimization Settings */}
+            <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 dark:from-purple-500/5 dark:to-indigo-500/5 rounded-2xl p-6 border border-purple-300/30 dark:border-purple-700/30">
+              <h3 className="text-xl font-bold text-text mb-2 flex items-center space-x-2">
+                <span className="text-2xl">🎨</span>
+                <span>DTF Print Settings</span>
+              </h3>
+              <p className="text-muted text-sm mb-6">
+                Configure your product mockup. Mr. Imagine will model your design on the selected product!
+              </p>
+
+              {/* Product Type Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-text mb-3">
+                  Product Type
+                </label>
+                <div className="grid grid-cols-3 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setProductType('tshirt')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${productType === 'tshirt'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <span className="text-3xl">👕</span>
+                      <p className="font-semibold text-text mt-2">T-Shirt</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductType('hoodie')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${productType === 'hoodie'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <span className="text-3xl">🧥</span>
+                      <p className="font-semibold text-text mt-2">Hoodie</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductType('tank')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${productType === 'tank'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <span className="text-3xl">🎽</span>
+                      <p className="font-semibold text-text mt-2">Tank Top</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Color Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-text mb-3">
+                  {productType === 'tshirt' ? 'Shirt' : productType === 'hoodie' ? 'Hoodie' : 'Tank'} Color
+                </label>
+                <div className="grid grid-cols-3 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setShirtColor('black')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${shirtColor === 'black'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full bg-gray-900 border-2 border-white/20 mx-auto mb-2"></div>
+                      <p className="font-semibold text-text">Black</p>
+                      <p className="text-xs text-muted">Vibrant colors</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShirtColor('white')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${shirtColor === 'white'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full bg-white border-2 border-gray-300 mx-auto mb-2"></div>
+                      <p className="font-semibold text-text">White</p>
+                      <p className="text-xs text-muted">High contrast</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShirtColor('gray')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${shirtColor === 'gray'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="w-10 h-10 rounded-full bg-gray-500 border-2 border-gray-400 mx-auto mb-2"></div>
+                      <p className="font-semibold text-text">Gray</p>
+                      <p className="text-xs text-muted">Bold saturated</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Print Placement Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-text mb-3">
+                  Print Placement
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setPrintPlacement('front-center')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'front-center'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">📍</div>
+                      <p className="font-semibold text-text text-sm">Front Center</p>
+                      <p className="text-xs text-muted">Classic placement</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintPlacement('left-pocket')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'left-pocket'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">👈</div>
+                      <p className="font-semibold text-text text-sm">Left Pocket</p>
+                      <p className="text-xs text-muted">Small logo/icon</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintPlacement('back-only')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'back-only'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">🔙</div>
+                      <p className="font-semibold text-text text-sm">Back Only</p>
+                      <p className="text-xs text-muted">Full back print</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintPlacement('pocket-front-back-full')}
+                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'pocket-front-back-full'
+                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 bg-card/50 hover:border-primary/50'
+                      }`}
+                  >
+                    <div className="text-center">
+                      <div className="text-2xl mb-1">✨</div>
+                      <p className="font-semibold text-text text-sm">Pocket + Back</p>
+                      <p className="text-xs text-muted">Front pocket + back</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Print Style */}
+              <div>
+                <label className="block text-sm font-semibold text-text mb-2">
+                  Print Style
+                </label>
+                <select
+                  value={printStyle}
+                  onChange={(e) => setPrintStyle(e.target.value as any)}
+                  className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-text cursor-pointer"
+                >
+                  <option value="clean">Clean (modern, sharp edges)</option>
+                  <option value="halftone">Halftone (vintage, comic-book dots)</option>
+                  <option value="grunge">Grunge (distressed, worn texture)</option>
+                </select>
+                <p className="text-xs text-muted mt-2">
+                  Professional effects applied during optimization.
+                </p>
+              </div>
+
+              {/* Mr. Imagine Preview Note */}
+              <div className="mt-6 bg-primary/10 border border-primary/30 rounded-xl p-4">
+                <div className="flex items-start space-x-3">
+                  <span className="text-2xl">🎭</span>
+                  <div>
+                    <p className="font-semibold text-text">Mr. Imagine Mockup</p>
+                    <p className="text-sm text-muted">
+                      Your design will be modeled by Mr. Imagine wearing a {shirtColor} {productType}.
+                      The AI will fuse your design onto the {printPlacement.replace(/-/g, ' ')} position.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1060,8 +1390,8 @@ export default function AdminCreateProductWizard() {
             </p>
           </div>
 
-          {/* Image Selection Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+          {/* Image Selection Grid - 3 columns for 3 AI models */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {sourceImages.map((image, index) => (
               <div
                 key={image.id}
@@ -1160,11 +1490,181 @@ export default function AdminCreateProductWizard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p className="text-text font-semibold mb-1">Important:</p>
+                <p className="text-text font-semibold mb-1">How it works:</p>
                 <p className="text-muted text-sm">
-                  The image you don't select will be permanently deleted from the database. However, you can download it before making your selection if you want to keep it for reference.
+                  All 3 images are saved to storage. Select the one you want to use for the product mockup.
+                  The selected image will be placed on Mr. Imagine and become your product's main image.
                 </p>
               </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+              <p className="text-red-400">{error}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3.75: Enhance Image (Remove BG / Upscale / Skip to Mockup) */}
+      {currentStep === 'enhance-image' && selectedImageId && (
+        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+              <svg className="w-8 h-8 mr-3 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+              </svg>
+              Enhance Your Image
+            </h2>
+            <p className="text-muted text-lg">
+              Optionally enhance your selected image before creating mockups
+            </p>
+          </div>
+
+          {/* Selected Image Preview */}
+          <div className="bg-bg/40 backdrop-blur-sm rounded-2xl p-6 mb-8 border border-white/10">
+            <h3 className="font-semibold text-text mb-4 flex items-center">
+              <svg className="w-5 h-5 mr-2 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Selected Image
+            </h3>
+            {(() => {
+              const selectedImage = sourceImages.find(img => img.id === selectedImageId)
+              return selectedImage ? (
+                <div className="flex items-start space-x-6">
+                  <div className="w-64 h-64 bg-bg/60 rounded-xl overflow-hidden border border-white/10 flex-shrink-0">
+                    <img
+                      src={selectedImage.url}
+                      alt="Selected image"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <div className="bg-primary/10 border border-primary/30 rounded-lg px-4 py-2 mb-3 inline-block">
+                      <span className="font-semibold text-primary">
+                        {selectedImage.metadata?.model_name || 'AI Generated'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-muted">Size:</p>
+                        <p className="text-text">{selectedImage.width}x{selectedImage.height}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted">Format:</p>
+                        <p className="text-text">PNG</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted">Loading selected image...</p>
+              )
+            })()}
+          </div>
+
+          {/* Enhancement Options */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* Remove Background */}
+            <button
+              onClick={handleEnhanceRemoveBackground}
+              disabled={removingBackground || loading}
+              className="group bg-gradient-to-br from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/30 hover:border-purple-400/50 rounded-2xl p-6 transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-center mb-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mr-4 shadow-lg group-hover:shadow-purple-500/30 transition-shadow">
+                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-bold text-text text-lg">Remove Background</h4>
+                  <p className="text-muted text-sm">Clean transparent PNG</p>
+                </div>
+              </div>
+              <p className="text-muted text-sm">
+                Remove the background for cleaner mockups and DTF printing. Best for designs with solid backgrounds.
+              </p>
+              {removingBackground && (
+                <div className="mt-4 flex items-center text-primary">
+                  <svg className="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-sm">Processing...</span>
+                </div>
+              )}
+            </button>
+
+            {/* Upscale Image - Coming Soon */}
+            <button
+              disabled={true}
+              className="group bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-500/20 rounded-2xl p-6 transition-all duration-300 text-left opacity-50 cursor-not-allowed"
+            >
+              <div className="flex items-center mb-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center mr-4 shadow-lg">
+                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-bold text-text text-lg">Upscale Image</h4>
+                  <p className="text-muted text-sm">Coming Soon</p>
+                </div>
+              </div>
+              <p className="text-muted text-sm">
+                Increase resolution for larger print sizes. Great for oversized prints and banners.
+              </p>
+            </button>
+
+            {/* Skip to Mockups */}
+            <button
+              onClick={handleGenerateMockups}
+              disabled={loading}
+              className="group bg-gradient-to-br from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 hover:border-emerald-400/50 rounded-2xl p-6 transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-center mb-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-500 rounded-xl flex items-center justify-center mr-4 shadow-lg group-hover:shadow-emerald-500/30 transition-shadow">
+                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="font-bold text-text text-lg">Generate Mockups</h4>
+                  <p className="text-muted text-sm">Skip enhancements</p>
+                </div>
+              </div>
+              <p className="text-muted text-sm">
+                Proceed directly to Mr. Imagine mockup generation with the current image.
+              </p>
+              {loading && (
+                <div className="mt-4 flex items-center text-emerald-400">
+                  <svg className="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-sm">Starting...</span>
+                </div>
+              )}
+            </button>
+          </div>
+
+          {/* Back Button */}
+          <div className="flex justify-between items-center">
+            <button
+              onClick={() => setCurrentStep('select-image')}
+              className="text-muted hover:text-text transition-colors flex items-center"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Choose Different Image
+            </button>
+
+            <div className="text-muted text-sm">
+              Step 3.5 of 4
             </div>
           </div>
 
@@ -1221,50 +1721,75 @@ export default function AdminCreateProductWizard() {
             </div>
           </div>
 
-          {/* Generated Assets Gallery */}
+          {/* Generated Assets Gallery - Display only primary design + mockups */}
           <div className="mb-6">
             <h3 className="font-semibold text-text mb-4 text-lg flex items-center">
               <svg className="w-5 h-5 mr-2 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              Generated Images ({productAssets.length})
+              Product Images
             </h3>
 
-            {productAssets.length === 0 ? (
-              <div className="text-center py-8 bg-bg/30 rounded-lg border border-white/5">
-                <p className="text-muted">No images generated yet. Assets may still be processing.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {productAssets.map((asset: any) => (
-                  <div key={asset.id} className="border border-white/10 rounded-xl overflow-hidden group hover:shadow-xl hover:shadow-primary/20 transition-all duration-300">
-                    <div className="relative">
-                      <img
-                        src={asset.url}
-                        alt={asset.kind}
-                        className="w-full h-64 object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center backdrop-blur-sm">
-                        <a
-                          href={asset.url}
-                          download
-                          className="bg-white text-gray-900 px-4 py-2 rounded-lg font-bold hover:bg-gray-100 transition-all flex items-center space-x-2 transform translate-y-4 group-hover:translate-y-0 duration-300"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          <span>Download</span>
-                        </a>
+            {(() => {
+              // Filter for display assets: primary design + mockups only
+              const displayAssets = productAssets
+                .filter((a: any) => a.is_primary || a.asset_role?.startsWith('mockup_'))
+                .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99))
+
+              // Helper to get display label for asset
+              const getAssetLabel = (asset: any) => {
+                if (asset.is_primary || asset.asset_role === 'design') return 'Selected Design'
+                if (asset.asset_role === 'mockup_flat_lay') return 'Flat Lay Mockup'
+                if (asset.asset_role === 'mockup_mr_imagine') return 'Mr. Imagine Mockup'
+                if (asset.kind === 'mockup') return 'Mockup'
+                return asset.kind
+              }
+
+              if (displayAssets.length === 0) {
+                return (
+                  <div className="text-center py-8 bg-bg/30 rounded-lg border border-white/5">
+                    <p className="text-muted">No images generated yet. Assets may still be processing.</p>
+                  </div>
+                )
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {displayAssets.map((asset: any) => (
+                    <div key={asset.id} className="border border-white/10 rounded-xl overflow-hidden group hover:shadow-xl hover:shadow-primary/20 transition-all duration-300">
+                      <div className="relative">
+                        <img
+                          src={asset.url}
+                          alt={getAssetLabel(asset)}
+                          className="w-full h-64 object-cover"
+                        />
+                        {asset.is_primary && (
+                          <div className="absolute top-2 left-2 bg-primary/90 text-white text-xs px-2 py-1 rounded-full font-semibold">
+                            Primary
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center backdrop-blur-sm">
+                          <a
+                            href={asset.url}
+                            download
+                            className="bg-white text-gray-900 px-4 py-2 rounded-lg font-bold hover:bg-gray-100 transition-all flex items-center space-x-2 transform translate-y-4 group-hover:translate-y-0 duration-300"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            <span>Download</span>
+                          </a>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-card/50 backdrop-blur-sm">
+                        <p className="text-sm font-medium text-text">{getAssetLabel(asset)}</p>
+                        <p className="text-xs text-muted">{asset.width} x {asset.height}</p>
                       </div>
                     </div>
-                    <div className="p-3 bg-card/50 backdrop-blur-sm">
-                      <p className="text-sm font-medium text-text capitalize">{asset.kind}</p>
-                      <p className="text-xs text-muted">{asset.width} x {asset.height}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Action Buttons */}
