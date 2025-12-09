@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useCart } from '../context/CartContext'
 import { useState, useEffect } from 'react'
@@ -30,7 +30,6 @@ import {
   Menu,
   X
 } from 'lucide-react'
-
 export function Header() {
   const { user, signOut } = useAuth()
   const { state: cartState } = useCart()
@@ -38,6 +37,10 @@ export function Header() {
   const [showDesignModal, setShowDesignModal] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
+  const location = useLocation()
+
+  // Pages that need a dark header (non-transparent) or dark text by default because they have light backgrounds
+  const forceDarkHeader = ['/create-design', '/cart', '/checkout', '/account'].some(path => location.pathname.startsWith(path))
 
   // Track scroll for header background
   useEffect(() => {
@@ -65,17 +68,16 @@ export function Header() {
   const cartCount = cartState ? cartState.items.reduce((sum: number, item: any) => sum + item.quantity, 0) : 0
 
   return (
-    <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-      isScrolled
-        ? 'bg-white/95 backdrop-blur-lg shadow-soft border-b border-purple-100/50'
-        : 'bg-transparent'
-    }`}>
+    <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${(isScrolled || forceDarkHeader)
+      ? 'bg-white/95 backdrop-blur-lg shadow-soft border-b border-purple-100/50'
+      : 'bg-transparent'
+      }`}>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
             <img
-              src="/logo-tech.png"
+              src="/itp-logo-v3.png"
               alt="Imagine This Printed"
               className="h-10 w-auto"
             />
@@ -85,33 +87,30 @@ export function Header() {
           <nav className="hidden lg:flex items-center gap-1">
             <Link
               to="/catalog"
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
-                isScrolled
-                  ? 'text-text hover:bg-purple-50 hover:text-purple-600'
-                  : 'text-white/90 hover:bg-white/10 hover:text-white'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                ? 'text-text hover:bg-purple-50 hover:text-purple-600'
+                : 'text-white/90 hover:bg-white/10 hover:text-white'
+                }`}
             >
               <ShoppingBag className="w-4 h-4" />
               Products
             </Link>
             <button
               onClick={() => setShowDesignModal(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
-                isScrolled
-                  ? 'text-text hover:bg-purple-50 hover:text-purple-600'
-                  : 'text-white/90 hover:bg-white/10 hover:text-white'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                ? 'text-text hover:bg-purple-50 hover:text-purple-600'
+                : 'text-white/90 hover:bg-white/10 hover:text-white'
+                }`}
             >
               <Palette className="w-4 h-4" />
               Design Studio
             </button>
             <Link
               to="/community"
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
-                isScrolled
-                  ? 'text-text hover:bg-purple-50 hover:text-purple-600'
-                  : 'text-white/90 hover:bg-white/10 hover:text-white'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                ? 'text-text hover:bg-purple-50 hover:text-purple-600'
+                : 'text-white/90 hover:bg-white/10 hover:text-white'
+                }`}
             >
               <Users className="w-4 h-4" />
               Community
@@ -124,11 +123,10 @@ export function Header() {
             {user && (
               <Link
                 to="/wallet"
-                className={`relative p-2.5 rounded-full transition-all duration-300 ${
-                  isScrolled
-                    ? 'bg-purple-50 hover:bg-purple-100 text-purple-600'
-                    : 'bg-white/10 hover:bg-white/20 text-white'
-                }`}
+                className={`relative p-2.5 rounded-full transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                  ? 'bg-purple-50 hover:bg-purple-100 text-purple-600'
+                  : 'bg-white/10 hover:bg-white/20 text-white'
+                  }`}
                 aria-label="Wallet"
               >
                 <Wallet className="w-5 h-5" />
@@ -143,11 +141,10 @@ export function Header() {
             {/* Cart Button */}
             <Link
               to="/cart"
-              className={`relative p-2.5 rounded-full transition-all duration-300 ${
-                isScrolled
-                  ? 'bg-purple-50 hover:bg-purple-100 text-purple-600'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
+              className={`relative p-2.5 rounded-full transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                ? 'bg-purple-50 hover:bg-purple-100 text-purple-600'
+                : 'bg-white/10 hover:bg-white/20 text-white'
+                }`}
               aria-label="Shopping cart"
             >
               <ShoppingCart className="w-5 h-5" />
@@ -163,21 +160,19 @@ export function Header() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all duration-300 ${
-                    isScrolled
-                      ? 'bg-purple-50 hover:bg-purple-100'
-                      : 'bg-white/10 hover:bg-white/20'
-                  }`}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                    ? 'bg-purple-50 hover:bg-purple-100'
+                    : 'bg-white/10 hover:bg-white/20'
+                    }`}
                 >
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm shadow-lg">
                     {user.username?.charAt(0).toUpperCase() || 'U'}
                   </div>
-                  <span className={`hidden md:block text-sm font-medium ${
-                    isScrolled ? 'text-text' : 'text-white'
-                  }`}>
+                  <span className={`hidden md:block text-sm font-medium ${(isScrolled || forceDarkHeader) ? 'text-text' : 'text-white'
+                    }`}>
                     {user.username}
                   </span>
-                  <ChevronDown className={`w-4 h-4 ${isScrolled ? 'text-muted' : 'text-white/70'}`} />
+                  <ChevronDown className={`w-4 h-4 ${(isScrolled || forceDarkHeader) ? 'text-muted' : 'text-white/70'}`} />
                 </button>
 
                 {/* Dropdown Menu */}
@@ -446,11 +441,10 @@ export function Header() {
             {/* Mobile Menu Button */}
             <button
               onClick={() => setShowMobileMenu(!showMobileMenu)}
-              className={`lg:hidden p-2.5 rounded-full transition-all duration-300 ${
-                isScrolled
-                  ? 'bg-purple-50 hover:bg-purple-100 text-purple-600'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
+              className={`lg:hidden p-2.5 rounded-full transition-all duration-300 ${(isScrolled || forceDarkHeader)
+                ? 'bg-purple-50 hover:bg-purple-100 text-purple-600'
+                : 'bg-white/10 hover:bg-white/20 text-white'
+                }`}
             >
               {showMobileMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>

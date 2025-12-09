@@ -46,6 +46,30 @@ const Home: React.FC = () => {
     fetchFeaturedProducts()
   }, [])
 
+  /* Scroll-triggered video logic */
+  const videoRef = React.useRef<HTMLVideoElement>(null)
+
+  React.useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            videoRef.current?.play().catch((e) => console.log('Autoplay blocked:', e))
+          } else {
+            videoRef.current?.pause()
+          }
+        })
+      },
+      { threshold: 0.5 } // Play when 50% visible
+    )
+
+    if (videoRef.current) {
+      observer.observe(videoRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <div className="bg-bg">
       {/* Hero Section - Full Screen Video */}
@@ -184,23 +208,28 @@ const Home: React.FC = () => {
       <section className="py-24 bg-gradient-to-br from-purple-50 via-bg to-blue-50 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            {/* Left: Mr. Imagine */}
+            {/* Left: Mr. Imagine Video */}
             <div className="relative flex justify-center">
-              <div className="relative">
+              <div className="relative w-full max-w-sm">
                 {/* Glow effect */}
                 <div className="absolute inset-0 bg-gradient-radial from-purple-400/30 via-purple-300/10 to-transparent rounded-full blur-3xl scale-150" />
 
-                <img
-                  src="/mr-imagine/mr-imagine-standing-happy.png"
-                  alt="Mr. Imagine"
-                  className="relative w-72 md:w-96 h-auto animate-float drop-shadow-2xl"
-                />
+                <div className="relative rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20 border-4 border-white/50 backdrop-blur-sm">
+                  <video
+                    ref={videoRef}
+                    src="/mr-imagine/welcome-video.mp4"
+                    className="w-full h-auto object-cover"
+                    playsInline
+                    loop
+                  // muted={false} // Intentionally unmuted as requested, but might be blocked
+                  />
+                </div>
 
                 {/* Floating elements */}
-                <div className="absolute top-10 -left-8 w-16 h-16 bg-gradient-to-br from-purple-400 to-purple-500 rounded-2xl shadow-lg shadow-purple-200 flex items-center justify-center animate-float" style={{ animationDelay: '0.5s' }}>
+                <div className="absolute top-10 -left-8 w-16 h-16 bg-gradient-to-br from-purple-400 to-purple-500 rounded-2xl shadow-lg shadow-purple-200 flex items-center justify-center animate-float z-10" style={{ animationDelay: '0.5s' }}>
                   <Sparkles className="w-8 h-8 text-white" />
                 </div>
-                <div className="absolute bottom-20 -right-8 w-14 h-14 bg-gradient-to-br from-blue-400 to-blue-500 rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center animate-float" style={{ animationDelay: '1s' }}>
+                <div className="absolute bottom-20 -right-8 w-14 h-14 bg-gradient-to-br from-blue-400 to-blue-500 rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center animate-float z-10" style={{ animationDelay: '1s' }}>
                   <Palette className="w-6 h-6 text-white" />
                 </div>
               </div>
@@ -208,10 +237,6 @@ const Home: React.FC = () => {
 
             {/* Right: Content */}
             <div>
-              <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-sm font-medium mb-4">
-                <Sparkles className="w-4 h-4" />
-                Meet Your AI Assistant
-              </span>
               <h2 className="font-display text-4xl md:text-5xl text-text mb-6">
                 Say Hello to
                 <br />

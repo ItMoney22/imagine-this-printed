@@ -65,7 +65,7 @@ const Navbar: React.FC = () => {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0">
-              <img src="/logo-tech.png" alt="Imagine This Printed" className="h-12 w-auto object-contain" />
+              <img src="/itp-logo-v3.png" alt="Imagine This Printed" className="h-12 w-auto object-contain" />
             </Link>
           </div>
 
@@ -93,9 +93,14 @@ const Navbar: React.FC = () => {
               Wholesale
             </Link>
             {user && (
-              <Link to="/wallet" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
-                Wallet
-              </Link>
+              <>
+                <Link to="/create-design" className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-secondary transition-colors font-display">
+                  Create Design
+                </Link>
+                <Link to="/wallet" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
+                  Wallet
+                </Link>
+              </>
             )}
             <Link to="/cart" className="relative text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
               Cart

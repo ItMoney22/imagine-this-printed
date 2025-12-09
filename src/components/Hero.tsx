@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Play, Pause, Volume2, VolumeX, ArrowRight, Sparkles } from 'lucide-react'
-import DesignStudioModal from './DesignStudioModal'
 
 export function Hero() {
-  const [showDesignModal, setShowDesignModal] = useState(false)
   const [isPlaying, setIsPlaying] = useState(true)
   const [isMuted, setIsMuted] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -52,7 +50,7 @@ export function Hero() {
             onLoadedData={() => setIsLoaded(true)}
             poster="/mr-imagine/mr-imagine-standing-happy.png"
           >
-            <source src="/mr-imagine/mr-imagine-hero.mp4" type="video/mp4" />
+            <source src="/mr-imagine/mr-imagine-hero-new.mp4" type="video/mp4" />
           </video>
 
           {/* Fallback gradient if video doesn't load - Purple themed */}
@@ -123,14 +121,14 @@ export function Hero() {
 
                 {/* CTA Buttons - Purple themed */}
                 <div className="animate-fade-up-delay-3 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                  <button
-                    onClick={() => setShowDesignModal(true)}
+                  <Link
+                    to="/create-design"
                     className="group flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold rounded-full hover:from-purple-600 hover:to-purple-700 transition-all duration-300 shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 hover:-translate-y-1"
                   >
                     <Sparkles className="w-5 h-5" />
-                    Start Creating
+                    Talk to Mr. Imagine
                     <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-                  </button>
+                  </Link>
 
                   <Link
                     to="/catalog"
@@ -164,34 +162,7 @@ export function Hero() {
                 </div>
               </div>
 
-              {/* Right: Mr. Imagine Character */}
-              <div className="hidden lg:flex items-center justify-center">
-                <div className="relative">
-                  {/* Glow effect behind Mr. Imagine */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-purple-500/30 via-purple-400/20 to-transparent rounded-full blur-3xl scale-110 animate-mr-imagine-glow" />
-
-                  {/* Mr. Imagine Character */}
-                  <div className="relative animate-mr-imagine-bob">
-                    <img
-                      src="/mr-imagine/mr-imagine-waving.png"
-                      alt="Mr. Imagine - Your AI Design Assistant"
-                      className="w-80 h-auto drop-shadow-2xl"
-                    />
-
-                    {/* Speech Bubble */}
-                    <div className="absolute -top-4 -right-8 bg-white rounded-2xl px-5 py-3 shadow-xl animate-fade-up-delay-2">
-                      <div className="relative">
-                        <p className="text-sm font-medium text-gray-800">
-                          Let's create something
-                          <span className="text-purple-600"> amazing!</span>
-                        </p>
-                        {/* Speech bubble tail */}
-                        <div className="absolute -bottom-3 left-6 w-4 h-4 bg-white transform rotate-45" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {/* Right: Mr. Imagine Character - Removed per user request */}
             </div>
           </div>
         </div>
@@ -207,10 +178,6 @@ export function Hero() {
         </div>
       </section>
 
-      <DesignStudioModal
-        isOpen={showDesignModal}
-        onClose={() => setShowDesignModal(false)}
-      />
     </>
   )
 }

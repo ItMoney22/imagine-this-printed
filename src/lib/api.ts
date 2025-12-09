@@ -118,7 +118,7 @@ export const aiProducts = {
     return response.json()
   },
 
-  removeBackground: async (productId: string) => {
+  removeBackground: async (productId: string, selectedAssetId?: string) => {
     const { data } = await supabase.auth.getSession()
     const token = data.session?.access_token
 
@@ -128,6 +128,7 @@ export const aiProducts = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
+      body: JSON.stringify({ selectedAssetId }),
     })
 
     if (!response.ok) {
@@ -168,6 +169,27 @@ export const aiProducts = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  selectImage: async (productId: string, selectedAssetId: string) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/products/ai/${productId}/select-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ selectedAssetId }),
     })
 
     if (!response.ok) {

@@ -10,7 +10,7 @@ export function Footer() {
           {/* Brand */}
           <div className="col-span-1">
             <Link to="/" className="block mb-4">
-              <img src="/logo-tech.png" alt="Imagine This Printed" className="h-10 w-auto object-contain" />
+              <img src="/itp-logo-v3.png" alt="Imagine This Printed" className="h-10 w-auto object-contain" />
             </Link>
             <p className="mt-3 text-sm text-muted max-w-xs">
               Your one-stop shop for custom printing solutions, from DTF transfers to 3D prints.

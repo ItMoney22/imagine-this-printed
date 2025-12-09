@@ -6,12 +6,13 @@ import { aiProducts } from '../lib/api'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
+import AdminSupport from '../components/AdminSupport'
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'models' | 'audit' | 'wallet' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'models' | 'audit' | 'wallet'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'models' | 'audit' | 'wallet' | 'support' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'models' | 'audit' | 'wallet' | 'support'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -1161,7 +1162,7 @@ const AdminDashboard: React.FC = () => {
       {/* Tabs */}
       <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          {['overview', 'users', 'vendors', 'products', 'models', 'wallet', 'audit'].map((tab) => (
+          {['overview', 'users', 'vendors', 'products', 'models', 'wallet', 'audit', 'support'].map((tab) => (
             <button
               key={tab}
               onClick={() => {
@@ -1762,6 +1763,13 @@ const AdminDashboard: React.FC = () => {
       {
         selectedTab === 'wallet' && (
           <AdminWalletManagement />
+        )
+      }
+
+      {/* Support Tab */}
+      {
+        selectedTab === 'support' && (
+          <AdminSupport />
         )
       }
 
