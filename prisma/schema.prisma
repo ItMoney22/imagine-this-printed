@@ -59,6 +59,9 @@ model UserProfile {
   costVariables       CostVariable[]
   vendorOrderItems    OrderItem[] @relation("VendorOrderItems")
   managedCostBreakdowns ProductCostBreakdown[] @relation("ManagerCostBreakdowns")
+  tickets             SupportTicket[] @relation("UserTickets")
+  assignedTickets     SupportTicket[] @relation("AssignedTickets")
+  ticketMessages      TicketMessage[]
   
   @@map("user_profiles")
 }
@@ -495,4 +498,40 @@ model ProductCostBreakdown {
   manager            UserProfile @relation("ManagerCostBreakdowns", fields: [managerId], references: [id])
   
   @@map("product_cost_breakdowns")
+}
+
+model SupportTicket {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  status      String    @default("open") // 'open', 'in_progress', 'resolved', 'closed'
+  priority    String    @default("medium") // 'low', 'medium', 'high', 'urgent'
+  category    String    // 'order_status', 'product_quality', 'billing', 'technical_issue', 'other'
+  subject     String?
+  description String
+  assignedTo  String?   @map("assigned_to")
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user        UserProfile @relation("UserTickets", fields: [userId], references: [id])
+  assignedAgent UserProfile? @relation("AssignedTickets", fields: [assignedTo], references: [id])
+  messages    TicketMessage[]
+
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id          String    @id @default(uuid())
+  ticketId    String    @map("ticket_id")
+  senderId    String?   @map("sender_id") // Null for system/bot messages if needed, or link to UserProfile
+  content     String
+  isInternal  Boolean   @default(false) @map("is_internal")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender      UserProfile?  @relation(fields: [senderId], references: [id])
+
+  @@map("ticket_messages")
 }
