@@ -49,6 +49,11 @@ This index lists all active documentation. For historical/completed docs, see `d
 | [DESIGN_STUDIO_QUICKSTART.md](DESIGN_STUDIO_QUICKSTART.md) | CURRENT | Design studio quick start guide |
 | [deployment-checklist.md](deployment-checklist.md) | CURRENT | Deployment checklist |
 
+### Admin Features
+| Document | Status | Description |
+|----------|--------|-------------|
+| Support Ticket System | COMPLETED | Admin support tickets - `backend/routes/admin/support.ts`, `src/components/AdminSupport.tsx` |
+
 ### Plans (Active)
 | Document | Status | Description |
 |----------|--------|-------------|
@@ -87,3 +92,7 @@ These SQL migrations exist but have not been applied to the database:
 2. `backend/migrations/create_user_royalty_system.sql` - User royalty tracking
 
 To apply: Copy SQL to Supabase Dashboard > SQL Editor > Run
+
+## Recently Applied Migrations
+
+1. `backend/db/migrations/01_support_system.sql` - Support tickets and messages tables (applied 2025-12-09)
