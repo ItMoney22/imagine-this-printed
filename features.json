@@ -1,0 +1,136 @@
+{
+  "project": "ImagineThisPrinted",
+  "description": "Full-featured custom printing e-commerce platform with AI-powered product generation",
+  "features": [
+    {
+      "id": 1,
+      "name": "AI Product Builder E2E Testing",
+      "description": "Test complete AI product creation flow end-to-end to verify all fixes work correctly. This includes testing: multi-model image generation, user image selection, mockup generation for both flat_lay and mr_imagine templates, and final product with 3 images.",
+      "tests": [
+        "Create new product via AI Product Builder with valid prompt",
+        "Verify 3 images generated from different AI models (Imagen 4, Flux, Recraft)",
+        "Select one image and verify non-selected images are deleted",
+        "Verify 2 mockup jobs created (flat_lay + mr_imagine)",
+        "Verify final product has exactly 3 images (1 selected + 2 mockups)"
+      ],
+      "done": false
+    },
+    {
+      "id": 2,
+      "name": "Railway Production Deployment",
+      "description": "Deploy the AI Product Builder to Railway production environment and verify worker processes jobs correctly. Ensure environment variables are configured and worker service runs properly.",
+      "tests": [
+        "Build passes with no TypeScript errors",
+        "Frontend deploys successfully to Railway",
+        "Worker service starts and connects to database",
+        "Worker processes replicate_image jobs correctly",
+        "Worker processes replicate_mockup jobs correctly"
+      ],
+      "done": false
+    },
+    {
+      "id": 3,
+      "name": "Mockup Progress Indicators",
+      "description": "Add progress indicators for mockup generation to provide better user experience during async processing. Show real-time status updates for each mockup job.",
+      "tests": [
+        "Progress UI component shows pending state for queued jobs",
+        "Progress updates to 'processing' when worker picks up job",
+        "Progress updates to 'completed' when mockup is ready",
+        "Progress shows error state if mockup generation fails",
+        "UI auto-refreshes to show new mockup images when complete"
+      ],
+      "done": false
+    },
+    {
+      "id": 4,
+      "name": "Mockup Retry Logic",
+      "description": "Implement retry logic for failed mockup generation to make the system more resilient to API failures. Include exponential backoff and max retry limits.",
+      "tests": [
+        "Failed mockup job is automatically retried",
+        "Retry uses exponential backoff (1s, 2s, 4s, etc.)",
+        "Maximum of 3 retries before marking job as permanently failed",
+        "Retry count is tracked in ai_jobs table",
+        "User notified of permanent failure with option to manually retry"
+      ],
+      "done": false
+    },
+    {
+      "id": 5,
+      "name": "Mockup Regeneration",
+      "description": "Add ability for users to regenerate specific mockups if they are not satisfied with the result. Allows user control over final image quality.",
+      "tests": [
+        "Regenerate button appears for each mockup image",
+        "Clicking regenerate creates new mockup job for that template",
+        "Old mockup is replaced when new one completes",
+        "Regeneration count is tracked to prevent abuse",
+        "User can regenerate up to 3 times per mockup type"
+      ],
+      "done": false
+    },
+    {
+      "id": 6,
+      "name": "Error Handling Improvements",
+      "description": "Implement comprehensive error handling in mockup generation pipeline. Improve diagnostics and user feedback for failures.",
+      "tests": [
+        "All API errors are caught and logged with context",
+        "User-friendly error messages displayed in UI",
+        "Error details stored in ai_jobs table for debugging",
+        "Failed jobs can be inspected in admin dashboard",
+        "Alerts sent for critical failures (optional: email/slack)"
+      ],
+      "done": false
+    },
+    {
+      "id": 7,
+      "name": "Dead Code Cleanup",
+      "description": "Remove autoQueueMockupJob function and other dead code from the codebase. Clean up unused imports and commented-out code blocks.",
+      "tests": [
+        "autoQueueMockupJob function removed from ai-jobs-worker.ts",
+        "No references to removed function exist",
+        "TypeScript compilation passes",
+        "Worker still processes jobs correctly after cleanup",
+        "Build size reduced (verify bundle output)"
+      ],
+      "done": false
+    },
+    {
+      "id": 8,
+      "name": "DTF Optimization Tests",
+      "description": "Add unit tests for DTF optimization service to ensure critical image processing logic has test coverage.",
+      "tests": [
+        "Test DTF optimizer handles various image formats",
+        "Test color profile conversion works correctly",
+        "Test sizing calculations are accurate",
+        "Test error handling for invalid inputs",
+        "Test output matches expected print-ready specifications"
+      ],
+      "done": false
+    },
+    {
+      "id": 9,
+      "name": "Configurable Mockup Types",
+      "description": "Make mockup types configurable or database-driven instead of hardcoded. Allow adding new mockup templates without code changes.",
+      "tests": [
+        "Mockup types stored in database table",
+        "Admin can add/edit/delete mockup types",
+        "Worker dynamically loads available mockup types",
+        "Product creation wizard shows available mockup options",
+        "Backward compatible with existing flat_lay and mr_imagine"
+      ],
+      "done": false
+    },
+    {
+      "id": 10,
+      "name": "Job Status Tracking Dashboard",
+      "description": "Improve worker job status tracking with visibility into job progress and failure reasons from frontend. Add admin dashboard for monitoring.",
+      "tests": [
+        "Admin dashboard shows all jobs with status",
+        "Real-time updates via polling or websockets",
+        "Job details page shows full logs and error traces",
+        "Filter jobs by status (pending, processing, completed, failed)",
+        "Bulk retry/cancel operations available"
+      ],
+      "done": false
+    }
+  ]
+}
