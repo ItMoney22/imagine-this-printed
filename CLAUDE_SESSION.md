@@ -1,8 +1,8 @@
 # Claude Session State
 
 ## Current Status
-**Last Updated:** 2025-12-09
-**Last Task Completed:** Verified support ticket system - created database tables, verified backend routes and frontend integration
+**Last Updated:** 2025-12-10
+**Last Task Completed:** Added ghost mannequin mockup generation using Nano-Banana model
 **Current Branch:** main
 
 ## Active Tasks
@@ -14,6 +14,7 @@
 - [x] Fix voice-chat 401 error (user.id vs user.sub mismatch)
 - [x] Commit all uncommitted work (8 commits)
 - [x] Verify support ticket system (tables created, routes verified, frontend integrated)
+- [x] Add ghost mannequin mockup generation (3rd mockup type using Nano-Banana)
 - [ ] Test /create-design feature end-to-end (needs backend running)
 
 ## Session Context
@@ -59,6 +60,16 @@ ImagineThisPrinted - Custom printing e-commerce platform with:
    - See: `docs/plans/2025-12-09-frontend-design-center-integration.md`
 
 ## Recent Fixes
+### Ghost Mannequin Mockup (2025-12-10)
+**Task:** Add 3rd mockup type using Nano-Banana for invisible mannequin effect
+**Implementation:**
+- Added `generateGhostMannequin()` in `backend/services/replicate.ts`
+- Added `ghost_mannequin` job type in `backend/worker/ai-jobs-worker.ts`
+- Updated mockup creation in admin and user routes
+- Display order: flat_lay(2) → ghost_mannequin(3) → mr_imagine(4)
+- Only generates for garments (shirts/hoodies/tanks), skips tumblers/transfers
+- See: `docs/plans/2025-12-10-ghost-mannequin-mockup.md`
+
 ### Support Ticket System (2025-12-09)
 **Task:** Another agent created support ticket system, needed database and verification
 **Actions:**
@@ -91,6 +102,11 @@ ImagineThisPrinted - Custom printing e-commerce platform with:
 - `scripts/verify/critical-paths.js` - Created critical path tests
 - `backend/routes/ai/voice-chat.ts` - Fixed user.id -> user.sub (6 locations)
 - `backend/db/migrations/01_support_system.sql` - Migration applied to Supabase
+- `backend/services/replicate.ts` - Added generateGhostMannequin function
+- `backend/worker/ai-jobs-worker.ts` - Added ghost_mannequin job handler
+- `backend/routes/admin/ai-products.ts` - Added ghost mannequin job creation
+- `backend/routes/user-products.ts` - Added ghost mannequin job creation
+- `docs/plans/2025-12-10-ghost-mannequin-mockup.md` - Design documentation
 
 ---
 
