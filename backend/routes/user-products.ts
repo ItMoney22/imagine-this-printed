@@ -1027,4 +1027,148 @@ router.post('/design-sessions/:id/remix', requireAuth, async (req: Request, res:
   }
 })
 
+// ============================================
+// Creator Analytics Endpoint
+// ============================================
+
+/**
+ * GET /api/user-products/creator-analytics
+ * Get analytics for the creator's designs
+ * - Total designs created
+ * - Total sales
+ * - Total ITC earned from royalties
+ * - Best selling design
+ * - Monthly trends
+ */
+router.get('/creator-analytics', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
+    console.log('[user-products] 📊 Fetching creator analytics for:', userId)
+
+    // Get total designs created (from user_products)
+    const { count: totalDesigns } = await supabase
+      .from('user_products')
+      .select('*', { count: 'exact', head: true })
+      .eq('creator_id', userId)
+
+    // Get all user's products for sales analysis
+    const { data: userProducts } = await supabase
+      .from('user_products')
+      .select('id, name, generated_image, created_at, status')
+      .eq('creator_id', userId)
+      .order('created_at', { ascending: false })
+
+    const productIds = userProducts?.map(p => p.id) || []
+
+    // Get sales data from order_items that reference user's products
+    let totalSales = 0
+    let totalRevenue = 0
+    let bestSellingProduct = null
+    const productSales: Record<string, number> = {}
+
+    if (productIds.length > 0) {
+      // Query order_items for products created by this user
+      const { data: orderItems } = await supabase
+        .from('order_items')
+        .select('product_id, quantity, price')
+        .in('product_id', productIds)
+
+      if (orderItems) {
+        for (const item of orderItems) {
+          totalSales += item.quantity
+          totalRevenue += item.price * item.quantity
+          productSales[item.product_id] = (productSales[item.product_id] || 0) + item.quantity
+        }
+
+        // Find best selling product
+        const bestProductId = Object.entries(productSales)
+          .sort(([, a], [, b]) => b - a)[0]?.[0]
+
+        if (bestProductId) {
+          bestSellingProduct = userProducts?.find(p => p.id === bestProductId) || null
+          if (bestSellingProduct) {
+            bestSellingProduct = {
+              ...bestSellingProduct,
+              totalSold: productSales[bestProductId]
+            }
+          }
+        }
+      }
+    }
+
+    // Get ITC royalty transactions
+    const { data: royaltyTransactions } = await supabase
+      .from('itc_transactions')
+      .select('amount, created_at')
+      .eq('user_id', userId)
+      .eq('type', 'royalty')
+
+    const totalRoyalties = royaltyTransactions?.reduce((sum, t) => sum + t.amount, 0) || 0
+
+    // Calculate monthly trends (last 6 months)
+    const monthlyTrends: { month: string; designs: number; sales: number; royalties: number }[] = []
+    const now = new Date()
+
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
+      const monthKey = monthStart.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+
+      // Count designs in this month
+      const designsInMonth = userProducts?.filter(p => {
+        const created = new Date(p.created_at)
+        return created >= monthStart && created <= monthEnd
+      }).length || 0
+
+      // Count royalties in this month
+      const royaltiesInMonth = royaltyTransactions?.filter(t => {
+        const created = new Date(t.created_at)
+        return created >= monthStart && created <= monthEnd
+      }).reduce((sum, t) => sum + t.amount, 0) || 0
+
+      monthlyTrends.push({
+        month: monthKey,
+        designs: designsInMonth,
+        sales: 0, // Would need order dates to calculate accurately
+        royalties: royaltiesInMonth
+      })
+    }
+
+    // Calculate royalty percentage (10%)
+    const royaltyRate = 0.10
+    const potentialRoyalties = totalRevenue * royaltyRate
+
+    const analytics = {
+      totalDesigns: totalDesigns || 0,
+      totalSales,
+      totalRevenue,
+      totalRoyalties,
+      royaltyRate: '10%',
+      bestSellingProduct,
+      monthlyTrends,
+      recentDesigns: userProducts?.slice(0, 5) || [],
+      designsByStatus: {
+        approved: userProducts?.filter(p => p.status === 'approved').length || 0,
+        pending: userProducts?.filter(p => p.status === 'pending_approval').length || 0,
+        rejected: userProducts?.filter(p => p.status === 'rejected').length || 0
+      }
+    }
+
+    console.log('[user-products] ✅ Analytics:', {
+      designs: analytics.totalDesigns,
+      sales: analytics.totalSales,
+      royalties: analytics.totalRoyalties
+    })
+
+    res.json(analytics)
+  } catch (error: any) {
+    console.error('[user-products] ❌ Analytics error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 export default router

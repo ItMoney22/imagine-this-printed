@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import type { VendorProduct, Product } from '../types'
+import { CreatorAnalytics } from '../components/CreatorAnalytics'
 
 const VendorDashboard: React.FC = () => {
   const { user } = useAuth()
   const [products, setProducts] = useState<VendorProduct[]>([])
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
-  const [selectedTab, setSelectedTab] = useState<'products' | 'submit' | 'analytics' | 'payouts' | 'catalog'>('products')
+  const [selectedTab, setSelectedTab] = useState<'products' | 'submit' | 'analytics' | 'creator' | 'payouts' | 'catalog'>('products')
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false)
 
   // Enhanced state for 3D Marketplace
@@ -249,7 +250,7 @@ const VendorDashboard: React.FC = () => {
       {/* Tabs */}
       <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
-          {['products', 'catalog', 'submit', 'analytics', 'payouts'].map((tab) => (
+          {['products', 'catalog', 'submit', 'creator', 'analytics', 'payouts'].map((tab) => (
             <button
               key={tab}
               onClick={() => setSelectedTab(tab as any)}
@@ -568,6 +569,13 @@ const VendorDashboard: React.FC = () => {
               Submit for Approval
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Creator Analytics Tab */}
+      {selectedTab === 'creator' && (
+        <div className="bg-card rounded-lg shadow p-6">
+          <CreatorAnalytics />
         </div>
       )}
 

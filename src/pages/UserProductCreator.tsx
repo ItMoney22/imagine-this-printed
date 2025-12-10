@@ -3,6 +3,9 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { Navigate, Link } from 'react-router-dom'
 import { VoiceConversationEnhanced } from '../components/VoiceConversationEnhanced'
 import { DesignHistorySidebar } from '../components/DesignHistorySidebar'
+import { ProductPreviewCarousel } from '../components/ProductPreviewCarousel'
+import { SocialShareButtons } from '../components/SocialShareButtons'
+import { TrendingPrompts } from '../components/TrendingPrompts'
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
 
@@ -730,6 +733,16 @@ export const UserProductCreator = () => {
                                     </button>
                                 </div>
                             )}
+
+                            {/* Trending Prompts - Inspiration Gallery */}
+                            <div className="mt-8 max-w-2xl mx-auto">
+                                <TrendingPrompts
+                                    onSelectPrompt={(prompt) => {
+                                        setFormData({ ...formData, prompt })
+                                        setShowTextInput(true)
+                                    }}
+                                />
+                            </div>
                         </div>
                     )}
                 </div>
@@ -961,6 +974,27 @@ export const UserProductCreator = () => {
                             <p className="text-center text-gray-400 text-sm mt-4 animate-pulse">
                                 👆 Click on an image to select it
                             </p>
+                        )}
+
+                        {/* Product Preview Carousel - See design on multiple products */}
+                        {selectedImageId && (
+                            <div className="mt-8 p-6 bg-white/80 rounded-2xl border border-gray-100">
+                                <ProductPreviewCarousel
+                                    designImageUrl={generatedImages.find(img => img.id === selectedImageId)?.url || ''}
+                                    designName={formData.prompt?.substring(0, 50)}
+                                />
+                            </div>
+                        )}
+
+                        {/* Social Share Buttons */}
+                        {selectedImageId && (
+                            <div className="mt-6 flex justify-center">
+                                <SocialShareButtons
+                                    productId={productId || undefined}
+                                    designImageUrl={generatedImages.find(img => img.id === selectedImageId)?.url}
+                                    designName={formData.prompt?.substring(0, 50)}
+                                />
+                            </div>
                         )}
 
                         {/* 10% Creator Royalty Banner */}
