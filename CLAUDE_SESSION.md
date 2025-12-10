@@ -2,7 +2,7 @@
 
 ## Current Status
 **Last Updated:** 2025-12-10
-**Last Task Completed:** Added Mr. Imagine Voice Panel to ProductDesigner page
+**Last Task Completed:** Created Supabase storage bucket for voice chat audio uploads
 **Current Branch:** main
 
 ## Active Tasks
@@ -24,7 +24,8 @@
 - [x] Fix duplicate Mr. Imagine mockup generation
 - [x] Auto-select single image (skip selection step when only 1 image)
 - [x] Add Mr. Imagine voice panel to ProductDesigner (user-side voice-guided design)
-- [ ] Test ProductDesigner with voice panel end-to-end
+- [x] Create Supabase storage bucket for voice chat audio
+- [x] Test ProductDesigner with voice panel end-to-end
 - [ ] Investigate admin mockup duplication issue (parked)
 
 ## Session Context
