@@ -2,8 +2,26 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { Navigate, Link } from 'react-router-dom'
 import { VoiceConversationEnhanced } from '../components/VoiceConversationEnhanced'
+import { DesignHistorySidebar } from '../components/DesignHistorySidebar'
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
+
+// Design session interface
+interface DesignSession {
+  id: string
+  status: 'draft' | 'generating' | 'completed' | 'submitted' | 'archived'
+  prompt: string | null
+  style: string | null
+  color: string | null
+  product_type: string | null
+  step: string | null
+  conversation_history: any[]
+  generated_images: { url: string; replicate_id?: string }[]
+  selected_image_url: string | null
+  product_id: string | null
+  created_at: string
+  updated_at: string
+}
 
 // ITC cost per design generation
 const GENERATION_COST_ITC = 50
@@ -70,6 +88,12 @@ export const UserProductCreator = () => {
     // Design concept from voice chat - used when ready_to_generate is true
     const [designConcept, setDesignConcept] = useState<string | null>(null)
 
+    // Design session (draft) management
+    const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+    const [showHistorySidebar, setShowHistorySidebar] = useState(false)
+    const [hasDrafts, setHasDrafts] = useState(false)
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
     // Wallet state for ITC credits - initialized from user.wallet (auth context)
     const [wallet, setWallet] = useState({ itc_balance: 0, points: 0 })
     const [showInsufficientCreditsModal, setShowInsufficientCreditsModal] = useState(false)
@@ -100,6 +124,117 @@ export const UserProductCreator = () => {
                 })
         }
     }, [user])
+
+    // Check for existing drafts on mount
+    useEffect(() => {
+        const checkForDrafts = async () => {
+            if (!user) return
+            try {
+                const { data: { session } } = await supabase.auth.getSession()
+                const token = session?.access_token
+                if (!token) return
+
+                const { data } = await axios.get('/api/user-products/design-sessions/drafts', {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+
+                if (data.drafts && data.drafts.length > 0) {
+                    setHasDrafts(true)
+                }
+            } catch (error) {
+                console.error('Failed to check drafts:', error)
+            }
+        }
+        checkForDrafts()
+    }, [user])
+
+    // Auto-save draft when form data changes
+    const saveDraft = useCallback(async () => {
+        if (!user || currentStep === 'complete' || currentStep === 'generating') return
+
+        try {
+            const { data: { session } } = await supabase.auth.getSession()
+            const token = session?.access_token
+            if (!token) return
+
+            const sessionData = {
+                prompt: formData.prompt || null,
+                style: formData.imageStyle || null,
+                color: formData.shirtColor || null,
+                product_type: 't-shirt',
+                step: currentStep,
+                status: 'draft'
+            }
+
+            if (currentSessionId) {
+                // Update existing session
+                await axios.patch(`/api/user-products/design-sessions/${currentSessionId}`, sessionData, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            } else if (formData.prompt) {
+                // Create new session only if we have a prompt
+                const { data } = await axios.post('/api/user-products/design-sessions', sessionData, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+                setCurrentSessionId(data.session.id)
+                setHasDrafts(true)
+            }
+        } catch (error) {
+            console.error('Failed to save draft:', error)
+        }
+    }, [user, currentSessionId, currentStep, formData])
+
+    // Debounced auto-save (save after 2 seconds of inactivity)
+    useEffect(() => {
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current)
+        }
+
+        // Only save if we have meaningful data
+        if (formData.prompt || formData.imageStyle) {
+            saveTimeoutRef.current = setTimeout(() => {
+                saveDraft()
+            }, 2000)
+        }
+
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current)
+            }
+        }
+    }, [formData, currentStep, saveDraft])
+
+    // Load session handler
+    const handleLoadSession = useCallback((session: DesignSession) => {
+        setCurrentSessionId(session.id)
+        setFormData({
+            prompt: session.prompt || '',
+            imageStyle: (session.style as 'realistic' | 'cartoon' | '') || '',
+            shirtColor: (session.color as 'black' | 'white' | 'grey' | 'color') || 'black'
+        })
+        setCurrentStep((session.step as Step) || 'welcome')
+        setShowIntro(false)
+        if (session.generated_images?.length > 0) {
+            setGeneratedImages(session.generated_images.map((img, idx) => ({
+                id: `img-${idx}`,
+                url: img.url
+            })))
+        }
+    }, [])
+
+    // Remix session handler
+    const handleRemixSession = useCallback((session: DesignSession) => {
+        setCurrentSessionId(session.id)
+        setFormData({
+            prompt: session.prompt || '',
+            imageStyle: '',
+            shirtColor: 'black'
+        })
+        setCurrentStep('prompt')
+        setShowIntro(false)
+        setGeneratedImages([])
+        setSelectedImageId(null)
+    }, [])
 
     // Play welcome audio after user clicks "Start" (required for browser autoplay policy)
     const startExperience = async () => {
@@ -457,19 +592,39 @@ export const UserProductCreator = () => {
                         </span>
                     </Link>
 
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        {/* My Designs Button */}
+                        <button
+                            onClick={() => setShowHistorySidebar(true)}
+                            className="relative flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur rounded-full shadow-sm hover:shadow-md transition-all"
+                        >
+                            <span className="text-purple-500">📁</span>
+                            <span className="font-medium text-gray-700 text-sm">My Designs</span>
+                            {hasDrafts && (
+                                <span className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full border-2 border-white" />
+                            )}
+                        </button>
                         {/* ITC Balance Display */}
                         <Link to="/wallet" className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur rounded-full shadow-sm hover:shadow-md transition-all">
                             <span className="text-yellow-500">💰</span>
                             <span className="font-semibold text-gray-800">{wallet.itc_balance} ITC</span>
                         </Link>
-                        <div className="flex items-center gap-2">
+                        <div className="hidden md:flex items-center gap-2">
                             <span className="text-sm text-gray-500">Creating as</span>
                             <span className="font-medium text-gray-800">{user.username || user.email}</span>
                         </div>
                     </div>
                 </div>
             </header>
+
+            {/* Design History Sidebar */}
+            <DesignHistorySidebar
+                isOpen={showHistorySidebar}
+                onClose={() => setShowHistorySidebar(false)}
+                onLoadSession={handleLoadSession}
+                onRemixSession={handleRemixSession}
+                currentSessionId={currentSessionId}
+            />
 
             {/* Insufficient Credits Modal */}
             {showInsufficientCreditsModal && (

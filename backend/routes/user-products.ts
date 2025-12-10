@@ -490,6 +490,152 @@ router.post('/:id/select-image', requireAuth, async (req: Request, res: Response
   }
 })
 
+// Cost for design variations (discounted from full generation)
+const VARIATION_COST_ITC = 25
+
+/**
+ * POST /api/user-products/:id/variations
+ * Generate design variations from an existing product
+ * Costs 25 ITC per batch of 3 variations (discounted from 50)
+ */
+router.post('/:id/variations', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { id } = req.params
+    const { variationType = 'style' } = req.body // style, color, composition
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
+    // Get product and verify ownership
+    const { data: product } = await supabase
+      .from('products')
+      .select('*, metadata')
+      .eq('id', id)
+      .single()
+
+    if (!product || product.metadata?.creator_id !== userId) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    // Check ITC balance
+    const { data: wallet } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (!wallet || wallet.itc_balance < VARIATION_COST_ITC) {
+      return res.status(402).json({
+        error: 'Insufficient ITC credits',
+        required: VARIATION_COST_ITC,
+        current: wallet?.itc_balance || 0
+      })
+    }
+
+    // Deduct credits
+    const newBalance = wallet.itc_balance - VARIATION_COST_ITC
+    await supabase
+      .from('user_wallets')
+      .update({ itc_balance: newBalance })
+      .eq('user_id', userId)
+
+    // Log transaction
+    await supabase.from('itc_transactions').insert({
+      user_id: userId,
+      type: 'usage',
+      amount: -VARIATION_COST_ITC,
+      balance_after: newBalance,
+      reference_type: 'design_variation',
+      description: `Design variations (${variationType}) for product`,
+      metadata: { product_id: id, variation_type: variationType }
+    })
+
+    // Get original prompt
+    const originalPrompt = product.metadata?.original_prompt || product.metadata?.image_prompt || product.description
+
+    // Generate variation prompts based on type
+    const variationPrompts: string[] = []
+    const baseStyle = product.metadata?.image_style || 'realistic'
+
+    switch (variationType) {
+      case 'color':
+        variationPrompts.push(
+          `${originalPrompt}, with vibrant neon colors`,
+          `${originalPrompt}, in warm sunset tones`,
+          `${originalPrompt}, with cool blue and purple palette`
+        )
+        break
+      case 'composition':
+        variationPrompts.push(
+          `${originalPrompt}, close-up detailed view`,
+          `${originalPrompt}, zoomed out with more background`,
+          `${originalPrompt}, dynamic angle perspective`
+        )
+        break
+      case 'style':
+      default:
+        variationPrompts.push(
+          `${originalPrompt}, ${baseStyle === 'realistic' ? 'bold graphic art style' : 'hyper-realistic photo style'}`,
+          `${originalPrompt}, retro vintage aesthetic`,
+          `${originalPrompt}, minimalist clean design`
+        )
+    }
+
+    // Create variation jobs
+    const jobsToCreate = variationPrompts.map((prompt, idx) => ({
+      product_id: id,
+      type: 'replicate_image',
+      status: 'queued',
+      input: {
+        prompt,
+        width: 1024,
+        height: 1024,
+        background: 'transparent',
+        productType: product.metadata?.product_type || 'tshirt',
+        shirtColor: product.metadata?.shirt_color || 'black',
+        printPlacement: product.metadata?.print_placement || 'front-center',
+        printStyle: product.metadata?.print_style || 'dtf',
+        imageStyle: product.metadata?.image_style || 'realistic',
+        modelId: product.metadata?.model_id || 'black-forest-labs/flux-1.1-pro-ultra',
+        is_variation: true,
+        variation_index: idx,
+        variation_type: variationType,
+        original_prompt: originalPrompt,
+      },
+    }))
+
+    const { data: createdJobs, error: jobsError } = await supabase
+      .from('ai_jobs')
+      .insert(jobsToCreate)
+      .select()
+
+    if (jobsError) {
+      console.error('[user-products] ❌ Variation jobs error:', jobsError)
+      // Refund on failure
+      await supabase
+        .from('user_wallets')
+        .update({ itc_balance: wallet.itc_balance })
+        .eq('user_id', userId)
+      return res.status(500).json({ error: 'Failed to create variation jobs' })
+    }
+
+    console.log('[user-products] ✅ Variation jobs created:', createdJobs?.length)
+
+    res.json({
+      message: `${variationPrompts.length} variations queued`,
+      jobs: createdJobs,
+      cost: VARIATION_COST_ITC,
+      newBalance,
+      variationType
+    })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Variation error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 /**
  * POST /api/user-products/:id/submit-for-approval
  * Submit completed product for admin approval
@@ -627,6 +773,254 @@ router.get('/my-earnings', requireAuth, async (req: Request, res: Response): Pro
       })),
       royalties: royalties || [],
     })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ==============================================
+// DESIGN SESSIONS (Drafts & History)
+// ==============================================
+
+/**
+ * GET /api/user-products/design-sessions
+ * Get all design sessions for current user
+ */
+router.get('/design-sessions', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    const { data: sessions, error } = await supabase
+      .from('user_design_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      console.error('[user-products] ❌ Design sessions error:', error)
+      return res.status(500).json({ error: 'Failed to fetch design sessions' })
+    }
+
+    res.json({ sessions: sessions || [] })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/user-products/design-sessions/drafts
+ * Get only draft sessions (in-progress)
+ */
+router.get('/design-sessions/drafts', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    const { data: drafts, error } = await supabase
+      .from('user_design_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['draft', 'generating'])
+      .order('updated_at', { ascending: false })
+      .limit(10)
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to fetch drafts' })
+    }
+
+    res.json({ drafts: drafts || [] })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/user-products/design-sessions/:id
+ * Get a specific design session
+ */
+router.get('/design-sessions/:id', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { id } = req.params
+
+    const { data: session, error } = await supabase
+      .from('user_design_sessions')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single()
+
+    if (error || !session) {
+      return res.status(404).json({ error: 'Session not found' })
+    }
+
+    res.json({ session })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/user-products/design-sessions
+ * Create a new design session (draft)
+ */
+router.post('/design-sessions', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { prompt, style, color, product_type, step = 'welcome' } = req.body
+
+    const { data: session, error } = await supabase
+      .from('user_design_sessions')
+      .insert({
+        user_id: userId,
+        status: 'draft',
+        prompt,
+        style,
+        color,
+        product_type: product_type || 't-shirt',
+        step,
+        conversation_history: [],
+        generated_images: [],
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[user-products] ❌ Create session error:', error)
+      return res.status(500).json({ error: 'Failed to create session' })
+    }
+
+    console.log('[user-products] ✅ Design session created:', session.id)
+    res.json({ session })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * PATCH /api/user-products/design-sessions/:id
+ * Update a design session (save draft progress)
+ */
+router.patch('/design-sessions/:id', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { id } = req.params
+    const { prompt, style, color, product_type, step, status, conversation_history, generated_images, selected_image_url, product_id } = req.body
+
+    // Build update object with only provided fields
+    const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+    if (prompt !== undefined) updates.prompt = prompt
+    if (style !== undefined) updates.style = style
+    if (color !== undefined) updates.color = color
+    if (product_type !== undefined) updates.product_type = product_type
+    if (step !== undefined) updates.step = step
+    if (status !== undefined) updates.status = status
+    if (conversation_history !== undefined) updates.conversation_history = conversation_history
+    if (generated_images !== undefined) updates.generated_images = generated_images
+    if (selected_image_url !== undefined) updates.selected_image_url = selected_image_url
+    if (product_id !== undefined) updates.product_id = product_id
+
+    const { data: session, error } = await supabase
+      .from('user_design_sessions')
+      .update(updates)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[user-products] ❌ Update session error:', error)
+      return res.status(500).json({ error: 'Failed to update session' })
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' })
+    }
+
+    res.json({ session })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/user-products/design-sessions/:id
+ * Delete a design session
+ */
+router.delete('/design-sessions/:id', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { id } = req.params
+
+    const { error } = await supabase
+      .from('user_design_sessions')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+
+    if (error) {
+      console.error('[user-products] ❌ Delete session error:', error)
+      return res.status(500).json({ error: 'Failed to delete session' })
+    }
+
+    res.json({ message: 'Session deleted' })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/user-products/design-sessions/:id/remix
+ * Create a new session from an existing one (remix)
+ */
+router.post('/design-sessions/:id/remix', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { id } = req.params
+
+    // Get original session
+    const { data: original, error: fetchError } = await supabase
+      .from('user_design_sessions')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single()
+
+    if (fetchError || !original) {
+      return res.status(404).json({ error: 'Original session not found' })
+    }
+
+    // Create new session with same prompt but reset status
+    const { data: session, error } = await supabase
+      .from('user_design_sessions')
+      .insert({
+        user_id: userId,
+        status: 'draft',
+        prompt: original.prompt,
+        style: original.style,
+        color: original.color,
+        product_type: original.product_type,
+        step: 'prompt', // Start at prompt step with pre-filled prompt
+        conversation_history: [],
+        generated_images: [],
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[user-products] ❌ Remix session error:', error)
+      return res.status(500).json({ error: 'Failed to remix session' })
+    }
+
+    console.log('[user-products] ✅ Session remixed:', original.id, '->', session.id)
+    res.json({ session, original_id: id })
   } catch (error: any) {
     console.error('[user-products] ❌ Error:', error)
     res.status(500).json({ error: error.message })
