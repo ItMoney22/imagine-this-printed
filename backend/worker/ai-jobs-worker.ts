@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase.js'
-import { generateProductImage, generateMockup, removeBackground, upscaleImage, getPrediction } from '../services/replicate.js'
+import { generateProductImage, generateMockup, removeBackground, upscaleImage, getPrediction, generateGhostMannequin, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
@@ -648,11 +648,12 @@ async function startJob(job: any) {
     console.log('[worker] ✅ Mockup uploaded to GCS:', publicUrl)
 
     // Determine asset_role and display_order based on template
+    // Order: design(1) -> flat_lay(2) -> ghost_mannequin(3) -> mr_imagine(4)
     const assetRole = template === 'flat_lay' ? 'mockup_flat_lay' :
                       template === 'mr_imagine' ? 'mockup_mr_imagine' :
                       'mockup_flat_lay'
     const displayOrder = template === 'flat_lay' ? 2 :
-                         template === 'mr_imagine' ? 3 :
+                         template === 'mr_imagine' ? 4 :
                          2
 
     // Save to product_assets
@@ -691,6 +692,178 @@ async function startJob(job: any) {
       .eq('id', job.id)
 
     console.log('[worker] ✅ Mockup job completed:', job.id, publicUrl)
+  } else if (job.type === 'ghost_mannequin') {
+    // Generate ghost mannequin mockup using Nano-Banana
+    console.log('[worker] 👻 Starting ghost mannequin generation for product:', job.product_id)
+
+    // Check if product type supports ghost mannequin
+    const productType = job.input?.productType || 'tshirt'
+    const productCategory = job.input?.product_type || 'shirts'
+
+    if (!GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType) &&
+        !GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory)) {
+      console.log('[worker] ⏭️ Skipping ghost mannequin - unsupported product type:', productType, productCategory)
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'skipped',
+          error: `Ghost mannequin not supported for product type: ${productType}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+      return
+    }
+
+    // Get the design image (same priority as regular mockups)
+    let designImageUrl: string | undefined
+
+    // If user selected a specific asset, use that one
+    if (job.input?.selected_asset_id) {
+      const { data: selectedAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('id', job.input.selected_asset_id)
+        .single()
+
+      if (selectedAsset) {
+        designImageUrl = selectedAsset.url
+        console.log('[worker] 👻 Using selected image for ghost mannequin:', designImageUrl)
+      }
+    }
+
+    // Fallback priority: DTF > nobg > source
+    if (!designImageUrl) {
+      const { data: dtfAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'dtf')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (dtfAsset) {
+        designImageUrl = dtfAsset.url
+        console.log('[worker] 👻 Using DTF image for ghost mannequin:', designImageUrl)
+      }
+    }
+
+    if (!designImageUrl) {
+      const { data: nobgAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'nobg')
+        .single()
+
+      if (nobgAsset) {
+        designImageUrl = nobgAsset.url
+        console.log('[worker] 👻 Using no-background image for ghost mannequin:', designImageUrl)
+      }
+    }
+
+    if (!designImageUrl) {
+      const { data: sourceAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'source')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (!sourceAsset) {
+        console.error('[worker] ❌ No source image found for ghost mannequin!')
+        await supabase
+          .from('ai_jobs')
+          .update({
+            status: 'failed',
+            error: 'Source image asset not found',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.id)
+        return
+      }
+
+      designImageUrl = sourceAsset.url
+      console.log('[worker] 👻 Using source image for ghost mannequin:', designImageUrl)
+    }
+
+    // Generate ghost mannequin with Nano-Banana
+    const shirtColor = job.input?.shirtColor || 'black'
+
+    try {
+      const result = await generateGhostMannequin({
+        designImage: designImageUrl!, // Safe: we would have returned early if not set
+        productType: productType as 'tshirt' | 'hoodie' | 'tank',
+        shirtColor: shirtColor as 'black' | 'white' | 'gray',
+      })
+
+      if (!result.url) {
+        throw new Error('Ghost mannequin generation returned no URL')
+      }
+
+      // Upload to GCS
+      const productSlug = await getProductSlug(job.product_id)
+      const timestamp = Date.now()
+      const filename = `${productSlug}-ghost-mannequin-${timestamp}.png`
+      const gcsPath = `mockups/${productSlug}/ghost-mannequin/${filename}`
+
+      console.log('[worker] 📤 Uploading ghost mannequin to GCS:', gcsPath)
+
+      const { publicUrl, path } = await uploadImageFromUrl(result.url, gcsPath)
+
+      console.log('[worker] ✅ Ghost mannequin uploaded to GCS:', publicUrl)
+
+      // Save to product_assets with display_order 3 (between flat_lay:2 and mr_imagine:4)
+      const { error: assetError } = await supabase
+        .from('product_assets')
+        .insert({
+          product_id: job.product_id,
+          kind: 'mockup',
+          path: path,
+          url: publicUrl,
+          width: 1024,
+          height: 1024,
+          asset_role: 'mockup_ghost_mannequin',
+          is_primary: false,
+          display_order: 3,
+          metadata: {
+            template: 'ghost_mannequin',
+            generated_with: 'nano-banana',
+            generated_at: new Date().toISOString(),
+            productType: productType,
+            shirtColor: shirtColor,
+          },
+        })
+
+      if (assetError) {
+        console.error('[worker] ❌ Error saving ghost mannequin asset:', assetError)
+        throw assetError
+      }
+
+      // Update job as succeeded
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'succeeded',
+          output: { url: publicUrl, gcs_path: path },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+
+      console.log('[worker] 👻 Ghost mannequin job completed:', job.id, publicUrl)
+    } catch (error: any) {
+      console.error('[worker] ❌ Ghost mannequin generation failed:', error.message)
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'failed',
+          error: error.message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+    }
   } else if (job.type === 'replicate_upscale') {
     // Upscale the most recent source or nobg image
     const { data: assets } = await supabase

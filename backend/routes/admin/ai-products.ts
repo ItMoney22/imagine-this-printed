@@ -4,7 +4,7 @@ import { normalizeProduct } from '../../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
-import { getPrediction, AVAILABLE_MODELS } from '../../services/replicate.js'
+import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 
 const router = Router()
 
@@ -507,9 +507,10 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       .eq('id', id)
       .single()
 
-    // Create TWO mockup jobs:
+    // Create THREE mockup jobs:
     // 1. Flat lay mockup (shirt on surface)
-    // 2. Mr. Imagine mockup (mascot wearing shirt)
+    // 2. Ghost mannequin mockup (invisible mannequin) - only for garments
+    // 3. Mr. Imagine mockup (mascot wearing shirt)
     const baseInput = {
       product_type: product?.category || 'shirts',
       productType: imageJob?.input?.productType || 'tshirt',
@@ -518,7 +519,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       selected_asset_id: selectedAssetId,
     }
 
-    const mockupJobs = [
+    const mockupJobs: any[] = [
       {
         product_id: id,
         type: 'replicate_mockup',
@@ -528,18 +529,34 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
           template: 'flat_lay',
         },
       },
-      {
-        product_id: id,
-        type: 'replicate_mockup',
-        status: 'queued',
-        input: {
-          ...baseInput,
-          template: 'mr_imagine',
-        },
-      },
     ]
 
-    console.log('[ai-products] 🎨 Creating mockup jobs:', mockupJobs.map(j => ({ type: j.type, template: j.input.template })))
+    // Add ghost mannequin job only for supported garment types
+    const productCategory = product?.category || 'shirts'
+    const productType = imageJob?.input?.productType || 'tshirt'
+    if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
+        GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+      mockupJobs.push({
+        product_id: id,
+        type: 'ghost_mannequin',
+        status: 'queued',
+        input: baseInput,
+      })
+      console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
+    }
+
+    // Always add Mr. Imagine mockup
+    mockupJobs.push({
+      product_id: id,
+      type: 'replicate_mockup',
+      status: 'queued',
+      input: {
+        ...baseInput,
+        template: 'mr_imagine',
+      },
+    })
+
+    console.log('[ai-products] 🎨 Creating mockup jobs:', mockupJobs.map(j => ({ type: j.type, template: j.input?.template || j.type })))
 
     const { data: createdJobs, error: jobError } = await supabase
       .from('ai_jobs')
@@ -552,8 +569,8 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       return res.status(500).json({ error: 'Failed to create mockup jobs' })
     }
 
-    console.log('[ai-products] ✅ Successfully created', createdJobs?.length, 'mockup jobs:', createdJobs?.map(j => ({ id: j.id, template: j.input?.template })))
-    req.log?.info({ jobCount: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + mr_imagine)')
+    console.log('[ai-products] ✅ Successfully created', createdJobs?.length, 'mockup jobs:', createdJobs?.map(j => ({ id: j.id, type: j.type, template: j.input?.template })))
+    req.log?.info({ jobCount: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + ghost_mannequin + mr_imagine)')
 
     res.json({
       message: 'Image selected and mockup generation started',

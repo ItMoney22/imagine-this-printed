@@ -26,6 +26,16 @@ export interface ReplicateTryOnInput {
   printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
 }
 
+export interface GhostMannequinInput {
+  designImage: string // URL to the design/garment image
+  productType: 'tshirt' | 'hoodie' | 'tank'
+  shirtColor: 'black' | 'white' | 'gray'
+}
+
+// Garment categories that support ghost mannequin mockups
+export const GHOST_MANNEQUIN_SUPPORTED_CATEGORIES = ['shirts', 'hoodies', 'tanks']
+export const GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES = ['tshirt', 'hoodie', 'tank']
+
 // Mr. Imagine mockup base URLs - using public assets from the frontend
 // These should be publicly accessible URLs to the Mr. Imagine mockup images
 const MR_IMAGINE_MOCKUPS: Record<string, Record<string, Record<string, string>>> = {
@@ -393,6 +403,97 @@ CRITICAL INSTRUCTIONS:
   console.log('[replicate] 🔍 Full prediction response:', JSON.stringify(prediction, null, 2))
 
   return prediction
+}
+
+/**
+ * Generate a ghost mannequin mockup using Nano-Banana (Gemini 2.5 Flash Image)
+ *
+ * Creates a professional e-commerce photo showing the garment as a 3D volume
+ * with realistic draping, as if worn by an invisible mannequin.
+ *
+ * Only supports garment types: tshirt, hoodie, tank
+ */
+export async function generateGhostMannequin(input: GhostMannequinInput) {
+  const modelId = 'google/nano-banana' // Gemini 2.5 Flash Image
+
+  console.log('[replicate] 👻 Generating ghost mannequin mockup:', {
+    modelId,
+    productType: input.productType,
+    shirtColor: input.shirtColor,
+    designImage: input.designImage.substring(0, 50) + '...'
+  })
+
+  // Map product type to readable name
+  const productNameMap: Record<string, string> = {
+    'tshirt': 't-shirt',
+    'hoodie': 'hoodie',
+    'tank': 'tank top',
+  }
+  const productName = productNameMap[input.productType] || 't-shirt'
+
+  // Map shirt color to fabric description
+  const colorDescMap: Record<string, string> = {
+    'black': 'black',
+    'white': 'white',
+    'gray': 'heather gray',
+  }
+  const fabricColor = colorDescMap[input.shirtColor] || 'black'
+
+  // Build detailed prompt for ghost mannequin generation
+  const prompt = `Generate a ghost mannequin photograph of this ${fabricColor} ${productName} with the printed design exactly as shown in the input image.
+
+REQUIREMENTS:
+- Show the garment as a 3D volume with realistic fabric draping
+- The garment should appear as if worn by an invisible mannequin
+- No visible mannequin, support structure, or model - just the floating garment
+- Pure white background (RGB 255,255,255)
+- Professional e-commerce studio lighting
+- Preserve the printed design exactly as it appears in the input image
+- Show natural fabric folds, seams, and construction details
+- The interior neckline and collar structure should be visible
+- High resolution, suitable for online product catalog
+- Clean, professional product photography style`
+
+  console.log('[replicate] 📝 Ghost mannequin prompt:', prompt.substring(0, 100) + '...')
+
+  // Use replicate.run() for synchronous execution with Nano-Banana
+  const modelInput = {
+    prompt: prompt,
+    image: input.designImage, // Single input image with the design
+    aspect_ratio: '1:1',
+    output_format: 'png',
+    safety_filter_level: 'block_only_high',
+  }
+
+  console.log('[replicate] 🔍 Using replicate.run() for Nano-Banana ghost mannequin')
+
+  try {
+    const output = await replicate.run(modelId as any, { input: modelInput }) as any
+
+    console.log('[replicate] ✅ Ghost mannequin generation complete')
+    console.log('[replicate] 🔍 Nano-Banana raw output type:', typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
+
+    // Get the URL from the output
+    let imageUrl: string
+
+    if (Array.isArray(output) && output.length > 0) {
+      imageUrl = typeof output[0].url === 'function' ? output[0].url() : output[0]
+    } else {
+      imageUrl = typeof output.url === 'function' ? output.url() : output
+    }
+
+    console.log('[replicate] 👻 Ghost mannequin image URL:', imageUrl)
+
+    return {
+      id: 'ghost-mannequin-' + Date.now(),
+      status: 'succeeded',
+      url: imageUrl,
+      modelId,
+    }
+  } catch (error: any) {
+    console.error('[replicate] ❌ Ghost mannequin generation failed:', error.message)
+    throw error
+  }
 }
 
 export async function upscaleImage(imageUrl: string) {

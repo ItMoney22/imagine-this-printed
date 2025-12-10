@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase.js'
 import { normalizeProduct } from '../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
-import { getPrediction } from '../services/replicate.js'
+import { getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { sendEmail } from '../utils/email.js'
 
 const router = Router()
@@ -344,7 +344,7 @@ router.post('/:id/select-image', requireAuth, async (req: Request, res: Response
       .eq('type', 'replicate_image')
       .single()
 
-    // Create mockup jobs
+    // Create mockup jobs (flat_lay + ghost_mannequin for garments + mr_imagine)
     const baseInput = {
       product_type: product.category || 'shirts',
       productType: imageJob?.input?.productType || 'tshirt',
@@ -353,20 +353,36 @@ router.post('/:id/select-image', requireAuth, async (req: Request, res: Response
       selected_asset_id: selectedAssetId,
     }
 
-    const mockupJobs = [
+    const mockupJobs: any[] = [
       {
         product_id: id,
         type: 'replicate_mockup',
         status: 'queued',
         input: { ...baseInput, template: 'flat_lay' },
       },
-      {
-        product_id: id,
-        type: 'replicate_mockup',
-        status: 'queued',
-        input: { ...baseInput, template: 'mr_imagine' },
-      },
     ]
+
+    // Add ghost mannequin job only for supported garment types
+    const productCategory = product.category || 'shirts'
+    const productType = imageJob?.input?.productType || 'tshirt'
+    if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
+        GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+      mockupJobs.push({
+        product_id: id,
+        type: 'ghost_mannequin',
+        status: 'queued',
+        input: baseInput,
+      })
+      console.log('[user-products] 👻 Adding ghost mannequin job for garment type:', productType)
+    }
+
+    // Always add Mr. Imagine mockup
+    mockupJobs.push({
+      product_id: id,
+      type: 'replicate_mockup',
+      status: 'queued',
+      input: { ...baseInput, template: 'mr_imagine' },
+    })
 
     const { data: createdJobs, error: jobError } = await supabase
       .from('ai_jobs')
