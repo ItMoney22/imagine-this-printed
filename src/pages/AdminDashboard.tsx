@@ -7,12 +7,13 @@ import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
 import AdminSupport from '../components/AdminSupport'
+import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/AdminCreatorProductsTab'
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'models' | 'audit' | 'wallet' | 'support' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'models' | 'audit' | 'wallet' | 'support'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -84,6 +85,12 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'draft')
 
+      // Get user-submitted products pending approval
+      const { count: pendingUserProducts } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending_approval')
+
       // Get pending vendor products
       const { count: pendingVendorProducts } = await supabase
         .from('vendor_products')
@@ -96,7 +103,7 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('approved', false)
 
-      const pendingApprovals = (pendingProducts || 0) + (pendingVendorProducts || 0) + (pendingModels || 0)
+      const pendingApprovals = (pendingProducts || 0) + (pendingUserProducts || 0) + (pendingVendorProducts || 0) + (pendingModels || 0)
 
       // Get total 3D models
       const { count: modelsUploaded } = await supabase
@@ -1162,7 +1169,7 @@ const AdminDashboard: React.FC = () => {
       {/* Tabs */}
       <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          {['overview', 'users', 'vendors', 'products', 'models', 'wallet', 'audit', 'support'].map((tab) => (
+          {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'audit', 'support'].map((tab) => (
             <button
               key={tab}
               onClick={() => {
@@ -1187,6 +1194,13 @@ const AdminDashboard: React.FC = () => {
             <div className="bg-card rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-text mb-4">Quick Actions</h3>
               <div className="space-y-3">
+                <button
+                  onClick={() => setSelectedTab('creator-products')}
+                  className="w-full text-left p-3 bg-pink-50 hover:bg-pink-100 rounded-lg transition-colors"
+                >
+                  <div className="font-medium text-pink-900">Review Creator Products</div>
+                  <div className="text-sm text-pink-600">User-submitted designs awaiting approval</div>
+                </button>
                 <button
                   onClick={() => setSelectedTab('vendors')}
                   className="w-full text-left p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
@@ -1770,6 +1784,13 @@ const AdminDashboard: React.FC = () => {
       {
         selectedTab === 'support' && (
           <AdminSupport />
+        )
+      }
+
+      {/* Creator Products Tab - User-submitted products pending approval */}
+      {
+        selectedTab === 'creator-products' && (
+          <CreatorProductsTab />
         )
       }
 

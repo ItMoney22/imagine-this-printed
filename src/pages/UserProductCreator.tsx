@@ -5,14 +5,18 @@ import { VoiceConversationEnhanced } from '../components/VoiceConversationEnhanc
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
 
+// ITC cost per design generation
+const GENERATION_COST_ITC = 50
+
 // Mr. Imagine's conversational prompts (fallback if AI unavailable)
+// Note: Mr. Imagine is a REAL mascot, not an "AI companion"
 const MR_IMAGINE_FALLBACK = {
-    welcome: "Hey there! I'm Mr. Imagine, your creative companion! Tell me what you'd like to see on your custom product - describe your dream design and I'll bring it to life!",
-    afterPrompt: "Ooh, I love that idea! Now let's pick a style - do you want it looking photo-realistic or more artistic and illustrated?",
-    afterStyle: "Perfect choice! One more thing - what color shirt are you thinking? This helps me optimize the design for printing.",
-    generating: "Alright, let me work my magic! I'm crafting something special just for you...",
-    complete: "Ta-da! Your design is ready! Take a look and let me know what you think. You can tweak it, create mockups, or publish it to the marketplace!",
-    error: "Oops! Something didn't quite work out. Let's try that again, shall we?"
+    welcome: "Yo! I'm Mr. Imagine! Ready to create something amazing? Tell me what you're dreaming up and I'll bring it to life!",
+    afterPrompt: "Ohhh I LOVE that! This is gonna be fire! Now - do you want it photo-realistic or more artistic?",
+    afterStyle: "Perfect! Last thing - what color shirt we putting this masterpiece on?",
+    generating: "Alright, let me work my magic! *cracks knuckles* This is gonna be good...",
+    complete: "BOOM! Check it out! If you can imagine it, we can print it! What do you think?",
+    error: "Aw man, something went sideways. Let's try that again - I got you!"
 }
 
 type Step = 'welcome' | 'prompt' | 'style' | 'color' | 'generating' | 'complete'
@@ -65,6 +69,37 @@ export const UserProductCreator = () => {
 
     // Design concept from voice chat - used when ready_to_generate is true
     const [designConcept, setDesignConcept] = useState<string | null>(null)
+
+    // Wallet state for ITC credits - initialized from user.wallet (auth context)
+    const [wallet, setWallet] = useState({ itc_balance: 0, points: 0 })
+    const [showInsufficientCreditsModal, setShowInsufficientCreditsModal] = useState(false)
+    const [requiredCredits, setRequiredCredits] = useState(GENERATION_COST_ITC)
+
+    // Sync wallet from auth context and refresh on mount
+    useEffect(() => {
+        if (user) {
+            // First, use cached wallet from auth context if available
+            if (user.wallet) {
+                setWallet({
+                    itc_balance: user.wallet.itcBalance || 0,
+                    points: user.wallet.pointsBalance || 0
+                })
+            }
+            // Then do a fresh fetch to ensure we have latest balance
+            supabase.from('user_wallets')
+                .select('itc_balance, points')
+                .eq('user_id', user.id)
+                .single()
+                .then(({ data, error }) => {
+                    if (data && !error) {
+                        setWallet({
+                            itc_balance: Number(data.itc_balance) || 0,
+                            points: data.points || 0
+                        })
+                    }
+                })
+        }
+    }, [user])
 
     // Play welcome audio after user clicks "Start" (required for browser autoplay policy)
     const startExperience = async () => {
@@ -196,14 +231,26 @@ export const UserProductCreator = () => {
                 printStyle: 'dtf',
                 productType: 'tshirt',
                 printPlacement: 'front-center',
-                modelId: 'google/imagen-4-ultra'
+                modelId: 'black-forest-labs/flux-1.1-pro-ultra' // Flux only
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             })
 
             setProductId(data.productId)
-        } catch (error) {
+            // Update wallet balance after successful deduction
+            setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - GENERATION_COST_ITC }))
+        } catch (error: any) {
             console.error('Generation failed:', error)
+
+            // Handle insufficient credits (402 response)
+            if (error.response?.status === 402) {
+                const { required, current } = error.response.data
+                setRequiredCredits(required || GENERATION_COST_ITC)
+                setWallet(prev => ({ ...prev, itc_balance: current || 0 }))
+                setShowInsufficientCreditsModal(true)
+                setCurrentStep('color') // Go back to color selection
+            }
+
             setAiMessage(MR_IMAGINE_FALLBACK.error)
             setMrImagineState('idle')
         }
@@ -226,9 +273,7 @@ export const UserProductCreator = () => {
 
                 if (imageJob?.status === 'succeeded') {
                     setProgress(100)
-                    const completeMessage = MR_IMAGINE_FALLBACK.complete
-                    setAiMessage(completeMessage)
-                    setTextToSpeak(completeMessage)
+                    setAiMessage(MR_IMAGINE_FALLBACK.complete)
                     setMrImagineState('happy')
                     setCurrentStep('complete')
 
@@ -238,7 +283,6 @@ export const UserProductCreator = () => {
                     }
                 } else if (imageJob?.status === 'failed') {
                     setAiMessage(MR_IMAGINE_FALLBACK.error)
-                    setTextToSpeak(MR_IMAGINE_FALLBACK.error)
                     setMrImagineState('idle')
                 } else {
                     setProgress(prev => Math.min(prev + 3, 90))
@@ -253,6 +297,78 @@ export const UserProductCreator = () => {
 
     if (!user) {
         return <Navigate to="/login" replace />
+    }
+
+    // Vendor role gate - only vendors can create products for marketplace
+    const isVendor = user.role === 'vendor' || user.role === 'admin'
+    if (!isVendor) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-purple-50 via-white to-pink-50 relative overflow-hidden flex items-center justify-center">
+                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                    <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200/40 rounded-full blur-3xl animate-float" />
+                    <div className="absolute bottom-40 right-20 w-96 h-96 bg-pink-200/30 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }} />
+                </div>
+
+                <div className="relative z-10 text-center max-w-lg mx-auto px-6">
+                    <div className="relative mb-8">
+                        <div className="absolute inset-0 bg-gradient-to-t from-purple-500/30 via-pink-500/20 to-transparent rounded-full blur-3xl" />
+                        <img
+                            src="/mr-imagine/mr-imagine-waist-up-thinking.png"
+                            alt="Mr. Imagine"
+                            className="w-48 h-auto mx-auto relative z-10 drop-shadow-2xl"
+                        />
+                    </div>
+
+                    <h1 className="font-serif text-3xl md:text-4xl text-gray-900 mb-4">
+                        Become a <span className="text-gradient">Creator</span>
+                    </h1>
+                    <p className="text-gray-600 text-lg mb-6 leading-relaxed">
+                        Hey there! To create and sell your own designs on the marketplace,
+                        you'll need to become a vendor first. It's easy, and you'll earn
+                        <span className="font-bold text-green-600"> 10% royalty</span> on every sale!
+                    </p>
+
+                    <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-6 mb-8">
+                        <h3 className="font-semibold text-green-800 mb-3 flex items-center justify-center gap-2">
+                            <span className="text-xl">💰</span> Creator Benefits
+                        </h3>
+                        <ul className="text-left text-green-700 space-y-2 text-sm">
+                            <li className="flex items-start gap-2">
+                                <span className="mt-0.5">✓</span>
+                                Earn 10% ITC royalty on every sale
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <span className="mt-0.5">✓</span>
+                                Your designs featured on the marketplace
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <span className="mt-0.5">✓</span>
+                                Build your own brand and following
+                            </li>
+                            <li className="flex items-start gap-2">
+                                <span className="mt-0.5">✓</span>
+                                Mr. Imagine helps you create amazing designs
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                        <Link
+                            to="/become-vendor"
+                            className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl shadow-lg hover:shadow-purple-500/40 transition-all"
+                        >
+                            <span>🚀</span> Apply to Become a Vendor
+                        </Link>
+                        <Link
+                            to="/"
+                            className="text-gray-500 hover:text-purple-600 text-sm font-medium"
+                        >
+                            ← Back to Home
+                        </Link>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     // Intro screen - user must click to start (required for audio autoplay)
@@ -281,9 +397,18 @@ export const UserProductCreator = () => {
                         Meet <span className="text-gradient">Mr. Imagine</span>
                     </h1>
                     <p className="text-gray-600 text-lg mb-8 leading-relaxed">
-                        Your AI creative companion is ready to help you design
-                        amazing custom products. Just describe your vision and watch the magic happen!
+                        Ready to create something amazing? Just describe your dream design
+                        and Mr. Imagine will bring it to life! If you can imagine it, we can print it.
                     </p>
+
+                    {/* ITC Balance Display */}
+                    <div className="inline-flex items-center gap-4 px-6 py-3 bg-white/80 backdrop-blur rounded-full shadow-lg mb-6">
+                        <span className="flex items-center gap-2 text-yellow-600 font-semibold">
+                            <span className="text-lg">💰</span> {wallet.itc_balance} ITC
+                        </span>
+                        <span className="text-gray-300">|</span>
+                        <span className="text-gray-500 text-sm">Cost: {GENERATION_COST_ITC} ITC per design</span>
+                    </div>
 
                     <button
                         onClick={startExperience}
@@ -332,12 +457,51 @@ export const UserProductCreator = () => {
                         </span>
                     </Link>
 
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-500">Creating as</span>
-                        <span className="font-medium text-gray-800">{user.username || user.email}</span>
+                    <div className="flex items-center gap-6">
+                        {/* ITC Balance Display */}
+                        <Link to="/wallet" className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur rounded-full shadow-sm hover:shadow-md transition-all">
+                            <span className="text-yellow-500">💰</span>
+                            <span className="font-semibold text-gray-800">{wallet.itc_balance} ITC</span>
+                        </Link>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-500">Creating as</span>
+                            <span className="font-medium text-gray-800">{user.username || user.email}</span>
+                        </div>
                     </div>
                 </div>
             </header>
+
+            {/* Insufficient Credits Modal */}
+            {showInsufficientCreditsModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md mx-4 p-8 text-center">
+                        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-yellow-100 to-amber-100 flex items-center justify-center">
+                            <span className="text-4xl">💰</span>
+                        </div>
+                        <h3 className="font-serif text-2xl text-gray-900 mb-3">Not Enough Credits</h3>
+                        <p className="text-gray-600 mb-2">
+                            Design generation costs <span className="font-bold text-purple-600">{requiredCredits} ITC</span>
+                        </p>
+                        <p className="text-gray-500 text-sm mb-6">
+                            You currently have <span className="font-bold text-gray-700">{wallet.itc_balance} ITC</span>
+                        </p>
+                        <div className="flex flex-col gap-3">
+                            <Link
+                                to="/wallet"
+                                className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
+                            >
+                                Get More ITC
+                            </Link>
+                            <button
+                                onClick={() => setShowInsufficientCreditsModal(false)}
+                                className="w-full py-3 border-2 border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50 transition-all"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Main Content */}
             <main className="relative z-10 max-w-5xl mx-auto px-6 py-8">
@@ -347,7 +511,7 @@ export const UserProductCreator = () => {
                         Create with <span className="text-gradient">Mr. Imagine</span>
                     </h1>
                     <p className="text-gray-600 text-lg max-w-xl mx-auto">
-                        Your AI creative partner. Just speak your vision.
+                        Just describe your dream design and watch the magic happen!
                     </p>
                 </div>
 
@@ -644,11 +808,17 @@ export const UserProductCreator = () => {
                             </p>
                         )}
 
-                        {/* Earnings badge */}
-                        <div className="mt-8 text-center">
-                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-full">
-                                <span className="text-xl">💰</span>
-                                <span className="text-amber-700 font-medium">Earn 10% on every sale!</span>
+                        {/* 10% Creator Royalty Banner */}
+                        <div className="mt-8">
+                            <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-400/30 rounded-xl p-5 max-w-md mx-auto">
+                                <div className="flex items-center justify-center gap-2 mb-2">
+                                    <span className="text-2xl">🎉</span>
+                                    <span className="text-xl font-bold text-green-400">10% Creator Royalty!</span>
+                                </div>
+                                <p className="text-sm text-gray-300 text-center">
+                                    Every time someone buys this design, you earn 10% in ITC credits.
+                                    That's real money in your pocket!
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -669,6 +839,18 @@ export const UserProductCreator = () => {
                             with instructions to set up your wallet and start earning from sales!
                         </p>
 
+                        {/* Prominent Royalty Banner */}
+                        <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-400/30 rounded-xl p-6 max-w-md mx-auto mb-6">
+                            <div className="flex items-center justify-center gap-3 mb-3">
+                                <span className="text-3xl">🎉</span>
+                                <span className="text-2xl font-bold text-green-400">10% Creator Royalty!</span>
+                            </div>
+                            <p className="text-gray-300 text-center">
+                                Every time someone buys your design, you earn <strong className="text-green-400">10% in ITC credits</strong>.
+                                That's real money in your pocket from every sale!
+                            </p>
+                        </div>
+
                         <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200/50 rounded-2xl p-6 max-w-md mx-auto mb-8">
                             <h3 className="font-semibold text-gray-800 mb-3">What happens next?</h3>
                             <ul className="text-left text-gray-600 space-y-2 text-sm">
@@ -682,11 +864,11 @@ export const UserProductCreator = () => {
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <span className="text-purple-500 mt-0.5">✓</span>
-                                    Set up your wallet to receive 10% on every sale
+                                    Your product goes live on the marketplace
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <span className="text-purple-500 mt-0.5">✓</span>
-                                    Watch your earnings grow!
+                                    Earn 10% ITC on every sale - forever!
                                 </li>
                             </ul>
                         </div>
@@ -709,7 +891,7 @@ export const UserProductCreator = () => {
                                     setSubmitted(false)
                                     setAiMessage('')
                                     setProgress(0)
-                                    setConversationHistory([])
+                                    setShowIntro(true)
                                 }}
                                 className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all"
                             >

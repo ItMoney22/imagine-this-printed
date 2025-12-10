@@ -8,10 +8,15 @@ import { sendEmail } from '../utils/email.js'
 
 const router = Router()
 
+// Cost in ITC to generate a design
+const GENERATION_COST_ITC = 50
+
 /**
  * POST /api/user-products/create
  * Create a user-submitted product using the AI Product Builder
  * Product goes to pending_approval status, needs admin approval
+ *
+ * Requires 50 ITC credits per generation to prevent abuse
  */
 router.post('/create', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -35,6 +40,81 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
     }
 
     console.log('[user-products] 🚀 User creating product:', { userId, prompt: prompt.substring(0, 50) })
+
+    // ============================================
+    // ITC Credit Check and Deduction
+    // ============================================
+
+    // Step 0a: Check user's ITC balance
+    const { data: wallet, error: walletError } = await supabase
+      .from('user_wallets')
+      .select('id, itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (walletError || !wallet) {
+      console.error('[user-products] ❌ Wallet not found for user:', userId)
+      return res.status(402).json({
+        error: 'Wallet not found',
+        required: GENERATION_COST_ITC,
+        current: 0,
+        message: 'Please set up your wallet before creating designs'
+      })
+    }
+
+    if (wallet.itc_balance < GENERATION_COST_ITC) {
+      console.log('[user-products] ⚠️ Insufficient ITC credits:', {
+        userId,
+        balance: wallet.itc_balance,
+        required: GENERATION_COST_ITC
+      })
+      return res.status(402).json({
+        error: 'Insufficient ITC credits',
+        required: GENERATION_COST_ITC,
+        current: wallet.itc_balance,
+        message: `You need ${GENERATION_COST_ITC} ITC credits to generate a design. Current balance: ${wallet.itc_balance} ITC`
+      })
+    }
+
+    // Step 0b: Deduct ITC credits BEFORE generation starts
+    const newBalance = wallet.itc_balance - GENERATION_COST_ITC
+    const { error: deductError } = await supabase
+      .from('user_wallets')
+      .update({ itc_balance: newBalance })
+      .eq('user_id', userId)
+
+    if (deductError) {
+      console.error('[user-products] ❌ Failed to deduct ITC credits:', deductError)
+      return res.status(500).json({ error: 'Failed to process payment' })
+    }
+
+    // Step 0c: Log the transaction
+    const { error: txError } = await supabase
+      .from('itc_transactions')
+      .insert({
+        user_id: userId,
+        type: 'usage',
+        amount: -GENERATION_COST_ITC,
+        balance_after: newBalance,
+        reference_type: 'design_generation',
+        description: `Design generation: ${prompt.substring(0, 50)}...`,
+        metadata: {
+          reason: 'Design generation',
+          prompt_preview: prompt.substring(0, 100),
+          product_type: productType,
+        }
+      })
+
+    if (txError) {
+      console.error('[user-products] ⚠️ Failed to log transaction (non-blocking):', txError)
+      // Non-blocking - continue even if transaction logging fails
+    }
+
+    console.log('[user-products] 💰 ITC deducted:', {
+      userId,
+      amount: GENERATION_COST_ITC,
+      newBalance
+    })
 
     // Step 1: Normalize with GPT (same as admin flow)
     const normalized = await normalizeProduct({
@@ -88,6 +168,9 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
         status: 'pending_approval', // User products need admin approval
         images: [],
         category: normalized.category_slug,
+        // Use proper columns for user-generated tracking (for royalties)
+        is_user_generated: true,
+        created_by_user_id: userId,
         metadata: {
           ai_generated: true,
           user_submitted: true, // Mark as user-submitted
