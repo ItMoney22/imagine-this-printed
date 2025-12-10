@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Stage, Layer, Image as KonvaImage, Text, Transformer, Rect } from 'react-konva'
 import { useCart } from '../context/CartContext'
@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
 import { PRODUCT_TEMPLATES, type ProductTemplateType } from '../utils/product-templates'
 import MockupPreview from '../components/MockupPreview'
+import MrImagineVoicePanel, { type DesignAction } from '../components/MrImagineVoicePanel'
 import type { AIGenerationRequest, Product } from '../types'
 import type { DesignSuggestion, DesignAnalysis } from '../utils/gpt-assistant'
 
@@ -58,9 +59,20 @@ const ProductDesigner: React.FC = () => {
   const [isChatting, setIsChatting] = useState(false)
   const [designContext, setDesignContext] = useState('')
   const [targetAudience, setTargetAudience] = useState('general')
-  
+
+  // Mr. Imagine Voice Panel State
+  const [showVoicePanel, setShowVoicePanel] = useState(true)
+
   const { addToCart } = useCart()
   const { user } = useAuth()
+
+  // Auth guard - redirect to login if not authenticated
+  useEffect(() => {
+    if (user === null) {
+      // User is explicitly not logged in (not just loading)
+      navigate('/login?redirect=/designer')
+    }
+  }, [user, navigate])
 
   const AI_GENERATION_COST = 25 // ITC cost per generation
 
@@ -136,6 +148,85 @@ const ProductDesigner: React.FC = () => {
     link.click()
     document.body.removeChild(link)
   }
+
+  // Voice command handler - connects Mr. Imagine voice commands to canvas actions
+  const handleVoiceAction = useCallback((action: DesignAction) => {
+    console.log('[ProductDesigner] Voice action received:', action)
+
+    switch (action.type) {
+      case 'add_text':
+        if (action.params?.text) {
+          const newElement = {
+            id: `text-${Date.now()}`,
+            type: 'text',
+            text: action.params.text,
+            x: 320,
+            y: 250,
+            fontSize: 24,
+            fontFamily: 'Arial',
+            fill: textColor,
+            rotation: 0
+          }
+          setElements(prev => [...prev, newElement])
+        }
+        break
+
+      case 'change_color':
+        if (action.params?.color) {
+          const colorMap: Record<string, string> = {
+            red: '#ef4444',
+            blue: '#3b82f6',
+            green: '#22c55e',
+            yellow: '#eab308',
+            purple: '#a855f7',
+            pink: '#ec4899',
+            orange: '#f97316',
+            black: '#000000',
+            white: '#ffffff',
+            gray: '#6b7280',
+          }
+          setTextColor(colorMap[action.params.color] || action.params.color)
+        }
+        break
+
+      case 'change_template':
+        if (action.params?.template) {
+          setSelectedTemplate(action.params.template)
+        }
+        break
+
+      case 'upload_image':
+        fileInputRef.current?.click()
+        break
+
+      case 'generate_ai':
+        setShowAIModal(true)
+        if (action.params?.prompt) {
+          setAiPrompt(action.params.prompt)
+        }
+        break
+
+      case 'clear_canvas':
+        setElements([])
+        setSelectedId('')
+        break
+
+      case 'download':
+        downloadDesign()
+        break
+
+      case 'add_to_cart':
+        addToCartWithDesign()
+        break
+
+      case 'save_gallery':
+        handleSaveDesign()
+        break
+
+      default:
+        break
+    }
+  }, [textColor, downloadDesign])
 
   const showPreviewModal = (mockupUrl: string | null): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -1597,6 +1688,16 @@ const ProductDesigner: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Mr. Imagine Voice Panel - Fixed position on right side */}
+      <MrImagineVoicePanel
+        isCollapsed={!showVoicePanel}
+        onToggleCollapse={() => setShowVoicePanel(!showVoicePanel)}
+        onDesignAction={handleVoiceAction}
+        onTranscript={(text) => console.log('[ProductDesigner] User said:', text)}
+        contextHint={`Working on a ${selectedTemplate} design with ${elements.length} elements`}
+        className={showVoicePanel ? 'fixed right-4 top-24 w-80 z-40' : ''}
+      />
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 ## Current Status
 **Last Updated:** 2025-12-10
-**Last Task Completed:** Switched to Flux-only image generation + Fixed duplicate Mr. Imagine mockups + Auto-select single image
+**Last Task Completed:** Added Mr. Imagine Voice Panel to ProductDesigner page
 **Current Branch:** main
 
 ## Active Tasks
@@ -23,7 +23,9 @@
 - [x] Switch to Flux-only image generation (cost savings + best DTF quality)
 - [x] Fix duplicate Mr. Imagine mockup generation
 - [x] Auto-select single image (skip selection step when only 1 image)
-- [ ] Test /create-design feature end-to-end (needs backend running)
+- [x] Add Mr. Imagine voice panel to ProductDesigner (user-side voice-guided design)
+- [ ] Test ProductDesigner with voice panel end-to-end
+- [ ] Investigate admin mockup duplication issue (parked)
 
 ## Session Context
 Setting up a robust session continuity system so Claude can resume work after disconnections. The system uses:
@@ -68,6 +70,48 @@ ImagineThisPrinted - Custom printing e-commerce platform with:
    - See: `docs/plans/2025-12-09-frontend-design-center-integration.md`
 
 ## Recent Fixes
+
+### Mr. Imagine Voice Panel for ProductDesigner (2025-12-10)
+**Task:** Add voice-guided design creation to the user-facing ProductDesigner page
+
+**Implementation:**
+1. **New Component** (`src/components/MrImagineVoicePanel.tsx`):
+   - Collapsible voice panel with Mr. Imagine avatar
+   - Expression states: idle, listening, thinking, speaking, happy, confused
+   - Microphone toggle with audio level visualization
+   - Uses existing `/api/ai/voice-chat` backend for transcription + AI response
+   - Parses voice commands into design actions
+   - Plays Mr. Imagine voice responses (Minimax Speech-02-Turbo)
+   - Welcome audio on page load
+
+2. **ProductDesigner Integration** (`src/pages/ProductDesigner.tsx`):
+   - Added `MrImagineVoicePanel` as fixed right-side panel
+   - Added auth guard (redirects to login if not authenticated)
+   - Added `handleVoiceAction()` callback connecting voice commands to canvas actions:
+     - "Add text Hello World" → adds text element
+     - "Change color to red" → updates text color
+     - "Switch to hoodie" → changes template
+     - "Generate a dragon" → opens AI image modal
+     - "Upload image" → triggers file input
+     - "Clear canvas" → removes all elements
+     - "Download" → downloads PNG
+     - "Add to cart" → triggers cart flow
+     - "Save" → saves to localStorage gallery
+
+**Voice Command Types:**
+- `add_text` - Add text to canvas
+- `change_color` - Change current text color
+- `change_template` - Switch to shirt/hoodie/tumbler
+- `upload_image` - Trigger file upload
+- `generate_ai` - Open AI generation modal
+- `clear_canvas` - Remove all elements
+- `download` - Download design as PNG
+- `add_to_cart` - Add to shopping cart
+- `save_gallery` - Save to user gallery
+
+**Files Created/Modified:**
+- `src/components/MrImagineVoicePanel.tsx` (NEW - 400+ lines)
+- `src/pages/ProductDesigner.tsx` (Modified - added voice panel integration)
 
 ### Flux-Only Image Generation + Single Image Auto-Select (2025-12-10)
 **Problems:**
