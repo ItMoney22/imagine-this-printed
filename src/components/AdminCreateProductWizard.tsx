@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import confetti from 'canvas-confetti'
 import { aiProducts } from '../lib/api'
@@ -66,6 +66,7 @@ export default function AdminCreateProductWizard() {
   const [sourceImages, setSourceImages] = useState<any[]>([])
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
   const [imageWaitCount, setImageWaitCount] = useState(0) // Track polling cycles while waiting for 3rd image
+  const mockupsTriggeredRef = useRef(false) // Prevent duplicate mockup API calls
 
   // Step 4: Success
   const [finalProduct, setFinalProduct] = useState<any>(null)
@@ -98,46 +99,63 @@ export default function AdminCreateProductWizard() {
 
           console.log('[Wizard] 📸 Source assets count:', sourceAssets.length, 'Image job status:', imageJob?.status, 'Mockup job status:', mockupJob?.status, 'Selected:', selectedImageId)
 
-          // CASE 1: User already selected an image - wait for mockup completion
-          if (selectedImageId) {
-            console.log('[Wizard] 🎯 Image already selected, monitoring mockup progress...')
-            if (mockupJob?.status === 'succeeded') {
-              console.log('[Wizard] ✅ Mockup complete after image selection, transitioning to success')
-              setCurrentStep('success')
-            } else if (mockupJob?.status === 'failed') {
-              console.error('[Wizard] ❌ Mockup generation failed')
-              setError('Mockup generation failed. Please try again.')
+          // CASE 1: Mockups already triggered - wait for ALL mockup jobs to complete
+          if (mockupsTriggeredRef.current || selectedImageId) {
+            console.log('[Wizard] 🎯 Mockups triggered, monitoring mockup progress...')
+
+            // Find all mockup jobs (replicate_mockup and ghost_mannequin)
+            const mockupJobs = jobs.filter((j: any) =>
+              j.type === 'replicate_mockup' || j.type === 'ghost_mannequin'
+            )
+
+            if (mockupJobs.length > 0) {
+              const completedMockups = mockupJobs.filter((j: any) =>
+                j.status === 'succeeded' || j.status === 'failed' || j.status === 'skipped'
+              )
+              const failedMockups = mockupJobs.filter((j: any) => j.status === 'failed')
+
+              console.log('[Wizard] 📊 Mockup progress:', completedMockups.length, '/', mockupJobs.length, 'complete')
+
+              // All mockups done
+              if (completedMockups.length === mockupJobs.length) {
+                if (failedMockups.length === mockupJobs.length) {
+                  // All failed
+                  console.error('[Wizard] ❌ All mockup jobs failed')
+                  setError('Mockup generation failed. Please try again.')
+                } else {
+                  // At least one succeeded
+                  console.log('[Wizard] ✅ All mockups complete, transitioning to success')
+                  setCurrentStep('success')
+                }
+              }
             }
             return // Don't run other checks
           }
 
-          // CASE 2: Multiple source images ready - transition to image selection
-          // Wait for all 3 AI models to complete (or at least give time for all to finish)
-          // Check if we have at least 3 source images (from all 3 AI models)
-          if (imageJob?.status === 'succeeded' && sourceAssets.length >= 3) {
-            console.log('[Wizard] 🎨 All 3 source images ready (' + sourceAssets.length + '), transitioning to select-image step')
+          // CASE 2: Source images ready - auto-select single image and trigger mockups
+          // With single Flux model, we only expect 1 image - skip selection step
+          if (imageJob?.status === 'succeeded' && sourceAssets.length >= 1 && !mockupsTriggeredRef.current) {
+            console.log('[Wizard] 🎨 Source image ready (' + sourceAssets.length + '), auto-selecting and triggering mockups')
             setImageWaitCount(0) // Reset counter
             setSourceImages(sourceAssets)
-            setCurrentStep('select-image')
-          }
-          // Fallback: If only 2 images and job is complete, wait a bit for 3rd or proceed after timeout
-          else if (imageJob?.status === 'succeeded' && sourceAssets.length === 2) {
-            setImageWaitCount(prev => prev + 1)
-            console.log('[Wizard] ⏳ Only 2 images so far, waiting for 3rd... (poll #' + (imageWaitCount + 1) + ')')
-            // After 5 polling cycles (10 seconds), proceed with what we have
-            if (imageWaitCount >= 5) {
-              console.log('[Wizard] ⚠️ Timeout waiting for 3rd image, proceeding with 2 images')
-              setImageWaitCount(0)
-              setSourceImages(sourceAssets)
-              setCurrentStep('select-image')
-            }
-          }
-          // CASE 3: Single image case (fallback or single model)
-          else if (imageJob?.status === 'succeeded' && sourceAssets.length === 1) {
-            console.log('[Wizard] 📸 Single source image - checking for mockup job')
-            if (mockupJob?.status === 'succeeded') {
-              console.log('[Wizard] ✅ Mockup complete, transitioning to success')
-              setCurrentStep('success')
+
+            // Mark mockups as triggered IMMEDIATELY to prevent duplicate calls
+            mockupsTriggeredRef.current = true
+
+            // Auto-select the single image and trigger mockup generation
+            const singleImage = sourceAssets[0]
+            console.log('[Wizard] 🎯 Auto-selecting image:', singleImage.id)
+            setSelectedImageId(singleImage.id)
+
+            // Trigger mockup generation directly
+            try {
+              const response = await aiProducts.selectImage(productId, singleImage.id)
+              console.log('[Wizard] ✅ Auto-triggered mockup generation:', response.mockupJobs?.length, 'jobs')
+            } catch (err: any) {
+              console.error('[Wizard] ❌ Error auto-triggering mockups:', err)
+              setError(err.message || 'Failed to auto-trigger mockups')
+              // Reset the flag so user can retry
+              mockupsTriggeredRef.current = false
             }
           }
         } catch (err: any) {
@@ -213,6 +231,7 @@ export default function AdminCreateProductWizard() {
     setSourceImages([])
     setSelectedImageId(null)
     setImageWaitCount(0)
+    mockupsTriggeredRef.current = false // Reset mockup trigger flag
   }
 
   const handleApprove = async () => {
@@ -273,8 +292,9 @@ export default function AdminCreateProductWizard() {
     setError(null)
 
     try {
-      console.log('[Wizard] 🔄 Triggering mockup creation for product:', productId)
-      await aiProducts.createMockups(productId)
+      console.log('[Wizard] 🔄 Triggering mockup creation for product:', productId, 'with selected image:', selectedImageId)
+      // Pass the selected image ID so mockups use the correct image
+      await aiProducts.createMockups(productId, selectedImageId || undefined)
       console.log('[Wizard] ✅ Mockup jobs created')
       setCreatingMockups(false)
     } catch (error: any) {
@@ -373,7 +393,7 @@ export default function AdminCreateProductWizard() {
     }
   }
 
-  const getJobStatusIcon = (status: AIJob['status']) => {
+  const getJobStatusIcon = (status: string) => {
     switch (status) {
       case 'queued':
         return '⏳'
@@ -383,12 +403,14 @@ export default function AdminCreateProductWizard() {
         return '✅'
       case 'failed':
         return '❌'
+      case 'skipped':
+        return '⏭️'
       default:
         return '❓'
     }
   }
 
-  const getJobStatusColor = (status: AIJob['status']) => {
+  const getJobStatusColor = (status: string) => {
     switch (status) {
       case 'queued':
         return 'bg-gray-100 text-gray-800'
@@ -398,6 +420,8 @@ export default function AdminCreateProductWizard() {
         return 'bg-green-100 text-green-800'
       case 'failed':
         return 'bg-red-100 text-red-800'
+      case 'skipped':
+        return 'bg-yellow-100 text-yellow-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -1225,18 +1249,37 @@ export default function AdminCreateProductWizard() {
                       <p className="font-bold text-text text-xl mb-1">
                         {job.type === 'replicate_image' && '🎨 Product Image Generation'}
                         {job.type === 'replicate_rembg' && '✂️ Background Removal'}
-                        {job.type === 'replicate_mockup' && jobs.filter(j => j.type === 'replicate_mockup').indexOf(job) === 0 && '🖼️ Mockup #1 - Flat Lay'}
-                        {job.type === 'replicate_mockup' && jobs.filter(j => j.type === 'replicate_mockup').indexOf(job) === 1 && '🖼️ Mockup #2 - Lifestyle'}
+                        {job.type === 'ghost_mannequin' && '👻 Ghost Mannequin Mockup'}
+                        {job.type === 'replicate_mockup' && job.input?.template === 'flat_lay' && '🖼️ Flat Lay Mockup'}
+                        {job.type === 'replicate_mockup' && job.input?.template === 'mr_imagine' && '🎭 Mr. Imagine Mockup'}
+                        {job.type === 'replicate_mockup' && !job.input?.template && '🖼️ Mockup Generation'}
                       </p>
                       <p className="text-sm text-muted font-medium">
-                        {job.status === 'queued' && job.type === 'replicate_image' && 'Waiting to start generation...'}
-                        {job.status === 'queued' && job.type === 'replicate_rembg' && 'Waiting for source image...'}
-                        {job.status === 'queued' && job.type === 'replicate_mockup' && 'Waiting for background removal...'}
-                        {job.status === 'running' && job.type === 'replicate_image' && 'Generating artwork with Flux Fast...'}
-                        {job.status === 'running' && job.type === 'replicate_rembg' && 'Removing background with rembg...'}
-                        {job.status === 'running' && job.type === 'replicate_mockup' && 'Applying design to mockup with Nano Banana...'}
-                        {job.status === 'succeeded' && 'Complete! Image ready.'}
-                        {job.status === 'failed' && 'Generation failed. Please try again.'}
+                        {/* Show real-time progress message from worker if available */}
+                        {job.status === 'running' && job.output?.progress?.message ? (
+                          <span className="flex items-center gap-2">
+                            <span className="animate-pulse">{job.output.progress.message}</span>
+                            {job.output.progress.step && job.output.progress.total_steps && (
+                              <span className="text-xs text-primary">
+                                ({job.output.progress.step}/{job.output.progress.total_steps})
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <>
+                            {job.status === 'queued' && job.type === 'replicate_image' && 'Waiting to start generation...'}
+                            {job.status === 'queued' && job.type === 'replicate_rembg' && 'Waiting for source image...'}
+                            {job.status === 'queued' && job.type === 'replicate_mockup' && 'Waiting for background removal...'}
+                            {job.status === 'queued' && job.type === 'ghost_mannequin' && 'Waiting for design image...'}
+                            {job.status === 'running' && job.type === 'replicate_image' && 'Generating artwork with AI models...'}
+                            {job.status === 'running' && job.type === 'replicate_rembg' && 'Removing background with AI...'}
+                            {job.status === 'running' && job.type === 'replicate_mockup' && 'Applying design to mockup...'}
+                            {job.status === 'running' && job.type === 'ghost_mannequin' && 'Creating ghost mannequin mockup...'}
+                            {job.status === 'succeeded' && 'Complete! Image ready.'}
+                            {job.status === 'skipped' && 'Skipped (not applicable)'}
+                            {job.status === 'failed' && 'Generation failed. Please try again.'}
+                          </>
+                        )}
                       </p>
                       {job.error && (
                         <p className="text-sm text-red-400 mt-2 font-bold bg-red-950/50 border border-red-500/30 px-3 py-1 rounded-lg inline-block">
@@ -1308,7 +1351,9 @@ export default function AdminCreateProductWizard() {
                 <div className="bg-bg/50 rounded-xl p-4 border border-white/5">
                   <p className="text-sm text-muted text-center mb-2">With Background</p>
                   <img
-                    src={productAssets.find(asset => asset.kind === 'source')?.url}
+                    src={selectedImageId
+                      ? productAssets.find(asset => asset.id === selectedImageId)?.url
+                      : productAssets.find(asset => asset.kind === 'source')?.url}
                     alt="Source product image"
                     className="w-full rounded-lg shadow-lg"
                   />

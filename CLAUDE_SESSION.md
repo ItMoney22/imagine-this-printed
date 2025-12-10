@@ -2,7 +2,7 @@
 
 ## Current Status
 **Last Updated:** 2025-12-10
-**Last Task Completed:** Added ghost mannequin mockup generation using Nano-Banana model
+**Last Task Completed:** Switched to Flux-only image generation + Fixed duplicate Mr. Imagine mockups + Auto-select single image
 **Current Branch:** main
 
 ## Active Tasks
@@ -15,6 +15,14 @@
 - [x] Commit all uncommitted work (8 commits)
 - [x] Verify support ticket system (tables created, routes verified, frontend integrated)
 - [x] Add ghost mannequin mockup generation (3rd mockup type using Nano-Banana)
+- [x] Fix image selection not being respected in remove-bg and mockups
+- [x] Fix Background Removed UI showing wrong "With Background" image
+- [x] Fix Mr. Imagine showing 3 images (now shows 1 on white background)
+- [x] Set Mr. Imagine mockup as primary product image
+- [x] Add real-time status updates showing what's happening during generation
+- [x] Switch to Flux-only image generation (cost savings + best DTF quality)
+- [x] Fix duplicate Mr. Imagine mockup generation
+- [x] Auto-select single image (skip selection step when only 1 image)
 - [ ] Test /create-design feature end-to-end (needs backend running)
 
 ## Session Context
@@ -60,6 +68,134 @@ ImagineThisPrinted - Custom printing e-commerce platform with:
    - See: `docs/plans/2025-12-09-frontend-design-center-integration.md`
 
 ## Recent Fixes
+
+### Flux-Only Image Generation + Single Image Auto-Select (2025-12-10)
+**Problems:**
+1. User observed only Flux produces usable DTF images; Imagen 4 Ultra and Lucid Origin were "off the mark"
+2. Generating 3 images wastes money when only 1 is usable
+3. 3 Mr. Imagine mockups being created instead of 1
+4. Unnecessary image selection step when only 1 image exists
+
+**Fixes:**
+
+1. **Flux-Only Generation** (`backend/services/replicate.ts:72-79`):
+   - Changed `MODELS` array from 3 models to just `black-forest-labs/flux-1.1-pro-ultra`
+   - Removed Imagen 4 Ultra and Lucid Origin
+   - Updated log messages to reflect single-model generation
+
+2. **Prevent Duplicate Mockup Jobs** (`backend/routes/admin/ai-products.ts`):
+   - In `POST /:id/select-image` (line 588-600): Changed cleanup to delete ALL mockup jobs (not just `queued`/`running`)
+   - In `POST /:id/create-mockups` (line 385-397): Same cleanup change
+   - This ensures old succeeded/failed jobs are also cleared before creating new ones
+
+3. **Auto-Select Single Image** (`src/components/AdminCreateProductWizard.tsx`):
+   - Added `mockupsTriggeredRef` to prevent duplicate API calls during polling
+   - When 1 source image is ready, automatically selects it and triggers mockup generation
+   - Changed condition from `!selectedImageId` to `!mockupsTriggeredRef.current`
+   - No more manual image selection step needed since only Flux generates
+
+4. **Better Completion Detection**:
+   - Now monitors ALL mockup jobs (`replicate_mockup` + `ghost_mannequin`)
+   - Transitions to success only when all jobs complete
+
+**Flow Now:**
+1. Enter prompt → Review normalized product
+2. Start generation → Flux generates 1 image
+3. **Auto-selects image** → Creates 2 mockup jobs (ghost_mannequin + mr_imagine)
+4. Wait for mockups → Success screen
+
+### Real-Time Status Updates (2025-12-10)
+**Request:** User wanted GPT-style progress messages showing what the system is doing during generation (admin-only)
+
+**Implementation:**
+1. **Worker** (`backend/worker/ai-jobs-worker.ts`):
+   - Added `updateJobProgress()` helper function that writes progress to `job.output.progress`
+   - Added progress updates at key stages: sending to AI, downloading images, uploading to GCS
+   - Format: `{ message: "...", step: N, total_steps: N, updated_at: "..." }`
+
+2. **Frontend** (`src/components/AdminCreateProductWizard.tsx`):
+   - Updated job status display to show `job.output?.progress?.message` when available
+   - Added step counter display (e.g., "2/3")
+   - Messages animate with pulse effect for visibility
+
+**Example Progress Messages:**
+- "🎨 Sending design to AI models (Flux Fast, Imagen 4, Lucid Origin)..."
+- "✂️ Removing background with AI (Remove.bg)..."
+- "🎭 Generating Mr. Imagine mascot mockup with Gemini AI..."
+- "👻 Rendering invisible mannequin effect with Nano-Banana AI..."
+
+### Mr. Imagine Improvements (2025-12-10)
+**Problems:**
+1. Mr. Imagine showing 3 images instead of 1
+2. Background not plain white for e-commerce
+3. Mr. Imagine not set as primary product image
+
+**Fixes:**
+1. **Gemini API Config** (`backend/services/vertex-ai-mockup.ts`):
+   - Added `candidateCount: 1` to request only 1 response
+   - Changed `responseModalities: ['IMAGE']` (removed TEXT to prevent variations)
+   - Lowered `temperature: 0.2` and `topP: 0.8` for deterministic output
+
+2. **Prompt Updates**:
+   - Added "PLAIN WHITE studio background" instruction
+   - Added "Output a SINGLE high-quality product mockup image"
+   - Added "Do NOT generate multiple images or variations"
+
+3. **Primary Image Setting** (`backend/worker/ai-jobs-worker.ts`):
+   - Mr. Imagine mockup gets `is_primary: true` and `display_order: 1`
+   - Other mockups set to `is_primary: false`
+   - Display order: mr_imagine(1) → flat_lay(2) → ghost_mannequin(3)
+
+### Image Selection Not Being Respected Fix (2025-12-10)
+**Problem:** User reported: "I selected one image. It removed background from the second. It mocked up the third."
+
+**Root Causes Found:**
+1. **`/create-mockups` route** didn't accept `selectedAssetId` parameter
+2. **API client `createMockups()`** function didn't accept or pass `selectedAssetId`
+3. **Frontend `handleCreateMockups()`** didn't pass `selectedImageId` to the API
+
+**Fixes Applied:**
+1. **Backend** (`backend/routes/admin/ai-products.ts:378-412`):
+   - Added `const { selectedAssetId } = req.body` to extract selection
+   - Added `selected_asset_id: selectedAssetId` to `baseInput` for all mockup jobs
+   - Added logging: `[ai-products] 🎯 Using selected asset for mockups:`
+
+2. **API Client** (`src/lib/api.ts:142-153`):
+   - Changed signature from `createMockups(productId)` to `createMockups(productId, selectedAssetId?)`
+   - Added `body: JSON.stringify({ selectedAssetId })` to the request
+
+3. **Frontend** (`src/components/AdminCreateProductWizard.tsx:263-280`):
+   - Changed `await aiProducts.createMockups(productId)` to `await aiProducts.createMockups(productId, selectedImageId || undefined)`
+   - Added logging for debugging
+
+**Flow Now Works:**
+- User selects image → `selectedImageId` is set
+- User clicks "Remove Background" → `handleEnhanceRemoveBackground` passes `selectedImageId` to API
+- User clicks "Skip to Mockups" or "Create Mockups" → `handleCreateMockups` passes `selectedImageId` to API
+- Backend creates jobs with `selected_asset_id` in input
+- Worker uses `job.input.selected_asset_id` to fetch the correct image
+
+### AI Product Builder Mockup Generation Fix (2025-12-10)
+**Problem:** User reported:
+1. Only 1 image shown for selection (should show 1-3 from different AI models)
+2. Mockup used different image than the one selected
+3. Missing ghost mannequin and Mr. Imagine mockups
+
+**Root Causes:**
+- Frontend waited for 3 images before showing selection; if fewer than 3, it either timed out or bypassed selection entirely
+- Backend `/create-mockups` route still created OLD mockup types (`flat_lay` + `lifestyle`) instead of NEW ones (`flat_lay` + `ghost_mannequin` + `mr_imagine`)
+- Third AI model (Lucid Origin) sometimes fails content moderation, leaving only 1-2 images
+
+**Fixes Applied:**
+1. **Frontend** (`src/components/AdminCreateProductWizard.tsx`):
+   - Changed image selection logic to show selection UI for 1, 2, or 3 images
+   - Removed special case that bypassed selection when only 1 image was generated
+   - Now waits 10 seconds (5 polls) for additional images before proceeding
+
+2. **Backend** (`backend/routes/admin/ai-products.ts`):
+   - Updated `/create-mockups` route to create: `flat_lay` + `ghost_mannequin` (for garments) + `mr_imagine`
+   - Removed old `lifestyle` mockup type
+
 ### Ghost Mannequin Mockup (2025-12-10)
 **Task:** Add 3rd mockup type using Nano-Banana for invisible mannequin effect
 **Implementation:**

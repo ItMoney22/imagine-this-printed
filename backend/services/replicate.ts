@@ -69,21 +69,11 @@ const MR_IMAGINE_MOCKUPS: Record<string, Record<string, Record<string, string>>>
   },
 }
 
-// Multi-model configuration - 3 models for simultaneous generation
+// Single model configuration - Flux only (best results for DTF printing)
 const MODELS = [
-  {
-    id: 'google/imagen-4-ultra',
-    name: 'Google Imagen 4 Ultra',
-    isSynchronous: true,
-  },
   {
     id: 'black-forest-labs/flux-1.1-pro-ultra',
     name: 'Flux 1.1 Pro Ultra',
-    isSynchronous: true,
-  },
-  {
-    id: 'leonardoai/lucid-origin',
-    name: 'Lucid Origin',
     isSynchronous: true,
   },
 ]
@@ -208,7 +198,7 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
 }
 
 export async function generateProductImage(input: ReplicateImageInput) {
-  console.log('[replicate] 🎨 Generating images from ALL 3 models simultaneously')
+  console.log('[replicate] 🎨 Generating image with Flux 1.1 Pro Ultra')
 
   // Build DTF-aware prompt if shirt color and style are specified
   let finalPrompt = input.prompt
@@ -225,8 +215,8 @@ export async function generateProductImage(input: ReplicateImageInput) {
     prompt: finalPrompt,
   }
 
-  // Generate from ALL 3 models in parallel
-  console.log('[replicate] 🚀 Starting parallel generation from:', MODELS.map(m => m.name).join(', '))
+  // Generate with single Flux model
+  console.log('[replicate] 🚀 Starting generation with:', MODELS[0].name)
 
   const results = await Promise.allSettled(
     MODELS.map(model => generateWithSingleModel(model, finalInput))
@@ -250,7 +240,7 @@ export async function generateProductImage(input: ReplicateImageInput) {
     }
   })
 
-  console.log('[replicate] ✅ Multi-model generation complete. Success:', outputs.filter(o => o.status === 'succeeded').length, '/', MODELS.length)
+  console.log('[replicate] ✅ Flux generation complete. Success:', outputs.filter(o => o.status === 'succeeded').length, '/', MODELS.length)
 
   return {
     id: 'multi-model-' + Date.now(),
@@ -457,12 +447,12 @@ REQUIREMENTS:
   console.log('[replicate] 📝 Ghost mannequin prompt:', prompt.substring(0, 100) + '...')
 
   // Use replicate.run() for synchronous execution with Nano-Banana
+  // IMPORTANT: Nano-Banana uses "image_input" (array) not "image" (string)
   const modelInput = {
     prompt: prompt,
-    image: input.designImage, // Single input image with the design
+    image_input: [input.designImage], // Array format required by Nano-Banana
     aspect_ratio: '1:1',
     output_format: 'png',
-    safety_filter_level: 'block_only_high',
   }
 
   console.log('[replicate] 🔍 Using replicate.run() for Nano-Banana ghost mannequin')

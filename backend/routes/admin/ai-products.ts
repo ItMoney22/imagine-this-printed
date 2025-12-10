@@ -374,11 +374,41 @@ router.post('/:id/remove-background', requireAuth, requireAdmin, async (req: Req
 })
 
 // POST /api/admin/products/ai/:id/create-mockups
+// Creates 3 mockup jobs: flat_lay + ghost_mannequin (for garments) + mr_imagine
 router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
+    const { selectedAssetId } = req.body
 
-    req.log?.info({ productId: id }, '[ai-products] 🔄 Creating mockup jobs')
+    req.log?.info({ productId: id, selectedAssetId }, '[ai-products] 🔄 Creating mockup jobs')
+
+    // Clean up ALL existing mockup JOBS (including succeeded) to prevent duplicate generation
+    const { data: deletedJobs, error: deleteJobsError } = await supabase
+      .from('ai_jobs')
+      .delete()
+      .eq('product_id', id)
+      .in('type', ['replicate_mockup', 'ghost_mannequin'])
+      .select('id')
+
+    if (deleteJobsError) {
+      console.warn('[ai-products] ⚠️ Failed to delete existing mockup jobs:', deleteJobsError)
+    } else if (deletedJobs && deletedJobs.length > 0) {
+      console.log('[ai-products] 🗑️ Deleted', deletedJobs.length, 'existing mockup jobs before regenerating')
+    }
+
+    // Clean up existing mockup assets to prevent accumulation
+    const { data: deletedMockups, error: deleteError } = await supabase
+      .from('product_assets')
+      .delete()
+      .eq('product_id', id)
+      .eq('kind', 'mockup')
+      .select('id')
+
+    if (deleteError) {
+      console.warn('[ai-products] ⚠️ Failed to delete existing mockups:', deleteError)
+    } else if (deletedMockups && deletedMockups.length > 0) {
+      console.log('[ai-products] 🗑️ Deleted', deletedMockups.length, 'existing mockup assets before regenerating')
+    }
 
     // Get product to get category slug
     const { data: product } = await supabase
@@ -391,27 +421,63 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       return res.status(404).json({ error: 'Product not found' })
     }
 
-    // Create 2 mockup jobs
-    const jobs = [
+    // Get image job for DTF settings
+    const { data: imageJob } = await supabase
+      .from('ai_jobs')
+      .select('input')
+      .eq('product_id', id)
+      .eq('type', 'replicate_image')
+      .single()
+
+    const baseInput = {
+      product_type: product.category || 'shirts',
+      productType: imageJob?.input?.productType || 'tshirt',
+      shirtColor: imageJob?.input?.shirtColor || 'black',
+      printPlacement: imageJob?.input?.printPlacement || 'front-center',
+      selected_asset_id: selectedAssetId, // Pass selected asset to worker
+    }
+
+    console.log('[ai-products] 🎯 Using selected asset for mockups:', selectedAssetId || 'none (will use fallback)')
+
+    // Create mockup jobs: flat_lay + ghost_mannequin (for garments) + mr_imagine
+    const jobs: any[] = [
       {
         product_id: id,
         type: 'replicate_mockup',
         status: 'queued',
         input: {
+          ...baseInput,
           template: 'flat_lay',
-          product_type: product.category,
-        },
-      },
-      {
-        product_id: id,
-        type: 'replicate_mockup',
-        status: 'queued',
-        input: {
-          template: 'lifestyle',
-          product_type: product.category,
         },
       },
     ]
+
+    // Add ghost mannequin job only for supported garment types
+    const productCategory = product.category || 'shirts'
+    const productType = imageJob?.input?.productType || 'tshirt'
+    if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
+        GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+      jobs.push({
+        product_id: id,
+        type: 'ghost_mannequin',
+        status: 'queued',
+        input: baseInput,
+      })
+      console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
+    }
+
+    // Always add Mr. Imagine mockup
+    jobs.push({
+      product_id: id,
+      type: 'replicate_mockup',
+      status: 'queued',
+      input: {
+        ...baseInput,
+        template: 'mr_imagine',
+      },
+    })
+
+    console.log('[ai-products] 🎨 Creating mockup jobs:', jobs.map(j => ({ type: j.type, template: j.input?.template || j.type })))
 
     const { data: createdJobs, error: jobsError } = await supabase
       .from('ai_jobs')
@@ -423,7 +489,8 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       return res.status(500).json({ error: 'Failed to create mockup jobs' })
     }
 
-    req.log?.info({ count: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created')
+    console.log('[ai-products] ✅ Successfully created', createdJobs?.length, 'mockup jobs')
+    req.log?.info({ count: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + ghost_mannequin + mr_imagine)')
 
     res.json({ jobs: createdJobs })
   } catch (error: any) {
@@ -472,24 +539,77 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       })
       .eq('id', selectedAssetId)
 
-    // DELETE non-selected source and DTF images (keep only the selected one)
-    // This ensures only 3 final images: selected design + 2 mockups
+    // DELETE non-selected source and DTF images
+    // Keep: selected source asset + its corresponding DTF asset (matching model_id)
+    // Delete: other source assets + their DTF assets
     console.log('[ai-products] 🗑️ Deleting non-selected assets for product:', id, '(keeping selected:', selectedAssetId, ')')
 
-    const { data: deletedAssets, error: deleteError } = await supabase
+    // Get the model_id from the selected asset to match with DTF
+    const selectedModelId = selectedAsset.metadata?.model_id
+
+    // Get all source and DTF assets for this product
+    const { data: allAssets } = await supabase
+      .from('product_assets')
+      .select('id, kind, metadata')
+      .eq('product_id', id)
+      .in('kind', ['source', 'dtf'])
+
+    // Find IDs to delete (not selected source, and not DTF matching selected model)
+    const idsToDelete = (allAssets || [])
+      .filter(asset => {
+        // Keep the selected source asset
+        if (asset.id === selectedAssetId) return false
+        // Keep the DTF asset that matches the selected source's model
+        if (asset.kind === 'dtf' && asset.metadata?.model_id === selectedModelId) return false
+        // Delete everything else
+        return true
+      })
+      .map(a => a.id)
+
+    if (idsToDelete.length > 0) {
+      const { data: deletedAssets, error: deleteError } = await supabase
+        .from('product_assets')
+        .delete()
+        .in('id', idsToDelete)
+        .select('id')
+
+      if (deleteError) {
+        console.error('[ai-products] ❌ Failed to delete non-selected assets:', deleteError)
+        req.log?.warn({ error: deleteError }, '[ai-products] ⚠️ Failed to delete non-selected assets')
+      } else {
+        console.log('[ai-products] ✅ Deleted', deletedAssets?.length || 0, 'non-selected assets:', deletedAssets?.map(a => a.id))
+        req.log?.info({ deletedCount: deletedAssets?.length || 0 }, '[ai-products] 🗑️ Deleted non-selected assets')
+      }
+    } else {
+      console.log('[ai-products] ℹ️ No non-selected assets to delete')
+    }
+
+    // Clean up ALL existing mockup JOBS (including succeeded) to prevent duplicate generation
+    const { data: deletedMockupJobs, error: deleteMockupJobsError } = await supabase
+      .from('ai_jobs')
+      .delete()
+      .eq('product_id', id)
+      .in('type', ['replicate_mockup', 'ghost_mannequin'])
+      .select('id')
+
+    if (deleteMockupJobsError) {
+      console.warn('[ai-products] ⚠️ Failed to delete existing mockup jobs:', deleteMockupJobsError)
+    } else if (deletedMockupJobs && deletedMockupJobs.length > 0) {
+      console.log('[ai-products] 🗑️ Deleted', deletedMockupJobs.length, 'existing mockup jobs before regenerating')
+    }
+
+    // Clean up existing mockup assets to prevent accumulation
+    const { data: deletedMockupsSelect, error: deleteMockupsError } = await supabase
       .from('product_assets')
       .delete()
       .eq('product_id', id)
-      .in('kind', ['source', 'dtf']) // Delete source and DTF assets
-      .neq('id', selectedAssetId) // But NOT the selected one
+      .eq('kind', 'mockup')
       .select('id')
 
-    if (deleteError) {
-      console.error('[ai-products] ❌ Failed to delete non-selected assets:', deleteError)
-      req.log?.warn({ error: deleteError }, '[ai-products] ⚠️ Failed to delete non-selected assets')
-    } else {
-      console.log('[ai-products] ✅ Deleted', deletedAssets?.length || 0, 'non-selected assets:', deletedAssets?.map(a => a.id))
-      req.log?.info({ deletedCount: deletedAssets?.length || 0 }, '[ai-products] 🗑️ Deleted non-selected assets')
+    if (deleteMockupsError) {
+      console.warn('[ai-products] ⚠️ Failed to delete existing mockups:', deleteMockupsError)
+    } else if (deletedMockupsSelect && deletedMockupsSelect.length > 0) {
+      console.log('[ai-products] 🗑️ Deleted', deletedMockupsSelect.length, 'existing mockup assets before regenerating')
     }
 
     // Get the image generation job to extract DTF settings
