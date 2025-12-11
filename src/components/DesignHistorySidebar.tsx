@@ -10,6 +10,7 @@ interface DesignSession {
   color: string | null
   product_type: string | null
   step: string | null
+  conversation_history: any[]
   generated_images: { url: string; replicate_id?: string }[]
   selected_image_url: string | null
   product_id: string | null

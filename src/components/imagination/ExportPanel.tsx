@@ -1,0 +1,393 @@
+import React, { useState, useMemo } from 'react';
+import type { Layer, Sheet } from '../../types';
+import { imaginationApi } from '../../lib/api';
+import { Loader2, Download, Send, Eye, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+
+interface ExportPanelProps {
+  sheet: Sheet;
+  layers: Layer[];
+  isProcessing: boolean;
+  setIsProcessing: (processing: boolean) => void;
+}
+
+type ExportFormat = 'png' | 'pdf';
+
+interface PreflightCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'warning' | 'fail';
+  message: string;
+}
+
+const ExportPanel: React.FC<ExportPanelProps> = ({
+  sheet,
+  layers,
+  isProcessing,
+  setIsProcessing,
+}) => {
+  const [format, setFormat] = useState<ExportFormat>('png');
+  const [includeCutlines, setIncludeCutlines] = useState(false);
+  const [mirrorForSublimation, setMirrorForSublimation] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Pre-flight checks
+  const preflightChecks: PreflightCheck[] = useMemo(() => {
+    const checks: PreflightCheck[] = [];
+
+    // Check if there are any layers
+    if (layers.length === 0) {
+      checks.push({
+        id: 'no-layers',
+        label: 'Content Check',
+        status: 'fail',
+        message: 'No layers on canvas',
+      });
+    } else {
+      checks.push({
+        id: 'has-content',
+        label: 'Content Check',
+        status: 'pass',
+        message: `${layers.length} layer${layers.length > 1 ? 's' : ''} ready`,
+      });
+    }
+
+    // Check DPI for image layers
+    const imageLayers = layers.filter(l => l.type === 'image');
+    const lowDpiLayers = imageLayers.filter(l => (l.dpi || 0) < 150);
+    const mediumDpiLayers = imageLayers.filter(l => (l.dpi || 0) >= 150 && (l.dpi || 0) < 300);
+
+    if (lowDpiLayers.length > 0) {
+      checks.push({
+        id: 'dpi-check',
+        label: 'Image Quality',
+        status: 'fail',
+        message: `${lowDpiLayers.length} image${lowDpiLayers.length > 1 ? 's' : ''} below 150 DPI`,
+      });
+    } else if (mediumDpiLayers.length > 0) {
+      checks.push({
+        id: 'dpi-check',
+        label: 'Image Quality',
+        status: 'warning',
+        message: `${mediumDpiLayers.length} image${mediumDpiLayers.length > 1 ? 's' : ''} below 300 DPI`,
+      });
+    } else if (imageLayers.length > 0) {
+      checks.push({
+        id: 'dpi-check',
+        label: 'Image Quality',
+        status: 'pass',
+        message: 'All images are 300+ DPI',
+      });
+    }
+
+    // Check if elements are within bounds
+    const outOfBounds = layers.filter(l => {
+      const right = l.x + l.width;
+      const bottom = l.y + l.height;
+      return l.x < 0 || l.y < 0 || right > sheet.width || bottom > sheet.height;
+    });
+
+    if (outOfBounds.length > 0) {
+      checks.push({
+        id: 'bounds-check',
+        label: 'Bounds Check',
+        status: 'warning',
+        message: `${outOfBounds.length} element${outOfBounds.length > 1 ? 's' : ''} outside sheet area`,
+      });
+    } else if (layers.length > 0) {
+      checks.push({
+        id: 'bounds-check',
+        label: 'Bounds Check',
+        status: 'pass',
+        message: 'All elements within bounds',
+      });
+    }
+
+    return checks;
+  }, [layers, sheet]);
+
+  const canExport = layers.length > 0 && !preflightChecks.some(c => c.status === 'fail');
+
+  const getStatusIcon = (status: 'pass' | 'warning' | 'fail') => {
+    switch (status) {
+      case 'pass':
+        return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+      case 'warning':
+        return <AlertTriangle className="w-4 h-4 text-yellow-400" />;
+      case 'fail':
+        return <XCircle className="w-4 h-4 text-red-400" />;
+    }
+  };
+
+  const handlePreview = async () => {
+    setError(null);
+    setIsProcessing(true);
+    setPreviewUrl(null);
+
+    try {
+      const { data } = await imaginationApi.previewExport({
+        sheet,
+        layers,
+        format,
+        options: {
+          includeCutlines,
+          mirrorForSublimation,
+        },
+      });
+
+      setPreviewUrl(data.previewUrl || data.url);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate preview');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    setError(null);
+    setSuccess(null);
+    setIsProcessing(true);
+
+    try {
+      const { data } = await imaginationApi.exportDesign({
+        sheet,
+        layers,
+        format,
+        options: {
+          includeCutlines,
+          mirrorForSublimation,
+        },
+      });
+
+      // Trigger download
+      const downloadUrl = data.downloadUrl || data.url;
+      if (downloadUrl) {
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `design-${Date.now()}.${format}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      setSuccess('Design downloaded successfully');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to export design');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSubmitToProduction = async () => {
+    setError(null);
+    setSuccess(null);
+    setIsProcessing(true);
+
+    try {
+      const { data } = await imaginationApi.submitToProduction({
+        sheet,
+        layers,
+        format,
+        options: {
+          includeCutlines,
+          mirrorForSublimation,
+        },
+      });
+
+      setSuccess(`Design submitted! Order ID: ${data.orderId || 'N/A'}`);
+      if (data.orderId) {
+        setTimeout(() => {
+          window.location.href = `/orders/${data.orderId}`;
+        }, 2000);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit to production');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Error/Success Messages */}
+      {error && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="p-3 bg-green-500/10 border border-green-500/30 rounded text-sm text-green-400">
+          {success}
+        </div>
+      )}
+
+      {/* Pre-flight Checklist */}
+      <div>
+        <h4 className="text-xs font-medium text-muted mb-2">Pre-flight Checklist</h4>
+        <div className="space-y-2">
+          {preflightChecks.map(check => (
+            <div
+              key={check.id}
+              className={`p-3 rounded border ${
+                check.status === 'pass'
+                  ? 'bg-green-500/5 border-green-500/30'
+                  : check.status === 'warning'
+                  ? 'bg-yellow-500/5 border-yellow-500/30'
+                  : 'bg-red-500/5 border-red-500/30'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                {getStatusIcon(check.status)}
+                <span className="text-sm font-medium text-text">{check.label}</span>
+              </div>
+              <p className={`text-xs ${
+                check.status === 'pass'
+                  ? 'text-green-400'
+                  : check.status === 'warning'
+                  ? 'text-yellow-400'
+                  : 'text-red-400'
+              }`}>
+                {check.message}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Format Selection */}
+      <div>
+        <h4 className="text-xs font-medium text-muted mb-2">Export Format</h4>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setFormat('png')}
+            className={`px-4 py-2 rounded border transition-all ${
+              format === 'png'
+                ? 'bg-primary/20 border-primary text-primary'
+                : 'bg-bg border-primary/30 text-muted hover:border-primary hover:text-text'
+            }`}
+          >
+            PNG
+          </button>
+          <button
+            onClick={() => setFormat('pdf')}
+            className={`px-4 py-2 rounded border transition-all ${
+              format === 'pdf'
+                ? 'bg-primary/20 border-primary text-primary'
+                : 'bg-bg border-primary/30 text-muted hover:border-primary hover:text-text'
+            }`}
+          >
+            PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Export Options */}
+      <div>
+        <h4 className="text-xs font-medium text-muted mb-2">Options</h4>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeCutlines}
+              onChange={(e) => setIncludeCutlines(e.target.checked)}
+              className="w-4 h-4 rounded border-primary/30 bg-bg text-primary focus:ring-primary focus:ring-offset-0"
+            />
+            <span className="text-sm text-text">Include cutlines (for UV DTF)</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mirrorForSublimation}
+              onChange={(e) => setMirrorForSublimation(e.target.checked)}
+              className="w-4 h-4 rounded border-primary/30 bg-bg text-primary focus:ring-primary focus:ring-offset-0"
+            />
+            <span className="text-sm text-text">Mirror for sublimation</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Preview */}
+      {previewUrl && (
+        <div>
+          <h4 className="text-xs font-medium text-muted mb-2">Preview</h4>
+          <div className="border border-primary/30 rounded overflow-hidden">
+            <img
+              src={previewUrl}
+              alt="Export preview"
+              className="w-full h-auto"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="space-y-2">
+        <button
+          onClick={handlePreview}
+          disabled={isProcessing || !canExport}
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded font-medium transition-all ${
+            isProcessing || !canExport
+              ? 'bg-primary/10 text-muted cursor-not-allowed'
+              : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 hover:border-primary'
+          }`}
+        >
+          {isProcessing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Eye className="w-4 h-4" />
+          )}
+          Preview Export
+        </button>
+
+        <button
+          onClick={handleDownload}
+          disabled={isProcessing || !canExport}
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded font-medium transition-all ${
+            isProcessing || !canExport
+              ? 'bg-primary/10 text-muted cursor-not-allowed'
+              : 'bg-primary hover:bg-primary/90 text-white hover:shadow-glow'
+          }`}
+        >
+          {isProcessing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          Download
+        </button>
+
+        <button
+          onClick={handleSubmitToProduction}
+          disabled={isProcessing || !canExport}
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded font-medium transition-all ${
+            isProcessing || !canExport
+              ? 'bg-secondary/10 text-muted cursor-not-allowed'
+              : 'bg-gradient-to-r from-secondary to-accent hover:shadow-glowLg text-white'
+          }`}
+        >
+          {isProcessing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Send className="w-4 h-4" />
+          )}
+          Submit to Production
+        </button>
+      </div>
+
+      {/* Info */}
+      <div className="p-3 bg-bg rounded border border-primary/20">
+        <p className="text-xs text-muted leading-relaxed">
+          <strong>PNG:</strong> Raster format with transparency support<br />
+          <strong>PDF:</strong> Vector-friendly format for professional printing<br />
+          <strong>Cutlines:</strong> Add registration marks for UV DTF transfers<br />
+          <strong>Mirror:</strong> Flip design horizontally for sublimation
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ExportPanel;

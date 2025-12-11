@@ -27,9 +27,11 @@ import transcribeRouter from './routes/ai/transcribe.js'
 import chatRouter from './routes/ai/chat.js'
 import voiceChatRouter from './routes/ai/voice-chat.js'
 import mrImagineChatRouter from './routes/ai/mr-imagine-chat.js'
+import imageToolsRouter from './routes/ai/image-tools.js'
 import userProductsRouter from './routes/user-products.js'
 import userProductApprovalsRouter from './routes/admin/user-product-approvals.js'
 import adminSupportRouter from './routes/admin/support.js'
+import imaginationStationRouter from './routes/imagination-station.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -148,9 +150,11 @@ app.use('/api/ai/transcribe', transcribeRouter)
 app.use('/api/ai/chat', chatRouter)
 app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
+app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background, enhance
 app.use('/api/user-products', userProductsRouter)
 app.use('/api/admin/user-products', userProductApprovalsRouter)
 app.use('/api/admin/support', adminSupportRouter)
+app.use('/api/imagination-station', imaginationStationRouter)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

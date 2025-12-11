@@ -110,21 +110,10 @@ export interface VendorProduct {
   stock?: number
 }
 
-export interface PointsTransaction {
-  id: string
-  userId: string
-  type: 'earned' | 'redeemed'
-  amount: number
-  reason: string
-  relatedId?: string
-  createdAt: string
-}
-
 export interface WalletTransaction {
   id: string
   user_id: string
-  type: 'admin_credit' | 'admin_debit' | 'admin_adjust' | 'redeem' | 'purchase' | 'reward'
-  currency: 'points' | 'itc'
+  type: 'admin_credit' | 'admin_debit' | 'admin_adjust' | 'purchase' | 'reward' | 'usage'
   amount: number
   balance_before: number
   balance_after: number
@@ -136,7 +125,6 @@ export interface WalletTransaction {
 
 export interface UserWallet {
   user_id: string
-  points: number
   itc_balance: number
   updated_at: string
 }
@@ -1041,8 +1029,8 @@ export interface ProductAsset {
 export interface AIJob {
   id: string
   product_id: string
-  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup' | 'replicate_rembg' | 'replicate_upscale'
-  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup' | 'replicate_rembg' | 'replicate_upscale' | 'ghost_mannequin'
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
   input: Record<string, any>
   output?: Record<string, any>
   error?: string
@@ -1115,4 +1103,227 @@ export interface AIProductCreationResponse {
   productId: string
   product: Product & { normalized: NormalizedProduct }
   jobs: AIJob[]
+}
+
+// Imagination Station Types
+export type PrintType = 'dtf' | 'uv_dtf' | 'sublimation';
+export type SheetStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'printed';
+export type LayerType = 'image' | 'ai_generated' | 'text' | 'shape';
+
+export interface ImaginationSheet {
+  id: string;
+  user_id: string;
+  name: string;
+  print_type: PrintType;
+  sheet_width: number;
+  sheet_height: number;
+  canvas_state: CanvasState | null;
+  thumbnail_url: string | null;
+  status: SheetStatus;
+  itc_spent: number;
+  admin_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  layers?: ImaginationLayer[];
+}
+
+export interface ImaginationLayer {
+  id: string;
+  sheet_id: string;
+  layer_type: LayerType;
+  source_url: string | null;
+  processed_url: string | null;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  scale_x: number;
+  scale_y: number;
+  z_index: number;
+  metadata: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface CanvasState {
+  version: number;
+  timestamp?: string;
+  stage: {
+    width: number;
+    height: number;
+    scale: number;
+    position: { x: number; y: number };
+  };
+  layers: CanvasLayerState[];
+  gridEnabled: boolean;
+  snapEnabled: boolean;
+}
+
+export interface CanvasLayerState {
+  id: string;
+  type: LayerType;
+  attrs: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+    scaleX: number;
+    scaleY: number;
+  };
+  src?: string;
+  text?: string;
+}
+
+export interface ImaginationPricing {
+  feature_key: string;
+  display_name: string;
+  base_cost: number;
+  current_cost: number;
+  is_free_trial: boolean;
+  free_trial_uses: number;
+  promo_end_time: string | null;
+}
+
+export interface FreeTrialStatus {
+  feature_key: string;
+  uses_remaining: number;
+}
+
+export interface PrintTypePreset {
+  width: number;
+  heights: number[];
+  rules: {
+    mirror: boolean;
+    whiteInk: boolean;
+    cutlineOption?: boolean;
+    minDPI: number;
+  };
+  displayName: string;
+  description: string;
+}
+
+export interface AIStyle {
+  key: string;
+  label: string;
+  prompt_suffix: string;
+}
+
+// Component-friendly type aliases for Imagination Station
+export interface Sheet {
+  id: string;
+  printType: PrintType;
+  width: number;
+  height: number;
+  unit: 'inch' | 'cm';
+  name: string;
+  status: SheetStatus;
+}
+
+export interface Layer {
+  id: string;
+  type: LayerType;
+  name: string;
+  visible: boolean;
+  locked?: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity?: number;
+  src?: string;
+  imageUrl?: string;
+  thumbnail?: string;
+  text?: string;
+  dpi?: number;
+  hasTransparency?: boolean;
+  zIndex?: number;
+  fontSize?: number;
+  fontFamily?: string;
+  color?: string;
+  // Shape properties
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+}
+
+export interface Pricing {
+  basePrice: number;
+  perSquareInch: number;
+  setupFee: number;
+}
+
+export interface FreeTrials {
+  aiGeneration: number;
+  removeBackground: number;
+  upscale: number;
+  enhance: number;
+}
+
+export interface AutoLayoutPricing {
+  autoNest: number;
+  smartFill: number;
+  aiGeneration: number;
+  removeBackground: number;
+  upscale2x: number;
+  upscale4x: number;
+  enhance: number;
+}
+
+// Helper function to convert DB types to component types
+export function dbSheetToSheet(dbSheet: ImaginationSheet): Sheet {
+  return {
+    id: dbSheet.id,
+    printType: dbSheet.print_type,
+    width: dbSheet.sheet_width,
+    height: dbSheet.sheet_height,
+    unit: 'inch',
+    name: dbSheet.name,
+    status: dbSheet.status,
+  };
+}
+
+export function dbLayerToLayer(dbLayer: ImaginationLayer): Layer {
+  return {
+    id: dbLayer.id,
+    type: dbLayer.layer_type,
+    name: dbLayer.metadata?.name || `Layer ${dbLayer.z_index + 1}`,
+    visible: dbLayer.metadata?.visible !== false,
+    locked: dbLayer.metadata?.locked || false,
+    x: dbLayer.position_x,
+    y: dbLayer.position_y,
+    width: dbLayer.width,
+    height: dbLayer.height,
+    rotation: dbLayer.rotation,
+    opacity: dbLayer.metadata?.opacity ?? 1,
+    src: dbLayer.processed_url || dbLayer.source_url || undefined,
+    text: dbLayer.metadata?.text,
+    dpi: dbLayer.metadata?.dpi,
+  };
+}
+
+export function layerToDbLayer(layer: Layer, sheetId: string, zIndex: number): Partial<ImaginationLayer> {
+  return {
+    sheet_id: sheetId,
+    layer_type: layer.type,
+    source_url: layer.src || null,
+    processed_url: layer.src || null,
+    position_x: layer.x,
+    position_y: layer.y,
+    width: layer.width,
+    height: layer.height,
+    rotation: layer.rotation,
+    scale_x: 1,
+    scale_y: 1,
+    z_index: zIndex,
+    metadata: {
+      name: layer.name,
+      visible: layer.visible,
+      locked: layer.locked,
+      opacity: layer.opacity,
+      text: layer.text,
+      dpi: layer.dpi,
+    },
+  };
 }

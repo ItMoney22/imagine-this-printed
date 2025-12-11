@@ -40,7 +40,7 @@ export function Header() {
   const location = useLocation()
 
   // Pages that need a dark header (non-transparent) or dark text by default because they have light backgrounds
-  const forceDarkHeader = ['/create-design', '/cart', '/checkout', '/account'].some(path => location.pathname.startsWith(path))
+  const forceDarkHeader = ['/create-design', '/cart', '/checkout', '/account', '/product', '/catalog'].some(path => location.pathname.startsWith(path))
 
   // Track scroll for header background
   useEffect(() => {
@@ -130,9 +130,9 @@ export function Header() {
                 aria-label="Wallet"
               >
                 <Wallet className="w-5 h-5" />
-                {user.wallet && user.wallet.pointsBalance > 0 && (
+                {user.wallet && user.wallet.itcBalance > 0 && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 bg-pink-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg">
-                    {user.wallet.pointsBalance > 99 ? '99+' : user.wallet.pointsBalance}
+                    {user.wallet.itcBalance > 99 ? '99+' : user.wallet.itcBalance}
                   </span>
                 )}
               </Link>

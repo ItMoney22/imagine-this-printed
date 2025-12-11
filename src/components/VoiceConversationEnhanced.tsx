@@ -28,11 +28,13 @@ interface VoiceConversationEnhancedProps {
     onVoiceResponse?: (response: VoiceChatResponse) => void
     onDesignsGenerated?: (designs: GeneratedDesign[]) => void
     onDesignSelected?: (designIndex: number) => void
+    onConversationStart?: () => void  // Called when mic is first activated
     autoMicOn?: boolean
     conversationalMode?: boolean
     textToSpeak?: string
     className?: string
     mrImagineState?: 'idle' | 'listening' | 'thinking' | 'speaking' | 'happy' | 'confused'
+    showVideoBeforeConversation?: boolean  // Show design video until mic is clicked
 }
 
 // Mr. Imagine expressions mapped to images
@@ -50,11 +52,13 @@ export const VoiceConversationEnhanced = ({
     onVoiceResponse,
     onDesignsGenerated,
     onDesignSelected,
+    onConversationStart,
     autoMicOn = false,
     conversationalMode = true,
     textToSpeak,
     className,
-    mrImagineState: externalState
+    mrImagineState: externalState,
+    showVideoBeforeConversation = false
 }: VoiceConversationEnhancedProps) => {
     const [isSpeaking, setIsSpeaking] = useState(false)
     const [isListening, setIsListening] = useState(false)
@@ -72,7 +76,10 @@ export const VoiceConversationEnhanced = ({
     const [selectedDesignIndex, setSelectedDesignIndex] = useState<number | null>(null)
     const [designConcept, setDesignConcept] = useState<string | null>(null)
     const [conversationStep, setConversationStep] = useState<string>('greeting')
+    const [hasStartedConversation, setHasStartedConversation] = useState(false)  // Track if mic has been used
+    const [videoEnded, setVideoEnded] = useState(false) // Track if intro video has finished playing
     const audioRef = useRef<HTMLAudioElement>(null)
+    const videoRef = useRef<HTMLVideoElement>(null)
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
     const audioChunksRef = useRef<Blob[]>([])
     const analyserRef = useRef<AnalyserNode | null>(null)
@@ -151,7 +158,7 @@ export const VoiceConversationEnhanced = ({
             // Use selected microphone or default
             const audioConstraints: MediaTrackConstraints = selectedMicId
                 ? { deviceId: { exact: selectedMicId } }
-                : true
+                : {}
 
             console.log('[VoiceConversation] 🎤 Starting recording with mic:', selectedMicId || 'default')
 
@@ -368,6 +375,15 @@ export const VoiceConversationEnhanced = ({
         if (isListening) {
             stopRecording()
         } else {
+            // First time starting conversation - stop video, switch to images
+            if (!hasStartedConversation) {
+                setHasStartedConversation(true)
+                if (videoRef.current) {
+                    videoRef.current.pause()
+                }
+            }
+            // Notify parent that conversation is starting (for stopping intro video etc.)
+            onConversationStart?.()
             startRecording()
         }
     }
@@ -417,6 +433,21 @@ export const VoiceConversationEnhanced = ({
         }
     }, [textToSpeak])
 
+    // Spacebar to toggle recording
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Only trigger on spacebar, not when typing in an input
+            if (e.code === 'Space' &&
+                !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+                e.preventDefault()
+                handleToggleMic()
+            }
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [isListening]) // Depend on isListening to get current toggle state
+
     const handleAudioEnded = () => {
         setIsSpeaking(false)
         setCurrentExpression('happy')
@@ -429,13 +460,12 @@ export const VoiceConversationEnhanced = ({
             <div className="relative mb-8">
                 {/* Ambient glow behind character */}
                 <div
-                    className={`absolute inset-0 rounded-full blur-3xl transition-all duration-700 ${
-                        isSpeaking
-                            ? 'bg-gradient-to-t from-purple-500/40 via-pink-500/30 to-transparent scale-125'
-                            : isListening
+                    className={`absolute inset-0 rounded-full blur-3xl transition-all duration-700 ${isSpeaking
+                        ? 'bg-gradient-to-t from-purple-500/40 via-pink-500/30 to-transparent scale-125'
+                        : isListening
                             ? 'bg-gradient-to-t from-blue-500/40 via-purple-500/30 to-transparent scale-110 animate-pulse'
                             : 'bg-gradient-to-t from-purple-500/20 via-transparent to-transparent scale-100'
-                    }`}
+                        }`}
                     style={{ transform: 'translateY(20%)' }}
                 />
 
@@ -453,20 +483,34 @@ export const VoiceConversationEnhanced = ({
                     </div>
                 )}
 
-                {/* Mr. Imagine Image */}
+                {/* Mr. Imagine Video (before conversation) or Image (after conversation starts or video ends) */}
                 <div className="relative z-10">
-                    <img
-                        src={MR_IMAGINE_EXPRESSIONS[currentExpression]}
-                        alt="Mr. Imagine"
-                        className={`w-64 h-auto drop-shadow-2xl transition-transform duration-500 ${
-                            isSpeaking ? 'animate-subtle-bob' :
-                            isListening ? 'scale-105' :
-                            'hover:scale-105'
-                        }`}
-                        style={{
-                            filter: isSpeaking ? 'drop-shadow(0 0 30px rgba(147, 51, 234, 0.5))' : 'drop-shadow(0 10px 30px rgba(0,0,0,0.3))'
-                        }}
-                    />
+                    {showVideoBeforeConversation && !hasStartedConversation && !videoEnded ? (
+                        <video
+                            ref={videoRef}
+                            src="/mr-imagine/design-video.mp4"
+                            autoPlay
+                            muted
+                            playsInline
+                            onEnded={() => setVideoEnded(true)}
+                            className="w-72 h-auto rounded-2xl drop-shadow-2xl transition-transform duration-500"
+                            style={{
+                                filter: 'drop-shadow(0 0 30px rgba(147, 51, 234, 0.4))'
+                            }}
+                        />
+                    ) : (
+                        <img
+                            src={MR_IMAGINE_EXPRESSIONS[currentExpression]}
+                            alt="Mr. Imagine"
+                            className={`w-64 h-auto drop-shadow-2xl transition-transform duration-500 ${isSpeaking ? 'animate-subtle-bob' :
+                                isListening ? 'scale-105' :
+                                    'hover:scale-105'
+                                }`}
+                            style={{
+                                filter: isSpeaking ? 'drop-shadow(0 0 30px rgba(147, 51, 234, 0.5))' : 'drop-shadow(0 10px 30px rgba(0,0,0,0.3))'
+                            }}
+                        />
+                    )}
                 </div>
 
                 {/* Speech bubble when speaking */}
@@ -486,19 +530,18 @@ export const VoiceConversationEnhanced = ({
 
             {/* Status Message */}
             <div className="text-center mb-6 min-h-[60px]">
-                <p className={`font-serif text-2xl transition-all duration-300 ${
-                    isListening ? 'text-purple-600' :
+                <p className={`font-serif text-2xl transition-all duration-300 ${isListening ? 'text-purple-600' :
                     isProcessing ? 'text-blue-600' :
-                    isGeneratingDesigns ? 'text-pink-600' :
-                    isSpeaking ? 'text-purple-700' :
-                    'text-gray-700'
-                }`}>
+                        isGeneratingDesigns ? 'text-pink-600' :
+                            isSpeaking ? 'text-purple-700' :
+                                'text-gray-700'
+                    }`}>
                     {isListening ? "I'm all ears..." :
-                     isProcessing ? "Let me think about that..." :
-                     isGeneratingDesigns ? "Creating your designs..." :
-                     isSpeaking ? "Here's what I think..." :
-                     conversationStep === 'select_design' ? "Pick your favorite!" :
-                     "Tap the mic to talk with me!"}
+                        isProcessing ? "Let me think about that..." :
+                            isGeneratingDesigns ? "Creating your designs..." :
+                                isSpeaking ? "Here's what I think..." :
+                                    conversationStep === 'select_design' ? "Pick your favorite!" :
+                                        "Tap the mic to talk with me!"}
                 </p>
                 {isListening && (
                     <p className="text-sm text-gray-500 mt-1 animate-pulse">Tap again when you're done</p>
@@ -512,25 +555,22 @@ export const VoiceConversationEnhanced = ({
             <button
                 onClick={handleToggleMic}
                 disabled={isProcessing || isSpeaking}
-                className={`relative group transition-all duration-300 ${
-                    isProcessing || isSpeaking ? 'cursor-not-allowed opacity-70' : ''
-                }`}
+                className={`relative group transition-all duration-300 ${isProcessing || isSpeaking ? 'cursor-not-allowed opacity-70' : ''
+                    }`}
             >
                 {/* Outer glow ring */}
-                <div className={`absolute inset-0 rounded-full transition-all duration-500 ${
-                    isListening
-                        ? 'bg-gradient-to-r from-purple-500 to-pink-500 blur-xl opacity-60 scale-150 animate-pulse'
-                        : 'bg-purple-500/20 blur-lg opacity-0 group-hover:opacity-100 scale-125'
-                }`} />
+                <div className={`absolute inset-0 rounded-full transition-all duration-500 ${isListening
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 blur-xl opacity-60 scale-150 animate-pulse'
+                    : 'bg-purple-500/20 blur-lg opacity-0 group-hover:opacity-100 scale-125'
+                    }`} />
 
                 {/* Button circle */}
-                <div className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${
-                    isListening
-                        ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-2xl shadow-purple-500/50 scale-110'
-                        : isProcessing
+                <div className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${isListening
+                    ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-2xl shadow-purple-500/50 scale-110'
+                    : isProcessing
                         ? 'bg-gradient-to-br from-blue-400 to-purple-500 shadow-lg'
                         : 'bg-white shadow-xl border-2 border-purple-100 group-hover:border-purple-300 group-hover:shadow-2xl group-hover:shadow-purple-200/50'
-                }`}>
+                    }`}>
                     {isListening ? (
                         <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
                             <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -539,8 +579,8 @@ export const VoiceConversationEnhanced = ({
                         <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
                     ) : (
                         <svg className="w-10 h-10 text-purple-500 group-hover:text-purple-600 transition-colors" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
                         </svg>
                     )}
                 </div>
@@ -600,11 +640,10 @@ export const VoiceConversationEnhanced = ({
                             <button
                                 key={design.modelId}
                                 onClick={() => handleDesignSelect(index)}
-                                className={`group relative bg-white rounded-2xl overflow-hidden shadow-lg transition-all ${
-                                    selectedDesignIndex === index
-                                        ? 'ring-4 ring-purple-500 shadow-xl shadow-purple-500/30 scale-[1.02]'
-                                        : 'hover:shadow-xl hover:scale-[1.01]'
-                                }`}
+                                className={`group relative bg-white rounded-2xl overflow-hidden shadow-lg transition-all ${selectedDesignIndex === index
+                                    ? 'ring-4 ring-purple-500 shadow-xl shadow-purple-500/30 scale-[1.02]'
+                                    : 'hover:shadow-xl hover:scale-[1.01]'
+                                    }`}
                             >
                                 {design.status === 'succeeded' && design.imageUrl ? (
                                     <img
@@ -721,20 +760,19 @@ export const VoiceConversationEnhanced = ({
                                         setShowMicSelector(false)
                                         console.log('[VoiceConversation] 🎤 Selected microphone:', mic.label)
                                     }}
-                                    className={`w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3 ${
-                                        selectedMicId === mic.deviceId
-                                            ? 'bg-purple-100 text-purple-700'
-                                            : 'hover:bg-gray-50 text-gray-700'
-                                    }`}
+                                    className={`w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3 ${selectedMicId === mic.deviceId
+                                        ? 'bg-purple-100 text-purple-700'
+                                        : 'hover:bg-gray-50 text-gray-700'
+                                        }`}
                                 >
                                     <svg className={`w-5 h-5 flex-shrink-0 ${selectedMicId === mic.deviceId ? 'text-purple-500' : 'text-gray-400'}`} fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
                                     </svg>
                                     <span className="truncate">{mic.label || `Microphone ${mic.deviceId.slice(0, 8)}`}</span>
                                     {selectedMicId === mic.deviceId && (
                                         <svg className="w-5 h-5 text-purple-500 ml-auto flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                                         </svg>
                                     )}
                                 </button>

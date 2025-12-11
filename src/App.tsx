@@ -54,7 +54,9 @@ import AdminAIProductBuilder from './pages/AdminAIProductBuilder'
 import SocialContentManagement from './pages/SocialContentManagement'
 import UserMediaGallery from './pages/UserMediaGallery'
 import { UserProductCreator } from './pages/UserProductCreator'
+import UserDesignDashboard from './pages/UserDesignDashboard'
 import { AdminVoiceSettings } from './pages/admin/VoiceSettings'
+import ImaginationStation from './pages/ImaginationStation'
 
 function App() {
   return (
@@ -97,6 +99,8 @@ function App() {
                   <Route path="/profile/:username" element={<UserProfile />} />
                   <Route path="/account/messages" element={<CustomerMessages />} />
                   <Route path="/account/media" element={<ProtectedRoute><UserMediaGallery /></ProtectedRoute>} />
+                  <Route path="/account/designs" element={<ProtectedRoute><UserDesignDashboard /></ProtectedRoute>} />
+                  <Route path="/my-designs" element={<ProtectedRoute><UserDesignDashboard /></ProtectedRoute>} />
 
                   {/* Vendor Routes */}
                   <Route path="/vendor/dashboard" element={<VendorDashboard />} />
@@ -122,6 +126,10 @@ function App() {
                   <Route path="/admin/social-content" element={<SocialContentManagement />} />
                   <Route path="/admin/ai/products/create" element={<AdminAIProductBuilder />} />
                   <Route path="/admin/voice-settings" element={<AdminVoiceSettings />} />
+
+                  {/* Imagination Station Routes */}
+                  <Route path="/imagination-station" element={<ProtectedRoute><ImaginationStation /></ProtectedRoute>} />
+                  <Route path="/imagination-station/:id" element={<ProtectedRoute><ImaginationStation /></ProtectedRoute>} />
 
                   {/* Manager Routes */}
                   <Route path="/manager/dashboard" element={<ManagerDashboard />} />

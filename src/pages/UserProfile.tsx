@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
@@ -60,6 +60,7 @@ interface ProfileStats {
   designCount: number
   salesCount: number
   totalRoyalties: number
+  itcBalance: number
   points: number
 }
 
@@ -69,7 +70,7 @@ const UserProfilePage = () => {
   const { username } = useParams<{ username: string }>()
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, wallet } = useAuth()
+  const { user } = useAuth()
 
   const isAccountRoute = location.pathname.startsWith('/account/profile')
 
@@ -77,7 +78,7 @@ const UserProfilePage = () => {
   const [designs, setDesigns] = useState<Design[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [reviews, setReviews] = useState<Review[]>([])
-  const [stats, setStats] = useState<ProfileStats>({ designCount: 0, salesCount: 0, totalRoyalties: 0, points: 0 })
+  const [stats, setStats] = useState<ProfileStats>({ designCount: 0, salesCount: 0, totalRoyalties: 0, itcBalance: 0, points: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [isOwnProfile, setIsOwnProfile] = useState(false)
@@ -129,8 +130,11 @@ const UserProfilePage = () => {
       if (profileError) throw profileError
 
       setProfile(profileData)
-      const isOwn = isAccountRoute || (user && user.id === profileData.id)
-      setIsOwnProfile(!!isOwn)
+      const isOwn = isAccountRoute || !!(user && user.id === profileData.id)
+      setIsOwnProfile(isOwn)
+
+      // userId is guaranteed to be defined at this point
+      if (!userId) return
 
       // Load designs (real data from products table)
       await loadDesigns(userId, isOwn)
@@ -139,7 +143,7 @@ const UserProfilePage = () => {
       await loadStats(userId, isOwn)
 
       // Load additional data if own profile
-      if (isOwn) {
+      if (isOwn && userId) {
         await Promise.all([
           loadOrders(userId),
           loadReviews(userId)
@@ -200,17 +204,18 @@ const UserProfilePage = () => {
 
       const totalRoyalties = royalties?.reduce((sum, t) => sum + (t.amount || 0), 0) || 0
 
-      // Get wallet points if own profile
-      let points = 0
-      if (isOwn && wallet) {
-        points = wallet.points || 0
+      // Get ITC balance if own profile
+      let itcBalance = 0
+      if (isOwn && user?.wallet) {
+        itcBalance = user.wallet.itcBalance || 0
       }
 
       setStats({
         designCount: designCount || 0,
         salesCount: 0, // Would need order_items analysis
         totalRoyalties,
-        points
+        itcBalance,
+        points: 0
       })
     } catch (err) {
       console.error('Failed to load stats:', err)
@@ -262,8 +267,13 @@ const UserProfilePage = () => {
     }
   }
 
-  const handleProfileUpdated = (updatedProfile: ProfileData) => {
-    setProfile(updatedProfile)
+  const handleProfileUpdated = (updatedProfile: Partial<ProfileData>) => {
+    if (profile) {
+      setProfile({
+        ...profile,
+        ...updatedProfile
+      })
+    }
   }
 
   // Loading state
@@ -336,12 +346,12 @@ const UserProfilePage = () => {
   const headerProfile = {
     id: profile.id,
     username: profile.username,
-    display_name: profile.display_name,
+    display_name: profile.display_name || '',
     avatar_url: profile.avatar_url,
     cover_image_url: profile.cover_image_url,
-    bio: profile.bio,
-    location: profile.location,
-    website: profile.website,
+    bio: profile.bio || '',
+    location: profile.location || '',
+    website: profile.website || '',
     role: profile.role,
     joined_date: profile.created_at,
     social_links: {
@@ -352,7 +362,7 @@ const UserProfilePage = () => {
   }
 
   // Tabs configuration
-  const tabs: { id: TabType; label: string; icon: JSX.Element; hidden?: boolean }[] = [
+  const tabs: { id: TabType; label: string; icon: React.ReactNode; hidden?: boolean }[] = [
     {
       id: 'overview',
       label: 'Overview',
@@ -503,8 +513,8 @@ const UserProfilePage = () => {
                         <span className="text-emerald-600 font-semibold">${stats.totalRoyalties.toFixed(0)}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500">Points</span>
-                        <span className="text-purple-600 font-semibold">{stats.points.toLocaleString()}</span>
+                        <span className="text-slate-500">ITC Balance</span>
+                        <span className="text-purple-600 font-semibold">{stats.itcBalance.toLocaleString()} ITC</span>
                       </div>
                     </>
                   )}
@@ -674,12 +684,19 @@ const UserProfilePage = () => {
       </div>
 
       {/* Edit Panel */}
-      {isOwnProfile && (
+      {isOwnProfile && profile && (
         <ProfileEditPanel
           isOpen={showEditPanel}
           onClose={() => setShowEditPanel(false)}
           profile={{
-            ...profile,
+            id: profile.id,
+            username: profile.username,
+            display_name: profile.display_name,
+            avatar_url: profile.avatar_url,
+            cover_image_url: profile.cover_image_url,
+            bio: profile.bio,
+            location: profile.location,
+            website: profile.website,
             social_twitter: profile.social_twitter || null,
             social_instagram: profile.social_instagram || null,
             social_tiktok: profile.social_tiktok || null,

@@ -304,7 +304,7 @@ const Community: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <img
-                        src={post.author.profileImage || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.displayName)}&background=9333ea&color=fff`}
+                        src={post.author.profileImage || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.displayName || 'User')}&background=9333ea&color=fff`}
                         alt={post.author.displayName}
                         className="w-10 h-10 rounded-full border-2 border-slate-100"
                       />
@@ -337,7 +337,7 @@ const Community: React.FC = () => {
                   ) : (
                     <div className="relative h-full">
                       <img
-                        src={post.thumbnailUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.title)}&size=400&background=f1f5f9&color=64748b`}
+                        src={post.thumbnailUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.title || 'Post')}&size=400&background=f1f5f9&color=64748b`}
                         alt={post.title}
                         className="w-full h-full object-cover"
                       />

@@ -97,6 +97,15 @@ const Navbar: React.FC = () => {
                 <Link to="/create-design" className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-secondary transition-colors font-display">
                   Create Design
                 </Link>
+                <Link to="/imagination-station" className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all font-display flex items-center gap-1.5 shadow-lg hover:shadow-purple-500/25">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                  </svg>
+                  Gang Sheets
+                </Link>
+                <Link to="/my-designs" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
+                  My Designs
+                </Link>
                 <Link to="/wallet" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
                   Wallet
                 </Link>
