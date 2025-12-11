@@ -2,7 +2,7 @@
 
 ## Current Status
 **Last Updated:** 2025-12-11
-**Last Task Completed:** User Profile Page FB-Style Redesign (major feature)
+**Last Task Completed:** Profile Page Visual Polish - Light Theme Styling
 **Current Branch:** main
 
 ## Active Tasks
@@ -34,6 +34,7 @@
 - [x] Add Admin Creator Products tab for approving user-submitted designs
 - [x] Set is_user_generated and created_by_user_id on user products
 - [x] **User Profile Page FB-Style Redesign** (2025-12-11)
+- [x] **Profile Page Visual Polish - Light Theme Styling** (2025-12-11)
 - [ ] Investigate admin mockup duplication issue (parked)
 - [ ] Test end-to-end vendor + credits + generation flow
 - [ ] Implement elite features for /create-design flow (see brainstorm below)
@@ -81,6 +82,37 @@ ImagineThisPrinted - Custom printing e-commerce platform with:
    - See: `docs/plans/2025-12-09-frontend-design-center-integration.md`
 
 ## Recent Fixes
+
+### Profile Page Visual Polish - Light Theme Styling (2025-12-11)
+**Problem:** Profile page used dark theme classes (`text-white`, `border-white/10`, `bg-bg`) but the app's design system is light mode. Text was unreadable and styling didn't match rest of app.
+
+**Fix:** Rewrote all 4 profile component files with proper light theme styling:
+
+1. **UserProfile.tsx** - Main page
+   - Page background: `bg-slate-50` (light grey)
+   - Cards: `bg-white` with `shadow-soft` and `border-slate-100`
+   - Text: `text-slate-900` headings, `text-slate-500/600` secondary
+
+2. **ProfileHeader.tsx** - FB-style header
+   - Cover gradients: Purple-to-pink with pattern overlays
+   - Bottom gradient: Smooth transition from cover to white
+   - White profile card with `shadow-soft-xl`
+
+3. **ProfileEditPanel.tsx** - Slide-out edit form
+   - White background with 2xl shadow
+   - Form fields: `bg-slate-50` with `border-slate-200`
+   - Proper focus rings: `ring-purple-500/20`
+
+4. **DesignGrid.tsx** - Design cards grid
+   - White cards with purple hover states
+   - Filter pills: Purple active state, white inactive
+   - Proper status badges with light backgrounds
+
+**Typography:** Applied `font-display` (Playfair Display) for headings, DM Sans for body text.
+
+**Commit:** `6000e9f style: polish profile page with light theme and proper typography`
+
+---
 
 ### User Profile Page FB-Style Redesign (2025-12-11)
 **Task:** Complete redesign of user profile page with Facebook-style layout, design showcase cover, slide-out edit panel, and privacy controls.
