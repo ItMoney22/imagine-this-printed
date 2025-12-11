@@ -1,8 +1,8 @@
 # Claude Session State
 
 ## Current Status
-**Last Updated:** 2025-12-10
-**Last Task Completed:** Created Supabase storage bucket for voice chat audio uploads
+**Last Updated:** 2025-12-11
+**Last Task Completed:** User Profile Page FB-Style Redesign (major feature)
 **Current Branch:** main
 
 ## Active Tasks
@@ -23,10 +23,20 @@
 - [x] Switch to Flux-only image generation (cost savings + best DTF quality)
 - [x] Fix duplicate Mr. Imagine mockup generation
 - [x] Auto-select single image (skip selection step when only 1 image)
-- [x] Add Mr. Imagine voice panel to ProductDesigner (user-side voice-guided design)
+- [x] ~~Add Mr. Imagine voice panel to ProductDesigner~~ (REMOVED - user rejected)
 - [x] Create Supabase storage bucket for voice chat audio
-- [x] Test ProductDesigner with voice panel end-to-end
+- [x] Enhance /create-design (UserProductCreator) as primary product creation flow
+- [x] Add vendor role gate to UserProductCreator
+- [x] Add ITC credit system (50 ITC per generation)
+- [x] Update Mr. Imagine personality (real mascot, not AI)
+- [x] Enhance 10% royalty display
+- [x] Fix ITC balance not loading (wrong column name: points vs points_balance)
+- [x] Add Admin Creator Products tab for approving user-submitted designs
+- [x] Set is_user_generated and created_by_user_id on user products
+- [x] **User Profile Page FB-Style Redesign** (2025-12-11)
 - [ ] Investigate admin mockup duplication issue (parked)
+- [ ] Test end-to-end vendor + credits + generation flow
+- [ ] Implement elite features for /create-design flow (see brainstorm below)
 
 ## Session Context
 Setting up a robust session continuity system so Claude can resume work after disconnections. The system uses:
@@ -72,47 +82,108 @@ ImagineThisPrinted - Custom printing e-commerce platform with:
 
 ## Recent Fixes
 
-### Mr. Imagine Voice Panel for ProductDesigner (2025-12-10)
-**Task:** Add voice-guided design creation to the user-facing ProductDesigner page
+### User Profile Page FB-Style Redesign (2025-12-11)
+**Task:** Complete redesign of user profile page with Facebook-style layout, design showcase cover, slide-out edit panel, and privacy controls.
 
-**Implementation:**
-1. **New Component** (`src/components/MrImagineVoicePanel.tsx`):
-   - Collapsible voice panel with Mr. Imagine avatar
-   - Expression states: idle, listening, thinking, speaking, happy, confused
-   - Microphone toggle with audio level visualization
-   - Uses existing `/api/ai/voice-chat` backend for transcription + AI response
-   - Parses voice commands into design actions
-   - Plays Mr. Imagine voice responses (Minimax Speech-02-Turbo)
-   - Welcome audio on page load
+**Bug Fixed:** Designs from /create-design were not showing on profile because:
+1. `/api/user-products/my-products` queried `metadata->>creator_id` (JSON path) instead of `created_by_user_id` column
+2. `/api/user-products/creator-analytics` queried non-existent `user_products` table instead of `products` table
 
-2. **ProductDesigner Integration** (`src/pages/ProductDesigner.tsx`):
-   - Added `MrImagineVoicePanel` as fixed right-side panel
-   - Added auth guard (redirects to login if not authenticated)
-   - Added `handleVoiceAction()` callback connecting voice commands to canvas actions:
-     - "Add text Hello World" → adds text element
-     - "Change color to red" → updates text color
-     - "Switch to hoodie" → changes template
-     - "Generate a dragon" → opens AI image modal
-     - "Upload image" → triggers file input
-     - "Clear canvas" → removes all elements
-     - "Download" → downloads PNG
-     - "Add to cart" → triggers cart flow
-     - "Save" → saves to localStorage gallery
+**Database Changes:**
+- Added `cover_image_url` column to `user_profiles`
+- Added `show_activity` column (boolean, default false)
+- Added `allow_messages` column (boolean, default false)
+- Added `social_tiktok` column for TikTok profile link
+- Added `show_reviews` column (boolean, default true)
 
-**Voice Command Types:**
-- `add_text` - Add text to canvas
-- `change_color` - Change current text color
-- `change_template` - Switch to shirt/hoodie/tumbler
-- `upload_image` - Trigger file upload
-- `generate_ai` - Open AI generation modal
-- `clear_canvas` - Remove all elements
-- `download` - Download design as PNG
-- `add_to_cart` - Add to shopping cart
-- `save_gallery` - Save to user gallery
+**New Components Created:**
+1. **`src/components/profile/ProfileHeader.tsx`**
+   - FB-style cover photo with auto-generated design collage
+   - Avatar with edit button, role badge
+   - Stats row: Designs, Sales, Earnings, Points
+   - Social links (Twitter, Instagram, TikTok)
 
-**Files Created/Modified:**
-- `src/components/MrImagineVoicePanel.tsx` (NEW - 400+ lines)
-- `src/pages/ProductDesigner.tsx` (Modified - added voice panel integration)
+2. **`src/components/profile/ProfileEditPanel.tsx`**
+   - Slide-out panel from right (400px)
+   - Avatar and cover image upload
+   - Basic info form: Display name, username, bio, location, website
+   - Social links section
+   - Privacy toggles: show designs, show reviews, show activity, allow messages
+
+3. **`src/components/profile/DesignGrid.tsx`**
+   - Grid layout with filter pills (All/Approved/Pending/Drafts)
+   - Design cards with thumbnail, status badge, view count
+   - Empty state with CTA to create design
+
+**UserProfile.tsx Complete Rewrite:**
+- **Overview Tab**: Featured designs (3 most popular), activity feed, stats sidebar, quick links
+- **Designs Tab**: Uses DesignGrid component with real data from products table
+- **Orders Tab**: Order history (own profile only, private)
+- **Reviews Tab**: Reviews written by user
+- **Privacy Controls**: Tabs hidden based on user's privacy settings
+- **Real Data**: Queries `products` table using `created_by_user_id` (no more mock data)
+
+**Cover Image Logic:**
+1. Custom user upload → use that
+2. 3+ approved designs → auto-generate collage overlay
+3. Fallback → role-based gradient (purple=vendor, blue=customer, gold=founder)
+
+**Files Modified:**
+- `backend/routes/user-products.ts` - Fixed `/my-products` and `/creator-analytics` queries
+- `src/pages/UserProfile.tsx` - Complete rewrite with new components
+- `src/components/profile/ProfileHeader.tsx` - NEW
+- `src/components/profile/ProfileEditPanel.tsx` - NEW
+- `src/components/profile/DesignGrid.tsx` - NEW
+- `docs/plans/2025-12-11-user-profile-redesign.md` - Design documentation
+
+### /create-design Enhancements - Vendor Gate, ITC Credits, Mr. Imagine Personality (2025-12-10)
+**Context:** User rejected ProductDesigner voice panel approach. Focus shifted to enhancing the `/create-design` page (UserProductCreator) as the primary product creation flow with Mr. Imagine conversational experience.
+
+**Key Changes:**
+
+1. **REMOVED ProductDesigner Voice Panel:**
+   - Deleted `src/components/MrImagineVoicePanel.tsx`
+   - Removed voice panel integration from `src/pages/ProductDesigner.tsx`
+   - ProductDesigner now canvas-only (no voice)
+
+2. **Vendor Role Gate** (`src/pages/UserProductCreator.tsx`):
+   - Non-vendors see "Become a Creator" upgrade prompt
+   - Only `vendor` and `admin` roles can access product creation
+   - Explains 10% royalty benefits and links to become a vendor
+
+3. **ITC Credit System:**
+   - **Cost:** 50 ITC per design generation
+   - **Backend** (`backend/routes/user-products.ts`):
+     - Added `GENERATION_COST_ITC = 50` constant
+     - Checks wallet balance before generation
+     - Returns 402 if insufficient credits
+     - Deducts ITC and logs transaction to `itc_transactions` table
+   - **Frontend** (`src/pages/UserProductCreator.tsx`):
+     - Shows ITC balance in header
+     - Handles 402 response with "Not enough credits" modal
+     - Links to wallet page to purchase more ITC
+
+4. **Mr. Imagine Personality Overhaul** (`backend/services/designAssistant.ts`):
+   - **Changed from:** "AI design assistant"
+   - **Changed to:** "Beloved mascot of ImagineThisPrinted"
+   - New personality traits:
+     - Casual, fun language ("Yo!", "That's fire!", "Let's gooo!")
+     - Has opinions and preferences (loves bold designs!)
+     - Jokes about his mustache
+     - Signs off with "If you can imagine it, we can print it!"
+   - **Never says:** "As an AI...", "I don't have feelings", etc.
+
+5. **10% Royalty Display Enhanced:**
+   - Image selection screen: Full banner explaining royalty
+   - Success screen: Prominent green banner with bold "🎉 10% Creator Royalty!"
+   - Updated "What happens next" list to emphasize ITC earnings
+
+**Files Modified:**
+- `src/pages/ProductDesigner.tsx` - Removed voice panel
+- `src/components/MrImagineVoicePanel.tsx` - DELETED
+- `src/pages/UserProductCreator.tsx` - Vendor gate, ITC UI, royalty display
+- `backend/routes/user-products.ts` - ITC credit check/deduction
+- `backend/services/designAssistant.ts` - Mr. Imagine personality
 
 ### Flux-Only Image Generation + Single Image Auto-Select (2025-12-10)
 **Problems:**

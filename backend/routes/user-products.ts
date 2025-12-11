@@ -700,10 +700,11 @@ router.get('/my-products', requireAuth, async (req: Request, res: Response): Pro
   try {
     const userId = req.user?.sub
 
+    // Query using proper FK column instead of JSON metadata
     const { data: products, error } = await supabase
       .from('products')
-      .select('*')
-      .eq('metadata->>creator_id', userId)
+      .select('*, product_assets(url, kind, is_primary)')
+      .eq('created_by_user_id', userId)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -1049,17 +1050,17 @@ router.get('/creator-analytics', requireAuth, async (req: Request, res: Response
 
     console.log('[user-products] 📊 Fetching creator analytics for:', userId)
 
-    // Get total designs created (from user_products)
+    // Get total designs created (from products table using proper FK)
     const { count: totalDesigns } = await supabase
-      .from('user_products')
+      .from('products')
       .select('*', { count: 'exact', head: true })
-      .eq('creator_id', userId)
+      .eq('created_by_user_id', userId)
 
     // Get all user's products for sales analysis
     const { data: userProducts } = await supabase
-      .from('user_products')
-      .select('id, name, generated_image, created_at, status')
-      .eq('creator_id', userId)
+      .from('products')
+      .select('id, name, images, created_at, status, view_count')
+      .eq('created_by_user_id', userId)
       .order('created_at', { ascending: false })
 
     const productIds = userProducts?.map(p => p.id) || []
