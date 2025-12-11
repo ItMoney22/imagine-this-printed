@@ -269,16 +269,33 @@ const UserProfilePage = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-bg">
-        <div className="h-48 md:h-72 bg-gradient-to-br from-purple-900/50 to-pink-900/30 animate-pulse" />
-        <div className="max-w-6xl mx-auto px-4 -mt-16 relative z-10">
-          <div className="bg-card border border-white/10 rounded-2xl p-6">
-            <div className="flex items-end gap-4">
-              <div className="w-28 h-28 rounded-full bg-white/10 animate-pulse -mt-20" />
-              <div className="flex-1 space-y-2">
-                <div className="h-8 w-48 bg-white/10 rounded animate-pulse" />
-                <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
+      <div className="min-h-screen bg-slate-50">
+        {/* Cover skeleton */}
+        <div className="h-56 md:h-80 bg-gradient-to-br from-purple-200 to-pink-200 animate-pulse" />
+
+        {/* Card skeleton */}
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 -mt-20 relative z-10">
+          <div className="bg-white rounded-3xl shadow-soft-xl border border-slate-100 p-6 sm:p-8">
+            <div className="flex flex-col sm:flex-row gap-6">
+              {/* Avatar skeleton */}
+              <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full bg-slate-200 animate-pulse -mt-24 sm:-mt-28 border-4 border-white" />
+
+              {/* Content skeleton */}
+              <div className="flex-1 space-y-3 pt-2">
+                <div className="h-8 w-48 bg-slate-200 rounded-lg animate-pulse" />
+                <div className="h-4 w-64 bg-slate-100 rounded animate-pulse" />
+                <div className="h-4 w-full max-w-md bg-slate-100 rounded animate-pulse" />
               </div>
+            </div>
+
+            {/* Stats skeleton */}
+            <div className="grid grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="text-center">
+                  <div className="h-8 w-16 mx-auto bg-slate-200 rounded animate-pulse" />
+                  <div className="h-3 w-12 mx-auto bg-slate-100 rounded mt-2 animate-pulse" />
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -289,24 +306,24 @@ const UserProfilePage = () => {
   // Error / Not found state
   if (error || !profile) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
         <div className="text-center max-w-md">
-          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-white/5 flex items-center justify-center">
-            <svg className="w-12 h-12 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-28 h-28 mx-auto mb-8 rounded-2xl bg-gradient-to-br from-purple-50 to-pink-50 flex items-center justify-center">
+            <svg className="w-14 h-14 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">
-            {error === 'Profile not found' ? 'Profile Not Found' : 'Oops!'}
+          <h1 className="text-2xl font-display font-bold text-slate-900 mb-3">
+            {error === 'Profile not found' ? 'Profile Not Found' : 'Something went wrong'}
           </h1>
-          <p className="text-muted mb-6">
+          <p className="text-slate-500 mb-8">
             {isAccountRoute
               ? "You need to be logged in to view your profile."
               : "The profile you're looking for doesn't exist or is private."}
           </p>
           <button
             onClick={() => navigate(isAccountRoute ? '/login' : '/')}
-            className="px-6 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-500 transition-colors"
+            className="btn-primary"
           >
             {isAccountRoute ? 'Sign In' : 'Go Home'}
           </button>
@@ -335,17 +352,36 @@ const UserProfilePage = () => {
   }
 
   // Tabs configuration
-  const tabs: { id: TabType; label: string; hidden?: boolean }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'designs', label: 'Designs', hidden: !profile.show_designs && !isOwnProfile },
-    { id: 'orders', label: 'Orders', hidden: !isOwnProfile },
-    { id: 'reviews', label: 'Reviews', hidden: !profile.show_reviews && !isOwnProfile }
+  const tabs: { id: TabType; label: string; icon: JSX.Element; hidden?: boolean }[] = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+    },
+    {
+      id: 'designs',
+      label: 'Designs',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
+      hidden: !profile.show_designs && !isOwnProfile
+    },
+    {
+      id: 'orders',
+      label: 'Orders',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>,
+      hidden: !isOwnProfile
+    },
+    {
+      id: 'reviews',
+      label: 'Reviews',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>,
+      hidden: !profile.show_reviews && !isOwnProfile
+    }
   ]
 
   const visibleTabs = tabs.filter(t => !t.hidden)
 
   return (
-    <div className="min-h-screen bg-bg pb-16">
+    <div className="min-h-screen bg-slate-50 pb-16">
       {/* Profile Header */}
       <ProfileHeader
         profile={headerProfile}
@@ -356,19 +392,20 @@ const UserProfilePage = () => {
       />
 
       {/* Tab Navigation */}
-      <div className="sticky top-16 z-20 bg-bg/80 backdrop-blur-lg border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4">
-          <nav className="flex gap-1 overflow-x-auto">
+      <div className="sticky top-16 z-20 bg-white/80 backdrop-blur-lg border-b border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <nav className="flex gap-1 overflow-x-auto py-1">
             {visibleTabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-4 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                className={`flex items-center gap-2 px-5 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
                   activeTab === tab.id
-                    ? 'border-purple-500 text-purple-400'
-                    : 'border-transparent text-muted hover:text-white'
+                    ? 'border-purple-600 text-purple-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-900 hover:border-slate-300'
                 }`}
               >
+                {tab.icon}
                 {tab.label}
               </button>
             ))}
@@ -377,7 +414,7 @@ const UserProfilePage = () => {
       </div>
 
       {/* Tab Content */}
-      <div className="max-w-6xl mx-auto px-4 mt-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-8">
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -385,12 +422,12 @@ const UserProfilePage = () => {
             <div className="lg:col-span-2 space-y-6">
               {/* Featured Designs */}
               {designs.length > 0 && (profile.show_designs || isOwnProfile) && (
-                <div className="bg-card border border-white/10 rounded-xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-white">Featured Designs</h3>
+                <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                  <div className="flex items-center justify-between mb-5">
+                    <h3 className="text-lg font-display font-bold text-slate-900">Featured Designs</h3>
                     <button
                       onClick={() => setActiveTab('designs')}
-                      className="text-sm text-purple-400 hover:text-purple-300"
+                      className="text-sm text-purple-600 hover:text-purple-700 font-medium"
                     >
                       View all
                     </button>
@@ -400,12 +437,12 @@ const UserProfilePage = () => {
                       <Link
                         key={design.id}
                         to={`/products/${design.id}`}
-                        className="aspect-square rounded-lg overflow-hidden bg-white/5 group"
+                        className="aspect-square rounded-xl overflow-hidden bg-slate-100 group"
                       >
                         <img
                           src={design.images?.[0] || '/placeholder-design.png'}
                           alt={design.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         />
                       </Link>
                     ))}
@@ -415,23 +452,27 @@ const UserProfilePage = () => {
 
               {/* Activity Feed (own profile with show_activity enabled) */}
               {isOwnProfile && profile.show_activity && (
-                <div className="bg-card border border-white/10 rounded-xl p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
+                <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                  <h3 className="text-lg font-display font-bold text-slate-900 mb-5">Recent Activity</h3>
                   <div className="space-y-4">
                     {designs.slice(0, 3).map(design => (
-                      <div key={design.id} className="flex items-center gap-3 text-sm">
-                        <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center">
-                          <span>+</span>
+                      <div key={design.id} className="flex items-center gap-4 text-sm">
+                        <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
                         </div>
-                        <span className="text-muted">Created design</span>
-                        <span className="text-white font-medium">{design.name || 'Untitled'}</span>
-                        <span className="text-muted ml-auto">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-slate-500">Created design </span>
+                          <span className="text-slate-900 font-medium">{design.name || 'Untitled'}</span>
+                        </div>
+                        <span className="text-slate-400 text-xs flex-shrink-0">
                           {new Date(design.created_at).toLocaleDateString()}
                         </span>
                       </div>
                     ))}
                     {designs.length === 0 && (
-                      <p className="text-muted text-center py-4">No recent activity</p>
+                      <p className="text-slate-400 text-center py-4">No recent activity</p>
                     )}
                   </div>
                 </div>
@@ -439,8 +480,8 @@ const UserProfilePage = () => {
 
               {/* Empty state for non-own profiles */}
               {!isOwnProfile && designs.length === 0 && (
-                <div className="bg-card border border-white/10 rounded-xl p-12 text-center">
-                  <p className="text-muted">This user hasn't created any public content yet.</p>
+                <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-12 text-center">
+                  <p className="text-slate-400">This user hasn't created any public content yet.</p>
                 </div>
               )}
             </div>
@@ -448,22 +489,22 @@ const UserProfilePage = () => {
             {/* Sidebar */}
             <div className="space-y-6">
               {/* Quick Stats */}
-              <div className="bg-card border border-white/10 rounded-xl p-6">
-                <h3 className="text-sm font-medium text-muted uppercase tracking-wide mb-4">Stats</h3>
-                <div className="space-y-3">
+              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Stats</h3>
+                <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-muted">Designs</span>
-                    <span className="text-white font-medium">{stats.designCount}</span>
+                    <span className="text-slate-500">Designs</span>
+                    <span className="text-slate-900 font-semibold">{stats.designCount}</span>
                   </div>
                   {isOwnProfile && (
                     <>
                       <div className="flex items-center justify-between">
-                        <span className="text-muted">Total Earnings</span>
-                        <span className="text-emerald-400 font-medium">${stats.totalRoyalties.toFixed(0)}</span>
+                        <span className="text-slate-500">Total Earnings</span>
+                        <span className="text-emerald-600 font-semibold">${stats.totalRoyalties.toFixed(0)}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-muted">Points</span>
-                        <span className="text-purple-400 font-medium">{stats.points.toLocaleString()}</span>
+                        <span className="text-slate-500">Points</span>
+                        <span className="text-purple-600 font-semibold">{stats.points.toLocaleString()}</span>
                       </div>
                     </>
                   )}
@@ -472,35 +513,35 @@ const UserProfilePage = () => {
 
               {/* Quick Links (own profile) */}
               {isOwnProfile && (
-                <div className="bg-card border border-white/10 rounded-xl p-6">
-                  <h3 className="text-sm font-medium text-muted uppercase tracking-wide mb-4">Quick Links</h3>
+                <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Quick Links</h3>
                   <div className="space-y-2">
                     <Link
                       to="/create-design"
-                      className="flex items-center gap-3 px-4 py-3 rounded-lg bg-purple-600/20 text-purple-300 hover:bg-purple-600/30 transition-colors"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:shadow-lg transition-shadow"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                       </svg>
-                      Create New Design
+                      <span className="font-medium">Create New Design</span>
                     </Link>
                     <Link
                       to="/wallet"
-                      className="flex items-center gap-3 px-4 py-3 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                       </svg>
-                      View Wallet
+                      <span className="font-medium">View Wallet</span>
                     </Link>
                     <Link
                       to="/my-designs"
-                      className="flex items-center gap-3 px-4 py-3 rounded-lg bg-white/5 text-white hover:bg-white/10 transition-colors"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      Design Dashboard
+                      <span className="font-medium">Design Dashboard</span>
                     </Link>
                   </div>
                 </div>
@@ -522,17 +563,17 @@ const UserProfilePage = () => {
         {activeTab === 'orders' && isOwnProfile && (
           <div className="space-y-4">
             {orders.length === 0 ? (
-              <div className="bg-card border border-white/10 rounded-xl p-12 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-12 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-slate-50 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-medium text-white mb-2">No orders yet</h3>
-                <p className="text-muted mb-6">Start shopping to see your order history here.</p>
+                <h3 className="text-lg font-display font-bold text-slate-900 mb-2">No orders yet</h3>
+                <p className="text-slate-500 mb-6">Start shopping to see your order history here.</p>
                 <Link
                   to="/products"
-                  className="inline-flex px-6 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-500 transition-colors"
+                  className="btn-primary"
                 >
                   Browse Products
                 </Link>
@@ -541,30 +582,30 @@ const UserProfilePage = () => {
               orders.map(order => (
                 <div
                   key={order.id}
-                  className="bg-card border border-white/10 rounded-xl p-4 flex items-center justify-between"
+                  className="bg-white rounded-2xl shadow-soft border border-slate-100 p-5 flex items-center justify-between hover:shadow-soft-lg transition-shadow"
                 >
                   <div>
-                    <p className="text-white font-medium">Order #{order.id.slice(0, 8)}</p>
-                    <p className="text-sm text-muted">
+                    <p className="text-slate-900 font-semibold">Order #{order.id.slice(0, 8)}</p>
+                    <p className="text-sm text-slate-500 mt-0.5">
                       {new Date(order.created_at).toLocaleDateString('en-US', {
                         month: 'long',
                         day: 'numeric',
                         year: 'numeric'
                       })}
                     </p>
-                    <p className="text-sm text-muted mt-1">
+                    <p className="text-sm text-slate-400 mt-1">
                       {(order.order_items || []).length} item(s)
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-bold text-white">${order.total?.toFixed(2) || '0.00'}</p>
-                    <span className={`inline-flex px-3 py-1 text-xs font-medium rounded-full ${
-                      order.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-300' :
-                      order.status === 'shipped' ? 'bg-blue-500/20 text-blue-300' :
-                      order.status === 'processing' ? 'bg-amber-500/20 text-amber-300' :
-                      'bg-gray-500/20 text-gray-300'
+                    <p className="text-xl font-display font-bold text-slate-900">${order.total?.toFixed(2) || '0.00'}</p>
+                    <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full mt-1 ${
+                      order.status === 'delivered' ? 'bg-emerald-50 text-emerald-700' :
+                      order.status === 'shipped' ? 'bg-blue-50 text-blue-700' :
+                      order.status === 'processing' ? 'bg-amber-50 text-amber-700' :
+                      'bg-slate-100 text-slate-600'
                     }`}>
-                      {order.status}
+                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
                     </span>
                   </div>
                 </div>
@@ -577,14 +618,14 @@ const UserProfilePage = () => {
         {activeTab === 'reviews' && (
           <div className="space-y-4">
             {reviews.length === 0 ? (
-              <div className="bg-card border border-white/10 rounded-xl p-12 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-12 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-amber-50 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-medium text-white mb-2">No reviews yet</h3>
-                <p className="text-muted">
+                <h3 className="text-lg font-display font-bold text-slate-900 mb-2">No reviews yet</h3>
+                <p className="text-slate-500">
                   {isOwnProfile
                     ? "Reviews you write will appear here."
                     : "This user hasn't written any reviews yet."}
@@ -594,16 +635,16 @@ const UserProfilePage = () => {
               reviews.map(review => (
                 <div
                   key={review.id}
-                  className="bg-card border border-white/10 rounded-xl p-4"
+                  className="bg-white rounded-2xl shadow-soft border border-slate-100 p-5"
                 >
                   <div className="flex items-start gap-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-3 mb-2">
                         <div className="flex">
                           {[1, 2, 3, 4, 5].map(star => (
                             <svg
                               key={star}
-                              className={`w-4 h-4 ${star <= review.rating ? 'text-yellow-400' : 'text-white/20'}`}
+                              className={`w-5 h-5 ${star <= review.rating ? 'text-amber-400' : 'text-slate-200'}`}
                               fill="currentColor"
                               viewBox="0 0 20 20"
                             >
@@ -611,13 +652,17 @@ const UserProfilePage = () => {
                             </svg>
                           ))}
                         </div>
-                        <span className="text-sm text-muted">
-                          on {review.product_name}
+                        <span className="text-sm text-slate-500">
+                          on <span className="font-medium text-slate-700">{review.product_name}</span>
                         </span>
                       </div>
-                      <p className="text-white">{review.comment}</p>
-                      <p className="text-xs text-muted mt-2">
-                        {new Date(review.created_at).toLocaleDateString()}
+                      <p className="text-slate-700 leading-relaxed">{review.comment}</p>
+                      <p className="text-xs text-slate-400 mt-3">
+                        {new Date(review.created_at).toLocaleDateString('en-US', {
+                          month: 'long',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
                       </p>
                     </div>
                   </div>
