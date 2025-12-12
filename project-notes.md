@@ -16,6 +16,22 @@
 - [2025-12-09] **FIXED**: Disabled auto-mockup in worker - Mockups are now ONLY created when user selects an image via /select-image route - files: backend/worker/ai-jobs-worker.ts (lines 893-901)
 - [2025-12-09] **FIXED**: Template-specific logic in vertex-ai-mockup.ts - mr_imagine fetches base image, flat_lay generates standalone - files: backend/services/vertex-ai-mockup.ts (lines 124-181)
 
+### Imagination Station - Gang Sheet Builder
+- [2025-12-11] **COMPLETE**: Full-featured gang sheet design tool for DTF, UV DTF, and Sublimation printing - Real-time Konva.js canvas editor with AI-powered tools - files: src/pages/ImaginationStation.tsx, backend/routes/imagination-station.ts
+- [2025-12-11] AI Tools Integration: Mr. Imagine (image generation) and ITP Enhance Engine (BG removal, upscaling, enhancement) - ITC token-based pricing with free trial system - files: backend/services/imagination-ai.ts, backend/services/imagination-pricing.ts
+- [2025-12-11] Frontend components created: SheetCanvas, LeftSidebar, RightSidebar, LayersPanel, MrImaginePanel, ITPEnhanceTools, ExportPanel, and 6 more - All with TypeScript fixes applied - files: src/components/imagination/ (13 component files)
+- [2025-12-11] Database schema: 4 new Supabase tables with RLS policies - imagination_sheets, imagination_layers, imagination_pricing, imagination_free_trials - Default pricing data inserted
+- [2025-12-11] Navigation integration: Added "Gang Sheets" button to Navbar with purple gradient styling - Visible when logged in, links to /imagination-station - files: src/components/Navbar.tsx
+- [2025-12-11] Export system: PNG/PDF export at 300 DPI with proper canvas-to-image conversion - Backend handles file storage and signed URLs - files: backend/routes/imagination-station.ts (export endpoint ~1000 lines total)
+- [2025-12-11] Auto-layout features: Auto-nest and smart fill algorithms for optimal sheet usage - ITC token costs: auto_nest (2 ITC), smart_fill (3 ITC) - files: backend/config/imagination-presets.ts
+- [2025-12-11] TypeScript fixes session: Fixed Header, UserProfile, UserProductCreator, AdminCreateProductWizard, VoiceConversationEnhanced, Community components - Changed @/ imports to relative paths in all imagination components - files: Multiple frontend files
+- [2025-12-12] **FIXED**: ITP Enhance buttons (Remove BG, Upscale, Enhance) - Added onClick handlers that were missing - files: src/pages/ImaginationStation.tsx
+- [2025-12-12] **FIXED**: Mr. Imagine AI generation - Now calls actual API instead of placeholder alert - files: src/pages/ImaginationStation.tsx
+- [2025-12-12] **ADDED**: Admin ITC Pricing Management - New tab in Admin Dashboard to adjust ITC costs, set promos, reset defaults - files: backend/routes/admin/imagination-pricing.ts, src/pages/AdminDashboard.tsx, src/lib/api.ts
+- [2025-12-12] **ADDED**: Stability Features - ErrorBoundary, autosave every 30s, undo/redo with history (Ctrl+Z, Ctrl+Shift+Z) - files: src/pages/ImaginationStation.tsx
+- [2025-12-12] **VERIFIED**: Mirror & Cutlines functionality working - Mirror applies scaleX:-zoom to Stage for sublimation, cutlines show dashed borders - files: src/components/imagination/SheetCanvas.tsx
+- [2025-12-12] **VERIFIED**: DPI detection and warnings - Visual DPI badges on low-quality images, blocks checkout for danger-level DPI - files: src/utils/dpi-calculator.ts, src/pages/ImaginationStation.tsx
+
 ## In Progress
 
 ### AI Product Builder - Final Testing
@@ -30,9 +46,13 @@
 ## TODO (Priority Order)
 
 1. **High Priority**: Test complete AI product creation flow end-to-end - Rationale: Verify all fixes work correctly in real scenario
-2. **Medium Priority**: Verify product has exactly 3 final images - Context: 1 selected design + 2 mockups (flat_lay + mr_imagine)
-3. **Medium Priority**: Deploy to Railway and test in production - Context: Ensure worker processes jobs correctly in production
-4. **Low Priority/Nice-to-Have**: Add progress indicators for mockup generation - Potential benefit: Better user experience during async processing
+2. **High Priority**: Test Imagination Station AI features with real ITC transactions - Rationale: Verify pricing, free trials, and token deduction work correctly in production
+3. **Medium Priority**: Verify product has exactly 3 final images - Context: 1 selected design + 2 mockups (flat_lay + mr_imagine)
+4. **Medium Priority**: Deploy to Railway and test in production - Context: Ensure worker processes jobs correctly in production
+5. **Low Priority/Nice-to-Have**: Add progress indicators for mockup generation - Potential benefit: Better user experience during async processing
+6. **Low Priority/Nice-to-Have**: Add more sheet size presets to Imagination Station - Potential benefit: Support more print shop requirements
+7. **Low Priority/Nice-to-Have**: Create templates gallery for Imagination Station - Potential benefit: Help users get started faster with pre-built layouts
+8. **Low Priority/Nice-to-Have**: Improve mobile responsiveness for Imagination Station - Potential benefit: Better experience on tablets and phones
 
 ## Scheduled Maintenance Tasks
 
@@ -74,6 +94,114 @@
   - Worker logs should show `MOCKUP GENERATION v2.0` for both jobs
 
 ## Architecture Notes
+
+### Imagination Station - Gang Sheet Builder
+
+**Overview**: Professional gang sheet design tool for DTF, UV DTF, and Sublimation printing with AI-powered features.
+
+**Access**:
+- URL: `/imagination-station` (requires authentication)
+- Navigation: "Gang Sheets" button in Navbar (purple gradient, visible when logged in)
+
+**Core Features**:
+- Real-time canvas editor using Konva.js
+- Support for 3 print types: DTF, UV DTF, Sublimation
+- Preset sheet sizes: 13x19", 13x38", 24x36", Custom
+- AI tools: Mr. Imagine (image generation), ITP Enhance Engine (BG removal, upscaling, enhancement)
+- Auto-layout: auto-nest and smart fill algorithms
+- Export: PNG/PDF at 300 DPI
+
+**ITC Token Pricing**:
+| Feature | Cost | Free Trial |
+|---------|------|------------|
+| bg_remove | 5 ITC | 3 uses |
+| upscale_2x | 5 ITC | 2 uses |
+| upscale_4x | 10 ITC | 1 use |
+| enhance | 5 ITC | 2 uses |
+| generate | 15 ITC | 2 uses |
+| auto_nest | 2 ITC | 5 uses |
+| smart_fill | 3 ITC | 3 uses |
+| export | 0 ITC | unlimited |
+
+**Database Schema**:
+```
+imagination_sheets:
+  - id, user_id, name, sheet_type, width, height
+  - background_color, grid_enabled, snap_enabled
+  - created_at, updated_at
+
+imagination_layers:
+  - id, sheet_id, layer_type (image/text/shape)
+  - content (image URL or text content)
+  - x, y, width, height, rotation, opacity
+  - z_index, locked, visible
+  - created_at, updated_at
+
+imagination_pricing:
+  - id, feature_name, itc_cost
+  - free_trial_uses, description
+  - created_at, updated_at
+
+imagination_free_trials:
+  - id, user_id, feature_name
+  - uses_remaining, last_used_at
+  - created_at, updated_at
+```
+
+**Frontend Architecture**:
+- Main page: `src/pages/ImaginationStation.tsx`
+- Components: `src/components/imagination/` (13 files)
+  - SheetCanvas.tsx - Konva canvas component
+  - LeftSidebar.tsx - Tool selection and layer controls
+  - RightSidebar.tsx - Properties panel
+  - LayersPanel.tsx - Layer management
+  - MrImaginePanel.tsx - AI image generation
+  - ITPEnhanceTools.tsx - AI enhancement tools
+  - ExportPanel.tsx - Export options
+  - BackgroundPanel.tsx, GridPanel.tsx, SnapPanel.tsx
+  - ImageUploadPanel.tsx, TextPanel.tsx, ShapePanel.tsx
+
+**Backend Architecture**:
+- Main API: `backend/routes/imagination-station.ts` (~1000 lines)
+- Services:
+  - `backend/services/imagination-ai.ts` - AI tool integration
+  - `backend/services/imagination-pricing.ts` - ITC pricing and free trial logic
+- Config:
+  - `backend/config/imagination-presets.ts` - Sheet size presets
+
+**Key Endpoints**:
+```
+GET /api/imagination/sheets - List user sheets
+POST /api/imagination/sheets - Create new sheet
+GET /api/imagination/sheets/:id - Get sheet with layers
+PUT /api/imagination/sheets/:id - Update sheet
+DELETE /api/imagination/sheets/:id - Delete sheet
+
+POST /api/imagination/layers - Add layer
+PUT /api/imagination/layers/:id - Update layer
+DELETE /api/imagination/layers/:id - Delete layer
+
+POST /api/imagination/ai/generate - Mr. Imagine image generation
+POST /api/imagination/ai/remove-bg - ITP Enhance Engine BG removal
+POST /api/imagination/ai/upscale - ITP Enhance Engine upscaling
+POST /api/imagination/ai/enhance - ITP Enhance Engine enhancement
+
+POST /api/imagination/auto-nest - Auto-nest algorithm
+POST /api/imagination/smart-fill - Smart fill algorithm
+
+POST /api/imagination/export - Export to PNG/PDF
+GET /api/imagination/pricing - Get pricing info
+GET /api/imagination/free-trials/:userId - Get user's free trial status
+```
+
+**Known TypeScript Fixes Applied**:
+- All imagination components use relative imports (not @/ aliases)
+- Fixed Header.tsx: pointsBalance → itcBalance
+- Fixed UserProfile.tsx: wallet access, JSX namespace, ProfileStats type
+- Fixed UserProductCreator.tsx: pointsBalance, DesignSession type
+- Fixed AdminCreateProductWizard.tsx: AIJob type updates
+- Fixed VoiceConversationEnhanced.tsx: MediaTrackConstraints
+- Fixed Community.tsx: encodeURIComponent fallbacks
 
 ### AI Product Builder Flow (CORRECT FLOW)
 
@@ -141,6 +269,17 @@ Step 5 - Final Product:
 - Add ability to regenerate specific mockups - Potential benefit: User control over final image quality
 - Consider caching Gemini responses for similar prompts - Potential benefit: Faster generation and cost reduction
 
+### Imagination Station
+- Add templates gallery with pre-built layouts - Potential benefit: Help users get started faster, showcase best practices
+- Implement collaborative editing (real-time multi-user) - Potential benefit: Teams can work together on gang sheets
+- ~~Add history/undo system beyond browser undo~~ - **DONE** [2025-12-12]: Implemented undo/redo with 50-entry history, Ctrl+Z/Ctrl+Shift+Z shortcuts
+- Create mobile/tablet-optimized interface - Potential benefit: Design on-the-go capability
+- Add more sheet size presets (11x17", 22x60", etc.) - Potential benefit: Support more print shop requirements
+- Implement batch operations (apply effect to multiple layers) - Potential benefit: Faster workflow for repetitive tasks
+- ~~Add keyboard shortcuts for common actions~~ - **DONE** [2025-12-12]: Added Ctrl+Z (undo), Ctrl+Shift+Z/Ctrl+Y (redo)
+- Create video tutorials and help system - Potential benefit: Reduce learning curve, increase adoption
+- ~~Add autosave functionality~~ - **DONE** [2025-12-12]: Autosaves every 30 seconds when there are unsaved changes
+
 ## Technical Debt
 
 ### AI Product Builder
@@ -150,8 +289,19 @@ Step 5 - Final Product:
 - Hardcoded mockup types (flat_lay, mr_imagine) - Why: Should be configurable or database-driven for flexibility
 - `autoQueueMockupJob` function is now dead code - Why: Can be removed in cleanup
 
+### Imagination Station
+- Auto-nest and smart-fill algorithms are stubs - Why: Need actual implementation for optimal sheet layout, currently placeholder code
+- Missing comprehensive error handling in AI service calls - Why: API failures could leave users in bad state without clear feedback
+- No retry logic for failed AI operations - Why: Network issues or API limits could cause permanent failures
+- Canvas export might fail on very large sheets - Why: Browser memory limits, need chunked or server-side rendering
+- @/ import aliases not working in imagination components - Why: Had to use relative imports as workaround, should fix Vite config
+- Missing unit tests for pricing service - Why: Critical billing logic should have test coverage
+- No rate limiting on AI endpoints - Why: Users could abuse free trials or rack up costs
+- Image URLs stored directly in layers table - Why: Should use asset management system like product_assets for consistency
+
 ## Next Steps
 
+### Immediate (AI Product Builder)
 1. Test complete flow end-to-end with fresh product creation
 2. Verify worker logs show correct behavior:
    - "MOCKUP GENERATION v2.0" for both templates
@@ -160,3 +310,31 @@ Step 5 - Final Product:
 3. Verify final product has exactly 3 images
 4. Deploy to Railway production and verify worker processes jobs
 5. Clean up dead code (`autoQueueMockupJob` function can be removed)
+
+### Immediate (Imagination Station)
+1. Test all AI features with real ITC transactions:
+   - Verify free trial system works correctly (tracks uses, decrements properly)
+   - Test paid operations (ITC deduction, insufficient balance handling)
+   - Verify Mr. Imagine image generation (15 ITC)
+   - Test all ITP Enhance Engine features (bg_remove, upscale_2x, upscale_4x, enhance)
+2. Test auto-nest and smart-fill features (currently stubs - need implementation)
+3. Test export functionality:
+   - PNG export at 300 DPI
+   - PDF export at 300 DPI
+   - Verify file storage and signed URL generation
+4. Test sheet persistence:
+   - Create, save, load, delete sheets
+   - Verify layers are properly associated with sheets
+   - Test concurrent editing scenarios
+5. UI/UX testing:
+   - Test on different screen sizes
+   - Verify all panels open/close correctly
+   - Test keyboard/mouse interactions with canvas
+   - Verify layer selection, drag, resize, rotate
+
+### Soon
+1. Implement actual auto-nest and smart-fill algorithms (replace stubs)
+2. Add rate limiting to AI endpoints
+3. Improve error handling throughout the feature
+4. Add comprehensive logging for debugging
+5. Create user documentation/tutorials

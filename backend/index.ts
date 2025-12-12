@@ -31,6 +31,7 @@ import imageToolsRouter from './routes/ai/image-tools.js'
 import userProductsRouter from './routes/user-products.js'
 import userProductApprovalsRouter from './routes/admin/user-product-approvals.js'
 import adminSupportRouter from './routes/admin/support.js'
+import adminImaginationPricingRouter from './routes/admin/imagination-pricing.js'
 import imaginationStationRouter from './routes/imagination-station.js'
 
 // Import middleware
@@ -154,6 +155,7 @@ app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background,
 app.use('/api/user-products', userProductsRouter)
 app.use('/api/admin/user-products', userProductApprovalsRouter)
 app.use('/api/admin/support', adminSupportRouter)
+app.use('/api/admin/imagination-pricing', adminImaginationPricingRouter)
 app.use('/api/imagination-station', imaginationStationRouter)
 
 // Lightweight auth probe

@@ -254,84 +254,119 @@ export const aiProducts = {
 
 // Imagination Station API
 export const imaginationApi = {
-  // Presets & Pricing
-  getPresets: () => api.get('/imagination-station/presets'),
-  getPricing: () => api.get('/imagination-station/pricing'),
-  getTrials: () => api.get('/imagination-station/trials'),
+  // Presets & Pricing (pricing endpoint returns both pricing and freeTrials)
+  getPresets: () => api.get('/api/imagination-station/presets'),
+  getPricing: () => api.get('/api/imagination-station/pricing'),
 
   // Sheet CRUD
   createSheet: (data: { name?: string; print_type: string; sheet_height: number }) =>
-    api.post('/imagination-station/sheets', data),
+    api.post('/api/imagination-station/sheets', data),
 
   getSheets: (status?: string) =>
-    api.get('/imagination-station/sheets', { params: { status } }),
+    api.get('/api/imagination-station/sheets', { params: { status } }),
 
   getSheet: (id: string) =>
-    api.get(`/imagination-station/sheets/${id}`),
+    api.get(`/api/imagination-station/sheets/${id}`),
 
   updateSheet: (id: string, data: { name?: string; canvas_state?: any; thumbnail_url?: string }) =>
-    api.put(`/imagination-station/sheets/${id}`, data),
+    api.put(`/api/imagination-station/sheets/${id}`, data),
 
   deleteSheet: (id: string) =>
-    api.delete(`/imagination-station/sheets/${id}`),
+    api.delete(`/api/imagination-station/sheets/${id}`),
 
   // Layer operations
   uploadImage: (sheetId: string, file: File) => {
     const formData = new FormData();
     formData.append('image', file);
-    return api.post(`/imagination-station/sheets/${sheetId}/upload`, formData, {
+    return api.post(`/api/imagination-station/sheets/${sheetId}/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
 
   // AI operations - Component-friendly signatures
   generateImage: (params: { prompt: string; style: string; useTrial?: boolean }) =>
-    api.post('/imagination-station/ai/generate', params),
+    api.post('/api/imagination-station/ai/generate', params),
 
   removeBackground: (params: { imageUrl: string; useTrial?: boolean }) =>
-    api.post('/imagination-station/ai/remove-bg', params),
+    api.post('/api/imagination-station/ai/remove-bg', params),
 
   upscaleImage: (params: { imageUrl: string; factor: 2 | 4; useTrial?: boolean }) =>
-    api.post('/imagination-station/ai/upscale', params),
+    api.post('/api/imagination-station/ai/upscale', params),
 
   enhanceImage: (params: { imageUrl: string; useTrial?: boolean }) =>
-    api.post('/imagination-station/ai/enhance', params),
+    api.post('/api/imagination-station/ai/enhance', params),
 
   // Layout operations - Component-friendly signatures
   autoNest: (params: { sheetWidth: number; sheetHeight: number; layers: Array<{ id: string; width: number; height: number; rotation?: number }>; padding?: number }) =>
-    api.post('/imagination-station/layout/auto-nest', params),
+    api.post('/api/imagination-station/layout/auto-nest', params),
 
   smartFill: (params: { sheetWidth: number; sheetHeight: number; layers: Array<{ id: string; width: number; height: number }>; padding?: number }) =>
-    api.post('/imagination-station/layout/smart-fill', params),
+    api.post('/api/imagination-station/layout/smart-fill', params),
 
   autoLayout: (sheetId: string) =>
-    api.post(`/imagination-station/sheets/${sheetId}/auto-layout`),
+    api.post(`/api/imagination-station/sheets/${sheetId}/auto-layout`),
 
   // Export operations - Component-friendly signatures
   previewExport: (params: { sheet: any; layers: any[]; format: 'png' | 'pdf'; options?: { includeCutlines?: boolean; mirrorForSublimation?: boolean } }) =>
-    api.post('/imagination-station/export/preview', params),
+    api.post('/api/imagination-station/export/preview', params),
 
   exportDesign: (params: { sheet: any; layers: any[]; format: 'png' | 'pdf'; options?: { includeCutlines?: boolean; mirrorForSublimation?: boolean } }) =>
-    api.post('/imagination-station/export/download', params),
+    api.post('/api/imagination-station/export/download', params),
 
   submitToProduction: (params: { sheet: any; layers: any[]; format: 'png' | 'pdf'; options?: { includeCutlines?: boolean; mirrorForSublimation?: boolean } }) =>
-    api.post('/imagination-station/export/submit', params),
+    api.post('/api/imagination-station/export/submit', params),
 
   // Legacy sheet-based operations (for backward compatibility)
   removeBackgroundSheet: (sheetId: string, layerId: string) =>
-    api.post(`/imagination-station/sheets/${sheetId}/remove-bg`, { layer_id: layerId }),
+    api.post(`/api/imagination-station/sheets/${sheetId}/remove-bg`, { layer_id: layerId }),
 
   upscaleImageSheet: (sheetId: string, layerId: string, scaleFactor: number) =>
-    api.post(`/imagination-station/sheets/${sheetId}/upscale`, { layer_id: layerId, scale_factor: scaleFactor }),
+    api.post(`/api/imagination-station/sheets/${sheetId}/upscale`, { layer_id: layerId, scale_factor: scaleFactor }),
 
   enhanceImageSheet: (sheetId: string, layerId: string) =>
-    api.post(`/imagination-station/sheets/${sheetId}/enhance`, { layer_id: layerId }),
+    api.post(`/api/imagination-station/sheets/${sheetId}/enhance`, { layer_id: layerId }),
 
   // Export & Submit (legacy)
   exportSheet: (sheetId: string, format: 'png' | 'pdf', options?: { include_cutlines?: boolean; mirror?: boolean }) =>
-    api.post(`/imagination-station/sheets/${sheetId}/export`, { format, ...options }),
+    api.post(`/api/imagination-station/sheets/${sheetId}/export`, { format, ...options }),
 
   submitSheet: (sheetId: string) =>
-    api.post(`/imagination-station/sheets/${sheetId}/submit`),
+    api.post(`/api/imagination-station/sheets/${sheetId}/submit`),
+
+  // Project Management - Save/Load functionality
+  saveProject: (params: {
+    sheetId: string;
+    name?: string;
+    canvasState: any;
+    thumbnailBase64?: string;
+    layers?: any[];
+    metadata?: any;
+  }) =>
+    api.post('/api/imagination-station/projects/save', params),
+
+  loadProject: (projectId: string) =>
+    api.get(`/api/imagination-station/projects/${projectId}`),
+
+  listProjects: (params?: { status?: string; limit?: number }) =>
+    api.get('/api/imagination-station/projects', { params }),
 };
 
+// Admin API methods
+export const adminApi = {
+  // Imagination Station Pricing
+  getImaginationPricing: () =>
+    api.get('/api/admin/imagination-pricing'),
+
+  updateImaginationPricing: (featureKey: string, updates: {
+    current_cost?: number;
+    is_free_trial?: boolean;
+    free_trial_uses?: number;
+  }) =>
+    api.put(`/api/admin/imagination-pricing/${featureKey}`, updates),
+
+  setImaginationPromo: (durationHours: number) =>
+    api.post('/api/admin/imagination-pricing/promo', { durationHours }),
+
+  resetImaginationPricing: () =>
+    api.post('/api/admin/imagination-pricing/reset'),
+};

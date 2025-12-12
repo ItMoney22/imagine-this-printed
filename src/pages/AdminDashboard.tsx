@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts } from '../lib/api'
+import { aiProducts, adminApi } from '../lib/api'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
@@ -12,8 +12,8 @@ import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/Adm
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -37,6 +37,19 @@ const AdminDashboard: React.FC = () => {
     activeSessions: 0
   })
   const [showProductModal, setShowProductModal] = useState(false)
+  // ITC Pricing state
+  const [itcPricing, setItcPricing] = useState<Array<{
+    feature_key: string;
+    display_name: string;
+    base_cost: number;
+    current_cost: number;
+    is_free_trial: boolean;
+    free_trial_uses: number;
+    promo_end_time: string | null;
+  }>>([])
+  const [loadingPricing, setLoadingPricing] = useState(false)
+  const [editingPricing, setEditingPricing] = useState<string | null>(null)
+  const [promoHours, setPromoHours] = useState<number>(24)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [productForm, setProductForm] = useState({
     name: '',
@@ -183,6 +196,63 @@ const AdminDashboard: React.FC = () => {
       console.error('Error loading products:', error)
     }
   }
+
+  // ITC Pricing functions
+  const loadItcPricing = async () => {
+    setLoadingPricing(true)
+    try {
+      const { data } = await adminApi.getImaginationPricing()
+      if (data?.pricing) {
+        setItcPricing(data.pricing)
+      }
+    } catch (error) {
+      console.error('Error loading ITC pricing:', error)
+    } finally {
+      setLoadingPricing(false)
+    }
+  }
+
+  const updateItcPricing = async (featureKey: string, updates: { current_cost?: number; is_free_trial?: boolean; free_trial_uses?: number }) => {
+    try {
+      await adminApi.updateImaginationPricing(featureKey, updates)
+      await loadItcPricing()
+      setEditingPricing(null)
+    } catch (error) {
+      console.error('Error updating pricing:', error)
+      alert('Failed to update pricing')
+    }
+  }
+
+  const setItcPromo = async () => {
+    if (promoHours <= 0) return
+    try {
+      await adminApi.setImaginationPromo(promoHours)
+      await loadItcPricing()
+      alert(`Promotional pricing activated for ${promoHours} hours!`)
+    } catch (error) {
+      console.error('Error setting promo:', error)
+      alert('Failed to activate promo')
+    }
+  }
+
+  const resetItcPricing = async () => {
+    if (!confirm('Reset all pricing to default values?')) return
+    try {
+      await adminApi.resetImaginationPricing()
+      await loadItcPricing()
+      alert('Pricing reset to defaults')
+    } catch (error) {
+      console.error('Error resetting pricing:', error)
+      alert('Failed to reset pricing')
+    }
+  }
+
+  // Load pricing when tab is selected
+  useEffect(() => {
+    if (selectedTab === 'itc-pricing') {
+      loadItcPricing()
+    }
+  }, [selectedTab])
 
   const openCreateProductModal = () => {
     setEditingProduct(null)
@@ -603,6 +673,26 @@ const AdminDashboard: React.FC = () => {
           status: value,
           images: images,
           is_active: true
+        })
+      } else if (field === 'sizes' || field === 'colors') {
+        // For sizes and colors, store in metadata
+        const currentMetadata = editingProductData.metadata || {}
+        const newMetadata = {
+          ...currentMetadata,
+          [field]: value
+        }
+
+        const { error } = await supabase
+          .from('products')
+          .update({ metadata: newMetadata })
+          .eq('id', editingProductData.id)
+
+        if (error) throw error
+
+        setEditingProductData({
+          ...editingProductData,
+          metadata: newMetadata,
+          [field]: value
         })
       } else {
         // Regular field update
@@ -1091,674 +1181,301 @@ const AdminDashboard: React.FC = () => {
       userEmail: user?.email
     })
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-red-50 border border-red-200 rounded-md p-4">
-          <p className="text-red-800">Access denied. This page is for administrators only.</p>
-          <p className="text-red-600 text-sm mt-2">Current role: {user?.role || 'none'}</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-soft border border-red-100 p-8 max-w-md w-full text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-display font-bold text-slate-900 mb-2">Access Denied</h2>
+          <p className="text-slate-600 mb-2">This page is for administrators only.</p>
+          <p className="text-sm text-slate-500">Current role: <span className="font-medium text-slate-700">{user?.role || 'none'}</span></p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-text mb-2">Admin Dashboard</h1>
-        <p className="text-muted">Manage users, approvals, and monitor system performance</p>
-      </div>
-
-      {/* System Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Total Users</p>
-              <p className="text-2xl font-semibold text-text">{systemMetrics.totalUsers}</p>
-            </div>
-          </div>
+    <div className="min-h-screen bg-slate-50 pb-16">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }} />
         </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Total Revenue</p>
-              <p className="text-2xl font-semibold text-text">${systemMetrics.totalRevenue.toFixed(2)}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Pending Approvals</p>
-              <p className="text-2xl font-semibold text-text">{systemMetrics.pendingApprovals}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Active Sessions</p>
-              <p className="text-2xl font-semibold text-text">{systemMetrics.activeSessions}</p>
-            </div>
-          </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold text-white mb-2">Admin Dashboard</h1>
+          <p className="text-purple-100">Manage users, approvals, and monitor system performance</p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b card-border mb-6">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'audit', 'support'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => {
-                setSelectedTab(tab as any)
-                setSearchParams({ tab })
-              }}
-              className={`py-2 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${selectedTab === tab
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-muted hover:text-text hover:card-border'
-                }`}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Overview Tab */}
-      {selectedTab === 'overview' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-card rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-text mb-4">Quick Actions</h3>
-              <div className="space-y-3">
-                <button
-                  onClick={() => setSelectedTab('creator-products')}
-                  className="w-full text-left p-3 bg-pink-50 hover:bg-pink-100 rounded-lg transition-colors"
-                >
-                  <div className="font-medium text-pink-900">Review Creator Products</div>
-                  <div className="text-sm text-pink-600">User-submitted designs awaiting approval</div>
-                </button>
-                <button
-                  onClick={() => setSelectedTab('vendors')}
-                  className="w-full text-left p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                >
-                  <div className="font-medium text-blue-900">Review Vendor Products</div>
-                  <div className="text-sm text-blue-600">{vendorProducts.filter(p => !p.approved).length} pending approval</div>
-                </button>
-                <button
-                  onClick={() => setSelectedTab('models')}
-                  className="w-full text-left p-3 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
-                >
-                  <div className="font-medium text-green-900">Review 3D Models</div>
-                  <div className="text-sm text-green-600">{models.filter(m => !m.approved).length} pending approval</div>
-                </button>
-                <button
-                  onClick={() => setSelectedTab('users')}
-                  className="w-full text-left p-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
-                >
-                  <div className="font-medium text-purple-900">Manage User Roles</div>
-                  <div className="text-sm text-purple-600">{users.length} total users</div>
-                </button>
-                <button
-                  onClick={() => setSelectedTab('wallet')}
-                  className="w-full text-left p-3 bg-yellow-50 hover:bg-yellow-100 rounded-lg transition-colors"
-                >
-                  <div className="font-medium text-yellow-900">Manage Wallets</div>
-                  <div className="text-sm text-yellow-600">Credit/Debit user balances</div>
-                </button>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* System Overview Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg shadow-blue-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                </svg>
               </div>
-            </div>
-
-            <div className="bg-card rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-text mb-4">System Health</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-text">Database Status</span>
-                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Healthy</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-text">API Response Time</span>
-                  <span className="text-sm text-muted">45ms</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-text">Storage Usage</span>
-                  <span className="text-sm text-muted">68% of 100GB</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-text">Active Vendors</span>
-                  <span className="text-sm text-muted">{systemMetrics.activeVendors}</span>
-                </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-slate-500">Total Users</p>
+                <p className="text-2xl font-bold text-slate-900">{systemMetrics.totalUsers}</p>
               </div>
             </div>
           </div>
 
-          <div className="bg-card rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-text mb-4">Recent Activity</h3>
-            <div className="space-y-3">
-              {auditLogs.slice(0, 5).map((log) => (
-                <div key={log.id} className="flex items-center justify-between p-3 bg-card rounded">
-                  <div>
-                    <p className="text-sm font-medium text-text">{log.action.replace('_', ' ')}</p>
-                    <p className="text-xs text-muted">{log.entity} #{log.entityId}</p>
-                  </div>
-                  <span className="text-xs text-muted">{new Date(log.createdAt).toLocaleString()}</span>
-                </div>
-              ))}
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl shadow-lg shadow-emerald-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-slate-500">Total Revenue</p>
+                <p className="text-2xl font-bold text-slate-900">${systemMetrics.totalRevenue.toFixed(2)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl shadow-lg shadow-amber-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-slate-500">Pending Approvals</p>
+                <p className="text-2xl font-bold text-slate-900">{systemMetrics.pendingApprovals}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg shadow-purple-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-slate-500">Active Sessions</p>
+                <p className="text-2xl font-bold text-slate-900">{systemMetrics.activeSessions}</p>
+              </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Users Tab */}
-      {selectedTab === 'users' && (
-        <div className="bg-card rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b card-border">
-            <h3 className="text-lg font-medium text-text">User Management</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-card">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">User</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Points</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">ITC Balance</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Joined</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-card divide-y divide-gray-200">
-                {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-card">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-text">{user.firstName} {user.lastName}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{user.email}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <select
-                        value={user.role}
-                        onChange={(e) => updateUserRole(user.id, e.target.value as User['role'])}
-                        className="text-sm border card-border rounded px-2 py-1"
-                      >
-                        <option value="customer">Customer</option>
-                        <option value="vendor">Vendor</option>
-                        <option value="founder">Founder</option>
-                        <option value="manager">Manager</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{user.points || 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{user.itcBalance || 0} ITC</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
-                      {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                      <button className="text-red-600 hover:text-red-900">Suspend</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Vendor Products Tab */}
-      {selectedTab === 'vendors' && (
-        <div className="bg-card rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b card-border">
-            <h3 className="text-lg font-medium text-text">Vendor Product Approvals</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-            {vendorProducts.map((product) => {
-              const vendor = users.find(u => u.id === product.vendorId)
-              return (
-                <div key={product.id} className="border rounded-lg overflow-hidden">
-                  <img
-                    src={product.images[0]}
-                    alt={product.title}
-                    className="w-full h-48 object-cover"
-                  />
-                  <div className="p-4">
-                    <h4 className="font-semibold text-text mb-2">{product.title}</h4>
-                    <p className="text-muted text-sm mb-3">{product.description}</p>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-lg font-bold text-text">${product.price}</span>
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${product.approved
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                        {product.approved ? 'Approved' : 'Pending'}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted mb-3">
-                      Vendor: {vendor?.firstName} {vendor?.lastName}
-                    </p>
-
-                    {!product.approved && (
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => approveVendorProduct(product.id)}
-                          className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm py-2 px-3 rounded"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => rejectVendorProduct(product.id)}
-                          className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm py-2 px-3 rounded"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Products Tab */}
-      {selectedTab === 'products' && (
-        <div className="bg-card rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b card-border">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-text">Product Management</h3>
+        {/* Tabs */}
+        <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-2 mb-8 overflow-x-auto">
+          <nav className="flex space-x-1">
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'audit', 'support'].map((tab) => (
               <button
-                onClick={openCreateProductModal}
-                className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                key={tab}
+                onClick={() => {
+                  setSelectedTab(tab as any)
+                  setSearchParams({ tab })
+                }}
+                className={`px-4 py-2.5 rounded-xl font-medium text-sm whitespace-nowrap transition-all ${selectedTab === tab
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
               >
-                + Create Product
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
-            </div>
-            {selectedProducts.size > 0 && (
-              <div className="flex items-center space-x-3 bg-purple-50 p-3 rounded-lg">
-                <span className="text-sm font-medium text-purple-900">
-                  {selectedProducts.size} selected
-                </span>
-                <button
-                  onClick={handlePublishProducts}
-                  className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1.5 rounded transition-colors"
-                >
-                  📢 Publish Selected
-                </button>
-                <button
-                  onClick={handleMassDelete}
-                  className="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1.5 rounded transition-colors"
-                >
-                  🗑️ Delete Selected
-                </button>
-                <button
-                  onClick={() => setSelectedProducts(new Set())}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm px-3 py-1.5 rounded transition-colors"
-                >
-                  Clear Selection
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-card">
-                <tr>
-                  <th className="px-4 py-3 text-left">
-                    <input
-                      type="checkbox"
-                      checked={products.length > 0 && selectedProducts.size === products.length}
-                      onChange={toggleAllProducts}
-                      className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                    />
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Image</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Product</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Promo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Featured</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-card divide-y divide-gray-200">
-                {products.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-muted">
-                      No products found. Click "Create Product" to add your first product.
-                    </td>
-                  </tr>
-                ) : (
-                  products.map((product: any) => {
-                    const sourceAsset = productAssets[product.id]
-                    const isExpanded = expandedProductId === product.id
-                    const jobs = productJobs[product.id] || []
-                    const isAIProduct = product.metadata?.ai_generated
-                    return (
-                      <React.Fragment key={product.id}>
-                        <tr className="hover:bg-card">
-                          <td className="px-4 py-4">
-                            <input
-                              type="checkbox"
-                              checked={selectedProducts.has(product.id)}
-                              onChange={() => toggleProductSelection(product.id)}
-                              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center space-x-3">
-                              {sourceAsset ? (
-                                <>
-                                  <img
-                                    src={sourceAsset.url}
-                                    alt={product.name}
-                                    className="w-12 h-12 object-cover rounded"
-                                  />
-                                  <a
-                                    href={sourceAsset.url}
-                                    download
-                                    className="text-purple-600 hover:text-purple-700 font-medium text-sm"
-                                    title="Download source image"
-                                  >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                  </a>
-                                </>
-                              ) : product.images.length > 0 ? (
-                                <img
-                                  src={product.images[0]}
-                                  alt={product.name}
-                                  className="w-12 h-12 object-cover rounded"
-                                />
-                              ) : (
-                                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center">
-                                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center space-x-2">
-                              <div>
-                                <div className="text-sm font-medium text-text">{product.name}</div>
-                                <div className="text-sm text-muted truncate max-w-xs">{product.description}</div>
-                              </div>
-                              {isAIProduct && (
-                                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
-                                  AI
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 capitalize">
-                              {product.category.replace('-', ' ')}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-text font-medium">
-                            ${product.price.toFixed(2)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <label className="flex items-center space-x-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={product.isThreeForTwentyFive || false}
-                                onChange={() => togglePromo(product)}
-                                className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                              />
-                              <span className="text-sm text-text">3 for $25</span>
-                            </label>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex flex-col space-y-1">
-                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${product.status === 'active'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                                }`}>
-                                {product.status === 'active' ? 'Active' : 'Draft'}
-                              </span>
-                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${product.inStock
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-red-100 text-red-800'
-                                }`}>
-                                {product.inStock ? 'In Stock' : 'Out of Stock'}
-                              </span>
-                            </div>
-
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <button
-                              onClick={() => toggleFeatured(product)}
-                              className={`p-2 rounded-full transition-colors ${product.is_featured
-                                ? 'text-yellow-500 hover:bg-yellow-100'
-                                : 'text-gray-400 hover:text-yellow-500 hover:bg-gray-100'
-                                }`}
-                              title={product.is_featured ? "Remove from Featured" : "Add to Featured"}
-                            >
-                              <svg className="w-6 h-6" fill={product.is_featured ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                              </svg>
-                            </button>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex flex-col space-y-2">
-                              <button
-                                onClick={() => toggleProductExpansion(product.id)}
-                                className="text-purple-600 hover:text-purple-900 text-left"
-                              >
-                                {isExpanded ? '▼ Collapse' : '▶ Expand'}
-                              </button>
-                              <button
-                                onClick={() => openEnhancedEditModal(product)}
-                                className="text-blue-600 hover:text-blue-900 text-left font-medium"
-                              >
-                                ✏️ Edit Product
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  if (confirm('Are you sure you want to delete this product?')) {
-                                    try {
-                                      await supabase.from('products').delete().eq('id', product.id)
-                                      await loadProducts()
-                                      alert('Product deleted successfully!')
-                                    } catch (error: any) {
-                                      alert('Failed to delete: ' + error.message)
-                                    }
-                                  }
-                                }}
-                                className="text-red-600 hover:text-red-900 text-left"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        {
-                          isExpanded && (
-                            <tr>
-                              <td colSpan={7} className="px-6 py-4 bg-gray-50">
-                                <div className="space-y-4">
-                                  {/* AI Operations Section */}
-                                  {isAIProduct && (
-                                    <div className="border-b pb-4">
-                                      <h4 className="font-semibold text-text mb-3">AI Operations</h4>
-                                      <div className="grid grid-cols-3 gap-3">
-                                        <button
-                                          onClick={() => handleRegenerateImages(product.id)}
-                                          disabled={loadingAction === `regenerate-${product.id}`}
-                                          className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white text-sm py-2 px-3 rounded transition-colors"
-                                        >
-                                          {loadingAction === `regenerate-${product.id}` ? 'Creating Job...' : '🔄 Regenerate Images'}
-                                        </button>
-                                        <button
-                                          onClick={() => handleRemoveBackground(product.id)}
-                                          disabled={loadingAction === `rembg-${product.id}`}
-                                          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm py-2 px-3 rounded transition-colors"
-                                        >
-                                          {loadingAction === `rembg-${product.id}` ? 'Creating Job...' : '✂️ Remove Background'}
-                                        </button>
-                                        <button
-                                          onClick={() => handleCreateMockups(product.id)}
-                                          disabled={loadingAction === `mockups-${product.id}`}
-                                          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm py-2 px-3 rounded transition-colors"
-                                        >
-                                          {loadingAction === `mockups-${product.id}` ? 'Creating Jobs...' : '🎨 Create Mockups'}
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Metadata Section */}
-                                  {isAIProduct && product.metadata && (
-                                    <div className="border-b pb-4">
-                                      <h4 className="font-semibold text-text mb-2">AI Metadata</h4>
-                                      <div className="grid grid-cols-2 gap-2 text-sm">
-                                        {product.metadata.original_prompt && (
-                                          <div className="col-span-2">
-                                            <span className="font-medium text-muted">Original Prompt:</span>
-                                            <p className="text-text">{product.metadata.original_prompt}</p>
-                                          </div>
-                                        )}
-                                        {product.metadata.image_prompt && (
-                                          <div className="col-span-2">
-                                            <span className="font-medium text-muted">Image Prompt:</span>
-                                            <p className="text-text">{product.metadata.image_prompt}</p>
-                                          </div>
-                                        )}
-                                        {product.metadata.image_style && (
-                                          <div>
-                                            <span className="font-medium text-muted">Style:</span>
-                                            <p className="text-text capitalize">{product.metadata.image_style}</p>
-                                          </div>
-                                        )}
-                                        {product.metadata.background && (
-                                          <div>
-                                            <span className="font-medium text-muted">Background:</span>
-                                            <p className="text-text capitalize">{product.metadata.background}</p>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Jobs Section */}
-                                  <div>
-                                    <h4 className="font-semibold text-text mb-2">Processing Jobs ({jobs.length})</h4>
-                                    {jobs.length === 0 ? (
-                                      <p className="text-sm text-muted">No jobs found for this product.</p>
-                                    ) : (
-                                      <div className="space-y-2">
-                                        {jobs.map((job: any) => (
-                                          <div key={job.id} className="flex items-center justify-between bg-white p-3 rounded border">
-                                            <div>
-                                              <span className="text-sm font-medium text-text capitalize">{job.type.replace('replicate_', '')}</span>
-                                              <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full ${job.status === 'succeeded' ? 'bg-green-100 text-green-800' :
-                                                job.status === 'running' ? 'bg-blue-100 text-blue-800' :
-                                                  job.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                                    'bg-yellow-100 text-yellow-800'
-                                                }`}>
-                                                {job.status}
-                                              </span>
-                                            </div>
-                                            <span className="text-xs text-muted">
-                                              {new Date(job.created_at).toLocaleString()}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                        }
-                      </React.Fragment>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+            ))}
+          </nav>
         </div>
-      )
-      }
 
-      {/* 3D Models Tab */}
-      {
-        selectedTab === 'models' && (
-          <div className="bg-card rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b card-border">
-              <h3 className="text-lg font-medium text-text">3D Model Approvals</h3>
+        {/* Overview Tab */}
+        {selectedTab === 'overview' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Quick Actions</h3>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setSelectedTab('creator-products')}
+                    className="w-full text-left p-4 bg-pink-50 hover:bg-pink-100 rounded-xl transition-colors border border-pink-100"
+                  >
+                    <div className="font-semibold text-pink-900">Review Creator Products</div>
+                    <div className="text-sm text-pink-600">User-submitted designs awaiting approval</div>
+                  </button>
+                  <button
+                    onClick={() => setSelectedTab('vendors')}
+                    className="w-full text-left p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors border border-blue-100"
+                  >
+                    <div className="font-semibold text-blue-900">Review Vendor Products</div>
+                    <div className="text-sm text-blue-600">{vendorProducts.filter(p => !p.approved).length} pending approval</div>
+                  </button>
+                  <button
+                    onClick={() => setSelectedTab('models')}
+                    className="w-full text-left p-4 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-100"
+                  >
+                    <div className="font-semibold text-emerald-900">Review 3D Models</div>
+                    <div className="text-sm text-emerald-600">{models.filter(m => !m.approved).length} pending approval</div>
+                  </button>
+                  <button
+                    onClick={() => setSelectedTab('users')}
+                    className="w-full text-left p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors border border-purple-100"
+                  >
+                    <div className="font-semibold text-purple-900">Manage User Roles</div>
+                    <div className="text-sm text-purple-600">{users.length} total users</div>
+                  </button>
+                  <button
+                    onClick={() => setSelectedTab('wallet')}
+                    className="w-full text-left p-4 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors border border-amber-100"
+                  >
+                    <div className="font-semibold text-amber-900">Manage Wallets</div>
+                    <div className="text-sm text-amber-600">Credit/Debit user balances</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">System Health</h3>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Database Status</span>
+                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">Healthy</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">API Response Time</span>
+                    <span className="text-sm font-semibold text-slate-900">45ms</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Storage Usage</span>
+                    <span className="text-sm font-semibold text-slate-900">68% of 100GB</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Active Vendors</span>
+                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.activeVendors}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+              <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Recent Activity</h3>
+              <div className="space-y-2">
+                {auditLogs.slice(0, 5).map((log) => (
+                  <div key={log.id} className="flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{log.action.replace('_', ' ')}</p>
+                      <p className="text-xs text-slate-500">{log.entity} #{log.entityId}</p>
+                    </div>
+                    <span className="text-xs text-slate-500">{new Date(log.createdAt).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Users Tab */}
+        {selectedTab === 'users' && (
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-display font-bold text-slate-900">User Management</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Points</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">ITC Balance</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Joined</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-100">
+                  {users.map((user) => (
+                    <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-slate-900">{user.firstName} {user.lastName}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{user.email}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <select
+                          value={user.role}
+                          onChange={(e) => updateUserRole(user.id, e.target.value as User['role'])}
+                          className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                        >
+                          <option value="customer">Customer</option>
+                          <option value="vendor">Vendor</option>
+                          <option value="founder">Founder</option>
+                          <option value="manager">Manager</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-amber-600">{user.points || 0}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-purple-600">{user.itcBalance || 0} ITC</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                        {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                        <button className="text-purple-600 hover:text-purple-700 hover:underline">Edit</button>
+                        <button className="text-red-600 hover:text-red-700 hover:underline">Suspend</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Vendor Products Tab */}
+        {selectedTab === 'vendors' && (
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-display font-bold text-slate-900">Vendor Product Approvals</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-              {models.map((model) => {
-                const uploader = users.find(u => u.id === model.uploadedBy)
+              {vendorProducts.map((product) => {
+                const vendor = users.find(u => u.id === product.vendorId)
                 return (
-                  <div key={model.id} className="border rounded-lg overflow-hidden">
-                    <div className="h-48 bg-card flex items-center justify-center">
-                      <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                      </svg>
-                    </div>
+                  <div key={product.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-soft hover:shadow-soft-lg transition-shadow">
+                    <img
+                      src={product.images[0]}
+                      alt={product.title}
+                      className="w-full h-48 object-cover"
+                    />
                     <div className="p-4">
-                      <h4 className="font-semibold text-text mb-2">{model.title}</h4>
-                      <p className="text-muted text-sm mb-3">{model.description}</p>
+                      <h4 className="font-semibold text-slate-900 mb-2">{product.title}</h4>
+                      <p className="text-slate-600 text-sm mb-3 line-clamp-2">{product.description}</p>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm text-muted">{model.fileType.toUpperCase()}</span>
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${model.approved
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-yellow-100 text-yellow-800'
+                        <span className="text-lg font-bold text-slate-900">${product.price}</span>
+                        <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.approved
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-700'
                           }`}>
-                          {model.approved ? 'Approved' : 'Pending'}
+                          {product.approved ? 'Approved' : 'Pending'}
                         </span>
                       </div>
-                      <div className="flex justify-between items-center mb-3">
-                        <span className="text-sm text-muted">👍 {model.votes} votes</span>
-                        <span className="text-sm text-muted">⭐ {model.points} points</span>
-                      </div>
-                      <p className="text-sm text-muted mb-3">
-                        By: {uploader?.firstName} {uploader?.lastName}
+                      <p className="text-sm text-slate-500 mb-3">
+                        Vendor: {vendor?.firstName} {vendor?.lastName}
                       </p>
 
-                      {!model.approved && (
+                      {!product.approved && (
                         <div className="flex space-x-2">
                           <button
-                            onClick={() => approveModel(model.id)}
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm py-2 px-3 rounded"
+                            onClick={() => approveVendorProduct(product.id)}
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
                           >
                             Approve
                           </button>
                           <button
-                            onClick={() => rejectModel(model.id)}
-                            className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm py-2 px-3 rounded"
+                            onClick={() => rejectVendorProduct(product.id)}
+                            className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
                           >
                             Reject
                           </button>
@@ -1770,758 +1487,1267 @@ const AdminDashboard: React.FC = () => {
               })}
             </div>
           </div>
-        )
-      }
+        )}
 
-      {/* Wallet Management Tab */}
-      {
-        selectedTab === 'wallet' && (
-          <AdminWalletManagement />
-        )
-      }
-
-      {/* Support Tab */}
-      {
-        selectedTab === 'support' && (
-          <AdminSupport />
-        )
-      }
-
-      {/* Creator Products Tab - User-submitted products pending approval */}
-      {
-        selectedTab === 'creator-products' && (
-          <CreatorProductsTab />
-        )
-      }
-
-      {/* Audit Logs Tab */}
-      {
-        selectedTab === 'audit' && (
-          <div className="bg-card rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b card-border">
-              <h3 className="text-lg font-medium text-text">Audit Logs</h3>
+        {/* Products Tab */}
+        {selectedTab === 'products' && (
+          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-display font-bold text-slate-900">Product Management</h3>
+                <button
+                  onClick={openCreateProductModal}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl transition-colors shadow-lg shadow-purple-500/25"
+                >
+                  + Create Product
+                </button>
+              </div>
+              {selectedProducts.size > 0 && (
+                <div className="flex items-center space-x-3 bg-purple-50 border border-purple-100 p-4 rounded-xl">
+                  <span className="text-sm font-semibold text-purple-900">
+                    {selectedProducts.size} selected
+                  </span>
+                  <button
+                    onClick={handlePublishProducts}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Publish Selected
+                  </button>
+                  <button
+                    onClick={handleMassDelete}
+                    className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Delete Selected
+                  </button>
+                  <button
+                    onClick={() => setSelectedProducts(new Set())}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              )}
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-card">
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Timestamp</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Action</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Entity</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Changes</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">IP Address</th>
+                    <th className="px-4 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={products.length > 0 && selectedProducts.size === products.length}
+                        onChange={toggleAllProducts}
+                        className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
+                      />
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Image</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Price</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Promo</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Featured</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-card divide-y divide-gray-200">
-                  {auditLogs.map((log) => {
-                    const logUser = users.find(u => u.id === log.userId)
-                    return (
-                      <tr key={log.id} className="hover:bg-card">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
-                          {logUser ? `${logUser.firstName} ${logUser.lastName}` : 'System'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${log.action.includes('APPROVE') ? 'bg-green-100 text-green-800' :
-                            log.action.includes('REJECT') ? 'bg-red-100 text-red-800' :
-                              log.action.includes('CREATE') ? 'bg-blue-100 text-blue-800' :
-                                'bg-card text-gray-800'
-                            }`}>
-                            {log.action.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
-                          {log.entity} #{log.entityId}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
-                          {Object.keys(log.changes || {}).join(', ')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
-                          {log.ipAddress}
-                        </td>
-                      </tr>
-                    )
-                  })}
+                <tbody className="bg-white divide-y divide-slate-100">
+                  {products.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                        No products found. Click "Create Product" to add your first product.
+                      </td>
+                    </tr>
+                  ) : (
+                    products.map((product: any) => {
+                      const sourceAsset = productAssets[product.id]
+                      const isExpanded = expandedProductId === product.id
+                      const jobs = productJobs[product.id] || []
+                      const isAIProduct = product.metadata?.ai_generated
+                      return (
+                        <React.Fragment key={product.id}>
+                          <tr className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-4">
+                              <input
+                                type="checkbox"
+                                checked={selectedProducts.has(product.id)}
+                                onChange={() => toggleProductSelection(product.id)}
+                                className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
+                              />
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center space-x-3">
+                                {sourceAsset ? (
+                                  <>
+                                    <img
+                                      src={sourceAsset.url}
+                                      alt={product.name}
+                                      className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                                    />
+                                    <a
+                                      href={sourceAsset.url}
+                                      download
+                                      className="text-purple-600 hover:text-purple-700 font-medium text-sm"
+                                      title="Download source image"
+                                    >
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                      </svg>
+                                    </a>
+                                  </>
+                                ) : product.images.length > 0 ? (
+                                  <img
+                                    src={product.images[0]}
+                                    alt={product.name}
+                                    className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
+                                    <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center space-x-2">
+                                <div>
+                                  <div className="text-sm font-semibold text-slate-900">{product.name}</div>
+                                  <div className="text-sm text-slate-500 truncate max-w-xs">{product.description}</div>
+                                </div>
+                                {isAIProduct && (
+                                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
+                                    AI
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-700 capitalize">
+                                {product.category.replace('-', ' ')}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-semibold">
+                              ${product.price.toFixed(2)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={product.isThreeForTwentyFive || false}
+                                  onChange={() => togglePromo(product)}
+                                  className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
+                                />
+                                <span className="text-sm text-slate-600">3 for $25</span>
+                              </label>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex flex-col space-y-1">
+                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.status === 'active'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-amber-100 text-amber-700'
+                                  }`}>
+                                  {product.status === 'active' ? 'Active' : 'Draft'}
+                                </span>
+                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.inStock
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-red-100 text-red-700'
+                                  }`}>
+                                  {product.inStock ? 'In Stock' : 'Out of Stock'}
+                                </span>
+                              </div>
+
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <button
+                                onClick={() => toggleFeatured(product)}
+                                className={`p-2 rounded-xl transition-colors ${product.is_featured
+                                  ? 'text-amber-500 bg-amber-50 hover:bg-amber-100'
+                                  : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100'
+                                  }`}
+                                title={product.is_featured ? "Remove from Featured" : "Add to Featured"}
+                              >
+                                <svg className="w-6 h-6" fill={product.is_featured ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                </svg>
+                              </button>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex flex-col space-y-2">
+                                <button
+                                  onClick={() => toggleProductExpansion(product.id)}
+                                  className="text-purple-600 hover:text-purple-700 hover:underline text-left"
+                                >
+                                  {isExpanded ? '▼ Collapse' : '▶ Expand'}
+                                </button>
+                                <button
+                                  onClick={() => openEnhancedEditModal(product)}
+                                  className="text-blue-600 hover:text-blue-700 hover:underline text-left font-medium"
+                                >
+                                  Edit Product
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (confirm('Are you sure you want to delete this product?')) {
+                                      try {
+                                        await supabase.from('products').delete().eq('id', product.id)
+                                        await loadProducts()
+                                        alert('Product deleted successfully!')
+                                      } catch (error: any) {
+                                        alert('Failed to delete: ' + error.message)
+                                      }
+                                    }
+                                  }}
+                                  className="text-red-600 hover:text-red-700 hover:underline text-left"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {
+                            isExpanded && (
+                              <tr>
+                                <td colSpan={9} className="px-6 py-4 bg-slate-50">
+                                  <div className="space-y-4">
+                                    {/* AI Operations Section */}
+                                    {isAIProduct && (
+                                      <div className="border-b border-slate-200 pb-4">
+                                        <h4 className="font-semibold text-slate-900 mb-3">AI Operations</h4>
+                                        <div className="grid grid-cols-3 gap-3">
+                                          <button
+                                            onClick={() => handleRegenerateImages(product.id)}
+                                            disabled={loadingAction === `regenerate-${product.id}`}
+                                            className="bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
+                                          >
+                                            {loadingAction === `regenerate-${product.id}` ? 'Creating Job...' : 'Regenerate Images'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleRemoveBackground(product.id)}
+                                            disabled={loadingAction === `rembg-${product.id}`}
+                                            className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
+                                          >
+                                            {loadingAction === `rembg-${product.id}` ? 'Creating Job...' : 'Remove Background'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleCreateMockups(product.id)}
+                                            disabled={loadingAction === `mockups-${product.id}`}
+                                            className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
+                                          >
+                                            {loadingAction === `mockups-${product.id}` ? 'Creating Jobs...' : 'Create Mockups'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Metadata Section */}
+                                    {isAIProduct && product.metadata && (
+                                      <div className="border-b border-slate-200 pb-4">
+                                        <h4 className="font-semibold text-slate-900 mb-2">AI Metadata</h4>
+                                        <div className="grid grid-cols-2 gap-2 text-sm">
+                                          {product.metadata.original_prompt && (
+                                            <div className="col-span-2">
+                                              <span className="font-medium text-slate-500">Original Prompt:</span>
+                                              <p className="text-slate-900">{product.metadata.original_prompt}</p>
+                                            </div>
+                                          )}
+                                          {product.metadata.image_prompt && (
+                                            <div className="col-span-2">
+                                              <span className="font-medium text-slate-500">Image Prompt:</span>
+                                              <p className="text-slate-900">{product.metadata.image_prompt}</p>
+                                            </div>
+                                          )}
+                                          {product.metadata.image_style && (
+                                            <div>
+                                              <span className="font-medium text-slate-500">Style:</span>
+                                              <p className="text-slate-900 capitalize">{product.metadata.image_style}</p>
+                                            </div>
+                                          )}
+                                          {product.metadata.background && (
+                                            <div>
+                                              <span className="font-medium text-slate-500">Background:</span>
+                                              <p className="text-slate-900 capitalize">{product.metadata.background}</p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Jobs Section */}
+                                    <div>
+                                      <h4 className="font-semibold text-slate-900 mb-2">Processing Jobs ({jobs.length})</h4>
+                                      {jobs.length === 0 ? (
+                                        <p className="text-sm text-slate-500">No jobs found for this product.</p>
+                                      ) : (
+                                        <div className="space-y-2">
+                                          {jobs.map((job: any) => (
+                                            <div key={job.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
+                                              <div>
+                                                <span className="text-sm font-medium text-slate-900 capitalize">{job.type.replace('replicate_', '')}</span>
+                                                <span className={`ml-2 px-3 py-1 text-xs font-semibold rounded-full ${job.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700' :
+                                                  job.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                                                    job.status === 'failed' ? 'bg-red-100 text-red-700' :
+                                                      'bg-amber-100 text-amber-700'
+                                                  }`}>
+                                                  {job.status}
+                                                </span>
+                                              </div>
+                                              <span className="text-xs text-slate-500">
+                                                {new Date(job.created_at).toLocaleString()}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          }
+                        </React.Fragment>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         )
-      }
+        }
 
-      {/* Product Create/Edit Modal */}
-      {
-        showProductModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-gray-900 border border-purple-500/30 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
-              {/* Glow Effects */}
-              <div className="absolute top-0 right-0 w-64 h-64 bg-purple-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none"></div>
-              <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 pointer-events-none"></div>
-
-              <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center relative z-10">
-                <h3 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-300">
-                  {editingProduct ? 'Edit Product' : 'Create New Product'}
-                </h3>
-                <button
-                  onClick={() => setShowProductModal(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+        {/* 3D Models Tab */}
+        {
+          selectedTab === 'models' && (
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200">
+                <h3 className="text-lg font-display font-bold text-slate-900">3D Model Approvals</h3>
               </div>
-
-              <form onSubmit={handleProductSubmit} className="p-6 space-y-6 relative z-10">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Product Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={productForm.name}
-                    onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                    placeholder="e.g., Custom T-Shirt"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Description *
-                  </label>
-                  <textarea
-                    required
-                    rows={4}
-                    value={productForm.description}
-                    onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                    placeholder="Product description..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Category *
-                    </label>
-                    <select
-                      required
-                      value={productForm.category}
-                      onChange={(e) => setProductForm({ ...productForm, category: e.target.value as Product['category'] })}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                    >
-                      <option value="shirts">T-Shirts</option>
-                      <option value="hoodies">Hoodies</option>
-                      <option value="tumblers">Tumblers</option>
-                      <option value="dtf-transfers">DTF Transfers</option>
-                      <option value="3d-models">3D Models</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Product Type
-                    </label>
-                    <select
-                      value={productForm.productType}
-                      onChange={(e) => setProductForm({ ...productForm, productType: e.target.value as any })}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                    >
-                      <option value="physical">Physical Only</option>
-                      <option value="digital">Digital Only</option>
-                      <option value="both">Both</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {(productForm.productType === 'physical' || productForm.productType === 'both') && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                          Physical Price ($) *
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          step="0.01"
-                          value={productForm.price}
-                          onChange={(e) => setProductForm({ ...productForm, price: parseFloat(e.target.value) })}
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                          placeholder="29.99"
-                        />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+                {models.map((model) => {
+                  const uploader = users.find(u => u.id === model.uploadedBy)
+                  return (
+                    <div key={model.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                      <div className="h-48 bg-slate-100 flex items-center justify-center">
+                        <svg className="w-16 h-16 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                          Shipping Cost ($)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={productForm.shippingCost}
-                          onChange={(e) => setProductForm({ ...productForm, shippingCost: parseFloat(e.target.value) })}
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                          placeholder="5.00"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {(productForm.productType === 'digital' || productForm.productType === 'both') && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                          Digital Price ($) *
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          step="0.01"
-                          value={productForm.digitalPrice}
-                          onChange={(e) => setProductForm({ ...productForm, digitalPrice: parseFloat(e.target.value) })}
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                          placeholder="9.99"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                          STL File URL
-                        </label>
-                        <input
-                          type="text"
-                          value={productForm.fileUrl}
-                          onChange={(e) => setProductForm({ ...productForm, fileUrl: e.target.value })}
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                          placeholder="/models/my-model.stl"
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Image URLs (comma-separated)
-                  </label>
-                  <input
-                    type="text"
-                    value={productForm.images}
-                    onChange={(e) => setProductForm({ ...productForm, images: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                    placeholder="https://example.com/image1.jpg, https://example.com/image2.jpg"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Enter one or more image URLs separated by commas
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-6 bg-gray-800/50 p-3 rounded-lg border border-gray-700">
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="inStock"
-                      checked={productForm.inStock}
-                      onChange={(e) => setProductForm({ ...productForm, inStock: e.target.checked })}
-                      className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500"
-                    />
-                    <label htmlFor="inStock" className="ml-2 text-sm text-gray-300">
-                      Product is Active
-                    </label>
-                  </div>
-
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="isFeatured"
-                      checked={productForm.isFeatured}
-                      onChange={(e) => setProductForm({ ...productForm, isFeatured: e.target.checked })}
-                      className="w-4 h-4 text-yellow-500 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500"
-                    />
-                    <label htmlFor="isFeatured" className="ml-2 text-sm text-gray-300 flex items-center gap-1">
-                      Featured Product <span className="text-yellow-500">★</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex justify-end space-x-3 pt-6 border-t border-gray-800">
-                  <button
-                    type="button"
-                    onClick={() => setShowProductModal(false)}
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-lg transition-colors border border-gray-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-medium rounded-lg shadow-lg shadow-purple-900/20 transition-all transform hover:scale-105"
-                  >
-                    {editingProduct ? 'Update Product' : 'Create Product'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Enhanced Product Edit Modal */}
-      {
-        showEnhancedEditModal && editingProductData && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-card rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="sticky top-0 bg-card px-6 py-4 border-b card-border flex justify-between items-center z-10">
-                <h3 className="text-lg font-medium text-text">
-                  ✨ Edit Product: {editingProductData.name}
-                </h3>
-                <button
-                  onClick={() => setShowEnhancedEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {/* Image Gallery */}
-                {productAssets[editingProductData.id] && (
-                  <div className="border rounded-lg p-4">
-                    <h4 className="font-semibold text-text mb-3">📸 Product Images</h4>
-                    <div className="space-y-4">
-                      {/* Source Images */}
-                      {productAssets[editingProductData.id].source && (
-                        <div>
-                          <h5 className="text-sm font-medium text-muted mb-2">Source Images</h5>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {productAssets[editingProductData.id].source.map((asset: any, idx: number) => {
-                              const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                              return (
-                                <div key={asset.id || idx} className="relative group">
-                                  <img
-                                    src={asset.url}
-                                    alt={`Source ${idx + 1}`}
-                                    className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-purple-200"
-                                  />
-                                  {isMainImage && (
-                                    <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                      ⭐ Main
-                                    </div>
-                                  )}
-                                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {!isMainImage && (
-                                      <button
-                                        onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                        className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Set as main image"
-                                      >
-                                        ⭐
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                      className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                      title="Delete image"
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* No Background Images */}
-                      {productAssets[editingProductData.id].nobg && (
-                        <div>
-                          <h5 className="text-sm font-medium text-muted mb-2">Background Removed</h5>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {productAssets[editingProductData.id].nobg.map((asset: any, idx: number) => {
-                              const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                              return (
-                                <div key={asset.id || idx} className="relative group">
-                                  <img
-                                    src={asset.url}
-                                    alt={`No Background ${idx + 1}`}
-                                    className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-blue-200 bg-gray-100"
-                                  />
-                                  {isMainImage && (
-                                    <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                      ⭐ Main
-                                    </div>
-                                  )}
-                                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {!isMainImage && (
-                                      <button
-                                        onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                        className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Set as main image"
-                                      >
-                                        ⭐
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                      className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                      title="Delete image"
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Upscaled Images */}
-                      {productAssets[editingProductData.id].upscaled && (
-                        <div>
-                          <h5 className="text-sm font-medium text-muted mb-2">Upscaled Images</h5>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {productAssets[editingProductData.id].upscaled.map((asset: any, idx: number) => {
-                              const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                              return (
-                                <div key={asset.id || idx} className="relative group">
-                                  <img
-                                    src={asset.url}
-                                    alt={`Upscaled ${idx + 1}`}
-                                    className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-green-200"
-                                  />
-                                  {isMainImage && (
-                                    <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                      ⭐ Main
-                                    </div>
-                                  )}
-                                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {!isMainImage && (
-                                      <button
-                                        onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                        className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Set as main image"
-                                      >
-                                        ⭐
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                      className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                      title="Delete image"
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Mockup Images */}
-                      {productAssets[editingProductData.id].mockup && (
-                        <div>
-                          <h5 className="text-sm font-medium text-muted mb-2">Mockups</h5>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {productAssets[editingProductData.id].mockup.map((asset: any, idx: number) => {
-                              const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                              return (
-                                <div key={asset.id || idx} className="relative group">
-                                  <img
-                                    src={asset.url}
-                                    alt={`Mockup ${idx + 1}`}
-                                    className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-indigo-200"
-                                  />
-                                  {isMainImage && (
-                                    <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                      ⭐ Main
-                                    </div>
-                                  )}
-                                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {!isMainImage && (
-                                      <button
-                                        onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                        className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Set as main image"
-                                      >
-                                        ⭐
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                      className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                      title="Delete image"
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Advanced AI Operations */}
-                <div className="border rounded-lg p-4 bg-gradient-to-r from-purple-50 to-blue-50">
-                  <h4 className="font-semibold text-text mb-3">🚀 Advanced Image Operations</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <button
-                      onClick={() => handleRegenerateImages(editingProductData.id)}
-                      disabled={loadingAction === `regenerate-${editingProductData.id}`}
-                      className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                    >
-                      {loadingAction === `regenerate-${editingProductData.id}` ? '⏳ Creating...' : '🔄 Regenerate Image'}
-                    </button>
-                    <button
-                      onClick={() => handleRemoveBackground(editingProductData.id)}
-                      disabled={loadingAction === `rembg-${editingProductData.id}`}
-                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                    >
-                      {loadingAction === `rembg-${editingProductData.id}` ? '⏳ Creating...' : '✂️ Remove Background'}
-                    </button>
-                    <button
-                      onClick={() => handleUpscaleImage(editingProductData.id)}
-                      disabled={loadingAction === `upscale-${editingProductData.id}`}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                    >
-                      {loadingAction === `upscale-${editingProductData.id}` ? '⏳ Creating...' : '⬆️ Upscale Image'}
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => handleCreateMockups(editingProductData.id)}
-                    disabled={loadingAction === `mockups-${editingProductData.id}`}
-                    className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                  >
-                    {loadingAction === `mockups-${editingProductData.id}` ? '⏳ Creating...' : '🎨 Create Mockups'}
-                  </button>
-                </div>
-
-                {/* Editable Fields */}
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-semibold text-text mb-3">Product Details</h4>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-text mb-2">Product Name</label>
-                      <input
-                        type="text"
-                        value={editingProductData.name}
-                        onChange={(e) => {
-                          setEditingProductData({ ...editingProductData, name: e.target.value })
-                          handleUpdateProductField('name', e.target.value)
-                        }}
-                        className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-text mb-2">Description</label>
-                      <textarea
-                        rows={4}
-                        value={editingProductData.description}
-                        onChange={(e) => {
-                          setEditingProductData({ ...editingProductData, description: e.target.value })
-                          handleUpdateProductField('description', e.target.value)
-                        }}
-                        className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-text mb-2">Price ($)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editingProductData.price}
-                          onChange={(e) => {
-                            const newPrice = parseFloat(e.target.value)
-                            setEditingProductData({ ...editingProductData, price: newPrice })
-                            handleUpdateProductField('price', newPrice)
-                          }}
-                          className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-text mb-2">Category</label>
-                        <select
-                          value={editingProductData.category}
-                          onChange={(e) => {
-                            setEditingProductData({ ...editingProductData, category: e.target.value })
-                            handleUpdateProductField('category', e.target.value)
-                          }}
-                          className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                          <option value="shirts">T-Shirts</option>
-                          <option value="hoodies">Hoodies</option>
-                          <option value="tumblers">Tumblers</option>
-                          <option value="dtf-transfers">DTF Transfers</option>
-                          <option value="3d-models">3D Models</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-text mb-2">Status</label>
-                        <select
-                          value={editingProductData.status}
-                          onChange={(e) => {
-                            setEditingProductData({ ...editingProductData, status: e.target.value })
-                            handleUpdateProductField('status', e.target.value)
-                          }}
-                          className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                          <option value="draft">Draft</option>
-                          <option value="active">Active (Published)</option>
-                        </select>
-                      </div>
-
-                      <div className="flex items-center space-x-2 pt-7">
-                        <input
-                          type="checkbox"
-                          id="inStockEdit"
-                          checked={editingProductData.inStock !== false}
-                          onChange={(e) => {
-                            setEditingProductData({ ...editingProductData, inStock: e.target.checked })
-                            handleUpdateProductField('is_active', e.target.checked)
-                          }}
-                          className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                        />
-                        <label htmlFor="inStockEdit" className="text-sm text-text font-medium">
-                          Active
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-800">
-                      <div>
-                        <label className="block text-sm font-medium text-text mb-2">Sizes (comma separated)</label>
-                        <input
-                          type="text"
-                          placeholder="S, M, L, XL"
-                          defaultValue={editingProductData.sizes?.join(', ')}
-                          onBlur={(e) => {
-                            const sizes = e.target.value.split(',').map(s => s.trim()).filter(s => s)
-                            setEditingProductData({ ...editingProductData, sizes })
-                            handleUpdateProductField('sizes', sizes)
-                          }}
-                          className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-text mb-2">Colors (comma separated)</label>
-                        <input
-                          type="text"
-                          placeholder="Red, Blue, Black"
-                          defaultValue={editingProductData.colors?.join(', ')}
-                          onBlur={(e) => {
-                            const colors = e.target.value.split(',').map(s => s.trim()).filter(s => s)
-                            setEditingProductData({ ...editingProductData, colors })
-                            handleUpdateProductField('colors', colors)
-                          }}
-                          className="w-full border card-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* AI Metadata */}
-                {editingProductData.metadata?.ai_generated && (
-                  <div className="border rounded-lg p-4 bg-purple-50">
-                    <h4 className="font-semibold text-text mb-3">🤖 AI Metadata</h4>
-                    <div className="space-y-2 text-sm">
-                      {editingProductData.metadata.original_prompt && (
-                        <div>
-                          <span className="font-medium text-muted">Original Prompt:</span>
-                          <p className="text-text mt-1">{editingProductData.metadata.original_prompt}</p>
-                        </div>
-                      )}
-                      {editingProductData.metadata.image_prompt && (
-                        <div>
-                          <span className="font-medium text-muted">Image Prompt:</span>
-                          <p className="text-text mt-1">{editingProductData.metadata.image_prompt}</p>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-2">
-                        {editingProductData.metadata.image_style && (
-                          <div>
-                            <span className="font-medium text-muted">Style:</span>
-                            <p className="text-text capitalize">{editingProductData.metadata.image_style}</p>
-                          </div>
-                        )}
-                        {editingProductData.metadata.background && (
-                          <div>
-                            <span className="font-medium text-muted">Background:</span>
-                            <p className="text-text capitalize">{editingProductData.metadata.background}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Processing Jobs */}
-                <div className="border rounded-lg p-4">
-                  <h4 className="font-semibold text-text mb-3">⚙️ Processing Jobs</h4>
-                  {(productJobs[editingProductData.id] || []).length === 0 ? (
-                    <p className="text-sm text-muted">No jobs found for this product.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {(productJobs[editingProductData.id] || []).map((job: any) => (
-                        <div key={job.id} className="flex items-center justify-between bg-white p-3 rounded border">
-                          <div>
-                            <span className="text-sm font-medium text-text capitalize">
-                              {job.type.replace('replicate_', '').replace('_', ' ')}
-                            </span>
-                            <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full ${job.status === 'succeeded' ? 'bg-green-100 text-green-800' :
-                              job.status === 'running' ? 'bg-blue-100 text-blue-800' :
-                                job.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                  'bg-yellow-100 text-yellow-800'
-                              }`}>
-                              {job.status}
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted">
-                            {new Date(job.created_at).toLocaleString()}
+                      <div className="p-4">
+                        <h4 className="font-semibold text-slate-900 mb-2">{model.title}</h4>
+                        <p className="text-slate-500 text-sm mb-3">{model.description}</p>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm text-slate-500">{model.fileType.toUpperCase()}</span>
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${model.approved
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                            }`}>
+                            {model.approved ? 'Approved' : 'Pending'}
                           </span>
                         </div>
-                      ))}
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-sm text-slate-500">👍 {model.votes} votes</span>
+                          <span className="text-sm text-slate-500">⭐ {model.points} points</span>
+                        </div>
+                        <p className="text-sm text-slate-500 mb-3">
+                          By: {uploader?.firstName} {uploader?.lastName}
+                        </p>
+
+                        {!model.approved && (
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => approveModel(model.id)}
+                              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-sm py-2 px-3 rounded-lg font-medium transition-colors"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => rejectModel(model.id)}
+                              className="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm py-2 px-3 rounded-lg font-medium transition-colors"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  )
+                })}
+              </div>
+            </div>
+          )
+        }
+
+        {/* Wallet Management Tab */}
+        {
+          selectedTab === 'wallet' && (
+            <AdminWalletManagement />
+          )
+        }
+
+        {/* ITC Pricing Tab */}
+        {
+          selectedTab === 'itc-pricing' && (
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-display font-bold text-slate-900">Imagination Station ITC Pricing</h3>
+                  <p className="text-sm text-slate-500 mt-1">Manage ITC costs for AI tools and features</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={resetItcPricing}
+                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
+                  >
+                    Reset to Defaults
+                  </button>
                 </div>
               </div>
 
-              <div className="sticky bottom-0 bg-card px-6 py-4 border-t card-border flex justify-end">
-                <button
-                  onClick={() => setShowEnhancedEditModal(false)}
-                  className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors"
-                >
-                  Done
-                </button>
+              {/* Promo Section */}
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-6 border border-purple-100">
+                <h4 className="font-semibold text-purple-900 mb-2">Run a Promotion</h4>
+                <p className="text-sm text-purple-700 mb-3">Make all features FREE for a limited time</p>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="168"
+                    value={promoHours}
+                    onChange={(e) => setPromoHours(Number(e.target.value))}
+                    className="w-24 px-3 py-2 border border-purple-200 rounded-lg text-sm"
+                    placeholder="Hours"
+                  />
+                  <span className="text-sm text-purple-700">hours</span>
+                  <button
+                    onClick={setItcPromo}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                  >
+                    Activate Promo
+                  </button>
+                </div>
+              </div>
+
+              {/* Pricing Table */}
+              {loadingPricing ? (
+                <div className="text-center py-12 text-slate-400">Loading pricing...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Feature</th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Base Cost</th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Current Cost</th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Free Trial</th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Trial Uses</th>
+                        <th className="text-center py-3 px-4 text-sm font-semibold text-slate-700">Promo Active</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itcPricing.map((item) => (
+                        <tr key={item.feature_key} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="py-3 px-4">
+                            <div className="font-medium text-slate-800">{item.display_name}</div>
+                            <div className="text-xs text-slate-400">{item.feature_key}</div>
+                          </td>
+                          <td className="py-3 px-4 text-center text-slate-600">{item.base_cost} ITC</td>
+                          <td className="py-3 px-4 text-center">
+                            {editingPricing === item.feature_key ? (
+                              <input
+                                type="number"
+                                min="0"
+                                defaultValue={item.current_cost}
+                                className="w-20 px-2 py-1 border border-slate-300 rounded text-center text-sm"
+                                onBlur={(e) => updateItcPricing(item.feature_key, { current_cost: Number(e.target.value) })}
+                                autoFocus
+                              />
+                            ) : (
+                              <span className={item.current_cost === 0 ? 'text-green-600 font-medium' : 'text-slate-800'}>
+                                {item.current_cost === 0 ? 'FREE' : `${item.current_cost} ITC`}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.is_free_trial ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {item.is_free_trial ? 'Yes' : 'No'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center text-slate-600">{item.free_trial_uses}</td>
+                          <td className="py-3 px-4 text-center">
+                            {item.promo_end_time && new Date(item.promo_end_time) > new Date() ? (
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                                Until {new Date(item.promo_end_time).toLocaleDateString()}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => setEditingPricing(item.feature_key)}
+                              className="px-3 py-1 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {itcPricing.length === 0 && !loadingPricing && (
+                <div className="text-center py-12 text-slate-400">
+                  <p>No pricing configuration found.</p>
+                  <p className="text-sm mt-2">Make sure the imagination_pricing table is set up in Supabase.</p>
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        {/* Support Tab */}
+        {
+          selectedTab === 'support' && (
+            <AdminSupport />
+          )
+        }
+
+        {/* Creator Products Tab - User-submitted products pending approval */}
+        {
+          selectedTab === 'creator-products' && (
+            <CreatorProductsTab />
+          )
+        }
+
+        {/* Audit Logs Tab */}
+        {
+          selectedTab === 'audit' && (
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200">
+                <h3 className="text-lg font-display font-bold text-slate-900">Audit Logs</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Timestamp</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Entity</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Changes</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">IP Address</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-slate-100">
+                    {auditLogs.map((log) => {
+                      const logUser = users.find(u => u.id === log.userId)
+                      return (
+                        <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                            {new Date(log.createdAt).toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">
+                            {logUser ? `${logUser.firstName} ${logUser.lastName}` : 'System'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${log.action.includes('APPROVE') ? 'bg-emerald-100 text-emerald-700' :
+                              log.action.includes('REJECT') ? 'bg-red-100 text-red-700' :
+                                log.action.includes('CREATE') ? 'bg-blue-100 text-blue-700' :
+                                  'bg-slate-100 text-slate-700'
+                              }`}>
+                              {log.action.replace('_', ' ')}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                            {log.entity} #{log.entityId}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                            {Object.keys(log.changes || {}).join(', ')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                            {log.ipAddress}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </div>
-        )
-      }
-    </div >
-  )
+          )
+        }
+
+        {/* Product Create/Edit Modal */}
+        {
+          showProductModal && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-200">
+                <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white rounded-t-2xl">
+                  <h3 className="text-xl font-display font-bold text-slate-900">
+                    {editingProduct ? 'Edit Product' : 'Create New Product'}
+                  </h3>
+                  <button
+                    onClick={() => setShowProductModal(false)}
+                    className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-100 rounded-lg"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <form onSubmit={handleProductSubmit} className="p-6 space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Product Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={productForm.name}
+                      onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                      placeholder="e.g., Custom T-Shirt"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Description *
+                    </label>
+                    <textarea
+                      required
+                      rows={4}
+                      value={productForm.description}
+                      onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                      placeholder="Product description..."
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Category *
+                      </label>
+                      <select
+                        required
+                        value={productForm.category}
+                        onChange={(e) => setProductForm({ ...productForm, category: e.target.value as Product['category'] })}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                      >
+                        <option value="shirts">T-Shirts</option>
+                        <option value="hoodies">Hoodies</option>
+                        <option value="tumblers">Tumblers</option>
+                        <option value="dtf-transfers">DTF Transfers</option>
+                        <option value="3d-models">3D Models</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Product Type
+                      </label>
+                      <select
+                        value={productForm.productType}
+                        onChange={(e) => setProductForm({ ...productForm, productType: e.target.value as any })}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                      >
+                        <option value="physical">Physical Only</option>
+                        <option value="digital">Digital Only</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {(productForm.productType === 'physical' || productForm.productType === 'both') && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Physical Price ($) *
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            step="0.01"
+                            value={productForm.price}
+                            onChange={(e) => setProductForm({ ...productForm, price: parseFloat(e.target.value) })}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                            placeholder="29.99"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Shipping Cost ($)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={productForm.shippingCost}
+                            onChange={(e) => setProductForm({ ...productForm, shippingCost: parseFloat(e.target.value) })}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                            placeholder="5.00"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {(productForm.productType === 'digital' || productForm.productType === 'both') && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Digital Price ($) *
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            step="0.01"
+                            value={productForm.digitalPrice}
+                            onChange={(e) => setProductForm({ ...productForm, digitalPrice: parseFloat(e.target.value) })}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                            placeholder="9.99"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            STL File URL
+                          </label>
+                          <input
+                            type="text"
+                            value={productForm.fileUrl}
+                            onChange={(e) => setProductForm({ ...productForm, fileUrl: e.target.value })}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                            placeholder="/models/my-model.stl"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Image URLs (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={productForm.images}
+                      onChange={(e) => setProductForm({ ...productForm, images: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                      placeholder="https://example.com/image1.jpg, https://example.com/image2.jpg"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Enter one or more image URLs separated by commas
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="inStock"
+                        checked={productForm.inStock}
+                        onChange={(e) => setProductForm({ ...productForm, inStock: e.target.checked })}
+                        className="w-4 h-4 text-purple-600 bg-white border-slate-300 rounded focus:ring-purple-500"
+                      />
+                      <label htmlFor="inStock" className="ml-2 text-sm text-slate-700 font-medium">
+                        Product is Active
+                      </label>
+                    </div>
+
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="isFeatured"
+                        checked={productForm.isFeatured}
+                        onChange={(e) => setProductForm({ ...productForm, isFeatured: e.target.checked })}
+                        className="w-4 h-4 text-amber-500 bg-white border-slate-300 rounded focus:ring-amber-500"
+                      />
+                      <label htmlFor="isFeatured" className="ml-2 text-sm text-slate-700 font-medium flex items-center gap-1">
+                        Featured Product <span className="text-amber-500">★</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-3 pt-6 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowProductModal(false)}
+                      className="px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-xl transition-colors border border-slate-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium rounded-xl shadow-lg shadow-purple-500/25 transition-all"
+                    >
+                      {editingProduct ? 'Update Product' : 'Create Product'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )
+        }
+
+        {/* Enhanced Product Edit Modal */}
+        {
+          showEnhancedEditModal && editingProductData && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-slate-200">
+                <div className="sticky top-0 bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center z-10 rounded-t-2xl">
+                  <h3 className="text-lg font-display font-bold text-slate-900">
+                    Edit Product: {editingProductData.name}
+                  </h3>
+                  <button
+                    onClick={() => setShowEnhancedEditModal(false)}
+                    className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-100 rounded-lg"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {/* Image Gallery */}
+                  {productAssets[editingProductData.id] && (
+                    <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                      <h4 className="font-semibold text-slate-900 mb-3">Product Images</h4>
+                      <div className="space-y-4">
+                        {/* Source Images */}
+                        {productAssets[editingProductData.id].source && (
+                          <div>
+                            <h5 className="text-sm font-medium text-slate-600 mb-2">Source Images</h5>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              {productAssets[editingProductData.id].source.map((asset: any, idx: number) => {
+                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
+                                return (
+                                  <div key={asset.id || idx} className="relative group">
+                                    <img
+                                      src={asset.url}
+                                      alt={`Source ${idx + 1}`}
+                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-purple-200"
+                                    />
+                                    {isMainImage && (
+                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
+                                        ⭐ Main
+                                      </div>
+                                    )}
+                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      {!isMainImage && (
+                                        <button
+                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
+                                          title="Set as main image"
+                                        >
+                                          ⭐
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
+                                        title="Delete image"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* No Background Images */}
+                        {productAssets[editingProductData.id].nobg && (
+                          <div>
+                            <h5 className="text-sm font-medium text-slate-600 mb-2">Background Removed</h5>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              {productAssets[editingProductData.id].nobg.map((asset: any, idx: number) => {
+                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
+                                return (
+                                  <div key={asset.id || idx} className="relative group">
+                                    <img
+                                      src={asset.url}
+                                      alt={`No Background ${idx + 1}`}
+                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-blue-200 bg-gray-100"
+                                    />
+                                    {isMainImage && (
+                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
+                                        ⭐ Main
+                                      </div>
+                                    )}
+                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      {!isMainImage && (
+                                        <button
+                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
+                                          title="Set as main image"
+                                        >
+                                          ⭐
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
+                                        title="Delete image"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Upscaled Images */}
+                        {productAssets[editingProductData.id].upscaled && (
+                          <div>
+                            <h5 className="text-sm font-medium text-slate-600 mb-2">Upscaled Images</h5>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              {productAssets[editingProductData.id].upscaled.map((asset: any, idx: number) => {
+                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
+                                return (
+                                  <div key={asset.id || idx} className="relative group">
+                                    <img
+                                      src={asset.url}
+                                      alt={`Upscaled ${idx + 1}`}
+                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-green-200"
+                                    />
+                                    {isMainImage && (
+                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
+                                        ⭐ Main
+                                      </div>
+                                    )}
+                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      {!isMainImage && (
+                                        <button
+                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
+                                          title="Set as main image"
+                                        >
+                                          ⭐
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
+                                        title="Delete image"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Mockup Images */}
+                        {productAssets[editingProductData.id].mockup && (
+                          <div>
+                            <h5 className="text-sm font-medium text-slate-600 mb-2">Mockups</h5>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                              {productAssets[editingProductData.id].mockup.map((asset: any, idx: number) => {
+                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
+                                return (
+                                  <div key={asset.id || idx} className="relative group">
+                                    <img
+                                      src={asset.url}
+                                      alt={`Mockup ${idx + 1}`}
+                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-indigo-200"
+                                    />
+                                    {isMainImage && (
+                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
+                                        ⭐ Main
+                                      </div>
+                                    )}
+                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      {!isMainImage && (
+                                        <button
+                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
+                                          title="Set as main image"
+                                        >
+                                          ⭐
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
+                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
+                                        title="Delete image"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Advanced AI Operations */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-gradient-to-r from-purple-50 to-blue-50">
+                    <h4 className="font-semibold text-slate-900 mb-3">Advanced Image Operations</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <button
+                        onClick={() => handleRegenerateImages(editingProductData.id)}
+                        disabled={loadingAction === `regenerate-${editingProductData.id}`}
+                        className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
+                      >
+                        {loadingAction === `regenerate-${editingProductData.id}` ? '⏳ Creating...' : '🔄 Regenerate Image'}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveBackground(editingProductData.id)}
+                        disabled={loadingAction === `rembg-${editingProductData.id}`}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
+                      >
+                        {loadingAction === `rembg-${editingProductData.id}` ? '⏳ Creating...' : '✂️ Remove Background'}
+                      </button>
+                      <button
+                        onClick={() => handleUpscaleImage(editingProductData.id)}
+                        disabled={loadingAction === `upscale-${editingProductData.id}`}
+                        className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
+                      >
+                        {loadingAction === `upscale-${editingProductData.id}` ? '⏳ Creating...' : '⬆️ Upscale Image'}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => handleCreateMockups(editingProductData.id)}
+                      disabled={loadingAction === `mockups-${editingProductData.id}`}
+                      className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
+                    >
+                      {loadingAction === `mockups-${editingProductData.id}` ? '⏳ Creating...' : '🎨 Create Mockups'}
+                    </button>
+                  </div>
+
+                  {/* Editable Fields */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                    <h4 className="font-semibold text-slate-900 mb-3">Product Details</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Product Name</label>
+                        <input
+                          type="text"
+                          value={editingProductData.name}
+                          onChange={(e) => {
+                            setEditingProductData({ ...editingProductData, name: e.target.value })
+                            handleUpdateProductField('name', e.target.value)
+                          }}
+                          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                        <textarea
+                          rows={4}
+                          value={editingProductData.description}
+                          onChange={(e) => {
+                            setEditingProductData({ ...editingProductData, description: e.target.value })
+                            handleUpdateProductField('description', e.target.value)
+                          }}
+                          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">Price ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingProductData.price}
+                            onChange={(e) => {
+                              const newPrice = parseFloat(e.target.value)
+                              setEditingProductData({ ...editingProductData, price: newPrice })
+                              handleUpdateProductField('price', newPrice)
+                            }}
+                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
+                          <select
+                            value={editingProductData.category}
+                            onChange={(e) => {
+                              setEditingProductData({ ...editingProductData, category: e.target.value })
+                              handleUpdateProductField('category', e.target.value)
+                            }}
+                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          >
+                            <option value="shirts">T-Shirts</option>
+                            <option value="hoodies">Hoodies</option>
+                            <option value="tumblers">Tumblers</option>
+                            <option value="dtf-transfers">DTF Transfers</option>
+                            <option value="3d-models">3D Models</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
+                          <select
+                            value={editingProductData.status}
+                            onChange={(e) => {
+                              setEditingProductData({ ...editingProductData, status: e.target.value })
+                              handleUpdateProductField('status', e.target.value)
+                            }}
+                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="active">Active (Published)</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center space-x-2 pt-7">
+                          <input
+                            type="checkbox"
+                            id="inStockEdit"
+                            checked={editingProductData.inStock !== false}
+                            onChange={(e) => {
+                              setEditingProductData({ ...editingProductData, inStock: e.target.checked })
+                              handleUpdateProductField('is_active', e.target.checked)
+                            }}
+                            className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
+                          />
+                          <label htmlFor="inStockEdit" className="text-sm text-slate-700 font-medium">
+                            Active
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">Sizes (comma separated)</label>
+                          <input
+                            type="text"
+                            placeholder="S, M, L, XL"
+                            defaultValue={editingProductData.sizes?.join(', ')}
+                            onBlur={(e) => {
+                              const sizes = e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                              setEditingProductData({ ...editingProductData, sizes })
+                              handleUpdateProductField('sizes', sizes)
+                            }}
+                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-slate-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">Colors (comma separated)</label>
+                          <input
+                            type="text"
+                            placeholder="Red, Blue, Black"
+                            defaultValue={editingProductData.colors?.join(', ')}
+                            onBlur={(e) => {
+                              const colors = e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                              setEditingProductData({ ...editingProductData, colors })
+                              handleUpdateProductField('colors', colors)
+                            }}
+                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-slate-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Metadata */}
+                  {editingProductData.metadata?.ai_generated && (
+                    <div className="border border-purple-200 rounded-xl p-4 bg-purple-50">
+                      <h4 className="font-semibold text-slate-900 mb-3">AI Metadata</h4>
+                      <div className="space-y-2 text-sm">
+                        {editingProductData.metadata.original_prompt && (
+                          <div>
+                            <span className="font-medium text-slate-600">Original Prompt:</span>
+                            <p className="text-slate-900 mt-1">{editingProductData.metadata.original_prompt}</p>
+                          </div>
+                        )}
+                        {editingProductData.metadata.image_prompt && (
+                          <div>
+                            <span className="font-medium text-slate-600">Image Prompt:</span>
+                            <p className="text-slate-900 mt-1">{editingProductData.metadata.image_prompt}</p>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          {editingProductData.metadata.image_style && (
+                            <div>
+                              <span className="font-medium text-slate-600">Style:</span>
+                              <p className="text-slate-900 capitalize">{editingProductData.metadata.image_style}</p>
+                            </div>
+                          )}
+                          {editingProductData.metadata.background && (
+                            <div>
+                              <span className="font-medium text-slate-600">Background:</span>
+                              <p className="text-slate-900 capitalize">{editingProductData.metadata.background}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Processing Jobs */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white">
+                    <h4 className="font-semibold text-slate-900 mb-3">Processing Jobs</h4>
+                    {(productJobs[editingProductData.id] || []).length === 0 ? (
+                      <p className="text-sm text-slate-500">No jobs found for this product.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {(productJobs[editingProductData.id] || []).map((job: any) => (
+                          <div key={job.id} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
+                            <div>
+                              <span className="text-sm font-medium text-slate-900 capitalize">
+                                {job.type.replace('replicate_', '').replace('_', ' ')}
+                              </span>
+                              <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full ${job.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700' :
+                                job.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                                  job.status === 'failed' ? 'bg-red-100 text-red-700' :
+                                    'bg-amber-100 text-amber-700'
+                                }`}>
+                                {job.status}
+                              </span>
+                            </div>
+                            <span className="text-xs text-slate-500">
+                              {new Date(job.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="sticky bottom-0 bg-white px-6 py-4 border-t border-slate-200 flex justify-end rounded-b-2xl">
+                  <button
+                    onClick={() => setShowEnhancedEditModal(false)}
+                    className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium rounded-xl shadow-lg shadow-purple-500/25 transition-all"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        }
+    </div>
+      </div>
+      )
 }
 
-export default AdminDashboard
+      export default AdminDashboard
