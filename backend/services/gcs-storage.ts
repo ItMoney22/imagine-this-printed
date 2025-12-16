@@ -10,17 +10,43 @@ import { v4 as uuidv4 } from 'uuid'
 const projectId = process.env.GCS_PROJECT_ID || 'imagine-this-printed-main'
 const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-media'
 
-// Initialize GCS client
-const storage = new Storage({
-  projectId,
-  keyFilename: process.env.GCS_CREDENTIALS_PATH
-})
+// Initialize GCS client - supports both file path and JSON string credentials
+function createStorageClient(): Storage {
+  const credentialsPath = process.env.GCS_CREDENTIALS_PATH
+  const credentialsJson = process.env.GCS_CREDENTIALS
+
+  // If we have a JSON string (for Railway/cloud deployment)
+  if (credentialsJson && credentialsJson !== '{}') {
+    try {
+      const credentials = JSON.parse(credentialsJson)
+      return new Storage({
+        projectId,
+        credentials
+      })
+    } catch (e) {
+      console.error('[gcs-storage] Failed to parse GCS_CREDENTIALS JSON:', e)
+    }
+  }
+
+  // Fall back to file path (for local development)
+  if (credentialsPath) {
+    return new Storage({
+      projectId,
+      keyFilename: credentialsPath
+    })
+  }
+
+  // Default - uses application default credentials
+  return new Storage({ projectId })
+}
+
+const storage = createStorageClient()
 
 const bucket: Bucket = storage.bucket(bucketName)
 
 export interface UploadOptions {
   userId: string
-  folder: 'mockups' | 'designs' | 'uploads' | 'temp'
+  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails'
   filename?: string
   contentType?: string
   metadata?: Record<string, any>
