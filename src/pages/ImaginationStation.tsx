@@ -17,7 +17,7 @@ import type {
   LayerType,
   Product,
 } from '../types';
-import { SheetCanvas, AddElementPanel } from '../components/imagination';
+import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal } from '../components/imagination';
 import type { Layer as SimpleLayer } from '../types';
 import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../utils/dpi-calculator';
 import {
@@ -143,6 +143,9 @@ const ImaginationStation: React.FC = () => {
   const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
   const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
   const [showProjectsModal, setShowProjectsModal] = useState(false);
+  const [showMrImagineModal, setShowMrImagineModal] = useState(false);
+  const [showReimagineItModal, setShowReimagineItModal] = useState(false);
+  const [reimagineItLayerId, setReimagineItLayerId] = useState<string | null>(null);
 
   // Canvas features state
   const [showCutLines, setShowCutLines] = useState(false);
@@ -171,6 +174,19 @@ const ImaginationStation: React.FC = () => {
   const [isRemovingBg, setIsRemovingBg] = useState(false);
   const [isUpscaling, setIsUpscaling] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+
+  // Compare modal state for before/after comparison
+  const [compareModal, setCompareModal] = useState<{
+    isOpen: boolean;
+    beforeImage: string;
+    afterImage: string;
+    layerId: string;
+    operation: string;
+    beforeDimensions?: { width: number; height: number };
+    afterDimensions?: { width: number; height: number };
+    beforeDpi?: number;
+    afterDpi?: number;
+  } | null>(null);
 
   // Undo/Redo history
   const [layerHistory, setLayerHistory] = useState<ImaginationLayer[][]>([]);
@@ -308,19 +324,24 @@ const ImaginationStation: React.FC = () => {
         const originalWidth = img.naturalWidth;
         const originalHeight = img.naturalHeight;
 
-        // Scale image to fit on sheet (max 6 inches, in pixels) - same as file upload
+        // Calculate layer dimensions in INCHES (max 6 inches, maintaining aspect ratio)
         const maxSizeInches = 6;
-        const maxSizePixels = maxSizeInches * PIXELS_PER_INCH;
-        let w = originalWidth;
-        let h = originalHeight;
-        if (w > maxSizePixels || h > maxSizePixels) {
-          const scale = maxSizePixels / Math.max(w, h);
-          w *= scale;
-          h *= scale;
+        const aspectRatio = originalWidth / originalHeight;
+        let widthInches: number;
+        let heightInches: number;
+
+        if (aspectRatio >= 1) {
+          // Landscape or square - width is the limiting factor
+          widthInches = maxSizeInches;
+          heightInches = maxSizeInches / aspectRatio;
+        } else {
+          // Portrait - height is the limiting factor
+          heightInches = maxSizeInches;
+          widthInches = maxSizeInches * aspectRatio;
         }
 
-        // Calculate DPI for the scaled size
-        const dpiInfo = calculateDpi(originalWidth, originalHeight, w, h);
+        // Calculate DPI for the layer size in inches
+        const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches, heightInches);
 
         // Create new layer
         const newLayer: ImaginationLayer = {
@@ -331,8 +352,8 @@ const ImaginationStation: React.FC = () => {
           processed_url: null,
           position_x: 1,
           position_y: 1,
-          width: w,
-          height: h,
+          width: widthInches,
+          height: heightInches,
           rotation: 0,
           scale_x: 1,
           scale_y: 1,
@@ -447,23 +468,28 @@ const ImaginationStation: React.FC = () => {
         reader.onload = (event) => {
           const img = new Image();
           img.onload = () => {
-            // Store original dimensions for DPI calculation
+            // Store original dimensions for DPI calculation (in pixels)
             const originalWidth = img.width;
             const originalHeight = img.height;
 
-            // Scale image to fit on sheet (max 6 inches, in pixels)
+            // Calculate layer dimensions in INCHES (max 6 inches, maintaining aspect ratio)
             const maxSizeInches = 6;
-            const maxSizePixels = maxSizeInches * PIXELS_PER_INCH;
-            let w = img.width;
-            let h = img.height;
-            if (w > maxSizePixels || h > maxSizePixels) {
-              const scale = maxSizePixels / Math.max(w, h);
-              w *= scale;
-              h *= scale;
+            const aspectRatio = originalWidth / originalHeight;
+            let widthInches: number;
+            let heightInches: number;
+
+            if (aspectRatio >= 1) {
+              // Landscape or square - width is the limiting factor
+              widthInches = maxSizeInches;
+              heightInches = maxSizeInches / aspectRatio;
+            } else {
+              // Portrait - height is the limiting factor
+              heightInches = maxSizeInches;
+              widthInches = maxSizeInches * aspectRatio;
             }
 
-            // Calculate DPI for the scaled size
-            const dpiInfo = calculateDpi(originalWidth, originalHeight, w, h);
+            // Calculate DPI for the layer size in inches
+            const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches, heightInches);
 
             const newLayer: ImaginationLayer = {
               id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -473,8 +499,8 @@ const ImaginationStation: React.FC = () => {
               processed_url: null,
               position_x: 1,
               position_y: 1,
-              width: w,
-              height: h,
+              width: widthInches,
+              height: heightInches,
               rotation: 0,
               scale_x: 1,
               scale_y: 1,
@@ -731,6 +757,110 @@ const ImaginationStation: React.FC = () => {
     }
   };
 
+  // Handle image generated from MrImagineModal
+  const handleMrImagineImageGenerated = useCallback(async (imageUrl: string) => {
+    if (!sheet) {
+      console.error('[handleMrImagineImageGenerated] No sheet available');
+      return;
+    }
+
+    try {
+      // Load the image to get dimensions
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          // Calculate size - max 6 inches while maintaining aspect ratio
+          const maxSizeInches = 6;
+          const aspectRatio = img.width / img.height;
+          let widthInches: number;
+          let heightInches: number;
+
+          if (aspectRatio >= 1) {
+            // Landscape or square
+            widthInches = maxSizeInches;
+            heightInches = maxSizeInches / aspectRatio;
+          } else {
+            // Portrait
+            heightInches = maxSizeInches;
+            widthInches = maxSizeInches * aspectRatio;
+          }
+
+          // Calculate DPI based on original image size
+          const dpiInfo = calculateDpi(
+            img.width,
+            img.height,
+            widthInches,
+            heightInches
+          );
+
+          // Create new layer with proper ImaginationLayer type
+          const newLayer: ImaginationLayer = {
+            id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            sheet_id: sheet.id,
+            layer_type: 'ai_generated',
+            source_url: imageUrl,
+            processed_url: null,
+            position_x: (sheet.sheet_width - widthInches) / 2, // Center horizontally
+            position_y: (sheet.sheet_height - heightInches) / 2, // Center vertically
+            width: widthInches,
+            height: heightInches,
+            rotation: 0,
+            scale_x: 1,
+            scale_y: 1,
+            z_index: layers.length,
+            metadata: {
+              name: 'Mr. Imagine Design',
+              originalWidth: img.width,
+              originalHeight: img.height,
+              generatedBy: 'mr_imagine_modal',
+              dpiInfo,
+              source: 'mr-imagine'
+            },
+            created_at: new Date().toISOString(),
+          };
+
+          setLayers(prev => [...prev, newLayer]);
+          setSaveStatus('unsaved');
+          setShowMrImagineModal(false);
+          resolve();
+        };
+        img.onerror = () => {
+          // Fallback with default dimensions
+          const newLayer: ImaginationLayer = {
+            id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            sheet_id: sheet.id,
+            layer_type: 'ai_generated',
+            source_url: imageUrl,
+            processed_url: null,
+            position_x: (sheet.sheet_width - 6) / 2,
+            position_y: (sheet.sheet_height - 6) / 2,
+            width: 6,
+            height: 6,
+            rotation: 0,
+            scale_x: 1,
+            scale_y: 1,
+            z_index: layers.length,
+            metadata: {
+              name: 'Mr. Imagine Design',
+              generatedBy: 'mr_imagine_modal',
+              source: 'mr-imagine'
+            },
+            created_at: new Date().toISOString(),
+          };
+          setLayers(prev => [...prev, newLayer]);
+          setSaveStatus('unsaved');
+          setShowMrImagineModal(false);
+          resolve();
+        };
+        img.src = imageUrl;
+      });
+    } catch (err) {
+      console.error('[handleMrImagineImageGenerated] Error:', err);
+    }
+  }, [sheet, layers.length, setLayers, setSaveStatus]);
+
   // Calculate sheet price based on size
   const calculateSheetPrice = (printType: PrintType, height: number): number => {
     const preset = SHEET_PRESETS[printType];
@@ -746,15 +876,15 @@ const ImaginationStation: React.FC = () => {
       return;
     }
 
-    // Check for critical DPI issues
+    // Check for critical DPI issues (both uploaded images and AI-generated)
     const dangerLayers = layers.filter(layer =>
-      layer.layer_type === 'image' &&
+      (layer.layer_type === 'image' || layer.layer_type === 'ai_generated') &&
       layer.metadata?.dpiInfo &&
       layer.metadata.dpiInfo.quality === 'danger'
     );
 
     const warningLayers = layers.filter(layer =>
-      layer.layer_type === 'image' &&
+      (layer.layer_type === 'image' || layer.layer_type === 'ai_generated') &&
       layer.metadata?.dpiInfo &&
       layer.metadata.dpiInfo.quality === 'warning'
     );
@@ -966,7 +1096,7 @@ const ImaginationStation: React.FC = () => {
   const handleRemoveBackground = async () => {
     if (!sheet || selectedLayerIds.length === 0) return;
 
-    const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && l.layer_type === 'image');
+    const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
       alert('Please select an image layer');
       return;
@@ -983,11 +1113,13 @@ const ImaginationStation: React.FC = () => {
       const useTrial = getFreeTrial('bg_remove') > 0;
       const { data } = await imaginationApi.removeBackground({ imageUrl, useTrial });
 
-      if (data.processedUrl) {
+      // Use processedUrl or fallback to other response keys
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (newUrl) {
         // Update the layer with the processed image
         setLayers(prev => prev.map(l =>
           l.id === selectedLayer.id
-            ? { ...l, processed_url: data.processedUrl }
+            ? { ...l, processed_url: newUrl }
             : l
         ));
         setSaveStatus('unsaved');
@@ -1011,7 +1143,7 @@ const ImaginationStation: React.FC = () => {
   const handleUpscale = async () => {
     if (!sheet || selectedLayerIds.length === 0) return;
 
-    const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && l.layer_type === 'image');
+    const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
       alert('Please select an image layer');
       return;
@@ -1023,29 +1155,63 @@ const ImaginationStation: React.FC = () => {
       return;
     }
 
+    // Store original image for comparison
+    const originalUrl = imageUrl;
+    const originalWidth = selectedLayer.metadata?.originalWidth || selectedLayer.width;
+    const originalHeight = selectedLayer.metadata?.originalHeight || selectedLayer.height;
+    const originalDpi = selectedLayer.metadata?.dpiInfo?.dpi;
+
     setIsUpscaling(true);
     try {
       const useTrial = getFreeTrial('upscale_2x') > 0;
       const { data } = await imaginationApi.upscaleImage({ imageUrl, factor: 2, useTrial });
 
-      if (data.processedUrl) {
-        // Update the layer with the upscaled image and potentially larger dimensions
+      // Use processedUrl or fallback to other response keys
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      const scaleFactor = data.scaleFactor || 2;
+      if (newUrl) {
+        const newOriginalWidth = originalWidth * scaleFactor;
+        const newOriginalHeight = originalHeight * scaleFactor;
+        // Recalculate DPI with new original dimensions
+        const newDpiInfo = calculateDpi(newOriginalWidth, newOriginalHeight, selectedLayer.width, selectedLayer.height);
+
+        // Update the layer with the upscaled image and larger dimensions
         setLayers(prev => prev.map(l => {
           if (l.id === selectedLayer.id) {
             return {
               ...l,
-              processed_url: data.processedUrl,
-              // Update original dimensions for DPI recalculation
+              processed_url: newUrl,
+              // Update original dimensions for DPI recalculation - upscale increases source resolution
               metadata: {
                 ...l.metadata,
-                originalWidth: (l.metadata?.originalWidth || l.width) * 2,
-                originalHeight: (l.metadata?.originalHeight || l.height) * 2,
+                originalWidth: newOriginalWidth,
+                originalHeight: newOriginalHeight,
+                dpiInfo: newDpiInfo,
+                upscaled: true,
+                upscaleFactor: scaleFactor,
+                // Store original for revert
+                beforeUpscaleUrl: originalUrl,
+                beforeUpscaleWidth: originalWidth,
+                beforeUpscaleHeight: originalHeight,
               }
             };
           }
           return l;
         }));
         setSaveStatus('unsaved');
+
+        // Show compare modal
+        setCompareModal({
+          isOpen: true,
+          beforeImage: originalUrl,
+          afterImage: newUrl,
+          layerId: selectedLayer.id,
+          operation: `Upscale ${scaleFactor}x`,
+          beforeDimensions: { width: originalWidth, height: originalHeight },
+          afterDimensions: { width: newOriginalWidth, height: newOriginalHeight },
+          beforeDpi: originalDpi,
+          afterDpi: newDpiInfo?.dpi,
+        });
 
         // Refresh free trials if used
         if (useTrial) {
@@ -1066,7 +1232,7 @@ const ImaginationStation: React.FC = () => {
   const handleEnhance = async () => {
     if (!sheet || selectedLayerIds.length === 0) return;
 
-    const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && l.layer_type === 'image');
+    const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
       alert('Please select an image layer');
       return;
@@ -1078,19 +1244,46 @@ const ImaginationStation: React.FC = () => {
       return;
     }
 
+    // Store original for comparison
+    const originalUrl = imageUrl;
+    const originalWidth = selectedLayer.metadata?.originalWidth || selectedLayer.width;
+    const originalHeight = selectedLayer.metadata?.originalHeight || selectedLayer.height;
+
     setIsEnhancing(true);
     try {
       const useTrial = getFreeTrial('enhance') > 0;
       const { data } = await imaginationApi.enhanceImage({ imageUrl, useTrial });
 
-      if (data.processedUrl) {
+      // Use processedUrl or fallback to other response keys
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (newUrl) {
         // Update the layer with the enhanced image
         setLayers(prev => prev.map(l =>
           l.id === selectedLayer.id
-            ? { ...l, processed_url: data.processedUrl }
+            ? {
+                ...l,
+                processed_url: newUrl,
+                metadata: {
+                  ...l.metadata,
+                  enhanced: true,
+                  // Store original for revert
+                  beforeEnhanceUrl: originalUrl,
+                }
+              }
             : l
         ));
         setSaveStatus('unsaved');
+
+        // Show compare modal
+        setCompareModal({
+          isOpen: true,
+          beforeImage: originalUrl,
+          afterImage: newUrl,
+          layerId: selectedLayer.id,
+          operation: 'Enhance',
+          beforeDimensions: { width: originalWidth, height: originalHeight },
+          afterDimensions: { width: originalWidth, height: originalHeight },
+        });
 
         // Refresh free trials if used
         if (useTrial) {
@@ -1106,6 +1299,47 @@ const ImaginationStation: React.FC = () => {
       setIsEnhancing(false);
     }
   };
+
+  // Open Reimagine It modal for a selected image layer
+  const openReimagineIt = (layerId: string) => {
+    setReimagineItLayerId(layerId);
+    setShowReimagineItModal(true);
+  };
+
+  // Handle accepting reimagined image from Reimagine It
+  const handleReimagineItAccept = useCallback((newImageUrl: string) => {
+    if (!reimagineItLayerId) return;
+
+    setLayers(prev => prev.map(l => {
+      if (l.id === reimagineItLayerId) {
+        const originalUrl = l.processed_url || l.source_url;
+        return {
+          ...l,
+          processed_url: newImageUrl,
+          metadata: {
+            ...l.metadata,
+            reimagined: true,
+            beforeReimageUrl: originalUrl,
+          }
+        };
+      }
+      return l;
+    }));
+    setSaveStatus('unsaved');
+    setShowReimagineItModal(false);
+    setReimagineItLayerId(null);
+  }, [reimagineItLayerId]);
+
+  // Handle keeping original in Reimagine It (just close modal)
+  const handleReimagineItKeepOriginal = useCallback(() => {
+    setShowReimagineItModal(false);
+    setReimagineItLayerId(null);
+  }, []);
+
+  // Get the layer for Reimagine It modal
+  const reimagineItLayer = useMemo(() => {
+    return reimagineItLayerId ? layers.find(l => l.id === reimagineItLayerId) : null;
+  }, [reimagineItLayerId, layers]);
 
   // Clear selection
   const clearSelection = () => {
@@ -1263,14 +1497,39 @@ const ImaginationStation: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-6 relative">
-            <div className="absolute inset-0 rounded-full border-4 border-purple-100"></div>
-            <div className="absolute inset-0 rounded-full border-4 border-purple-600 border-t-transparent animate-spin"></div>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-fuchsia-950 flex items-center justify-center relative overflow-hidden">
+        {/* Animated background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-fuchsia-500/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        </div>
+
+        <div className="relative z-10 text-center">
+          {/* Mr. Imagine loading animation */}
+          <div className="relative inline-block mb-8">
+            <div className="absolute -inset-6 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 rounded-full blur-2xl opacity-50 animate-pulse"></div>
+            <img
+              src="/mr-imagine/mr-imagine-waving.png"
+              alt="Mr. Imagine"
+              className="relative w-32 h-32 object-contain animate-bounce"
+              style={{ animationDuration: '2s' }}
+            />
+            {/* Spinning ring */}
+            <div className="absolute -inset-4">
+              <div className="w-full h-full rounded-full border-4 border-transparent border-t-cyan-400 border-r-violet-400 animate-spin" style={{ animationDuration: '1.5s' }}></div>
+            </div>
           </div>
-          <h2 className="text-2xl font-serif text-stone-800 mb-2">Loading Imagination Station</h2>
-          <p className="text-stone-500">Preparing your creative workspace...</p>
+
+          <h2 className="text-3xl font-bold mb-3">
+            <span className="bg-gradient-to-r from-white via-cyan-200 to-white bg-clip-text text-transparent">
+              Loading Imagination Station
+            </span>
+          </h2>
+          <p className="text-white/60 flex items-center justify-center gap-2">
+            <Sparkles className="w-4 h-4 text-fuchsia-400 animate-pulse" />
+            Preparing your creative workspace...
+            <Sparkles className="w-4 h-4 text-cyan-400 animate-pulse" style={{ animationDelay: '0.5s' }} />
+          </p>
         </div>
       </div>
     );
@@ -1279,88 +1538,173 @@ const ImaginationStation: React.FC = () => {
   // Sheet selector (no sheet loaded)
   if (!sheet) {
     return (
-      <div className="min-h-screen bg-[#FAFAFA]">
-        {/* Hero Section */}
-        <div className="relative overflow-hidden">
-          {/* Background decoration */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-200/40 to-pink-200/40 rounded-full blur-3xl"></div>
-            <div className="absolute top-20 -left-20 w-60 h-60 bg-gradient-to-br from-blue-200/30 to-cyan-200/30 rounded-full blur-3xl"></div>
-          </div>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-fuchsia-950 relative overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Floating gradient orbs */}
+          <div className="absolute top-20 left-10 w-96 h-96 bg-gradient-to-br from-cyan-400/30 to-blue-600/20 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute bottom-20 right-10 w-80 h-80 bg-gradient-to-br from-fuchsia-500/30 to-pink-600/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-br from-violet-500/20 to-purple-700/10 rounded-full blur-3xl"></div>
 
-          <div className="max-w-6xl mx-auto px-6 py-16 relative">
-            {/* Header */}
-            <div className="text-center mb-16">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-100 rounded-full text-purple-700 text-sm font-medium mb-6">
-                <Sparkles className="w-4 h-4" />
-                AI-Powered Design Studio
-              </div>
-              <h1 className="text-5xl md:text-6xl font-serif font-bold text-stone-900 mb-6 tracking-tight">
-                Imagination Station
-              </h1>
-              <p className="text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">
-                Create professional Imagination Sheets™ for DTF, UV DTF, and sublimation printing
-                with AI-powered tools and smart automation.
-              </p>
+          {/* Sparkle particles */}
+          <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-white rounded-full animate-ping" style={{ animationDuration: '2s' }}></div>
+          <div className="absolute top-1/3 right-1/4 w-1.5 h-1.5 bg-cyan-300 rounded-full animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }}></div>
+          <div className="absolute bottom-1/4 left-1/3 w-2 h-2 bg-fuchsia-300 rounded-full animate-ping" style={{ animationDuration: '2.5s', animationDelay: '1s' }}></div>
+          <div className="absolute top-2/3 right-1/3 w-1 h-1 bg-yellow-300 rounded-full animate-ping" style={{ animationDuration: '2s', animationDelay: '1.5s' }}></div>
+
+          {/* Grid pattern overlay */}
+          <div className="absolute inset-0 opacity-[0.03]" style={{
+            backgroundImage: 'linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)',
+            backgroundSize: '60px 60px'
+          }}></div>
+        </div>
+
+        {/* Main content */}
+        <div className="relative z-10 max-w-7xl mx-auto px-6 py-12">
+          {/* Hero Section with Mr. Imagine */}
+          <div className="text-center mb-16 relative">
+            {/* Mr. Imagine Hero */}
+            <div className="relative inline-block mb-8">
+              <div className="absolute -inset-8 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 rounded-full blur-2xl opacity-40 animate-pulse"></div>
+              <img
+                src="/mr-imagine/mr-imagine-waving.png"
+                alt="Mr. Imagine"
+                className="relative w-40 h-40 md:w-52 md:h-52 object-contain drop-shadow-2xl animate-bounce"
+                style={{ animationDuration: '3s' }}
+              />
+              {/* Magic sparkles around Mr. Imagine */}
+              <Sparkles className="absolute -top-2 -right-2 w-8 h-8 text-yellow-400 animate-spin" style={{ animationDuration: '4s' }} />
+              <Sparkles className="absolute -bottom-2 -left-2 w-6 h-6 text-cyan-400 animate-spin" style={{ animationDuration: '3s', animationDirection: 'reverse' }} />
             </div>
 
-            {/* Sheet Type Cards */}
-            <div className="grid md:grid-cols-3 gap-6 mb-16">
-              {(Object.entries(SHEET_PRESETS) as [PrintType, typeof SHEET_PRESETS.dtf][]).map(([type, preset]) => (
-                <div
-                  key={type}
-                  className={`${preset.bgColor} ${preset.borderColor} border-2 rounded-2xl p-6 transition-all duration-300 hover:shadow-xl hover:-translate-y-1`}
-                >
-                  <div className="text-4xl mb-4">{preset.icon}</div>
-                  <h3 className={`text-2xl font-serif font-bold ${preset.textColor} mb-2`}>
-                    {preset.name}
-                  </h3>
-                  <p className="text-stone-600 text-sm mb-4">{preset.description}</p>
-                  <p className="text-stone-500 text-sm mb-6">
-                    Width: <span className="font-semibold">{preset.width}"</span>
-                  </p>
+            {/* Title with gradient */}
+            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full text-white/90 text-sm font-medium mb-6 shadow-xl">
+              <Wand2 className="w-4 h-4 text-cyan-400" />
+              <span className="bg-gradient-to-r from-cyan-400 to-fuchsia-400 bg-clip-text text-transparent font-semibold">
+                AI-Powered Design Studio
+              </span>
+              <Sparkles className="w-4 h-4 text-fuchsia-400" />
+            </div>
 
-                  {/* Height options with pricing */}
-                  <div className="space-y-2">
-                    {preset.heights.map(height => {
-                      const sqInches = preset.width * height;
-                      const price = Math.round(sqInches * 0.02 * 100) / 100; // $0.02 per sq inch
-                      return (
-                        <button
-                          key={height}
-                          onClick={() => createSheet(type, height)}
-                          disabled={isCreating}
-                          className={`w-full px-4 py-3 bg-white border ${preset.borderColor} rounded-xl text-left transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed group`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-medium text-stone-800">
-                                {preset.width}" × {height}"
-                              </span>
-                              <span className="ml-2 text-xs text-stone-500">
-                                ({sqInches} sq in)
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`font-bold ${preset.textColor}`}>
-                                ${price.toFixed(2)}
-                              </span>
-                              <ArrowRight className={`w-4 h-4 ${preset.textColor} opacity-0 group-hover:opacity-100 transition-opacity`} />
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+            <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight">
+              <span className="bg-gradient-to-r from-white via-cyan-200 to-white bg-clip-text text-transparent drop-shadow-lg">
+                Imagination
+              </span>
+              <br />
+              <span className="bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
+                Station
+              </span>
+            </h1>
+
+            <p className="text-lg md:text-xl text-white/70 max-w-2xl mx-auto leading-relaxed font-light">
+              Create <span className="text-cyan-400 font-medium">professional gang sheets</span> for DTF, UV DTF, and sublimation
+              with <span className="text-fuchsia-400 font-medium">Mr. Imagine's AI magic</span> ✨
+            </p>
+
+            {/* Feature pills */}
+            <div className="flex flex-wrap justify-center gap-3 mt-8">
+              {['AI Image Generation', 'Smart Auto-Layout', 'Background Removal', 'HD Upscaling'].map((feature, i) => (
+                <div
+                  key={feature}
+                  className="px-4 py-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full text-white/80 text-sm flex items-center gap-2"
+                  style={{ animationDelay: `${i * 0.1}s` }}
+                >
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  {feature}
                 </div>
               ))}
             </div>
+          </div>
 
-            {/* Pending Image Notice */}
-            {pendingImage && (
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-6 mb-8">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-white rounded-xl shadow-sm flex items-center justify-center overflow-hidden">
+          {/* Sheet Type Cards - Glassmorphism Style */}
+          <div className="grid md:grid-cols-3 gap-6 mb-16">
+            {(Object.entries(SHEET_PRESETS) as [PrintType, typeof SHEET_PRESETS.dtf][]).map(([type, preset], index) => {
+              const gradients = {
+                dtf: 'from-violet-500 to-purple-600',
+                uv_dtf: 'from-cyan-500 to-blue-600',
+                sublimation: 'from-fuchsia-500 to-pink-600'
+              };
+              const glows = {
+                dtf: 'shadow-violet-500/30',
+                uv_dtf: 'shadow-cyan-500/30',
+                sublimation: 'shadow-fuchsia-500/30'
+              };
+              const iconBgs = {
+                dtf: 'from-violet-400 to-purple-500',
+                uv_dtf: 'from-cyan-400 to-blue-500',
+                sublimation: 'from-fuchsia-400 to-pink-500'
+              };
+
+              return (
+                <div
+                  key={type}
+                  className={`relative group bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 transition-all duration-500 hover:bg-white/10 hover:border-white/20 hover:shadow-2xl hover:-translate-y-2 ${glows[type as keyof typeof glows]}`}
+                  style={{ animationDelay: `${index * 0.15}s` }}
+                >
+                  {/* Glow effect on hover */}
+                  <div className={`absolute -inset-px bg-gradient-to-r ${gradients[type as keyof typeof gradients]} rounded-3xl opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500`}></div>
+
+                  <div className="relative">
+                    {/* Icon with gradient background */}
+                    <div className={`w-16 h-16 bg-gradient-to-br ${iconBgs[type as keyof typeof iconBgs]} rounded-2xl flex items-center justify-center text-3xl mb-5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                      {preset.icon}
+                    </div>
+
+                    <h3 className="text-2xl font-bold text-white mb-2 group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-white/80 group-hover:bg-clip-text transition-all">
+                      {preset.name}
+                    </h3>
+                    <p className="text-white/60 text-sm mb-2">{preset.description}</p>
+                    <p className="text-white/40 text-sm mb-6 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                      Fixed Width: <span className="font-bold text-white/80">{preset.width}"</span>
+                    </p>
+
+                    {/* Height options with pricing */}
+                    <div className="space-y-2.5">
+                      {preset.heights.map((height, i) => {
+                        const sqInches = preset.width * height;
+                        const price = Math.round(sqInches * 0.02 * 100) / 100;
+                        return (
+                          <button
+                            key={height}
+                            onClick={() => createSheet(type, height)}
+                            disabled={isCreating}
+                            className={`w-full px-4 py-3.5 bg-white/5 hover:bg-gradient-to-r hover:${gradients[type as keyof typeof gradients]} border border-white/10 hover:border-transparent rounded-xl text-left transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group/btn hover:shadow-lg hover:scale-[1.02]`}
+                            style={{ animationDelay: `${(index * 0.15) + (i * 0.05)}s` }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-semibold text-white group-hover/btn:text-white">
+                                  {preset.width}" × {height}"
+                                </span>
+                                <span className="ml-2 text-xs text-white/50 group-hover/btn:text-white/70">
+                                  ({sqInches} sq in)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-emerald-400 group-hover/btn:text-white">
+                                  ${price.toFixed(2)}
+                                </span>
+                                <ArrowRight className="w-4 h-4 text-white/40 group-hover/btn:text-white group-hover/btn:translate-x-1 transition-all" />
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pending Image Notice - Enhanced */}
+          {pendingImage && (
+            <div className="relative mb-10">
+              <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-500 rounded-3xl blur opacity-30"></div>
+              <div className="relative bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6">
+                <div className="flex items-center gap-5">
+                  <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center overflow-hidden border border-white/20 shadow-xl">
                     <img
                       src={pendingImage.url}
                       alt="Pending"
@@ -1371,105 +1715,142 @@ const ImaginationStation: React.FC = () => {
                     />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-stone-800 mb-1">
+                    <h3 className="font-bold text-white text-lg mb-1 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-yellow-400" />
                       Ready to add: {pendingImage.name}
                     </h3>
-                    <p className="text-sm text-stone-600">
+                    <p className="text-white/60">
                       Select a sheet size above to start designing with your image
                     </p>
                   </div>
-                  <Sparkles className="w-6 h-6 text-purple-500" />
+                  <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-violet-500 rounded-full text-white text-sm font-medium">
+                    <Upload className="w-4 h-4" />
+                    Image Ready
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* My Projects */}
-            {recentSheets.length > 0 && (
-              <div className="bg-white rounded-2xl border border-stone-200 p-8">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-2xl font-serif font-bold text-stone-900">My Projects</h2>
-                  <button
-                    onClick={() => navigate('/imagination-station')}
-                    className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-                  >
-                    View All
-                  </button>
-                </div>
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {recentSheets.slice(0, 6).map(s => {
-                    const preset = SHEET_PRESETS[s.print_type as PrintType];
-                    const layerCount = s.canvas_state?.layers?.length || 0;
-                    return (
-                      <Link
-                        key={s.id}
-                        to={`/imagination-station/${s.id}`}
-                        className="border border-stone-200 rounded-xl overflow-hidden hover:border-purple-300 hover:shadow-md transition-all duration-200 group"
-                      >
-                        {/* Thumbnail */}
-                        <div className="aspect-video bg-stone-100 relative overflow-hidden">
-                          {s.thumbnail_url ? (
-                            <img
-                              src={s.thumbnail_url}
-                              alt={s.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <div className={`w-16 h-16 ${preset?.bgColor || 'bg-stone-100'} rounded-xl flex items-center justify-center text-3xl`}>
-                                {preset?.icon || '📄'}
-                              </div>
-                            </div>
-                          )}
-                          {/* Status badge */}
-                          <div className="absolute top-2 right-2">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              s.status === 'draft'
-                                ? 'bg-stone-800/80 text-white'
-                                : s.status === 'submitted'
-                                ? 'bg-purple-600/80 text-white'
-                                : 'bg-green-600/80 text-white'
-                            }`}>
-                              {s.status === 'draft' ? 'Draft' : s.status === 'submitted' ? 'Submitted' : s.status}
-                            </span>
-                          </div>
-                        </div>
-                        {/* Project info */}
-                        <div className="p-4">
-                          <h3 className="font-medium text-stone-800 truncate group-hover:text-purple-700 transition-colors mb-1">
-                            {s.name}
-                          </h3>
-                          <p className="text-xs text-stone-500 mb-2">
-                            {s.sheet_width}" × {s.sheet_height}" {preset?.name || s.print_type}
-                          </p>
-                          <div className="flex items-center gap-3 text-xs text-stone-400">
-                            <span className="flex items-center gap-1">
-                              <Layers className="w-3 h-3" />
-                              {layerCount} layer{layerCount !== 1 ? 's' : ''}
-                            </span>
-                            <span>•</span>
-                            <span>{new Date(s.updated_at).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ITC Balance */}
-            <div className="mt-8 text-center">
-              <div className="inline-flex items-center gap-3 px-6 py-3 bg-white border border-stone-200 rounded-full shadow-sm">
-                <Coins className="w-5 h-5 text-amber-500" />
-                <span className="text-stone-600">Your Balance:</span>
-                <span className="text-xl font-bold text-purple-600">{itcBalance} ITC</span>
-                <Link to="/wallet" className="text-sm text-purple-600 hover:text-purple-700 font-medium ml-2">
-                  Get More →
-                </Link>
               </div>
             </div>
+          )}
+
+          {/* My Projects - Dark Glass Style */}
+          {recentSheets.length > 0 && (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 mb-10">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl flex items-center justify-center">
+                    <Layers className="w-5 h-5 text-white" />
+                  </div>
+                  My Projects
+                </h2>
+                <button
+                  onClick={() => navigate('/imagination-station')}
+                  className="text-sm text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1 transition-colors"
+                >
+                  View All
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {recentSheets.slice(0, 6).map((s, i) => {
+                  const presetData = SHEET_PRESETS[s.print_type as PrintType];
+                  const layerCount = s.canvas_state?.layers?.length || 0;
+                  return (
+                    <Link
+                      key={s.id}
+                      to={`/imagination-station/${s.id}`}
+                      className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:bg-white/10 hover:border-white/20 hover:shadow-xl transition-all duration-300 group hover:-translate-y-1"
+                      style={{ animationDelay: `${i * 0.1}s` }}
+                    >
+                      {/* Thumbnail */}
+                      <div className="aspect-video bg-gradient-to-br from-white/5 to-transparent relative overflow-hidden">
+                        {s.thumbnail_url ? (
+                          <img
+                            src={s.thumbnail_url}
+                            alt={s.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div className="w-16 h-16 bg-gradient-to-br from-violet-500/30 to-fuchsia-500/30 rounded-2xl flex items-center justify-center text-3xl">
+                              {presetData?.icon || '📄'}
+                            </div>
+                          </div>
+                        )}
+                        {/* Status badge */}
+                        <div className="absolute top-3 right-3">
+                          <span className={`px-3 py-1 text-xs font-semibold rounded-full backdrop-blur-sm ${
+                            s.status === 'draft'
+                              ? 'bg-white/20 text-white'
+                              : s.status === 'submitted'
+                              ? 'bg-violet-500/80 text-white'
+                              : 'bg-emerald-500/80 text-white'
+                          }`}>
+                            {s.status === 'draft' ? 'Draft' : s.status === 'submitted' ? 'Submitted' : s.status}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Project info */}
+                      <div className="p-4">
+                        <h3 className="font-semibold text-white truncate group-hover:text-cyan-400 transition-colors mb-1">
+                          {s.name}
+                        </h3>
+                        <p className="text-xs text-white/50 mb-2">
+                          {s.sheet_width}" × {s.sheet_height}" {presetData?.name || s.print_type}
+                        </p>
+                        <div className="flex items-center gap-3 text-xs text-white/40">
+                          <span className="flex items-center gap-1">
+                            <Layers className="w-3 h-3" />
+                            {layerCount} layer{layerCount !== 1 ? 's' : ''}
+                          </span>
+                          <span>•</span>
+                          <span>{new Date(s.updated_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ITC Balance - Floating Pill */}
+          <div className="text-center">
+            <div className="inline-flex items-center gap-4 px-8 py-4 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl">
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg">
+                  <Coins className="w-5 h-5 text-white" />
+                </div>
+                <span className="text-white/60 font-medium">Your Balance:</span>
+              </div>
+              <span className="text-3xl font-black bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">
+                {itcBalance.toLocaleString()} ITC
+              </span>
+              <Link
+                to="/wallet"
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-violet-500 hover:from-cyan-400 hover:to-violet-400 text-white text-sm font-semibold rounded-full transition-all duration-300 hover:shadow-lg hover:scale-105 flex items-center gap-1"
+              >
+                Get More
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Footer tagline */}
+          <div className="text-center mt-12 text-white/30 text-sm">
+            <p>Powered by <span className="text-cyan-400/60">Mr. Imagine</span> • AI-Driven Print Design</p>
           </div>
         </div>
+
+        {/* Custom CSS for animations */}
+        <style>{`
+          @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+          }
+          .animate-float {
+            animation: float 6s ease-in-out infinite;
+          }
+        `}</style>
       </div>
     );
   }
@@ -1719,7 +2100,7 @@ const ImaginationStation: React.FC = () => {
                       >
                         {/* Layer thumbnail */}
                         <div className="w-8 h-8 rounded bg-stone-200 flex items-center justify-center overflow-hidden shrink-0 relative">
-                          {layer.layer_type === 'image' && imageUrl ? (
+                          {(layer.layer_type === 'image' || layer.layer_type === 'ai_generated') && imageUrl ? (
                             <img src={imageUrl} alt="" className="w-full h-full object-cover" />
                           ) : layer.layer_type === 'text' ? (
                             <Type className="w-4 h-4 text-stone-500" />
@@ -1935,7 +2316,7 @@ const ImaginationStation: React.FC = () => {
                     </div>
 
                     {/* DPI Quality Warning */}
-                    {selectedLayers[0].layer_type === 'image' && selectedLayers[0].metadata?.dpiInfo && (
+                    {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && (
                       <div className={`p-4 rounded-xl border ${
                         selectedLayers[0].metadata.dpiInfo.quality === 'danger'
                           ? 'bg-red-50 border-red-300'
@@ -2050,15 +2431,15 @@ const ImaginationStation: React.FC = () => {
                     </div>
 
                     <div>
-                      <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Size</h4>
+                      <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Size (inches)</h4>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs text-stone-500 block mb-1">Width (pixels)</label>
+                          <label className="text-xs text-stone-500 block mb-1">Width</label>
                           <input
                             type="number"
-                            value={Math.round(selectedLayers[0].width)}
+                            value={selectedLayers[0].width.toFixed(2)}
                             onChange={(e) => {
-                              const val = parseFloat(e.target.value);
+                              const val = parseFloat(e.target.value) || 0.1;
                               const currentLayer = selectedLayers[0];
                               setLayers(prev => prev.map(l => {
                                 if (l.id === currentLayer.id) {
@@ -2077,16 +2458,17 @@ const ImaginationStation: React.FC = () => {
                               setSaveStatus('unsaved');
                             }}
                             className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            step="10"
+                            step="0.25"
+                            min="0.25"
                           />
                         </div>
                         <div>
-                          <label className="text-xs text-stone-500 block mb-1">Height (pixels)</label>
+                          <label className="text-xs text-stone-500 block mb-1">Height</label>
                           <input
                             type="number"
-                            value={Math.round(selectedLayers[0].height)}
+                            value={selectedLayers[0].height.toFixed(2)}
                             onChange={(e) => {
-                              const val = parseFloat(e.target.value);
+                              const val = parseFloat(e.target.value) || 0.1;
                               const currentLayer = selectedLayers[0];
                               setLayers(prev => prev.map(l => {
                                 if (l.id === currentLayer.id) {
@@ -2105,10 +2487,137 @@ const ImaginationStation: React.FC = () => {
                               setSaveStatus('unsaved');
                             }}
                             className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            step="10"
+                            step="0.25"
+                            min="0.25"
                           />
                         </div>
                       </div>
+
+                      {/* Quick Size Presets for T-Shirts */}
+                      <div className="mt-3 pt-3 border-t border-stone-200">
+                        <p className="text-xs text-stone-500 mb-2">Quick sizes:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => {
+                              const currentLayer = selectedLayers[0];
+                              const aspectRatio = currentLayer.width / currentLayer.height;
+                              const newWidth = 11;
+                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                              setLayers(prev => prev.map(l => {
+                                if (l.id === currentLayer.id) {
+                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                }
+                                return l;
+                              }));
+                              setSaveStatus('unsaved');
+                            }}
+                            className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors"
+                            title="Front chest - Adult L/XL"
+                          >
+                            11" Front
+                          </button>
+                          <button
+                            onClick={() => {
+                              const currentLayer = selectedLayers[0];
+                              const aspectRatio = currentLayer.width / currentLayer.height;
+                              const newWidth = 10;
+                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                              setLayers(prev => prev.map(l => {
+                                if (l.id === currentLayer.id) {
+                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                }
+                                return l;
+                              }));
+                              setSaveStatus('unsaved');
+                            }}
+                            className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors"
+                            title="Front chest - Adult M"
+                          >
+                            10" Front
+                          </button>
+                          <button
+                            onClick={() => {
+                              const currentLayer = selectedLayers[0];
+                              const aspectRatio = currentLayer.width / currentLayer.height;
+                              const newWidth = 3.5;
+                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                              setLayers(prev => prev.map(l => {
+                                if (l.id === currentLayer.id) {
+                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                }
+                                return l;
+                              }));
+                              setSaveStatus('unsaved');
+                            }}
+                            className="px-2 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-700 rounded transition-colors"
+                            title="Left chest pocket size"
+                          >
+                            3.5" Pocket
+                          </button>
+                          <button
+                            onClick={() => {
+                              const currentLayer = selectedLayers[0];
+                              const aspectRatio = currentLayer.width / currentLayer.height;
+                              const newWidth = 12;
+                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                              setLayers(prev => prev.map(l => {
+                                if (l.id === currentLayer.id) {
+                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                }
+                                return l;
+                              }));
+                              setSaveStatus('unsaved');
+                            }}
+                            className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
+                            title="Full back print"
+                          >
+                            12" Back
+                          </button>
+                          <button
+                            onClick={() => {
+                              const currentLayer = selectedLayers[0];
+                              const aspectRatio = currentLayer.width / currentLayer.height;
+                              const newWidth = 4;
+                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                              setLayers(prev => prev.map(l => {
+                                if (l.id === currentLayer.id) {
+                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                }
+                                return l;
+                              }));
+                              setSaveStatus('unsaved');
+                            }}
+                            className="px-2 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded transition-colors"
+                            title="Sleeve print"
+                          >
+                            4" Sleeve
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Size Guide Reference */}
+                      <details className="mt-3">
+                        <summary className="text-xs text-purple-600 cursor-pointer hover:text-purple-800">
+                          T-Shirt Size Guide
+                        </summary>
+                        <div className="mt-2 p-2 bg-stone-50 rounded-lg text-xs text-stone-600 space-y-1">
+                          <p><strong>Front Chest (Full):</strong></p>
+                          <p className="pl-2">• Youth S-M: 7-8" wide</p>
+                          <p className="pl-2">• Youth L-XL: 8-9" wide</p>
+                          <p className="pl-2">• Adult S-M: 9-10" wide</p>
+                          <p className="pl-2">• Adult L-XL: 10-11" wide</p>
+                          <p className="pl-2">• Adult 2XL+: 11-12" wide</p>
+                          <p className="mt-2"><strong>Left Chest (Pocket):</strong> 3-4" wide</p>
+                          <p><strong>Full Back:</strong> 11-14" wide</p>
+                          <p><strong>Sleeve:</strong> 3-4" wide</p>
+                          <p className="mt-2 text-purple-600 italic">Tip: Height auto-scales based on aspect ratio</p>
+                        </div>
+                      </details>
                     </div>
 
                     <div>
@@ -2170,14 +2679,36 @@ const ImaginationStation: React.FC = () => {
             {/* AI Panel */}
             {activePanel === 'ai' && (
               <div className="space-y-6">
+                {/* Mr. Imagine Lightbox Launcher */}
+                <button
+                  onClick={() => setShowMrImagineModal(true)}
+                  className="w-full p-4 bg-gradient-to-r from-purple-600 to-pink-500 rounded-xl text-white font-semibold text-sm hover:from-purple-700 hover:to-pink-600 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3 group"
+                >
+                  <img
+                    src="/mr-imagine/mr-imagine-waving.png"
+                    alt="Mr. Imagine"
+                    className="w-10 h-10 object-contain group-hover:scale-110 transition-transform"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                  <div className="text-left">
+                    <div className="font-bold">Open Mr. Imagine Studio</div>
+                    <div className="text-xs text-purple-200">
+                      DTF-optimized AI image generation
+                    </div>
+                  </div>
+                </button>
+
+                {/* Quick Generate (legacy fallback) */}
                 <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                       <Sparkles className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-stone-800">Mr. Imagine</h3>
-                      <p className="text-xs text-stone-500">AI Image Generation</p>
+                      <h3 className="font-semibold text-stone-800">Quick Generate</h3>
+                      <p className="text-xs text-stone-500">Simple AI generation</p>
                     </div>
                   </div>
 
@@ -2237,7 +2768,7 @@ const ImaginationStation: React.FC = () => {
                     </div>
                   </div>
 
-                  {selectedLayers.length > 0 && selectedLayers[0].layer_type === 'image' ? (
+                  {selectedLayers.length > 0 && (selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') ? (
                     <div className="space-y-2">
                       <button
                         onClick={handleRemoveBackground}
@@ -2309,6 +2840,29 @@ const ImaginationStation: React.FC = () => {
                             <div className="text-xs text-stone-500">
                               {getFreeTrial('enhance') > 0 ? `${getFreeTrial('enhance')} free` : `${getFeaturePrice('enhance')} ITC`}
                             </div>
+                          </div>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-stone-400" />
+                      </button>
+
+                      {/* Reimagine It - Add elements with AI */}
+                      <button
+                        onClick={() => {
+                          const selectedImageLayer = selectedLayers.find(l => l.layer_type === 'image' || l.layer_type === 'ai_generated');
+                          if (selectedImageLayer) {
+                            openReimagineIt(selectedImageLayer.id);
+                          }
+                        }}
+                        disabled={isProcessing}
+                        className="w-full px-4 py-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-300 rounded-lg text-left hover:from-purple-100 hover:to-pink-100 transition-colors disabled:opacity-50 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center">
+                            <span className="text-sm">&#10024;</span>
+                          </div>
+                          <div>
+                            <div className="font-medium text-stone-800">Reimagine It</div>
+                            <div className="text-xs text-stone-500">Transform with AI ({getFeaturePrice('generate')} ITC)</div>
                           </div>
                         </div>
                         <ArrowRight className="w-4 h-4 text-stone-400" />
@@ -2392,10 +2946,10 @@ const ImaginationStation: React.FC = () => {
                   {/* DPI Quality Summary */}
                   {(() => {
                     const dangerCount = layers.filter(l =>
-                      l.layer_type === 'image' && l.metadata?.dpiInfo?.quality === 'danger'
+                      (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'danger'
                     ).length;
                     const warningCount = layers.filter(l =>
-                      l.layer_type === 'image' && l.metadata?.dpiInfo?.quality === 'warning'
+                      (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'warning'
                     ).length;
 
                     if (dangerCount > 0 || warningCount > 0) {
@@ -2651,6 +3205,106 @@ const ImaginationStation: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Image Compare Modal */}
+      {compareModal && (
+        <ImageCompareModal
+          isOpen={compareModal.isOpen}
+          onClose={() => setCompareModal(null)}
+          beforeImage={compareModal.beforeImage}
+          afterImage={compareModal.afterImage}
+          beforeLabel="Before"
+          afterLabel="After"
+          title={`${compareModal.operation} Results`}
+          metadata={{
+            beforeDimensions: compareModal.beforeDimensions,
+            afterDimensions: compareModal.afterDimensions,
+            beforeDpi: compareModal.beforeDpi,
+            afterDpi: compareModal.afterDpi,
+            operation: compareModal.operation,
+          }}
+          onAccept={() => {
+            // Changes are already applied, just close the modal
+            setCompareModal(null);
+          }}
+          onRevert={() => {
+            // Revert the layer to its original state
+            const layer = layers.find(l => l.id === compareModal.layerId);
+            if (layer) {
+              const beforeUrl = compareModal.beforeImage;
+              setLayers(prev => prev.map(l => {
+                if (l.id === compareModal.layerId) {
+                  // Restore original dimensions if this was an upscale
+                  const originalWidth = l.metadata?.beforeUpscaleWidth || l.metadata?.originalWidth;
+                  const originalHeight = l.metadata?.beforeUpscaleHeight || l.metadata?.originalHeight;
+                  const newDpiInfo = originalWidth && originalHeight
+                    ? calculateDpi(originalWidth, originalHeight, l.width, l.height)
+                    : l.metadata?.dpiInfo;
+
+                  return {
+                    ...l,
+                    processed_url: beforeUrl !== l.source_url ? beforeUrl : null,
+                    metadata: {
+                      ...l.metadata,
+                      originalWidth,
+                      originalHeight,
+                      dpiInfo: newDpiInfo,
+                      upscaled: false,
+                      enhanced: false,
+                      upscaleFactor: undefined,
+                      beforeUpscaleUrl: undefined,
+                      beforeUpscaleWidth: undefined,
+                      beforeUpscaleHeight: undefined,
+                      beforeEnhanceUrl: undefined,
+                    }
+                  };
+                }
+                return l;
+              }));
+              setSaveStatus('unsaved');
+            }
+            setCompareModal(null);
+          }}
+        />
+      )}
+
+      {/* Mr. Imagine Modal */}
+      <MrImagineModal
+        isOpen={showMrImagineModal}
+        onClose={() => setShowMrImagineModal(false)}
+        pricing={{
+          autoNest: getFeaturePrice('auto_nest'),
+          smartFill: getFeaturePrice('smart_fill'),
+          aiGeneration: getFeaturePrice('generate'),
+          removeBackground: getFeaturePrice('bg_remove'),
+          upscale2x: getFeaturePrice('upscale_2x'),
+          upscale4x: getFeaturePrice('upscale_4x'),
+          enhance: getFeaturePrice('enhance'),
+        }}
+        freeTrials={{
+          aiGeneration: getFreeTrial('generate'),
+          removeBackground: getFreeTrial('bg_remove'),
+          upscale: getFreeTrial('upscale_2x'),
+          enhance: getFreeTrial('enhance'),
+        }}
+        itcBalance={itcBalance}
+        onImageGenerated={handleMrImagineImageGenerated}
+      />
+
+      {/* Reimagine It Modal - Transform existing images */}
+      {reimagineItLayer && (
+        <ReimagineItModal
+          isOpen={showReimagineItModal}
+          onClose={() => {
+            setShowReimagineItModal(false);
+            setReimagineItLayerId(null);
+          }}
+          imageUrl={reimagineItLayer.processed_url || reimagineItLayer.source_url || ''}
+          layerName={reimagineItLayer.metadata?.name || 'Selected Image'}
+          onAcceptReimaged={handleReimagineItAccept}
+          onKeepOriginal={handleReimagineItKeepOriginal}
+        />
       )}
     </div>
   );

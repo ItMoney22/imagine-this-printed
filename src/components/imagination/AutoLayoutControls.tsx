@@ -36,6 +36,11 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
       return;
     }
 
+    if (layers.length < 2) {
+      setError('Need at least 2 layers to auto-nest');
+      return;
+    }
+
     setError(null);
     setSuccess(null);
     setIsProcessing(true);
@@ -48,7 +53,7 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
           id: l.id,
           width: l.width,
           height: l.height,
-          rotation: l.rotation,
+          rotation: l.rotation || 0,
         })),
         padding: 0.125, // 1/8 inch padding
       });
@@ -56,13 +61,20 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
       // Update layer positions based on response
       const updatedLayers = layers.map(layer => {
         const newPos = data.positions?.find((p: any) => p.id === layer.id);
-        return newPos ? { ...layer, x: newPos.x, y: newPos.y, rotation: newPos.rotation || layer.rotation } : layer;
+        return newPos ? {
+          ...layer,
+          x: newPos.x,
+          y: newPos.y,
+          rotation: newPos.rotation !== undefined ? newPos.rotation : layer.rotation
+        } : layer;
       });
 
       setLayers(updatedLayers);
       setSuccess(`Auto-nested ${data.positions?.length || 0} objects. Efficiency: ${data.efficiency || 0}%`);
+      setTimeout(() => setSuccess(null), 5000);
     } catch (err: any) {
       setError(err.message || 'Failed to auto-nest objects');
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsProcessing(false);
     }
@@ -74,15 +86,31 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
       return;
     }
 
+    if (layers.length === 0) {
+      setError('Need at least 1 layer to smart fill');
+      return;
+    }
+
     setError(null);
     setSuccess(null);
     setIsProcessing(true);
 
     try {
+      // Determine which layers to use as templates (selected or all)
+      const layersToFill = selectedLayerIds.length > 0
+        ? layers.filter(l => selectedLayerIds.includes(l.id))
+        : layers;
+
+      if (layersToFill.length === 0) {
+        setError('Please select at least one layer to fill with');
+        setIsProcessing(false);
+        return;
+      }
+
       const { data } = await imaginationApi.smartFill({
         sheetWidth: sheet.width,
         sheetHeight: sheet.height,
-        layers: layers.map(l => ({
+        layers: layersToFill.map(l => ({
           id: l.id,
           width: l.width,
           height: l.height,
@@ -90,15 +118,33 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
         padding: 0.125,
       });
 
-      const updatedLayers = layers.map(layer => {
-        const newPos = data.positions?.find((p: any) => p.id === layer.id);
-        return newPos ? { ...layer, x: newPos.x, y: newPos.y } : layer;
-      });
+      // Create new layers from duplicates
+      if (data.duplicates && Array.isArray(data.duplicates)) {
+        const newLayers = data.duplicates.map((dup: any, index: number) => {
+          // Find the source layer to copy properties from
+          const sourceLayer = layers.find(l => l.id === dup.sourceId) || layersToFill[0];
 
-      setLayers(updatedLayers);
-      setSuccess(`Smart Fill complete. Coverage: ${data.coverage || 0}%`);
+          return {
+            ...sourceLayer,
+            id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${index}`,
+            x: dup.x,
+            y: dup.y,
+            rotation: dup.rotation !== undefined ? dup.rotation : sourceLayer.rotation,
+            zIndex: layers.length + index,
+            name: `${sourceLayer.name || 'Layer'} (filled)`,
+          };
+        });
+
+        setLayers([...layers, ...newLayers]);
+        setSuccess(`Smart Fill complete. Added ${data.totalAdded || newLayers.length} duplicates. Coverage: ${data.coverage || 0}%`);
+        setTimeout(() => setSuccess(null), 5000);
+      } else {
+        setError('No space available for duplicates');
+        setTimeout(() => setError(null), 5000);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to smart fill');
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsProcessing(false);
     }
@@ -107,6 +153,7 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
   const handleAlignHorizontal = () => {
     if (selectedLayerIds.length < 2) {
       setError('Select at least 2 objects to align');
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
@@ -125,6 +172,7 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
   const handleAlignVertical = () => {
     if (selectedLayerIds.length < 2) {
       setError('Select at least 2 objects to align');
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
@@ -143,6 +191,7 @@ const AutoLayoutControls: React.FC<AutoLayoutControlsProps> = ({
   const handleDistribute = () => {
     if (selectedLayerIds.length < 3) {
       setError('Select at least 3 objects to distribute');
+      setTimeout(() => setError(null), 3000);
       return;
     }
 

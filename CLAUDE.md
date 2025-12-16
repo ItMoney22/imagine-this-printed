@@ -1,5 +1,13 @@
 # CLAUDE.md
 
+## Working rules (read first)
+- Read `CLAUDE_TASK.md` and `TASK_NOTES.md` first.
+- Only read/edit files listed in `TASK_NOTES.md` → “File shortlist (approved scope)”.
+- If another file is needed: STOP and ask for approval OR update `TASK_NOTES.md` scope first (with rationale) before proceeding.
+- After each milestone, append one new bullet to `TASK_NOTES.md` → “Work log (append-only)” describing what changed and the result.
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

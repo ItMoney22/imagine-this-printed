@@ -7,7 +7,7 @@ const openai = new OpenAI({
 export interface ProductNormalizationInput {
   prompt: string
   priceTarget?: number
-  mockupStyle?: 'flat' | 'human'
+  mockupStyle?: 'flat' | 'human' | 'realistic'
   background?: 'transparent' | 'studio'
   tone?: string
   imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'

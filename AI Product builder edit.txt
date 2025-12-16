@@ -1,0 +1,147 @@
+You are a full-stack engineer working on the “AI Product Builder (ITP)” project. You already know the existing flow (AI-generated designs → user selects one → mockups generated → final product). Your task is to refactor and/or extend both backend and frontend/UI logic so that the product build + mockup + display pipeline works reliably, shows exactly the correct final images, and avoids asset-leakage or mismatches. Do not attempt any 3D work — keep output as 2D mockups and images only.
+
+Your deliverable: a comprehensive specification + plan (for backend and frontend) describing: updated data model changes (if needed), clear workflow, UI & API contract, and “display logic” for final product assets.  
+
+---
+
+## 1. Goals & Constraints
+
+- After user selects a design image: only that selected design becomes “primary / active design.” All other generated images (original variants, DTF-optimized extras, background-removed versions not used, redundant models) should be archived/hidden/inactive — not shown in product page gallery.  
+- Mockup generation (flat_lay + mr_imagine) must use exactly the selected design asset + correct base template (shirt type, color, etc.).  
+- Final product page (or admin UI) must show exactly 3 images for the user / storefront:  
+  1. The selected design (source or DTF)  
+  2. The flat-lay mockup  
+  3. The mr_imagine mockup (or default fallback if mr_imagine fails)  
+- The new logic should **simplify** or at least **not complicate** the user experience — no extra steps for user beyond the existing flow.  
+- The solution should be maintainable, clear, and robust — with explicit flags/metadata controlling asset status, and frontend filtering based on those flags, not on “all assets.”  
+
+---
+
+## 2. Data Model / Metadata Changes (if any)
+
+In the `product_assets` (or related) table/schema, add or standardize the following metadata/fields to help track state cleanly:
+
+- `is_primary_design` (boolean) — true for the selected design asset.  
+- `is_active` (boolean) — true if this asset is considered “live” / should appear in galleries; false if archived/hidden.  
+- `asset_role` (enum / string) — e.g. `"design"`, `"mockup_flat_lay"`, `"mockup_mr_imagine"`, maybe `"background_removed"` or other auxiliary roles.  
+- (optional) `template_info` (JSON/string) — for mockups: store which base template was used (e.g. shirt type, color, base image path for mr_imagine).  
+- (optional) `error_status` / `generation_status` for mockups — to mark if mockup generation failed, or if retry is needed.  
+
+Update existing assets logic so that upon design selection:
+
+- The chosen asset gets `is_primary_design = true`, `is_active = true`, `asset_role = "design"`.  
+- All other design assets (originals / dtf / rembg if present) get `is_active = false` (and optionally flagged as archived).  
+- Mockups when generated get appropriate `asset_role`, `is_active = true` (assuming succeeded).  
+
+This way, no matter how many assets exist under a product, the frontend/API can filter by `is_active = true` + role to decide what to show.
+
+---
+
+## 3. Backend / Workflow Spec (with modifications)
+
+Here is a revised step-by-step flow incorporating the above model changes:
+
+1. **User submits prompt → API route**  
+   - Same as before: normalizing prompt, creating product (status `'draft'`), queuing `replicate_image` job.  
+   - No change needed here.
+
+2. **Worker runs multi-model generation → DTF optimize → upload assets**  
+   - As before. For each generated image (original, dtf, maybe rembg) — create a `product_assets` entry with `asset_role = "design"`, but **do not mark any as `is_primary_design` yet**. Mark all as `is_active = false` (or maybe `pending_selection = true`) to avoid accidentally surfacing them.  
+
+3. **Frontend shows generated images to user — user selects favorite**  
+   - On selection API (`POST /:id/select-image`): mark selected asset:  
+     - `is_primary_design = true`  
+     - `is_active = true`  
+   - For all other assets where `asset_role = "design"`: set `is_active = false`.  
+   - Queue 2 mockup jobs: `flat_lay` and `mr_imagine`, with input pointing to the selected design URL + metadata (product_type, shirt_color, etc.).  
+
+4. **Mockup generation worker picks up jobs**  
+   - For `flat_lay`: run mockup generation, produce image, upload → create `product_assets` entry with:  
+     - `asset_role = "mockup_flat_lay"`  
+     - `is_active = true`  
+     - `template_info` may record which mockup template was used (if you have multiple flat-lay styles).  
+   - For `mr_imagine`: fetch base template (e.g. from `public/mr-imagine/mockups/...` or GCS), composite design → upload → create `product_assets` entry with:  
+     - `asset_role = "mockup_mr_imagine"`  
+     - `is_active = true`  
+     - `template_info = { product_type, shirt_color, base_template_path, timestamp }`  
+
+   - **If mr_imagine fails** (e.g. missing base template, composite error, Gemini error):**  
+     - Option A: mark `asset_role = "mockup_mr_imagine"` with `is_active = false`, and record `error_status = true` + error message.  
+     - Option B: (optional) queue fallback mockup generation (e.g. flat_lay only, or default base color).  
+
+5. **Product finalization / Readiness**  
+   - Update product status (e.g. `'ready_for_sale'`) only when:  
+     - A primary design asset exists (`is_primary_design = true`) AND  
+     - At least the flat_lay mockup exists and is active — optionally require mr_imagine mockup too (or allow fallback).  
+   - The product metadata may store which mockup assets are the “final ones.”  
+
+6. **Frontend / API asset-fetch logic**  
+   - When fetching a product’s images for display (admin UI or storefront), the API should return **only** assets where `is_active = true`, ordered or grouped by role: design first, then mockups.  
+   - The UI component renders them in a fixed order (design → flat_lay → mr_imagine).  
+
+---
+
+## 4. Frontend & UI / Display Logic Specification
+
+In your frontend (admin UI or store-facing product page):
+
+- Replace any “show all images for product” logic with filtering based on asset metadata: show only `is_active = true`.  
+- Use the `asset_role` to control ordering and grouping (e.g. design first, mockups next).  
+- If `mockup_mr_imagine` is missing or inactive (e.g. due to error), gracefully fallback: maybe show only flat_lay mockup (or a placeholder / “coming soon / error mockup”).  
+- Make UI explicit about “primary design + mockups” — do not display color pickers / remnant thumbnails of old variants.  
+
+Keep the UI simple: for the user (or store buyer), they see exactly what they need for the product — no extraneous assets.
+
+From a frontend-architecture perspective, structure the components so that the “ProductImagesGallery” component accepts a list of asset objects (with roles + URLs), and renders accordingly. This fits with modern component-based frontend architecture best practices (modular UI, clear data-flow, decoupled assets). :contentReference[oaicite:0]{index=0}  
+
+---
+
+## 5. Edge Cases & Failure Modes — and How to Handle Them
+
+| Edge case / Issue | Handling / Mitigation |
+|------------------|----------------------|
+| Mockup generation fails (flat or mr_imagine) | Mark the failed mockup asset with `is_active = false`, record error. For mr_imagine, fallback to just flat_lay or placeholder. Allow manual retry via admin UI. |
+| No base template for given product_type/shirt_color (for mr_imagine) | Detect at job start — log error, fallback to default base (e.g. black T-shirt), or skip mr_imagine mockup. Notify dev/admin. |
+| User re-selects a different design after initial selection (before final mockups) | On new selection: archive previous design asset (`is_active = false`, `is_primary_design = false`), mark newly selected one as primary + active. Cancel pending mockup jobs for old selection (if not yet run). Queue new mockup jobs for new design. |
+| Race conditions / concurrency (e.g. user selects while worker still uploading) | Wrap selection + cleanup + mockup-job creation in a transaction (or lock) so that state remains consistent. Ensure asset flags update and job queueing happen atomically. |
+| Assets accumulating over time (many old designs, mockups, failed tries) | Periodic maintenance / cleanup script: archive/delete assets older than X days where `is_active = false`, or provide admin UI for “purge old assets.” |
+| Frontend accidentally showing inactive / archived assets | The API must filter by `is_active`, not just read all `product_assets`. Ensure UI doesn’t have fallback logic that bypasses filtering. |
+
+---
+
+## 6. Why This Design Is More Reliable & Maintainable
+
+- **Explicit state & metadata** — rather than inferring intent (which image is primary, which should display), we store explicit flags (`is_primary_design`, `is_active`, `asset_role`) that make logic unambiguous.  
+- **Separation of concerns** — backend handles generation, asset state, cleanup; frontend only concerns itself with displaying what is marked “active.” UI logic becomes simpler and safer.  
+- **Resilience to failures** — failed mockups or missing templates don’t break the entire product flow; they’re logged and handled gracefully.  
+- **Predictable product output** — end result is always exactly 3 (or 2 if fallback) images; no surprises for users/admins.  
+- **Easier maintenance & cleanup** — because you track asset state, it’s easier to purge old or failed assets without risking deletion of “good” ones.  
+- **Better future-proofing** — this explicit model can be extended later if you add more mockup types, more product variants, or even 3D assets — your frontend will just need to filter by `asset_role`.  
+
+---
+
+## 7. Full Meta-Dev Prompt (Frontend + Backend)  
+
+Use this as a single prompt to hand off to your internal engineer / AI-assistant / dev tooling:
+
+You are a full-stack engineer working on the AI-Product-Builder (ITP) system. Your goal is to refactor and stabilize the current flow (AI design → user select → mockups → product) by improving asset state management, mockup generation reliability, and frontend display logic so that every final product page always shows exactly the correct images (1 design + 2 mockups), no redundant or failed assets, and no manual cleanup required.
+
+Implement the following:
+
+Extend the product_asset model to include: is_primary_design (bool), is_active (bool), asset_role (enum: design / mockup_flat_lay / mockup_mr_imagine / auxiliary), optional template_info and error_status fields.
+
+On multi-model image generation: upload design assets with is_active = false / pending_selection.
+
+On user image selection: mark the selected asset is_primary_design = true, is_active = true; mark all other design assets is_active = false / archived. Then queue mockup jobs (flat_lay + mr_imagine) referencing selected design + product metadata (type, shirt_color).
+
+Mockup worker: generate mockups; if generation succeeds, create product_assets with appropriate role & is_active. If fails, mark error_status, is_active = false, log error, optionally fallback.
+
+Product finalization logic: mark product ready only when required assets are present.
+
+API / frontend: when fetching assets for display, return only assets with is_active = true. Frontend gallery component should render in fixed order: design → flat_lay → mr_imagine (if present), otherwise handle fallback gracefully.
+
+Add safeguards for edge cases: re-selection, concurrency, missing templates, failures, cleanup of old assets.
+
+Write out the full revised workflow (backend + frontend), data model changes, UI/API contracts, error handling strategy, and example scenarios (normal flow, re-selection, mockup failure).
+
+Also include a short rationale for why this approach leads to more stable, maintainable code and better user experience.

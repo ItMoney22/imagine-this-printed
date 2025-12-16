@@ -33,7 +33,7 @@ export default function AdminCreateProductWizard() {
 
   // Step 1: Describe
   const [prompt, setPrompt] = useState('')
-  const [priceTarget, setPriceTarget] = useState(29.99)
+  const [priceTarget, setPriceTarget] = useState(25)
   const [mockupStyle, setMockupStyle] = useState<'flat' | 'human'>('flat')
   const [background, setBackground] = useState<'transparent' | 'studio'>('studio')
   const [tone, setTone] = useState<'professional' | 'playful' | 'minimal'>('professional')
@@ -1208,7 +1208,7 @@ export default function AdminCreateProductWizard() {
                 </div>
                 <div>
                   <p className={`font-medium transition-colors ${jobs.some(j => j.type === 'replicate_mockup' && j.status === 'running') ? 'text-primary' : 'text-text'}`}>Step 4: Generate Product Mockups (2x)</p>
-                  <p className="text-muted text-sm mt-1">Nano Banana AI applies the product image to realistic mockup templates (flat lay + lifestyle)</p>
+                  <p className="text-muted text-sm mt-1">ITP Enhance Engine applies the product image to realistic mockup templates (flat lay + lifestyle)</p>
                 </div>
               </div>
             </div>
@@ -1440,11 +1440,10 @@ export default function AdminCreateProductWizard() {
             {sourceImages.map((image, index) => (
               <div
                 key={image.id}
-                className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl p-6 border transition-all duration-300 shadow-xl ${
-                  selectedImageId === image.id
+                className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl p-6 border transition-all duration-300 shadow-xl ${selectedImageId === image.id
                     ? 'border-primary/70 ring-2 ring-primary/50 shadow-[0_0_30px_rgba(168,85,247,0.3)]'
                     : 'border-white/10 hover:border-primary/30'
-                }`}
+                  }`}
               >
                 {/* Model Badge */}
                 <div className="absolute top-4 left-4 z-10 bg-gradient-to-r from-primary/90 to-purple-600/90 backdrop-blur-sm text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2">

@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
+import { Coins } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -127,11 +129,14 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
 }
 
 const Checkout: React.FC = () => {
-  const { state } = useCart()
+  const { state, clearCart } = useCart()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [clientSecret, setClientSecret] = useState('')
   const [shippingCalculation, setShippingCalculation] = useState<ShippingCalculation | null>(null)
   const [loadingShipping, setLoadingShipping] = useState(false)
+  const [processingITCPayment, setProcessingITCPayment] = useState(false)
+  const [paymentError, setPaymentError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -143,10 +148,29 @@ const Checkout: React.FC = () => {
     country: 'US'
   })
 
+  // Calculate totals based on payment methods
+  const { usdItems, itcItems, usdTotal, itcTotal, requiresITCPayment, requiresUSDPayment } = useMemo(() => {
+    const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
+    const itcItems = state.items.filter(item => item.paymentMethod === 'itc')
+
+    const usdTotal = usdItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+    const itcTotal = itcItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+
+    return {
+      usdItems,
+      itcItems,
+      usdTotal,
+      itcTotal,
+      requiresITCPayment: itcItems.length > 0,
+      requiresUSDPayment: usdItems.length > 0,
+    }
+  }, [state.items])
+
   const subtotal = state.total
   const shipping = shippingCalculation?.selectedRate?.amount || 0
-  const tax = subtotal * 0.08
-  const total = subtotal + shipping + tax
+  const tax = usdTotal * 0.08 // Only apply tax to USD items
+  const totalUSD = usdTotal + shipping + tax
+  const totalITC = itcTotal
 
   useEffect(() => {
     if (state.items.length > 0) {
@@ -155,10 +179,10 @@ const Checkout: React.FC = () => {
   }, [state.items, formData.address, formData.city, formData.state, formData.zipCode, formData.country])
 
   useEffect(() => {
-    if (state.items.length > 0 && shippingCalculation) {
+    if (state.items.length > 0 && shippingCalculation && requiresUSDPayment) {
       createPaymentIntent()
     }
-  }, [state.items, total, shippingCalculation])
+  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment])
 
   const calculateShipping = async () => {
     if (!formData.address || !formData.city || !formData.state || !formData.zipCode) {
@@ -201,9 +225,9 @@ const Checkout: React.FC = () => {
       const data = await apiFetch('/api/create-payment-intent', {
         method: 'POST',
         body: JSON.stringify({
-          amount: Math.round(total * 100),
+          amount: Math.round(totalUSD * 100),
           currency: 'usd',
-          items: state.items,
+          items: usdItems,
           shipping: formData
         }),
       })
@@ -211,6 +235,48 @@ const Checkout: React.FC = () => {
       setClientSecret(data.clientSecret)
     } catch (error) {
       console.error('Error creating payment intent:', error)
+    }
+  }
+
+  const handleITCPayment = async () => {
+    if (!user) {
+      setPaymentError('Please sign in to use ITC wallet')
+      return
+    }
+
+    if ((user.wallet?.itcBalance || 0) < totalITC) {
+      setPaymentError(`Insufficient ITC balance. You need ${totalITC.toFixed(2)} ITC but have ${(user.wallet?.itcBalance || 0).toFixed(2)} ITC`)
+      return
+    }
+
+    setProcessingITCPayment(true)
+    setPaymentError(null)
+
+    try {
+      // Call backend to process ITC payment
+      const response = await apiFetch('/api/wallet/process-itc-payment', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: itcItems,
+          amount: totalITC,
+          shipping: formData,
+        }),
+      })
+
+      if (response.success) {
+        // If there are no USD items, complete the order
+        if (!requiresUSDPayment) {
+          clearCart()
+          navigate('/')
+        }
+        // Otherwise, wait for USD payment to complete
+      } else {
+        setPaymentError(response.error || 'Failed to process ITC payment')
+      }
+    } catch (error: any) {
+      setPaymentError(error.message || 'Failed to process ITC payment')
+    } finally {
+      setProcessingITCPayment(false)
     }
   }
 
@@ -421,12 +487,63 @@ const Checkout: React.FC = () => {
               </div>
             )}
 
-            {clientSecret && (
+            {/* ITC Payment Section */}
+            {requiresITCPayment && (
+              <div className="bg-card rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-secondary" />
+                  ITC Wallet Payment
+                </h2>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center p-4 bg-secondary/10 border border-secondary/30 rounded">
+                    <div>
+                      <p className="text-sm text-muted">Total ITC Amount</p>
+                      <p className="text-2xl font-bold text-secondary">{totalITC.toFixed(2)} ITC</p>
+                    </div>
+                    {user && (
+                      <div className="text-right">
+                        <p className="text-sm text-muted">Your Balance</p>
+                        <p className={`text-lg font-semibold ${(user.wallet?.itcBalance || 0) >= totalITC ? 'text-green-400' : 'text-red-400'}`}>
+                          {(user.wallet?.itcBalance || 0).toFixed(2)} ITC
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {paymentError && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+                      {paymentError}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleITCPayment}
+                    disabled={processingITCPayment || !user || (user.wallet?.itcBalance || 0) < totalITC}
+                    className={`w-full px-4 py-3 rounded font-medium transition-all ${
+                      processingITCPayment || !user || (user.wallet?.itcBalance || 0) < totalITC
+                        ? 'bg-secondary/10 text-muted cursor-not-allowed'
+                        : 'bg-gradient-to-r from-secondary to-accent hover:shadow-glowLg text-white'
+                    }`}
+                  >
+                    {processingITCPayment ? 'Processing...' : `Pay ${totalITC.toFixed(2)} ITC`}
+                  </button>
+
+                  {!user && (
+                    <p className="text-xs text-muted text-center">
+                      Please sign in to use ITC wallet
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {requiresUSDPayment && clientSecret && (
               <Elements stripe={stripePromise} options={{ clientSecret }}>
                 <CheckoutForm
                   clientSecret={clientSecret}
-                  total={total}
-                  items={state.items}
+                  total={totalUSD}
+                  items={usdItems}
                   shipping={formData}
                 />
               </Elements>
@@ -458,22 +575,47 @@ const Checkout: React.FC = () => {
             </div>
 
             <div className="border-t pt-4 space-y-2">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>${subtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Shipping</span>
-                <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Tax</span>
-                <span>${tax.toFixed(2)}</span>
-              </div>
-              <div className="border-t pt-2 flex justify-between font-bold text-lg">
-                <span>Total</span>
-                <span>${total.toFixed(2)}</span>
-              </div>
+              {requiresUSDPayment && (
+                <>
+                  <div className="flex justify-between">
+                    <span>USD Subtotal</span>
+                    <span>${usdTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Shipping</span>
+                    <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tax</span>
+                    <span>${tax.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold">
+                    <span>USD Total</span>
+                    <span>${totalUSD.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+
+              {requiresITCPayment && (
+                <>
+                  {requiresUSDPayment && <div className="border-t pt-2" />}
+                  <div className="flex justify-between items-center">
+                    <span className="flex items-center gap-1">
+                      <Coins className="w-4 h-4 text-secondary" />
+                      ITC Total
+                    </span>
+                    <span className="font-semibold text-secondary">{totalITC.toFixed(2)} ITC</span>
+                  </div>
+                </>
+              )}
+
+              {requiresUSDPayment && requiresITCPayment && (
+                <div className="border-t pt-2 mt-2">
+                  <p className="text-xs text-muted">
+                    You will be charged ${totalUSD.toFixed(2)} USD and {totalITC.toFixed(2)} ITC
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="mt-6 pt-6 border-t">

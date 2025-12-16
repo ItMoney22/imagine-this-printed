@@ -23,7 +23,6 @@ export interface OrderCompletionEvent {
 export interface RewardResult {
   success: boolean
   orderId: string
-  pointsAwarded: number
   itcAwarded: number
   tier: string
   message: string
@@ -51,7 +50,6 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
       return {
         success: false,
         orderId,
-        pointsAwarded: 0,
         itcAwarded: 0,
         tier: 'unknown',
         message: 'Rewards already awarded for this order',
@@ -82,7 +80,6 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
     // 4. Log success
     console.log(`[OrderRewardService] Rewards awarded successfully:`, {
       orderId,
-      points: result.points_awarded,
       itc: result.itc_awarded,
       tier: result.tier
     })
@@ -94,7 +91,6 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
       entity: 'order',
       entityId: orderId,
       changes: {
-        points: result.points_awarded,
         itc: result.itc_awarded,
         tier: result.tier,
         promo_multiplier: promoMultiplier
@@ -104,9 +100,8 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
     // 6. Send notification to user (optional - would integrate with notification service)
     const message = formatRewardMessage(
       {
-        points: result.points_awarded,
         itc: result.itc_awarded,
-        basePoints: result.points_awarded,
+        baseITC: result.itc_awarded,
         tierBonus: 0,
         promoBonus: 0,
         reason: 'Order completed'
@@ -117,7 +112,6 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
     return {
       success: true,
       orderId,
-      pointsAwarded: result.points_awarded,
       itcAwarded: result.itc_awarded,
       tier: result.tier,
       message
@@ -140,7 +134,6 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
     return {
       success: false,
       orderId,
-      pointsAwarded: 0,
       itcAwarded: 0,
       tier: 'unknown',
       message: 'Failed to award rewards',
@@ -168,7 +161,6 @@ export async function processBatchOrderCompletions(
       return {
         success: false,
         orderId: events[index].orderId,
-        pointsAwarded: 0,
         itcAwarded: 0,
         tier: 'unknown',
         message: 'Processing failed',
@@ -220,7 +212,6 @@ export async function retryFailedRewards(orderId: string): Promise<RewardResult>
     return {
       success: false,
       orderId,
-      pointsAwarded: 0,
       itcAwarded: 0,
       tier: 'unknown',
       message: 'Retry failed',

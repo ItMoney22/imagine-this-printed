@@ -296,6 +296,10 @@ export const imaginationApi = {
   enhanceImage: (params: { imageUrl: string; useTrial?: boolean }) =>
     api.post('/api/imagination-station/ai/enhance', params),
 
+  // Reimagine It - add elements to existing images with AI
+  reimagineImage: (params: { imageUrl: string; prompt: string; useTrial?: boolean }) =>
+    api.post('/api/imagination-station/ai/reimagine', params),
+
   // Layout operations - Component-friendly signatures
   autoNest: (params: { sheetWidth: number; sheetHeight: number; layers: Array<{ id: string; width: number; height: number; rotation?: number }>; padding?: number }) =>
     api.post('/api/imagination-station/layout/auto-nest', params),

@@ -1,6 +1,6 @@
 /**
  * Realistic Mockup Generation API Routes
- * Handles AI-powered realistic mockup generation with Nano Banana virtual try-on
+ * Handles AI-powered realistic mockup generation with ITP Enhance Engine virtual try-on
  */
 
 import express, { Request, Response } from 'express'
@@ -34,7 +34,7 @@ interface MockupGenerationRequest {
 
 /**
  * POST /api/realistic-mockups/generate
- * Generate realistic mockup using Nano Banana virtual try-on
+ * Generate realistic mockup using ITP Enhance Engine virtual try-on
  */
 router.post('/generate', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -445,7 +445,7 @@ router.get('/gallery', requireAuth, async (req: Request, res: Response): Promise
 })
 
 /**
- * Async function to generate mockup with Nano Banana
+ * Async function to generate mockup with ITP Enhance Engine
  */
 async function generateMockupAsync(
   generationId: string,
@@ -455,18 +455,18 @@ async function generateMockupAsync(
   productTemplate: string
 ): Promise<void> {
   try {
-    console.log(`[Mockup ${generationId}] Starting generation with Nano Banana`)
+    console.log(`[Mockup ${generationId}] Starting generation with ITP Enhance Engine`)
 
     // Build prompt for virtual try-on
     const garmentDescription = buildGarmentDescription(modelDescription, productTemplate)
 
     console.log(`[Mockup ${generationId}] Garment description:`, garmentDescription)
 
-    // Call Replicate Nano Banana API (Google image editing model) for virtual try-on
-    const nanoBananaModel = "google/nano-banana:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be"
-    console.log(`[Mockup ${generationId}] Using Nano Banana model:`, nanoBananaModel)
+    // Call Replicate ITP Enhance Engine API (Google image editing model) for virtual try-on
+    const itpEnhanceModel = "google/nano-banana:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be" // ITP Enhance Engine
+    console.log(`[Mockup ${generationId}] Using ITP Enhance Engine model:`, itpEnhanceModel)
 
-    // Build prompt for Nano Banana to perform virtual try-on
+    // Build prompt for ITP Enhance Engine to perform virtual try-on
     const stockModelUrl = await getStockModelUrlWithFallback(modelDescription)
     const prompt = `Professional product photography of a front-facing full body ${modelDescription.gender} model wearing a ${modelDescription.garmentColor} ${garmentDescription}. The model is ${modelDescription.ethnicity} with ${modelDescription.bodyType} body type, facing directly towards the camera in a straight-on front view. Apply the custom graphic design from the reference images seamlessly onto the ${garmentDescription}. Show the complete garment from shoulders to waist with realistic fabric texture, proper lighting, and natural shadows. Front view only, full torso view, not turned to the side, not just a headshot. High quality professional fashion photography.`
 
@@ -475,7 +475,7 @@ async function generateMockupAsync(
     console.log(`[Mockup ${generationId}] Design URL:`, designUrl)
 
     const output = await replicate.run(
-      nanoBananaModel as any,
+      itpEnhanceModel as any,
       {
         input: {
           prompt: prompt,
@@ -492,7 +492,7 @@ async function generateMockupAsync(
       .update({ replicate_prediction_id: String((output as any)?.id || 'unknown') })
       .eq('id', generationId)
 
-    // Handle Nano Banana output (async iterator or direct response)
+    // Handle ITP Enhance Engine output (async iterator or direct response)
     let outputUrl: string | null = null
 
     if (typeof output === 'string') {
@@ -529,7 +529,7 @@ async function generateMockupAsync(
     }
 
     if (!outputUrl || typeof outputUrl !== 'string') {
-      throw new Error('No valid output from Nano Banana')
+      throw new Error('No valid output from ITP Enhance Engine')
     }
 
     console.log(`[Mockup ${generationId}] Generation complete from Replicate:`, outputUrl.substring(0, 100) + '...')
@@ -601,7 +601,7 @@ async function generateMockupAsync(
 }
 
 /**
- * Build garment description for Nano Banana
+ * Build garment description for ITP Enhance Engine
  */
 function buildGarmentDescription(modelDescription: any, productTemplate: string): string {
   const { garmentColor, shirtType } = modelDescription

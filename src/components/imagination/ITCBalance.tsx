@@ -71,7 +71,7 @@ export default function ITCBalance({ balance }: ITCBalanceProps) {
             <span className="text-text font-medium">5 ITC</span>
           </div>
           <div className="flex justify-between">
-            <span>Nano Banana:</span>
+            <span>ITP Enhance:</span>
             <span className="text-text font-medium">3 ITC</span>
           </div>
         </div>

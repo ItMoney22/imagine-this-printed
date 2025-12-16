@@ -1,9 +1,10 @@
 import React from 'react'
-import { Upload, Sparkles, Wand2 } from 'lucide-react'
+import { Upload, Sparkles, Wand2, Plus } from 'lucide-react'
 import SheetPresets from './SheetPresets'
 import LayersPanel from './LayersPanel'
 import ITCBalance from './ITCBalance'
 import SaveStatus from './SaveStatus'
+import AddElementPanel from './AddElementPanel'
 import type { Sheet, Layer, Pricing, FreeTrials } from '../../types'
 
 interface LeftSidebarProps {
@@ -36,6 +37,7 @@ export default function LeftSidebar({
   lastSaved
 }: LeftSidebarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [showAddElementPanel, setShowAddElementPanel] = React.useState(false)
 
   const handleUploadClick = () => {
     fileInputRef.current?.click()
@@ -92,12 +94,23 @@ export default function LeftSidebar({
     console.log('Mr. Imagine clicked')
   }
 
-  const handleNanoBanana = () => {
-    // TODO: Open Nano Banana modal
-    console.log('Nano Banana clicked')
+  const handleITPEnhance = () => {
+    // TODO: Open ITP Enhance modal
+    console.log('ITP Enhance clicked')
+  }
+
+  const handleAddElement = (element: Layer) => {
+    onLayerAdded(element)
   }
 
   return (
+    <>
+      {showAddElementPanel && (
+        <AddElementPanel
+          onAddElement={handleAddElement}
+          onClose={() => setShowAddElementPanel(false)}
+        />
+      )}
     <aside className="w-72 bg-card border-r border-primary/20 flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-primary/20">
@@ -112,8 +125,8 @@ export default function LeftSidebar({
           <SheetPresets sheet={sheet} onSheetChange={onSheetChange} />
         </div>
 
-        {/* Upload Button */}
-        <div className="p-4 border-b border-primary/20">
+        {/* Upload & Add Element Buttons */}
+        <div className="p-4 border-b border-primary/20 space-y-3">
           <input
             ref={fileInputRef}
             type="file"
@@ -129,6 +142,15 @@ export default function LeftSidebar({
           >
             <Upload className="w-5 h-5" />
             Upload Image
+          </button>
+
+          <button
+            onClick={() => setShowAddElementPanel(true)}
+            disabled={isProcessing}
+            className="w-full px-4 py-3 bg-secondary/10 hover:bg-secondary/20 border border-secondary/30 rounded-lg text-text font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-5 h-5" />
+            Add Element
           </button>
         </div>
 
@@ -153,15 +175,15 @@ export default function LeftSidebar({
             )}
           </button>
 
-          {/* Nano Banana */}
+          {/* ITP Enhance */}
           <button
-            onClick={handleNanoBanana}
+            onClick={handleITPEnhance}
             disabled={isProcessing}
             className="w-full px-4 py-3 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 hover:from-yellow-500/20 hover:to-orange-500/20 border border-yellow-500/30 rounded-lg text-text font-medium flex items-center justify-between gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="flex items-center gap-2">
               <Wand2 className="w-5 h-5 text-yellow-400" />
-              <span>Nano Banana</span>
+              <span>ITP Enhance</span>
             </div>
             {(freeTrials.removeBackground > 0 || freeTrials.upscale > 0 || freeTrials.enhance > 0) && (
               <span className="text-xs px-2 py-0.5 bg-yellow-500/20 rounded-full text-yellow-300">
@@ -185,5 +207,6 @@ export default function LeftSidebar({
         <ITCBalance balance={itcBalance} />
       </div>
     </aside>
+    </>
   )
 }

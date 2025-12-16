@@ -79,7 +79,7 @@ const RealisticMockupDisplay: React.FC<RealisticMockupDisplayProps> = ({ mockupU
  *
  * Displays a real-time preview of the design composited onto a product mockup.
  * Uses HTML Canvas to render design elements within the print area boundaries.
- * Provides button to generate a realistic preview via Nano Banana API.
+ * Provides button to generate a realistic preview via ITP Enhance Engine API.
  */
 const MockupPreview: React.FC<MockupPreviewProps> = ({
   designElements,

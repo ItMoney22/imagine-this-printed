@@ -1,0 +1,361 @@
+Imagination Station – Fixes & Improvements Report
+Full Issues List, Expected Behaviors, and Developer Instructions
+
+Version 1.0 – Living Document
+
+1. Overview of Current Issues
+
+This document outlines all known broken, missing, or malfunctioning features within the Imagination Station builder. Each section includes:
+
+The issue
+
+Expected behavior
+
+The incorrect/actual behavior
+
+What MetaDev needs to fix
+
+Any UI/UX or backend adjustments
+
+This is a critical stabilization pass required before adding new features.
+
+2. Navigation & Core UI Issues
+2.1 Back Button Not Working
+Expected:
+
+Returns the user to the previous page or the ITP product selection.
+
+Actual:
+
+No action when clicked.
+
+Fix:
+
+Ensure the button is wired to router.back() or assigned route.
+
+Add loading state to prevent multi-click errors.
+
+2.2 Top Navigation Buttons Not Working
+
+Buttons include:
+
+Save
+
+ITC
+
+Profile
+
+Settings
+
+Expected:
+
+Each should:
+
+Open the corresponding modal or panel
+
+Perform its respective function
+
+Actual:
+
+Nothing happens on click.
+
+Fix:
+
+Wire all top-nav buttons to their modals.
+
+Add proper state management using React context or Zustand store.
+
+2.3 Hide Panel Icon Not Working
+Expected:
+
+Click hides left/right sidebar to enlarge canvas.
+
+Actual:
+
+No function triggered.
+
+Fix:
+
+Implement simple toggle: setSidebarVisible(!visible)
+
+2.4 Lock Icon Not Working
+Expected:
+
+Locks selected element(s) so they cannot be moved, scaled, or rotated.
+
+Actual:
+
+Does nothing.
+
+Fix:
+
+Add locked: boolean to layer state
+
+Disable transform handlers when locked
+
+3. AI & Nano Banana System (White-Label Renaming + Broken Functionality)
+3.1 Mr. Imagine AI Generations Not Working
+Expected:
+
+User enters a prompt
+
+“Generate” creates artwork on canvas
+
+Costs ITC
+
+Adds to user layer list
+
+Actual:
+
+No generation is triggered
+
+No loading state
+
+No API request being sent
+
+Fix:
+
+Ensure endpoint /api/imagination-station/generate is fully wired
+
+Add job polling and placement logic
+
+Add ITC deduction and error handling
+
+3.2 Remove Background Not Working
+Expected:
+
+BG removed via AI
+
+New cleaned PNG added to canvas
+
+Actual:
+
+Button does nothing
+
+Fix:
+
+Wire to backend: /api/imagination-station/remove-bg
+
+Add ITC charge
+
+Replace layer on success
+
+Add “processing…” state
+
+3.3 Upscale Not Working
+Expected:
+
+Same image, higher resolution
+
+Replaces original layer
+
+Actual:
+
+No action at all
+
+Fix:
+
+Implement /api/imagination-station/upscale
+
+Add before/after preview
+
+Ensure ITC deduction logic works
+
+3.4 Enhance Quality Not Working
+Expected:
+
+Smart sharpening, color boost, noise reduction
+
+Actual:
+
+Nothing happens
+
+Fix:
+
+Add AI enhancement endpoint
+
+Add UI confirmation dialog
+
+Replace original layer
+
+3.5 Autonest Broken
+Expected:
+
+Automatically arranges all layers efficiently
+
+Actual:
+
+No function triggers
+
+Fix:
+
+Implement grid-based packing algorithm OR use backend node module
+
+Add options: margin, spacing, grouping
+
+Add error handling if layers too large
+
+3.6 SmartFill Broken
+Expected:
+
+Fills empty space with duplicates of selected design.
+
+Actual:
+
+No action.
+
+Fix:
+
+Implement for-loop system that calculates needed rows/columns
+
+Place duplicates spaced evenly
+
+Add ITC cost if applicable
+
+4. White-Label Renaming Requirements
+
+“Nano Banana” name must be removed everywhere including:
+
+Buttons
+
+Toast messages
+
+API responses
+
+Logs
+
+Comments
+
+Generated layer metadata
+
+Replacement Name:
+
+ITP Enhance Engine
+(or confirm another name you want)
+
+5. Canvas Interaction Issues
+5.1 Resize by Dragging Should Always Work
+
+You noted this sometimes works, sometimes doesn’t.
+
+Fix:
+
+Rebuild Konva transformer logic
+
+Ensure transformer is added when layer is selected
+
+Fix z-index issues
+
+Add large hit area for mobile usability
+
+5.2 Duplicate Works Correctly (Keep as-is)
+5.3 Delete Works Correctly (Keep as-is)
+6. Export Options Need to Be Removed / Replaced
+6.1 Export as PNG (REMOVE)
+Reason:
+
+Users should not be able to export anything directly.
+
+Expected replacement:
+
+Replace with “Add to Cart”
+
+Export to production is handled by backend only
+
+6.2 Export as PDF (REMOVE)
+Replacement:
+
+“Add to Cart” button triggers:
+
+Save sheet JSON
+
+Save preview thumbnail
+
+Attach sheet to order metadata
+
+Production backend generates print file
+
+Staff reviews & prints
+
+7. Resolution & Quality Checking
+7.1 Image DPI Detection Must Be Implemented
+Expected behavior:
+
+On image upload, check pixel width × height
+
+Assign print DPI based on sheet scaling
+
+Warn if:
+
+Below 150 DPI (YELLOW)
+
+Below 100 DPI (RED danger)
+
+Missing:
+
+No warning system exists
+
+No resolution evaluation
+
+No visual indicators
+
+Fix:
+
+Add DPI analyzer in frontend
+
+Add warnings in sidebar
+
+Prevent checkout if critical DPI issues exist
+
+8. Features That Currently Do Nothing (Must Fix)
+Feature	Should Do	Currently Does
+Include Cut Lines	Add stroke around shape	Nothing
+Mirror for Sublimation	Flip horizontally	Nothing
+Safe Margin Toggle	Shows guide	Nothing
+Layer Lock	Locks transforms	Nothing
+Hide Panels	Collapses sidebars	Nothing
+Reset Canvas	Restores default state	Nothing
+Sheet Presets	Should resize canvas	Only partially works
+9. Add to Cart Flow (New Requirement)
+
+Users should NOT export their own files.
+
+Instead:
+
+When they click Add to Cart, the system should:
+
+Save the sheet configuration JSON
+
+Save a 150–300 DPI preview image
+
+Save user metadata
+
+Push to order with proper SKU
+
+Production backend handles the real export
+
+10. Images & Screenshots Section (To Be Added by You)
+
+Paste your screenshots under this section once the document is in Drive.
+
+11. MetaDev Fix Prompt (Will Be Generated After Final Issue Review)
+
+After we finish adding all screenshots and verifying every bug, I will generate a single super-prompt for MetaDev that includes:
+
+All broken features
+
+Step-by-step fixes
+
+Code changes
+
+API endpoints
+
+UX updates
+
+Naming updates
+
+Removal of export buttons
+
+END OF DOCUMENT
+
+This document is designed to be maintained over time as more issues are found or resolved.

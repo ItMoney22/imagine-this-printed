@@ -19,38 +19,38 @@ export type PrintType = 'dtf' | 'uv_dtf' | 'sublimation';
 
 export const SHEET_PRESETS: Record<PrintType, PrintTypePreset> = {
   dtf: {
-    width: 22.5,
+    width: 22.5, // FIXED WIDTH - DTF transfers are always 22.5" wide
     heights: [24, 36, 48, 53, 60, 72, 84, 96, 108, 120, 132, 144, 168, 192, 216, 240],
     rules: {
-      mirror: false,
+      mirror: false, // DTF does NOT require mirroring (hide mirror toggle)
       whiteInk: true,
       minDPI: 300
     },
     displayName: 'DTF (Direct-to-Film)',
-    description: '22.5" width, any color, no mirroring required'
+    description: '22.5" width (FIXED), any color, no mirroring required'
   },
   uv_dtf: {
-    width: 16,
+    width: 16, // FIXED WIDTH - UV DTF transfers are always 16" wide
     heights: [12, 24, 36, 48, 60, 72, 84, 96, 108, 120],
     rules: {
-      mirror: false,
+      mirror: false, // UV DTF does NOT require mirroring (hide mirror toggle)
       whiteInk: true,
-      cutlineOption: true,
+      cutlineOption: true, // UV DTF supports cutlines toggle (show cutlines toggle)
       minDPI: 300
     },
     displayName: 'UV DTF (Stickers)',
-    description: '16" width, hard surface transfers, optional cutlines'
+    description: '16" width (FIXED), hard surface transfers, optional cutlines'
   },
   sublimation: {
-    width: 22,
+    width: 22, // FIXED WIDTH - Sublimation transfers are always 22" wide
     heights: [24, 36, 48, 60, 72, 84, 96, 120],
     rules: {
-      mirror: true,
+      mirror: true, // Sublimation requires mirroring option (show mirror toggle)
       whiteInk: false,
       minDPI: 300
     },
     displayName: 'Sublimation',
-    description: '22" width, no white ink, mirroring often required'
+    description: '22" width (FIXED), no white ink, mirroring often required'
   }
 };
 

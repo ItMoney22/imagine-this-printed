@@ -102,9 +102,16 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
     console.log('[voice-chat] ✅ Complete voice turn in', elapsed, 'seconds')
 
+    // Clean up display text - remove pause markers meant for voice synthesis
+    // These markers like <#0.3#> are for TTS natural pauses but shouldn't show in UI
+    const displayText = aiResponse.text
+      .replace(/<#[\d.]+#>/g, '') // Remove pause markers like <#0.3#>, <#0.5#>, etc.
+      .replace(/\s+/g, ' ')       // Normalize whitespace
+      .trim()
+
     // STEP 5: Return complete response with new fields
     res.json({
-      text: aiResponse.text,
+      text: displayText,
       audio_url: voiceUrl,
       next_prompt: aiResponse.nextPrompt,
       is_complete: aiResponse.isComplete,

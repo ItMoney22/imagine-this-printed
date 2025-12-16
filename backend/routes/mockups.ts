@@ -2,8 +2,14 @@ import { Router, Request, Response } from 'express'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { uploadImageFromBase64 } from '../services/google-cloud-storage.js'
+import Replicate from 'replicate'
 
 const router = Router()
+
+// Initialize Replicate client
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN!
+})
 
 /**
  * Helper function to check if user is admin
@@ -358,6 +364,103 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<
     })
   } catch (error: any) {
     console.error('[mockups] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Product preview prompts for ITP Enhance Engine mockups
+const PRODUCT_PROMPTS: Record<string, string> = {
+  'tshirt-black': 'Professional product photography of a black t-shirt lying flat on a white background, with a custom graphic design printed on the chest area. The t-shirt is displayed flat lay style, neatly arranged, showing the full front of the shirt. High quality product photography, soft shadows, clean white background.',
+  'hoodie-black': 'Professional product photography of a black hoodie lying flat on a white background, with a custom graphic design printed on the chest area. The hoodie is displayed flat lay style with the hood neatly arranged above, showing the full front. High quality product photography, soft shadows, clean white background.',
+  'tumbler': 'Professional product photography of a stainless steel tumbler with a custom graphic design wrap printed around the body. The tumbler is standing upright on a white background, showing the design clearly. High quality product photography, reflective surface, soft shadows.',
+  'metal-print-4x6': 'Professional product photography of a 4x6 inch metal print with a custom graphic design displayed on it. The metal print is leaning at a slight angle against a neutral background, showing chromaluxe glossy finish with vibrant colors. High quality product photography.',
+  'metal-print-8x10': 'Professional product photography of a 8x10 inch metal print with a custom graphic design displayed on it. The metal print is mounted on a wall, showing the full design with chromaluxe glossy finish and vibrant colors. High quality product photography.',
+}
+
+/**
+ * POST /api/mockups/itp-enhance
+ * Generate product preview mockup using ITP Enhance Engine
+ * FREE for product preview - no ITC charge
+ */
+router.post('/itp-enhance', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const { design_url, product_type, mockup_type } = req.body
+
+    if (!design_url || !product_type) {
+      return res.status(400).json({
+        error: 'Missing required fields: design_url, product_type'
+      })
+    }
+
+    const prompt = PRODUCT_PROMPTS[product_type]
+    if (!prompt) {
+      return res.status(400).json({
+        error: `Unknown product type: ${product_type}. Valid types: ${Object.keys(PRODUCT_PROMPTS).join(', ')}`
+      })
+    }
+
+    console.log(`[mockups/itp-enhance] Generating ${product_type} mockup for user ${userId}`)
+    console.log(`[mockups/itp-enhance] Design URL: ${design_url.substring(0, 100)}...`)
+
+    // Call Replicate ITP Enhance Engine API
+    const itpEnhanceModel = "google/itp-enhance:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be"
+
+    const output = await replicate.run(
+      itpEnhanceModel as any,
+      {
+        input: {
+          prompt: prompt,
+          image_input: [design_url],
+          output_format: "png",
+          aspect_ratio: "1:1"
+        }
+      }
+    )
+
+    // Handle output (URL string, array, or async iterator)
+    let mockupUrl: string | null = null
+
+    if (typeof output === 'string') {
+      mockupUrl = output
+    } else if (Array.isArray(output) && output.length > 0) {
+      mockupUrl = output[0]
+    } else if (output && typeof output === 'object' && Symbol.asyncIterator in output) {
+      // Handle async iterator
+      const outputs: string[] = []
+      for await (const item of output as AsyncIterable<any>) {
+        if (typeof item === 'string') {
+          outputs.push(item)
+        } else if (item && typeof item === 'object' && 'url' in item) {
+          outputs.push(item.url)
+        }
+      }
+      if (outputs.length > 0) {
+        mockupUrl = outputs[0]
+      }
+    }
+
+    if (!mockupUrl) {
+      console.error('[mockups/itp-enhance] No valid output from ITP Enhance Engine:', output)
+      return res.status(500).json({ error: 'Failed to generate mockup' })
+    }
+
+    console.log(`[mockups/itp-enhance] ✅ Mockup generated: ${mockupUrl.substring(0, 100)}...`)
+
+    return res.json({
+      ok: true,
+      mockup_url: mockupUrl,
+      product_type,
+      mockup_type
+    })
+
+  } catch (error: any) {
+    console.error('[mockups/itp-enhance] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

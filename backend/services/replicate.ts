@@ -338,7 +338,7 @@ export async function generateMockup(input: ReplicateTryOnInput) {
 
   const placementDesc = placementInstructions[printPlacement] || placementInstructions['front-center']
 
-  // Build the prompt for Nano Banana with Mr. Imagine + Design fusion
+  // Build the prompt for ITP Enhance Engine with Mr. Imagine + Design fusion
   let prompt = ''
 
   if (input.template === 'flat_lay') {
@@ -365,7 +365,7 @@ CRITICAL INSTRUCTIONS:
 7. The result should look like Mr. Imagine is proudly showing off the custom ${productName}`
   }
 
-  // Nano Banana parameters with TWO input images: Mr. Imagine mockup + design
+  // ITP Enhance Engine parameters with TWO input images: Mr. Imagine mockup + design
   const params: any = {
     input: {
       prompt: prompt,
@@ -396,7 +396,7 @@ CRITICAL INSTRUCTIONS:
 }
 
 /**
- * Generate a ghost mannequin mockup using Nano-Banana (Gemini 2.5 Flash Image)
+ * Generate a ghost mannequin mockup using ITP Enhance Engine (Gemini 2.5 Flash Image)
  *
  * Creates a professional e-commerce photo showing the garment as a 3D volume
  * with realistic draping, as if worn by an invisible mannequin.
@@ -404,7 +404,7 @@ CRITICAL INSTRUCTIONS:
  * Only supports garment types: tshirt, hoodie, tank
  */
 export async function generateGhostMannequin(input: GhostMannequinInput) {
-  const modelId = 'google/nano-banana' // Gemini 2.5 Flash Image
+  const modelId = 'google/nano-banana' // ITP Enhance Engine (Gemini 2.5 Flash Image)
 
   console.log('[replicate] 👻 Generating ghost mannequin mockup:', {
     modelId,
@@ -446,22 +446,22 @@ REQUIREMENTS:
 
   console.log('[replicate] 📝 Ghost mannequin prompt:', prompt.substring(0, 100) + '...')
 
-  // Use replicate.run() for synchronous execution with Nano-Banana
-  // IMPORTANT: Nano-Banana uses "image_input" (array) not "image" (string)
+  // Use replicate.run() for synchronous execution with ITP Enhance Engine
+  // IMPORTANT: ITP Enhance Engine uses "image_input" (array) not "image" (string)
   const modelInput = {
     prompt: prompt,
-    image_input: [input.designImage], // Array format required by Nano-Banana
+    image_input: [input.designImage], // Array format required by ITP Enhance Engine
     aspect_ratio: '1:1',
     output_format: 'png',
   }
 
-  console.log('[replicate] 🔍 Using replicate.run() for Nano-Banana ghost mannequin')
+  console.log('[replicate] 🔍 Using replicate.run() for ITP Enhance Engine ghost mannequin')
 
   try {
     const output = await replicate.run(modelId as any, { input: modelInput }) as any
 
     console.log('[replicate] ✅ Ghost mannequin generation complete')
-    console.log('[replicate] 🔍 Nano-Banana raw output type:', typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
+    console.log('[replicate] 🔍 ITP Enhance Engine raw output type:', typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
 
     // Get the URL from the output
     let imageUrl: string

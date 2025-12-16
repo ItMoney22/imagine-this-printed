@@ -155,7 +155,9 @@ Instructions:
 2. Preserve the exact artwork from the second image - same colors, shapes, and details
 3. Make it look like a realistic printed graphic on the fabric, following the shirt's contours
 4. Keep Mr. Imagine exactly as shown - only add the graphic to the shirt
-5. Output a high-quality product mockup showing Mr. Imagine wearing the custom printed ${productName}`
+5. Use a clean PLAIN WHITE studio background behind Mr. Imagine - this is for e-commerce product display
+6. Output a SINGLE high-quality product mockup image showing Mr. Imagine wearing the custom printed ${productName}
+7. Do NOT generate multiple images or variations - only ONE final image`
 
     } else {
       // FLAT LAY / LIFESTYLE - Generate a NEW image (no base image)
@@ -213,11 +215,12 @@ Instructions:
         },
       ],
       generationConfig: {
-        temperature: 0.4,
+        temperature: 0.2, // Lower temperature for more deterministic single-image output
         topK: 32,
-        topP: 1,
-        maxOutputTokens: 8192,
-        responseModalities: ['TEXT', 'IMAGE'],
+        topP: 0.8,
+        maxOutputTokens: 4096,
+        candidateCount: 1, // Explicitly request only 1 candidate response
+        responseModalities: ['IMAGE'], // Only request image output, not text variations
       },
       safetySettings: [
         {
@@ -324,7 +327,7 @@ async function generateWithImagen3(
     // Imagen 3 through Google AI API - correct endpoint with :predict
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict`
 
-    const prompt = `A professional product mockup photo showing Mr. Imagine, a friendly purple furry cartoon mascot character, wearing a ${fabricColor} ${productName} with a custom DTF printed graphic design ${placementDesc}. The character is proudly displaying the custom printed shirt. Professional studio lighting, e-commerce quality product photography, clean background. The printed graphic should look realistic on the fabric.`
+    const prompt = `A professional product mockup photo showing Mr. Imagine, a friendly purple furry cartoon mascot character, wearing a ${fabricColor} ${productName} with a custom DTF printed graphic design ${placementDesc}. The character is proudly displaying the custom printed shirt. Professional studio lighting, e-commerce quality product photography, PLAIN WHITE STUDIO BACKGROUND. The printed graphic should look realistic on the fabric. Single character, single image, centered composition.`
 
     // Correct request format for Imagen 3 predict endpoint
     const requestBody = {

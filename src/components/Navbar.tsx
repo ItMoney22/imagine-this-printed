@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Palette } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
-import DesignStudioModal from './DesignStudioModal'
 
 const Navbar: React.FC = () => {
   const { state } = useCart()
   const { user, signOut } = useAuth()
   const [showAccountMenu, setShowAccountMenu] = useState(false)
-  const [showDesignModal, setShowDesignModal] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
 
   // DEBUG: Log user role on component mount and when user changes
@@ -76,13 +74,13 @@ const Navbar: React.FC = () => {
             <Link to="/catalog" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Products
             </Link>
-            <button
-              onClick={() => setShowDesignModal(true)}
-              className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium flex items-center gap-1.5 bg-gradient-to-r from-purple-600/10 to-pink-600/10 border border-purple-600/20 hover:border-purple-600/40 transition-all"
+            <Link
+              to="/imagination-station"
+              className="text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg hover:shadow-purple-500/25"
             >
-              <Palette className="w-4 h-4" />
-              Design Studio
-            </button>
+              <Sparkles className="w-4 h-4" />
+              Imagination Station
+            </Link>
             <Link to="/models" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
               3D Models
             </Link>
@@ -94,19 +92,10 @@ const Navbar: React.FC = () => {
             </Link>
             {user && (
               <>
-                <Link to="/create-design" className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-secondary transition-colors font-display">
-                  Create Design
-                </Link>
-                <Link to="/imagination-station" className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all font-display flex items-center gap-1.5 shadow-lg hover:shadow-purple-500/25">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                  </svg>
-                  Gang Sheets
-                </Link>
-                <Link to="/my-designs" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
+                <Link to="/my-designs" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
                   My Designs
                 </Link>
-                <Link to="/wallet" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
+                <Link to="/wallet" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
                   Wallet
                 </Link>
               </>
@@ -397,11 +386,6 @@ const Navbar: React.FC = () => {
           </div>
         </div>
       </div>
-
-      <DesignStudioModal
-        isOpen={showDesignModal}
-        onClose={() => setShowDesignModal(false)}
-      />
     </nav>
   )
 }

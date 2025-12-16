@@ -1,0 +1,15 @@
+/prompts:scout REQUEST="Imagination Sheet (Imagination Sheet editor) — expand scope to include THREE related UX/bug fixes and write updated CLAUDE_TASK.md + TASK_NOTES.md (strict file lists, plan, acceptance criteria, commands). Do NOT modify code; output docs only.
+
+1) Enhance Quality + Upscale: buttons currently claim success but output isn’t measurably improved (resolution/DPI unchanged). Fix end-to-end so Replicate truly returns an enhanced/upscaled asset AND UI swaps to the new asset. After processing, show a lightbox/modal with BEFORE vs AFTER and a draggable compare slider. Add clear progress/loading states and show final output metadata (pixel dimensions and/or DPI) so users can verify change.
+
+2) Mystery Imagine tool: Clicking 'Mystery Imagine' sometimes shows nothing in the UI even though Replicate generated an image. Fix the result rendering flow. Also redesign Mystery Imagine into a lightbox/tool panel: display the Mystery Imagine photo (the waving one) as the header/hero inside the modal, include CTA text like 'Click here to design an image / imagine anything come to life', provide a better-styled prompt input (prompt guidance, examples, optional settings/tools). When generation completes, show the generated image inside the same lightbox with clear states (queued/running/complete/error) and a retry button.
+
+3) Large sheet viewport/navigation: When a larger sheet opens, the top of the artboard isn’t visible without zooming out and back in. Add an intuitive pan/drag navigation feature so users can quickly move to the top/bottom without losing zoom. Options acceptable: (a) click-and-drag panning on the canvas, (b) mini-map / overview navigator, (c) 'jump to top/bottom' controls + draggable scroll thumb. Implement whichever best fits existing canvas tech. Must work on mouse + trackpad; mobile-friendly if applicable.
+
+SCOUT REQUIREMENTS:
+- Identify the relevant front-end components for the editor, the Replicate call(s), and the Mystery Imagine asset usage.
+- Determine why results aren’t applying (missing params/model, response not used, caching, state not updated, wrong image URL, etc.).
+- Include exact 'Relevant files' and 'Files to edit (STRICT)' lists.
+- Include acceptance criteria that are measurable for each feature (visual compare, metadata change, image appears reliably, pan/jump works without changing zoom).
+- Pull dev/test/build commands from package.json/README.
+"

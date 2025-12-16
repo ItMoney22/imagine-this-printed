@@ -99,7 +99,7 @@ router.post('/create-payment-intent', requireAuth, async (req: Request, res: Res
     const paymentIntent = await stripe.paymentIntents.create({
       amount, // Amount in cents
       currency,
-      description: description || `Purchase ${packageDetails.itcAmount} ITC tokens`,
+      description: description || `Purchase ${packageDetails.itcAmount} ITC`,
       metadata: {
         userId,
         itcAmount: packageDetails.itcAmount.toString(),
@@ -284,7 +284,7 @@ async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Reque
     .insert({
       user_id: userId,
       amount: itcAmountNum,
-      reason: `Purchased ${itcAmountNum} ITC tokens for $${usdAmount.toFixed(2)}`,
+      reason: `Purchased ${itcAmountNum} ITC for $${usdAmount.toFixed(2)}`,
       stripe_payment_intent_id: paymentIntent.id,
       usd_value: usdAmount,
       created_at: new Date().toISOString()

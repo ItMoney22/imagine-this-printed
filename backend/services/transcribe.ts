@@ -57,7 +57,7 @@ export async function transcribeAudio(input: TranscribeInput): Promise<Transcrip
     // Run the model
     const output = await replicate.run(TRANSCRIBE_MODEL as `${string}/${string}`, {
       input: replicateInput,
-    })
+    }) as unknown
 
     const duration = (Date.now() - startTime) / 1000
     console.log('[transcribe] ✅ GPT-4o transcription complete in', duration.toFixed(2), 'seconds')
@@ -92,10 +92,22 @@ export async function transcribeAudio(input: TranscribeInput): Promise<Transcrip
       throw new Error('No transcription text returned from model')
     }
 
-    console.log('[transcribe] 📝 Transcript:', text.substring(0, 200) + (text.length > 200 ? '...' : ''))
+    // Clean up transcription artifacts (pause markers, filler text)
+    // GPT-4o Transcribe sometimes adds [pause], [2s pause], [music], etc.
+    const cleanedText = text
+      .replace(/\[\d*\.?\d*s?\s*pause\]/gi, '') // [pause], [2s pause], [0.5s pause]
+      .replace(/\[music\]/gi, '')
+      .replace(/\[applause\]/gi, '')
+      .replace(/\[laughter\]/gi, '')
+      .replace(/\[inaudible\]/gi, '')
+      .replace(/\[crosstalk\]/gi, '')
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim()
+
+    console.log('[transcribe] 📝 Transcript:', cleanedText.substring(0, 200) + (cleanedText.length > 200 ? '...' : ''))
 
     return {
-      text,
+      text: cleanedText,
       language,
       duration,
       raw: output,

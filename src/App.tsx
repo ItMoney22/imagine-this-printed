@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
 import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
@@ -21,7 +21,7 @@ import AuthCallback from './pages/AuthCallback'
 import AuthError from './pages/AuthError'
 import ProductCatalog from './pages/ProductCatalog'
 import ProductPage from './pages/ProductPage'
-import ProductDesigner from './pages/ProductDesigner'
+// ProductDesigner discontinued - using ImaginationStation instead
 import Cart from './pages/Cart'
 import Checkout from './pages/Checkout'
 import FoundersDashboard from './pages/FoundersDashboard'
@@ -53,10 +53,34 @@ import ImageDebug from './pages/ImageDebug'
 import AdminAIProductBuilder from './pages/AdminAIProductBuilder'
 import SocialContentManagement from './pages/SocialContentManagement'
 import UserMediaGallery from './pages/UserMediaGallery'
-import { UserProductCreator } from './pages/UserProductCreator'
+// UserProductCreator discontinued - using ImaginationStation instead
 import UserDesignDashboard from './pages/UserDesignDashboard'
 import { AdminVoiceSettings } from './pages/admin/VoiceSettings'
 import ImaginationStation from './pages/ImaginationStation'
+import { ImaginationErrorBoundary } from './components/imagination'
+
+// Routes that should hide the main header/footer for full-screen experience
+const FULL_SCREEN_ROUTES = ['/imagination-station']
+
+// Layout component that conditionally shows header/footer
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
+  const isFullScreen = FULL_SCREEN_ROUTES.some(route => location.pathname.startsWith(route))
+
+  return (
+    <div className="min-h-screen bg-bg text-text">
+      {!isFullScreen && <Header />}
+      {children}
+      {!isFullScreen && (
+        <>
+          <MrImagineChatWidget />
+          <FloatingCart />
+          <Footer />
+        </>
+      )}
+    </div>
+  )
+}
 
 function App() {
   return (
@@ -65,8 +89,7 @@ function App() {
         <CartProvider>
           <KioskAuthProvider>
             <Router>
-              <div className="min-h-screen bg-bg text-text">
-                <Header />
+              <AppLayout>
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/login" element={<Login />} />
@@ -77,8 +100,9 @@ function App() {
                   <Route path="/catalog" element={<ProductCatalog />} />
                   <Route path="/catalog/:category" element={<ProductCatalog />} />
                   <Route path="/product/:id" element={<ProductPage />} />
-                  <Route path="/create-design" element={<ProtectedRoute><UserProductCreator /></ProtectedRoute>} />
-                  <Route path="/designer" element={<ProtectedRoute><ProductDesigner /></ProtectedRoute>} />
+                  {/* Redirect old design routes to Imagination Station */}
+                  <Route path="/create-design" element={<Navigate to="/imagination-station" replace />} />
+                  <Route path="/designer" element={<Navigate to="/imagination-station" replace />} />
                   <Route path="/cart" element={<Cart />} />
                   <Route path="/checkout" element={<Checkout />} />
                   <Route path="/founders" element={<FoundersDashboard />} />
@@ -128,8 +152,26 @@ function App() {
                   <Route path="/admin/voice-settings" element={<AdminVoiceSettings />} />
 
                   {/* Imagination Station Routes */}
-                  <Route path="/imagination-station" element={<ProtectedRoute><ImaginationStation /></ProtectedRoute>} />
-                  <Route path="/imagination-station/:id" element={<ProtectedRoute><ImaginationStation /></ProtectedRoute>} />
+                  <Route
+                    path="/imagination-station"
+                    element={
+                      <ImaginationErrorBoundary>
+                        <ProtectedRoute>
+                          <ImaginationStation />
+                        </ProtectedRoute>
+                      </ImaginationErrorBoundary>
+                    }
+                  />
+                  <Route
+                    path="/imagination-station/:id"
+                    element={
+                      <ImaginationErrorBoundary>
+                        <ProtectedRoute>
+                          <ImaginationStation />
+                        </ProtectedRoute>
+                      </ImaginationErrorBoundary>
+                    }
+                  />
 
                   {/* Manager Routes */}
                   <Route path="/manager/dashboard" element={<ManagerDashboard />} />
@@ -143,16 +185,7 @@ function App() {
                   {/* Debug Route */}
                   <Route path="/debug/images" element={<ImageDebug />} />
                 </Routes>
-
-                {/* Mr. Imagine Chat Widget - appears on all pages */}
-                <MrImagineChatWidget />
-
-                {/* Floating Cart - appears on all pages */}
-                <FloatingCart />
-
-                {/* Footer - appears on all pages */}
-                <Footer />
-              </div>
+              </AppLayout>
             </Router>
           </KioskAuthProvider>
         </CartProvider>

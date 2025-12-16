@@ -10,7 +10,7 @@ const router = Router()
 router.use(requireAuth)
 router.use(requireAdmin)
 
-// GET /api/admin/wallet/users - List all user wallets with balances
+// GET /api/admin/wallet/users - List all user wallets with ITC balances
 router.get('/users', async (req: Request, res: Response): Promise<any> => {
   try {
     const adminId = req.user?.sub
@@ -19,7 +19,7 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
     logWalletAction({
       userId: 'system',
       action: 'list',
-      currency: 'points',
+      currency: 'itc',
       adminId: adminId!,
       metadata: { search, limit, offset }
     })
@@ -32,7 +32,6 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
         email,
         role,
         user_wallets (
-          points,
           itc_balance,
           updated_at
         )
@@ -53,7 +52,7 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
         error: error.message,
         userId: 'system',
         action: 'list',
-        currency: 'points',
+        currency: 'itc',
         metadata: { adminId: adminId! }
       })
       return res.status(500).json({ error: 'Failed to fetch user wallets' })
@@ -74,31 +73,30 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
       error: error.message || String(error),
       userId: 'system',
       action: 'list',
-      currency: 'points',
+      currency: 'itc',
       metadata: { adminId: req.user?.sub! }
     })
     return res.status(500).json({ error: error.message })
   }
 })
 
-// GET /api/admin/wallet/transactions - Get all wallet transactions (admin view)
+// GET /api/admin/wallet/transactions - Get all ITC transactions (admin view)
 router.get('/transactions', async (req: Request, res: Response): Promise<any> => {
   try {
     const adminId = req.user?.sub
-    const { userId, limit = 100, offset = 0, type, currency } = req.query
+    const { userId, limit = 100, offset = 0, type } = req.query
 
     logWalletAction({
       userId: userId as string || 'all',
       action: 'view',
-      currency: (currency as 'points' | 'itc') || 'points',
+      currency: 'itc',
       adminId: adminId!,
-      metadata: { limit, offset, type, currency }
+      metadata: { limit, offset, type }
     })
 
-    // Note: This assumes you have a wallet_transactions table
-    // If not, this endpoint would need to query audit_logs or similar
+    // Query ITC transactions directly
     let query = supabase
-      .from('wallet_transactions')
+      .from('itc_transactions')
       .select(`
         *,
         user_profiles (
@@ -115,10 +113,6 @@ router.get('/transactions', async (req: Request, res: Response): Promise<any> =>
 
     if (type) {
       query = query.eq('type', type)
-    }
-
-    if (currency) {
-      query = query.eq('currency', currency)
     }
 
     const { data: transactions, error, count } = await query
@@ -143,26 +137,22 @@ router.get('/transactions', async (req: Request, res: Response): Promise<any> =>
   }
 })
 
-// POST /api/admin/wallet/credit - Credit ITC/points to user
+// POST /api/admin/wallet/credit - Credit ITC to user
 router.post('/credit', async (req: Request, res: Response): Promise<any> => {
   try {
     const adminId = req.user?.sub
-    const { userId, amount, currency, reason } = req.body
+    const { userId, amount, reason } = req.body
 
     // Validation
-    if (!userId || !amount || !currency || !reason) {
+    if (!userId || !amount || !reason) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['userId', 'amount', 'currency', 'reason']
+        required: ['userId', 'amount', 'reason']
       })
     }
 
     if (amount <= 0) {
       return res.status(400).json({ error: 'Amount must be greater than 0' })
-    }
-
-    if (!['points', 'itc'].includes(currency)) {
-      return res.status(400).json({ error: 'Currency must be "points" or "itc"' })
     }
 
     if (reason.length < 10) {
@@ -181,15 +171,14 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'User wallet not found' })
     }
 
-    const balanceBefore = currency === 'points' ? wallet.points : wallet.itc_balance
+    const balanceBefore = wallet.itc_balance
     const balanceAfter = balanceBefore + amount
 
-    // Update wallet
-    const updateField = currency === 'points' ? 'points' : 'itc_balance'
+    // Update wallet (ITC only)
     const { data: updated, error: updateError } = await supabase
       .from('user_wallets')
       .update({
-        [updateField]: balanceAfter,
+        itc_balance: balanceAfter,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', userId)
@@ -202,7 +191,7 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
         error: updateError.message,
         userId,
         action: 'credit',
-        currency,
+        currency: 'itc',
         metadata: {
           amount,
           adminId: adminId!
@@ -211,19 +200,16 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       return res.status(500).json({ error: 'Failed to credit wallet' })
     }
 
-    // Create transaction record (if wallet_transactions table exists)
+    // Create ITC transaction record
     const { error: txError } = await supabase
-      .from('wallet_transactions')
+      .from('itc_transactions')
       .insert({
         user_id: userId,
         type: 'admin_credit',
-        currency,
         amount,
-        balance_before: balanceBefore,
         balance_after: balanceAfter,
-        reason,
-        admin_id: adminId,
-        metadata: { adminAction: 'credit' }
+        description: reason,
+        metadata: { adminId, adminAction: 'credit', balanceBefore }
       })
 
     if (txError) {
@@ -234,7 +220,7 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
     logWalletAction({
       userId,
       action: 'credit',
-      currency,
+      currency: 'itc',
       amount,
       adminId: adminId!,
       metadata: {
@@ -249,7 +235,7 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       wallet: updated,
       transaction: {
         type: 'credit',
-        currency,
+        currency: 'itc',
         amount,
         balanceBefore,
         balanceAfter,
@@ -262,7 +248,7 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       error: error.message || String(error),
       userId: req.body.userId,
       action: 'credit',
-      currency: req.body.currency,
+      currency: 'itc',
       metadata: {
         amount: req.body.amount,
         adminId: req.user?.sub!
@@ -272,26 +258,22 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
   }
 })
 
-// POST /api/admin/wallet/debit - Debit ITC/points from user
+// POST /api/admin/wallet/debit - Debit ITC from user
 router.post('/debit', async (req: Request, res: Response): Promise<any> => {
   try {
     const adminId = req.user?.sub
-    const { userId, amount, currency, reason, allowNegative = false } = req.body
+    const { userId, amount, reason, allowNegative = false } = req.body
 
     // Validation
-    if (!userId || !amount || !currency || !reason) {
+    if (!userId || !amount || !reason) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['userId', 'amount', 'currency', 'reason']
+        required: ['userId', 'amount', 'reason']
       })
     }
 
     if (amount <= 0) {
       return res.status(400).json({ error: 'Amount must be greater than 0' })
-    }
-
-    if (!['points', 'itc'].includes(currency)) {
-      return res.status(400).json({ error: 'Currency must be "points" or "itc"' })
     }
 
     if (reason.length < 10) {
@@ -310,7 +292,7 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'User wallet not found' })
     }
 
-    const balanceBefore = currency === 'points' ? wallet.points : wallet.itc_balance
+    const balanceBefore = wallet.itc_balance
     const balanceAfter = balanceBefore - amount
 
     // Check for negative balance (unless explicitly allowed)
@@ -323,12 +305,11 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
       })
     }
 
-    // Update wallet
-    const updateField = currency === 'points' ? 'points' : 'itc_balance'
+    // Update wallet (ITC only)
     const { data: updated, error: updateError } = await supabase
       .from('user_wallets')
       .update({
-        [updateField]: balanceAfter,
+        itc_balance: balanceAfter,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', userId)
@@ -341,7 +322,7 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
         error: updateError.message,
         userId,
         action: 'debit',
-        currency,
+        currency: 'itc',
         metadata: {
           amount,
           adminId: adminId!
@@ -350,19 +331,16 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
       return res.status(500).json({ error: 'Failed to debit wallet' })
     }
 
-    // Create transaction record
+    // Create ITC transaction record
     const { error: txError } = await supabase
-      .from('wallet_transactions')
+      .from('itc_transactions')
       .insert({
         user_id: userId,
         type: 'admin_debit',
-        currency,
         amount: -amount,
-        balance_before: balanceBefore,
         balance_after: balanceAfter,
-        reason,
-        admin_id: adminId,
-        metadata: { adminAction: 'debit', allowNegative }
+        description: reason,
+        metadata: { adminId, adminAction: 'debit', allowNegative, balanceBefore }
       })
 
     if (txError) {
@@ -373,7 +351,7 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
     logWalletAction({
       userId,
       action: 'debit',
-      currency,
+      currency: 'itc',
       amount,
       adminId: adminId!,
       metadata: {
@@ -388,7 +366,7 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
       wallet: updated,
       transaction: {
         type: 'debit',
-        currency,
+        currency: 'itc',
         amount,
         balanceBefore,
         balanceAfter,
@@ -401,7 +379,7 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
       error: error.message || String(error),
       userId: req.body.userId,
       action: 'debit',
-      currency: req.body.currency,
+      currency: 'itc',
       metadata: {
         amount: req.body.amount,
         adminId: req.user?.sub!
@@ -411,26 +389,22 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
   }
 })
 
-// POST /api/admin/wallet/adjust - Adjust balance with reason
+// POST /api/admin/wallet/adjust - Adjust ITC balance with reason
 router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
   try {
     const adminId = req.user?.sub
-    const { userId, newBalance, currency, reason } = req.body
+    const { userId, newBalance, reason } = req.body
 
     // Validation
-    if (!userId || newBalance === undefined || !currency || !reason) {
+    if (!userId || newBalance === undefined || !reason) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['userId', 'newBalance', 'currency', 'reason']
+        required: ['userId', 'newBalance', 'reason']
       })
     }
 
     if (newBalance < 0) {
       return res.status(400).json({ error: 'New balance cannot be negative' })
-    }
-
-    if (!['points', 'itc'].includes(currency)) {
-      return res.status(400).json({ error: 'Currency must be "points" or "itc"' })
     }
 
     if (reason.length < 10) {
@@ -449,15 +423,14 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
       return res.status(404).json({ error: 'User wallet not found' })
     }
 
-    const balanceBefore = currency === 'points' ? wallet.points : wallet.itc_balance
+    const balanceBefore = wallet.itc_balance
     const difference = newBalance - balanceBefore
 
-    // Update wallet
-    const updateField = currency === 'points' ? 'points' : 'itc_balance'
+    // Update wallet (ITC only)
     const { data: updated, error: updateError } = await supabase
       .from('user_wallets')
       .update({
-        [updateField]: newBalance,
+        itc_balance: newBalance,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', userId)
@@ -470,7 +443,7 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
         error: updateError.message,
         userId,
         action: 'adjust',
-        currency,
+        currency: 'itc',
         metadata: {
           amount: difference,
           adminId: adminId!
@@ -479,19 +452,16 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
       return res.status(500).json({ error: 'Failed to adjust wallet' })
     }
 
-    // Create transaction record
+    // Create ITC transaction record
     const { error: txError } = await supabase
-      .from('wallet_transactions')
+      .from('itc_transactions')
       .insert({
         user_id: userId,
         type: 'admin_adjust',
-        currency,
         amount: difference,
-        balance_before: balanceBefore,
         balance_after: newBalance,
-        reason,
-        admin_id: adminId,
-        metadata: { adminAction: 'adjust', previousBalance: balanceBefore }
+        description: reason,
+        metadata: { adminId, adminAction: 'adjust', balanceBefore }
       })
 
     if (txError) {
@@ -502,14 +472,14 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
     logWalletAction({
       userId,
       action: 'adjust',
-      currency,
+      currency: 'itc',
       amount: difference,
       adminId: adminId!,
-      metadata: { 
+      metadata: {
         reason,
         balanceBefore,
         balanceAfter: newBalance,
-        adjustmentType: difference > 0 ? 'increase' : 'decrease' 
+        adjustmentType: difference > 0 ? 'increase' : 'decrease'
       }
     })
 
@@ -518,7 +488,7 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
       wallet: updated,
       transaction: {
         type: 'adjust',
-        currency,
+        currency: 'itc',
         balanceBefore,
         balanceAfter: newBalance,
         difference,
@@ -531,7 +501,7 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
       error: error.message || String(error),
       userId: req.body.userId,
       action: 'adjust',
-      currency: req.body.currency,
+      currency: 'itc',
       metadata: { adminId: req.user?.sub! }
     })
     return res.status(500).json({ error: error.message })

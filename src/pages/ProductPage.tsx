@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Palette, ShoppingCart, Zap } from 'lucide-react'
+import { Sparkles, ShoppingCart, Zap } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
-import DesignStudioModal from '../components/DesignStudioModal'
 import type { Product } from '../types'
 
 const ProductPage: React.FC = () => {
@@ -17,12 +16,12 @@ const ProductPage: React.FC = () => {
   const [quantity, setQuantity] = useState(1)
   const [selectedImage, setSelectedImage] = useState(0)
   const [product, setProduct] = useState<Product | null>(null)
+  const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showDesignModal, setShowDesignModal] = useState(false)
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
 
-  // Load product from database
+  // Load product and source image from database
   useEffect(() => {
     const loadProduct = async () => {
       if (!id) {
@@ -32,6 +31,8 @@ const ProductPage: React.FC = () => {
 
       try {
         setLoading(true)
+
+        // Fetch product
         const { data, error } = await supabase
           .from('products')
           .select('*')
@@ -52,9 +53,26 @@ const ProductPage: React.FC = () => {
             createdAt: data.created_at,
             updatedAt: data.updated_at,
             metadata: data.metadata || {},
-            isThreeForTwentyFive: data.metadata?.isThreeForTwentyFive || false
+            isThreeForTwentyFive: data.metadata?.isThreeForTwentyFive || false,
+            sizes: data.metadata?.sizes || [],
+            colors: data.metadata?.colors || []
           }
           setProduct(mappedProduct)
+
+          // Fetch source image from product_assets (the original Flux-generated image)
+          const { data: assetsData } = await supabase
+            .from('product_assets')
+            .select('url, kind')
+            .eq('product_id', id)
+            .in('kind', ['source', 'nobg']) // Prefer source, fallback to nobg
+            .order('kind', { ascending: true }) // 'nobg' comes before 'source' alphabetically, so we'll pick source first below
+
+          if (assetsData && assetsData.length > 0) {
+            // Prefer 'source' (original Flux image), then 'nobg' (background removed)
+            const sourceAsset = assetsData.find(a => a.kind === 'source')
+            const nobgAsset = assetsData.find(a => a.kind === 'nobg')
+            setSourceImageUrl(sourceAsset?.url || nobgAsset?.url || null)
+          }
         }
       } catch (error) {
         console.error('Error loading product:', error)
@@ -266,11 +284,25 @@ const ProductPage: React.FC = () => {
 
             <div className="space-y-3">
               <button
-                onClick={() => setShowDesignModal(true)}
-                className="w-full bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-glowLg text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-glow"
+                onClick={() => {
+                  // Navigate to Imagination Station with the SOURCE image (original Flux-generated)
+                  // sourceImageUrl is fetched from product_assets table (kind='source' or 'nobg')
+                  const imageToAdd = sourceImageUrl || product.images?.[0] || ''
+                  if (!imageToAdd) {
+                    alert('No source image available for this product')
+                    return
+                  }
+                  const params = new URLSearchParams({
+                    addImage: imageToAdd,
+                    productName: product.name,
+                    productId: product.id
+                  })
+                  navigate(`/imagination-station?${params.toString()}`)
+                }}
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 hover:shadow-glowLg text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-[0_0_20px_rgba(168,85,247,0.4)]"
               >
-                <Palette className="w-6 h-6" />
-                Start Designing
+                <Sparkles className="w-6 h-6" />
+                Add to Imagination Sheet™
               </button>
 
               <button
@@ -300,6 +332,26 @@ const ProductPage: React.FC = () => {
               • Standard delivery: 3-5 business days<br />
               • Express delivery: 1-2 business days
             </p>
+          </div>
+
+          <div className="bg-purple-50 border border-purple-200 p-4 rounded-lg relative overflow-hidden group shadow-sm">
+            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+              <svg className="w-16 h-16 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
+              </svg>
+            </div>
+            <h4 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
+              <span className="text-xl">💎</span> Earn ITC for Your Designs!
+            </h4>
+            <p className="text-sm text-purple-800 mb-3 font-medium">
+              Did you know you can earn Imagine This Coin (ITC) when your submitted designs sell?
+            </p>
+            <button
+              onClick={() => navigate('/creator-signup')}
+              className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-full transition-all shadow-md hover:shadow-lg"
+            >
+              Become a Creator →
+            </button>
           </div>
         </div>
       </div>
@@ -337,14 +389,6 @@ const ProductPage: React.FC = () => {
           }}
         />
       </div>
-
-      <DesignStudioModal
-        isOpen={showDesignModal}
-        onClose={() => setShowDesignModal(false)}
-        product={product}
-        template={product.category === 'shirts' || product.category === 'hoodies' ? 'shirt' : 'tumbler'}
-        initialDesignImage={product.images?.[0]}
-      />
     </div>
   )
 }

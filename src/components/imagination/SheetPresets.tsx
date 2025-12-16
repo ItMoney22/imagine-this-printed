@@ -7,21 +7,36 @@ interface SheetPresetsProps {
   onSheetChange?: (sheet: Sheet) => void
 }
 
+// FIXED WIDTHS BY PRINT TYPE - Width is locked and cannot be changed
+const FIXED_WIDTHS: Record<string, number> = {
+  dtf: 22.5,        // DTF is always 22.5" wide
+  uv_dtf: 16,       // UV DTF is always 16" wide
+  sublimation: 22   // Sublimation is always 22" wide
+}
+
+// Available heights for each print type (width is always fixed)
+const AVAILABLE_HEIGHTS: Record<string, number[]> = {
+  dtf: [24, 36, 48, 53, 60, 72, 84, 96, 108, 120, 132, 144, 168, 192, 216, 240],
+  uv_dtf: [12, 24, 36, 48, 60, 72, 84, 96, 108, 120],
+  sublimation: [24, 36, 48, 60, 72, 84, 96, 120]
+}
+
 const SHEET_PRESETS: Record<string, { width: number; height: number; label: string }[]> = {
-  dtf: [
-    { width: 13, height: 16, label: '13" x 16"' },
-    { width: 13, height: 19, label: '13" x 19"' },
-    { width: 22, height: 60, label: '22" x 60"' }
-  ],
-  uv_dtf: [
-    { width: 8.5, height: 11, label: '8.5" x 11"' },
-    { width: 11, height: 17, label: '11" x 17"' }
-  ],
-  sublimation: [
-    { width: 8.5, height: 11, label: '8.5" x 11"' },
-    { width: 11, height: 17, label: '11" x 17"' },
-    { width: 13, height: 19, label: '13" x 19"' }
-  ]
+  dtf: AVAILABLE_HEIGHTS.dtf.slice(0, 4).map(h => ({
+    width: FIXED_WIDTHS.dtf,
+    height: h,
+    label: `${FIXED_WIDTHS.dtf}" x ${h}"`
+  })),
+  uv_dtf: AVAILABLE_HEIGHTS.uv_dtf.slice(0, 4).map(h => ({
+    width: FIXED_WIDTHS.uv_dtf,
+    height: h,
+    label: `${FIXED_WIDTHS.uv_dtf}" x ${h}"`
+  })),
+  sublimation: AVAILABLE_HEIGHTS.sublimation.slice(0, 4).map(h => ({
+    width: FIXED_WIDTHS.sublimation,
+    height: h,
+    label: `${FIXED_WIDTHS.sublimation}" x ${h}"`
+  }))
 }
 
 const PRINT_TYPE_ICONS: Record<string, string> = {
@@ -58,7 +73,8 @@ export default function SheetPresets({ sheet, onSheetChange }: SheetPresetsProps
       onSheetChange({
         ...sheet,
         width: preset.width,
-        height: preset.height
+        height: preset.height,
+        name: `${sheet.name.split(' - ')[0]} - ${preset.label}`
       })
     }
     setIsOpen(false)
@@ -121,7 +137,10 @@ export default function SheetPresets({ sheet, onSheetChange }: SheetPresetsProps
       {/* Sheet Info */}
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="p-2 bg-bg/30 rounded border border-primary/10">
-          <div className="text-muted">Width</div>
+          <div className="text-muted flex items-center gap-1">
+            Width
+            <span className="text-[10px] bg-primary/20 px-1 rounded" title="Width is fixed for this print type">FIXED</span>
+          </div>
           <div className="text-text font-medium">{sheet.width}"</div>
         </div>
         <div className="p-2 bg-bg/30 rounded border border-primary/10">

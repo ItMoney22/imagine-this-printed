@@ -77,7 +77,7 @@ export default function ImaginationStation() {
 
   const freeTrials: FreeTrials = {
     mrImagine: 3,
-    nanoBanana: 5
+    itpEnhance: 5
   }
 
   const handleLayerAdded = (layer: Layer) => {
@@ -164,7 +164,7 @@ interface Pricing {
 ```typescript
 interface FreeTrials {
   mrImagine: number
-  nanoBanana: number
+  itpEnhance: number
 }
 ```
 

@@ -31,6 +31,19 @@
 - [2025-12-12] **ADDED**: Stability Features - ErrorBoundary, autosave every 30s, undo/redo with history (Ctrl+Z, Ctrl+Shift+Z) - files: src/pages/ImaginationStation.tsx
 - [2025-12-12] **VERIFIED**: Mirror & Cutlines functionality working - Mirror applies scaleX:-zoom to Stage for sublimation, cutlines show dashed borders - files: src/components/imagination/SheetCanvas.tsx
 - [2025-12-12] **VERIFIED**: DPI detection and warnings - Visual DPI badges on low-quality images, blocks checkout for danger-level DPI - files: src/utils/dpi-calculator.ts, src/pages/ImaginationStation.tsx
+- [2025-12-15] **FIXED**: Replicate FileOutput handling - All AI endpoints now correctly call `.url()` method on FileOutput objects from Replicate SDK v1.0+ - files: backend/services/imagination-ai.ts (generateImage, removeBackground, upscaleImage, enhanceImage methods)
+- [2025-12-15] **VERIFIED**: All Imagination Station AI features tested and working:
+  - Remove Background: ✅ Returns valid URL (tested with unsplash image)
+  - Upscale 2x: ✅ Returns valid URL
+  - Enhance: ✅ Returns valid URL
+  - Mr. Imagine Generation: ✅ Returns valid URL (Flux 1.1 Pro model)
+  - Free trial system: ✅ Working correctly, tracks usage per feature
+- [2025-12-15] **UPDATED**: AI Models for better quality output:
+  - **Remove Background**: Changed from Replicate `lucataco/remove-bg` → **Remove.bg API** (returns base64 data URL for higher quality)
+  - **Enhance Image**: Changed from `nightmareai/real-esrgan` → **`recraft-ai/recraft-crisp-upscale`** (Replicate - better image enhancement)
+  - Upscale (2x, 4x): Kept `nightmareai/real-esrgan` (user satisfied with output)
+  - Mr. Imagine Generation: Kept `black-forest-labs/flux-1.1-pro` (user satisfied with output)
+  - Files modified: backend/services/imagination-ai.ts (added import for removebg, rewrote removeBackground() and enhanceImage() methods)
 
 ## In Progress
 
@@ -46,7 +59,7 @@
 ## TODO (Priority Order)
 
 1. **High Priority**: Test complete AI product creation flow end-to-end - Rationale: Verify all fixes work correctly in real scenario
-2. **High Priority**: Test Imagination Station AI features with real ITC transactions - Rationale: Verify pricing, free trials, and token deduction work correctly in production
+2. ~~**High Priority**: Test Imagination Station AI features with real ITC transactions~~ - **DONE [2025-12-15]**: All AI features tested and working
 3. **Medium Priority**: Verify product has exactly 3 final images - Context: 1 selected design + 2 mockups (flat_lay + mr_imagine)
 4. **Medium Priority**: Deploy to Railway and test in production - Context: Ensure worker processes jobs correctly in production
 5. **Low Priority/Nice-to-Have**: Add progress indicators for mockup generation - Potential benefit: Better user experience during async processing

@@ -43,35 +43,6 @@ router.get('/get', requireAuth, async (req: Request, res: Response): Promise<any
   }
 })
 
-// GET /api/wallet/transactions/points - Get points transaction history
-router.get('/transactions/points', requireAuth, async (req: Request, res: Response): Promise<any> => {
-  try {
-    const userId = req.user?.sub
-    const { limit = 50, offset = 0 } = req.query
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
-
-    const { data: transactions, error } = await supabase
-      .from('points_transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .range(Number(offset), Number(offset) + Number(limit) - 1)
-
-    if (error) {
-      console.error('[wallet/transactions/points] Error:', error)
-      return res.status(500).json({ error: 'Failed to fetch transactions' })
-    }
-
-    return res.json({ ok: true, transactions })
-  } catch (error: any) {
-    console.error('[wallet/transactions/points] Error:', error)
-    return res.status(500).json({ error: error.message })
-  }
-})
-
 // GET /api/wallet/transactions/itc - Get ITC transaction history
 router.get('/transactions/itc', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -136,97 +107,6 @@ router.get('/rewards/orders', requireAuth, async (req: Request, res: Response): 
     return res.json({ ok: true, rewards })
   } catch (error: any) {
     console.error('[wallet/rewards/orders] Error:', error)
-    return res.status(500).json({ error: error.message })
-  }
-})
-
-// POST /api/wallet/redeem - Redeem points for ITC tokens
-router.post('/redeem', requireAuth, async (req: Request, res: Response): Promise<any> => {
-  try {
-    const userId = req.user?.sub
-    const { amount, redeemType } = req.body
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Invalid amount' })
-    }
-
-    // Fetch current wallet
-    const { data: wallet, error: fetchError } = await supabase
-      .from('user_wallets')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
-
-    if (fetchError || !wallet) {
-      return res.status(404).json({ error: 'Wallet not found' })
-    }
-
-    // Check if user has enough points
-    if (wallet.points < amount) {
-      return res.status(400).json({ error: 'Insufficient points' })
-    }
-
-    // Calculate ITC tokens (100 points = 1 ITC)
-    const itcAmount = amount * 0.01
-
-    // Create transactions
-    const pointsBalanceBefore = wallet.points
-    const itcBalanceBefore = wallet.itc_balance
-    const newPointsBalance = wallet.points - amount
-    const newITCBalance = wallet.itc_balance + itcAmount
-
-    // Points transaction
-    await supabase.from('points_transactions').insert({
-      user_id: userId,
-      points_change: -amount,
-      balance_after: newPointsBalance,
-      reason: `Redeemed ${amount} points for ${itcAmount.toFixed(2)} ITC`,
-      reference: 'redemption',
-      metadata: { redeem_type: redeemType }
-    })
-
-    // ITC transaction
-    await supabase.from('itc_transactions').insert({
-      user_id: userId,
-      type: 'redemption',
-      amount: itcAmount,
-      balance_after: newITCBalance,
-      reference: 'redemption',
-      metadata: { usd_value: amount * 0.01 }
-    })
-
-    // Update wallet
-    const { data: updated, error: updateError } = await supabase
-      .from('user_wallets')
-      .update({
-        points: newPointsBalance,
-        itc_balance: newITCBalance,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId)
-      .select()
-      .single()
-
-    if (updateError) {
-      console.error('[wallet/redeem] Error updating wallet:', updateError)
-      return res.status(500).json({ error: 'Failed to redeem points' })
-    }
-
-    return res.json({
-      ok: true,
-      message: `Successfully redeemed ${amount} points for ${itcAmount.toFixed(2)} ITC`,
-      wallet: updated,
-      redeemed: {
-        points: amount,
-        itc: itcAmount
-      }
-    })
-  } catch (error: any) {
-    console.error('[wallet/redeem] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })
@@ -714,6 +594,89 @@ router.post('/itc-to-credit', requireAuth, async (req: Request, res: Response): 
     })
   } catch (error: any) {
     console.error('[wallet/itc-to-credit] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/deduct-itc
+ * Deduct ITC for premium features (mockups, upscaling, etc.)
+ * Used by frontend for unlocking paid features
+ */
+router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { amount, reason } = req.body
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount - must be positive' })
+    }
+
+    if (!reason) {
+      return res.status(400).json({ error: 'Reason is required for ITC deduction' })
+    }
+
+    // Check wallet balance
+    const { data: wallet, error: walletError } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (walletError || !wallet) {
+      return res.status(404).json({ error: 'Wallet not found' })
+    }
+
+    if (wallet.itc_balance < amount) {
+      return res.status(402).json({
+        error: 'Insufficient ITC balance',
+        required: amount,
+        current: wallet.itc_balance
+      })
+    }
+
+    // Deduct ITC
+    const newBalance = wallet.itc_balance - amount
+    const { error: updateError } = await supabase
+      .from('user_wallets')
+      .update({ itc_balance: newBalance })
+      .eq('user_id', userId)
+
+    if (updateError) {
+      console.error('[wallet/deduct-itc] Update error:', updateError)
+      return res.status(500).json({ error: 'Failed to deduct ITC' })
+    }
+
+    // Log the transaction
+    await supabase.from('itc_transactions').insert({
+      user_id: userId,
+      type: 'usage',
+      amount: -amount,
+      balance_after: newBalance,
+      reference_type: 'feature_usage',
+      description: reason
+    })
+
+    console.log('[wallet/deduct-itc] ✅ ITC deducted:', {
+      userId,
+      amount,
+      reason,
+      newBalance
+    })
+
+    return res.json({
+      ok: true,
+      message: `Deducted ${amount} ITC`,
+      deducted: amount,
+      new_balance: newBalance,
+      reason
+    })
+  } catch (error: any) {
+    console.error('[wallet/deduct-itc] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

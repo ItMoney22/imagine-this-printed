@@ -7,6 +7,35 @@ import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mo
 
 const POLL_INTERVAL = 5000 // 5 seconds
 
+// Helper to update job progress message (visible to admin in real-time)
+async function updateJobProgress(jobId: string, message: string, step?: number, totalSteps?: number) {
+  const progress: any = {
+    message,
+    updated_at: new Date().toISOString(),
+  }
+  if (step !== undefined) progress.step = step
+  if (totalSteps !== undefined) progress.total_steps = totalSteps
+
+  // First fetch existing output to merge with progress
+  const { data: existingJob } = await supabase
+    .from('ai_jobs')
+    .select('output')
+    .eq('id', jobId)
+    .single()
+
+  const mergedOutput = { ...(existingJob?.output || {}), ...progress }
+
+  await supabase
+    .from('ai_jobs')
+    .update({
+      output: mergedOutput,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', jobId)
+
+  console.log(`[worker] 📝 Progress: ${message}`)
+}
+
 export async function processQueuedJobs() {
   try {
     // Fetch queued jobs (not started yet)
@@ -183,6 +212,7 @@ async function startJob(job: any) {
 
   if (job.type === 'replicate_image') {
     // Generate product image with multiple models
+    await updateJobProgress(job.id, '🎨 Sending design to AI models (Flux Fast, Imagen 4, Lucid Origin)...', 1, 4)
     const result = await generateProductImage(job.input)
 
     // Check if this is a multi-model result
@@ -203,9 +233,11 @@ async function startJob(job: any) {
         .eq('id', job.id)
 
       // Process synchronous results immediately (Imagen 4)
+      await updateJobProgress(job.id, '⚡ Processing AI model results...', 2, 4)
       for (const modelOutput of result.outputs) {
         if (modelOutput.isSynchronous && modelOutput.url) {
           console.log(`[worker] 🚀 Processing synchronous result from ${modelOutput.modelName}`)
+          await updateJobProgress(job.id, `📥 Downloading image from ${modelOutput.modelName}...`, 2, 4)
 
           // Upload immediately to GCS
           const productSlug = await getProductSlug(job.product_id)
@@ -344,6 +376,7 @@ async function startJob(job: any) {
     }
   } else if (job.type === 'replicate_rembg') {
     // Remove background from source image
+    await updateJobProgress(job.id, '🔍 Locating selected design image...', 1, 3)
     // If user selected a specific asset, use that one; otherwise get the most recent source image
     let sourceAsset: { url: string } | null = null
 
@@ -393,6 +426,7 @@ async function startJob(job: any) {
 
     try {
       // Remove background using Remove.bg (returns image directly)
+      await updateJobProgress(job.id, '✂️ Removing background with AI (Remove.bg)...', 2, 3)
       const base64Image = await removeBackgroundWithRemoveBg(sourceAsset.url)
 
       // Generate organized path for GCS
@@ -402,6 +436,7 @@ async function startJob(job: any) {
       const gcsPath = `graphics/${productSlug}/transparent/${filename}`
 
       console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
+      await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
 
       // Upload to Google Cloud Storage
       const { publicUrl, path } = await uploadImageFromBase64(base64Image, gcsPath)
@@ -607,6 +642,10 @@ async function startJob(job: any) {
     const printPlacement = imageJob?.input?.printPlacement
 
     // Generate mockup with Gemini (synchronous - returns image directly)
+    const template = job.input?.template || 'flat_lay'
+    const templateName = template === 'mr_imagine' ? 'Mr. Imagine mascot' :
+                         template === 'flat_lay' ? 'professional flat lay' : template
+    await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Gemini AI...`, 1, 3)
     console.log('[worker] 🎭 Starting Gemini mockup generation...')
     const geminiResult = await generateGeminiMockup({
       designImageUrl: garmentImageUrl!, // Safe: we would have returned early if not set
@@ -630,11 +669,12 @@ async function startJob(job: any) {
     }
 
     console.log('[worker] ✅ Gemini mockup generated successfully')
+    await updateJobProgress(job.id, `📤 Uploading ${templateName} mockup to cloud storage...`, 2, 3)
 
     // Upload the mockup image to GCS
     const productSlug = await getProductSlug(job.product_id)
     const timestamp = Date.now()
-    const template = job.input?.template || 'default'
+    // Note: template already defined above
     const filename = `${productSlug}-${template}-${timestamp}.png`
     const gcsPath = `mockups/${productSlug}/${template}/${filename}`
 
@@ -648,13 +688,25 @@ async function startJob(job: any) {
     console.log('[worker] ✅ Mockup uploaded to GCS:', publicUrl)
 
     // Determine asset_role and display_order based on template
-    // Order: design(1) -> flat_lay(2) -> ghost_mannequin(3) -> mr_imagine(4)
+    // Mr. Imagine is PRIMARY (display first), then flat_lay, ghost_mannequin
+    // Order: mr_imagine(1) PRIMARY -> flat_lay(2) -> ghost_mannequin(3)
     const assetRole = template === 'flat_lay' ? 'mockup_flat_lay' :
                       template === 'mr_imagine' ? 'mockup_mr_imagine' :
                       'mockup_flat_lay'
-    const displayOrder = template === 'flat_lay' ? 2 :
-                         template === 'mr_imagine' ? 4 :
+    const displayOrder = template === 'mr_imagine' ? 1 :
+                         template === 'flat_lay' ? 2 :
                          2
+    const isPrimary = template === 'mr_imagine' // Mr. Imagine is the primary/main product image
+
+    // If this is the primary image (Mr. Imagine), unset any existing primary images first
+    if (isPrimary) {
+      console.log('[worker] 🌟 Mr. Imagine mockup will be set as PRIMARY image')
+      await supabase
+        .from('product_assets')
+        .update({ is_primary: false })
+        .eq('product_id', job.product_id)
+        .eq('is_primary', true)
+    }
 
     // Save to product_assets
     const { error: assetError } = await supabase
@@ -667,7 +719,7 @@ async function startJob(job: any) {
         width: 1024,
         height: 1024,
         asset_role: assetRole,
-        is_primary: false,
+        is_primary: isPrimary,
         display_order: displayOrder,
         metadata: {
           template: template,
@@ -693,7 +745,8 @@ async function startJob(job: any) {
 
     console.log('[worker] ✅ Mockup job completed:', job.id, publicUrl)
   } else if (job.type === 'ghost_mannequin') {
-    // Generate ghost mannequin mockup using Nano-Banana
+    // Generate ghost mannequin mockup using ITP Enhance Engine
+    await updateJobProgress(job.id, '👻 Starting ghost mannequin mockup generation...', 1, 4)
     console.log('[worker] 👻 Starting ghost mannequin generation for product:', job.product_id)
 
     // Check if product type supports ghost mannequin
@@ -789,8 +842,9 @@ async function startJob(job: any) {
       console.log('[worker] 👻 Using source image for ghost mannequin:', designImageUrl)
     }
 
-    // Generate ghost mannequin with Nano-Banana
+    // Generate ghost mannequin with ITP Enhance Engine
     const shirtColor = job.input?.shirtColor || 'black'
+    await updateJobProgress(job.id, '🎨 Rendering invisible mannequin effect with ITP Enhance Engine AI...', 2, 4)
 
     try {
       const result = await generateGhostMannequin({
@@ -804,6 +858,7 @@ async function startJob(job: any) {
       }
 
       // Upload to GCS
+      await updateJobProgress(job.id, '📤 Uploading ghost mannequin mockup to cloud storage...', 3, 4)
       const productSlug = await getProductSlug(job.product_id)
       const timestamp = Date.now()
       const filename = `${productSlug}-ghost-mannequin-${timestamp}.png`
@@ -830,7 +885,7 @@ async function startJob(job: any) {
           display_order: 3,
           metadata: {
             template: 'ghost_mannequin',
-            generated_with: 'nano-banana',
+            generated_with: 'itp-enhance',
             generated_at: new Date().toISOString(),
             productType: productType,
             shirtColor: shirtColor,
@@ -1111,7 +1166,7 @@ async function checkJobStatus(job: any) {
     console.log('[worker] ✅ Prediction succeeded:', job.prediction_id)
 
     // Get the output URL - Replicate returns array of URLs
-    // For mockups, nano-banana returns multiple variations - only use the first one
+    // For mockups, ITP Enhance Engine returns multiple variations - only use the first one
     let replicateUrl: string
 
     if (Array.isArray(prediction.output)) {

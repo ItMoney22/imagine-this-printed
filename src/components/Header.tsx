@@ -2,10 +2,9 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useCart } from '../context/CartContext'
 import { useState, useEffect } from 'react'
-import DesignStudioModal from './DesignStudioModal'
+// DesignStudioModal discontinued - using Imagination Station instead
 import {
   ShoppingBag,
-  Palette,
   Users,
   Wallet,
   ShoppingCart,
@@ -34,13 +33,12 @@ export function Header() {
   const { user, signOut } = useAuth()
   const { state: cartState } = useCart()
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [showDesignModal, setShowDesignModal] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const location = useLocation()
 
   // Pages that need a dark header (non-transparent) or dark text by default because they have light backgrounds
-  const forceDarkHeader = ['/create-design', '/cart', '/checkout', '/account', '/product', '/catalog'].some(path => location.pathname.startsWith(path))
+  const forceDarkHeader = ['/imagination-station', '/cart', '/checkout', '/account', '/product', '/catalog'].some(path => location.pathname.startsWith(path))
 
   // Track scroll for header background
   useEffect(() => {
@@ -95,16 +93,13 @@ export function Header() {
               <ShoppingBag className="w-4 h-4" />
               Products
             </Link>
-            <button
-              onClick={() => setShowDesignModal(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${(isScrolled || forceDarkHeader)
-                ? 'text-text hover:bg-purple-50 hover:text-purple-600'
-                : 'text-white/90 hover:bg-white/10 hover:text-white'
-                }`}
+            <Link
+              to="/imagination-station"
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg hover:shadow-purple-500/30 hover:from-purple-700 hover:to-pink-700`}
             >
-              <Palette className="w-4 h-4" />
-              Design Studio
-            </button>
+              <Sparkles className="w-4 h-4" />
+              Imagination Station
+            </Link>
             <Link
               to="/community"
               className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 ${(isScrolled || forceDarkHeader)
@@ -464,16 +459,14 @@ export function Header() {
               <ShoppingBag className="w-5 h-5 text-purple-500" />
               Products
             </Link>
-            <button
-              onClick={() => {
-                setShowDesignModal(true)
-                setShowMobileMenu(false)
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-text hover:bg-purple-50 rounded-xl transition-colors"
+            <Link
+              to="/imagination-station"
+              className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl transition-colors"
+              onClick={() => setShowMobileMenu(false)}
             >
-              <Palette className="w-5 h-5 text-purple-500" />
-              Design Studio
-            </button>
+              <Sparkles className="w-5 h-5" />
+              Imagination Station
+            </Link>
             <Link
               to="/community"
               className="flex items-center gap-3 px-4 py-3 text-text hover:bg-purple-50 rounded-xl transition-colors"
@@ -485,11 +478,6 @@ export function Header() {
           </nav>
         </div>
       )}
-
-      <DesignStudioModal
-        isOpen={showDesignModal}
-        onClose={() => setShowDesignModal(false)}
-      />
     </header>
   )
 }

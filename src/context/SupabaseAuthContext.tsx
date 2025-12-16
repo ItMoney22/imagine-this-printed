@@ -14,7 +14,6 @@ interface User {
   emailVerified: boolean
   profileCompleted: boolean
   wallet?: {
-    pointsBalance: number
     itcBalance: number
   }
 }
@@ -55,7 +54,7 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
         .single(),
       supabase
         .from('user_wallets')
-        .select('points, itc_balance')
+        .select('itc_balance')
         .eq('user_id', supabaseUser.id)
         .single()
     ])
@@ -100,7 +99,6 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       emailVerified: profile.email_verified || false,
       profileCompleted: profile.profile_completed || false,
       wallet: walletData ? {
-        pointsBalance: walletData.points || 0,
         itcBalance: Number(walletData.itc_balance) || 0
       } : undefined
     }

@@ -9,7 +9,7 @@ interface CartState {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData']) => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc') => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -18,7 +18,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData'] } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc' } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -50,12 +50,13 @@ const calculateTotal = (items: CartItem[]): number => {
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
         item.selectedSize === selectedSize &&
-        item.selectedColor === selectedColor
+        item.selectedColor === selectedColor &&
+        item.paymentMethod === paymentMethod
       )
 
       let newItems: CartItem[]
@@ -73,7 +74,8 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           selectedSize,
           selectedColor,
           customDesign,
-          designData
+          designData,
+          paymentMethod
         }
         newItems = [...state.items, newItem]
       }
@@ -109,8 +111,8 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(cartReducer, { items: [], total: 0 })
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData']) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc') => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod } })
   }
 
   const removeFromCart = (itemId: string) => {

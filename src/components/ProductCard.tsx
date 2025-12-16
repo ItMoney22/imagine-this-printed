@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Palette } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Sparkles, Loader2 } from 'lucide-react'
 import { socialService } from '../utils/social-service'
+import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
-import DesignStudioModal from './DesignStudioModal'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -12,9 +12,10 @@ interface ProductCardProps {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
+  const navigate = useNavigate()
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [showDesignModal, setShowDesignModal] = useState(false)
+  const [isAddingToSheet, setIsAddingToSheet] = useState(false)
 
   useEffect(() => {
     if (showSocialBadges) {
@@ -63,19 +64,40 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const featuredPlatforms = getFeaturedPlatforms()
   const topPlatform = getMostEngagedPlatform()
 
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [isHovered, setIsHovered] = useState(false)
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+
+    if (isHovered && product.images && product.images.length > 1) {
+      interval = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev + 1) % product.images.length)
+      }, 1500)
+    } else {
+      setCurrentImageIndex(0)
+    }
+
+    return () => clearInterval(interval)
+  }, [isHovered, product.images])
+
   // Fallback image if no images available
   const productImage = product.images && product.images.length > 0
-    ? product.images[0]
+    ? product.images[currentImageIndex]
     : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
 
   return (
-    <div className="group relative bg-card border border-white/10 rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1">
+    <div
+      className="group relative bg-card border border-white/10 rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="relative aspect-square overflow-hidden">
         <Link to={`/product/${product.id}`}>
           <img
             src={productImage}
             alt={product.name}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 transition-opacity"
             onError={(e) => {
               // Fallback if image fails to load
               (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
@@ -125,6 +147,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </div>
         )}
 
+        {/* User Submitted Badge */}
+        {(product as any).isUserSubmitted && (
+          <div className="absolute top-2 left-2 z-10 mt-16">
+            <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20">
+              User Design
+            </span>
+          </div>
+        )}
+
         {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-transparent to-transparent opacity-60"></div>
       </div>
@@ -158,22 +189,61 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </Link>
 
           <button
-            onClick={() => setShowDesignModal(true)}
-            className="w-full bg-transparent border border-secondary/50 text-secondary hover:text-white hover:bg-secondary/20 hover:border-secondary font-bold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+            onClick={async () => {
+              // Fetch SOURCE image from product_assets (original Flux-generated image)
+              setIsAddingToSheet(true)
+              try {
+                const { data: assetsData } = await supabase
+                  .from('product_assets')
+                  .select('url, kind')
+                  .eq('product_id', product.id)
+                  .in('kind', ['source', 'nobg'])
+
+                let imageToAdd = product.images?.[0] || ''
+
+                if (assetsData && assetsData.length > 0) {
+                  // Prefer 'source' (original Flux image), then 'nobg' (background removed)
+                  const sourceAsset = assetsData.find(a => a.kind === 'source')
+                  const nobgAsset = assetsData.find(a => a.kind === 'nobg')
+                  imageToAdd = sourceAsset?.url || nobgAsset?.url || imageToAdd
+                }
+
+                if (!imageToAdd) {
+                  alert('No source image available for this product')
+                  return
+                }
+
+                const params = new URLSearchParams({
+                  addImage: imageToAdd,
+                  productName: product.name,
+                  productId: product.id
+                })
+                navigate(`/imagination-station?${params.toString()}`)
+              } catch (error) {
+                console.error('Error fetching source image:', error)
+                // Fallback to first image
+                const params = new URLSearchParams({
+                  addImage: product.images?.[0] || '',
+                  productName: product.name,
+                  productId: product.id
+                })
+                navigate(`/imagination-station?${params.toString()}`)
+              } finally {
+                setIsAddingToSheet(false)
+              }
+            }}
+            disabled={isAddingToSheet}
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(168,85,247,0.3)] hover:shadow-[0_0_20px_rgba(168,85,247,0.5)] disabled:opacity-70"
           >
-            <Palette className="w-4 h-4" />
-            Customize
+            {isAddingToSheet ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            {isAddingToSheet ? 'Loading...' : 'Add to Imagination Sheet'}
           </button>
         </div>
       </div>
-
-      <DesignStudioModal
-        isOpen={showDesignModal}
-        onClose={() => setShowDesignModal(false)}
-        product={product}
-        template={product.category === 'shirts' || product.category === 'hoodies' ? 'shirt' : 'tumbler'}
-        initialDesignImage={product.images?.[0]}
-      />
     </div>
   )
 }

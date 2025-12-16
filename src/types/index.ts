@@ -29,6 +29,7 @@ export interface CartItem {
   customDesign?: string
   selectedSize?: string
   selectedColor?: string
+  paymentMethod?: 'usd' | 'itc'
   designData?: {
     elements: any[]
     template: string
@@ -1109,6 +1110,7 @@ export interface AIProductCreationResponse {
 export type PrintType = 'dtf' | 'uv_dtf' | 'sublimation';
 export type SheetStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'printed';
 export type LayerType = 'image' | 'ai_generated' | 'text' | 'shape';
+export type PaymentMethod = 'usd' | 'itc';
 
 export interface ImaginationSheet {
   id: string;
@@ -1246,6 +1248,8 @@ export interface Layer {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  // Metadata for additional properties
+  metadata?: Record<string, any>;
 }
 
 export interface Pricing {

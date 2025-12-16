@@ -1,0 +1,119 @@
+--- a/src/pages/ImaginationStation.tsx
++++ b/src/pages/ImaginationStation.tsx
+@@ -801,7 +801,7 @@ const ImaginationStation: React.FC = () => {
+       <header className="h-14 bg-white border-b border-stone-200 flex items-center justify-between px-4 shrink-0 shadow-sm">
+         <div className="flex items-center gap-4">
+           <button
+-            onClick={() => navigate(-1)}
++            onClick={() => navigate('/product-catalog')}
+             className="flex items-center gap-2 text-stone-600 hover:text-purple-600 transition-colors"
+           >
+             <ChevronLeft className="w-5 h-5" />
+@@ -850,11 +850,32 @@ const ImaginationStation: React.FC = () => {
+             Save
+           </button>
+
+-          {/* ITC Balance */}
+-          <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-lg border border-purple-100">
++          {/* ITC Balance - Clickable */}
++          <button
++            onClick={() => navigate('/wallet')}
++            className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-lg border border-purple-100 hover:bg-purple-100 transition-colors"
++            title="Go to Wallet"
++          >
+             <Coins className="w-4 h-4 text-amber-500" />
+             <span className="font-bold text-purple-700">{itcBalance}</span>
+             <span className="text-purple-600 text-sm">ITC</span>
+-          </div>
++          </button>
++
++          {/* Profile Button */}
++          <button
++            onClick={() => navigate('/profile')}
++            className="w-8 h-8 flex items-center justify-center text-stone-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
++            title="Profile"
++          >
++            <User className="w-5 h-5" />
++          </button>
++
++          {/* Settings Button - Opens settings panel */}
++          <button
++            onClick={() => setActivePanel('export')}
++            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
++              activePanel === 'export' ? 'text-purple-600 bg-purple-50' : 'text-stone-600 hover:text-purple-600 hover:bg-purple-50'
++            }`}
++            title="Settings & Export"
++          >
++            <Settings className="w-5 h-5" />
++          </button>
+         </div>
+       </header>
+@@ -863,7 +884,14 @@ const ImaginationStation: React.FC = () => {
+       <div className="flex-1 flex overflow-hidden">
+         {/* Left Sidebar - Tools */}
+-        <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0">
++        {leftSidebarVisible && (
++        <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0 relative">
++          {/* Hide button */}
++          <button
++            onClick={() => setLeftSidebarVisible(false)}
++            className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
++            title="Hide panel"
++          >
++            <PanelLeft className="w-4 h-4" />
++          </button>
+           {/* Upload Button */}
+           <div className="p-4 border-b border-stone-100">
+@@ -1011,10 +1039,21 @@ const ImaginationStation: React.FC = () => {
+             )}
+           </div>
+         </aside>
++        )}
++
++        {/* Show Left Sidebar Button */}
++        {!leftSidebarVisible && (
++          <button
++            onClick={() => setLeftSidebarVisible(true)}
++            className="w-8 bg-white border-r border-stone-200 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
++            title="Show left panel"
++          >
++            <PanelRight className="w-4 h-4" />
++          </button>
++        )}
+
+         {/* Canvas Area */}
+@@ -1092,7 +1131,17 @@ const ImaginationStation: React.FC = () => {
+         </div>
+
+         {/* Right Sidebar - Context Panel */}
++        {/* Show Right Sidebar Button */}
++        {!rightSidebarVisible && (
++          <button
++            onClick={() => setRightSidebarVisible(true)}
++            className="w-8 bg-white border-l border-stone-200 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
++            title="Show right panel"
++          >
++            <PanelLeft className="w-4 h-4" />
++          </button>
++        )}
++
++        {rightSidebarVisible && (
+-        <aside className="w-80 bg-white border-l border-stone-200 flex flex-col shrink-0">
++        <aside className="w-80 bg-white border-l border-stone-200 flex flex-col shrink-0 relative">
++          {/* Hide button */}
++          <button
++            onClick={() => setRightSidebarVisible(false)}
++            className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
++            title="Hide panel"
++          >
++            <PanelRight className="w-4 h-4" />
++          </button>
+           {/* Panel Header */}
+@@ -1526,6 +1575,7 @@ const ImaginationStation: React.FC = () => {
+             )}
+           </div>
+         </aside>
++        )}
+       </div>
+     </div>
+   );

@@ -4,5 +4,8 @@
       "type": "http",
       "url": "https://mcp.supabase.com/mcp?project_ref=czzyrmizvjqlifcivrhn"
     }
+  },
+  "enabledPlugins": {
+    "commit-commands@claude-code-plugins": true
   }
 }

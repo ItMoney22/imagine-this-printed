@@ -1,4 +1,4 @@
-// ITC Pricing Configuration
+// ITC (Imagine This Coin) Pricing Configuration
 
 export interface ITCPackage {
   itcAmount: number

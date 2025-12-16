@@ -27,7 +27,7 @@ PLATFORM KNOWLEDGE:
 - ImagineThisPrinted connects customers with 3D printing vendors
 - Users can upload 3D models, browse products, and place orders
 - Platform features: Product Designer, Model Gallery, Vendor Directory, Wholesale Portal
-- Payment system uses ITC tokens/points and Stripe integration
+- Payment system uses ITC (Imagine This Coin) and Stripe integration
 - Users have roles: Customer, Vendor, Founder, Manager, Admin
 
 VENDOR SYSTEM:
@@ -41,10 +41,10 @@ FOUNDER ROLES:
 - Access to founder earnings dashboard
 - Can manage platform-wide settings
 
-TOKENS & POINTS:
-- ITC (ImagineThisPrinted Coin) digital currency
-- Users earn points through referrals and activities
-- Points can be converted to ITC tokens
+ITC (IMAGINE THIS COIN):
+- ITC is the digital currency of ImagineThisPrinted
+- Users earn ITC through referrals, order rewards, and activities
+- ITC can be used for AI design generation, store credits, and more
 - Current rate: $0.10 USD per ITC
 
 KEY FEATURES TO HELP WITH:

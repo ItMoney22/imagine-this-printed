@@ -1,0 +1,343 @@
+MetaDev, you are about to fix and upgrade the complete Imagination Station builder inside Imagine This Printed (ITP). Treat this as a full stabilization + feature implementation sprint.
+
+Follow every instruction carefully.
+This is a high-priority repair + enhancement cycle.
+
+SECTION 1 — WHITE LABEL REQUIREMENT
+
+Remove all references to “Nano Banana” anywhere in the codebase (components, functions, logs, UI text, comments, metadata, etc).
+
+Rename all enhancement functionality to:
+
+ITP Enhance Engine
+SECTION 2 — BROKEN UI BUTTONS (FIX ALL)
+
+Fix the following UI elements which currently do nothing:
+
+Top bar
+
+Back button
+
+Save
+
+ITC
+
+Profile
+
+Settings
+
+Implement:
+
+Proper onClick handlers
+
+Modal or panel opening
+
+State wiring
+
+Back button:
+Return to previous page using router/back or explicit route.
+
+SECTION 3 — SIDEBAR + CANVAS CONTROLS (FIX ALL)
+Fix the following controls:
+
+Hide panels toggle
+
+Lock layer icon
+
+Include cut lines
+
+Mirror for sublimation
+
+Safe margin toggle
+
+Reset canvas
+
+Sheet preset resizing
+
+Layer lock preventing movement/rotation/scale
+
+Implement full expected behavior for each.
+
+SECTION 4 — CANVAS BEHAVIOR FIXES
+Fix the following:
+
+Element resize via drag must always work
+
+Transformer boxes must appear consistently
+
+Z-index selection issues
+
+Layer selection logic
+
+Improve hit area for touch users
+
+Duplicate works (keep)
+
+Delete works (keep)
+
+SECTION 5 — AI TOOLS (FIX ALL NON-FUNCTIONAL BUTTONS)
+
+All AI actions must correctly call backend endpoints and update canvas layers.
+
+Fix the following AI features (currently do nothing):
+
+Mr. Imagine image generation
+
+Background removal
+
+Upscale
+
+Enhance Quality
+
+Add Element
+
+Autonest
+
+SmartFill
+
+Backend endpoints to wire:
+POST /api/imagination-station/generate
+POST /api/imagination-station/remove-bg
+POST /api/imagination-station/upscale
+POST /api/imagination-station/enhance
+POST /api/imagination-station/autonest
+POST /api/imagination-station/smartfill
+
+Add ITC deductions for each action:
+
+Remove BG → 5 ITC
+
+Upscale → 5–10 ITC
+
+Enhance → 5 ITC
+
+Mr. Imagine generation → 10–20 ITC
+
+Autonest → 2 ITC
+
+SmartFill → 3 ITC
+
+If user does not have enough ITC, open ITC purchase modal.
+
+After AI job completes:
+
+Replace or add the updated layer
+
+Maintain layer transforms (scale, rotation)
+
+Update undo/redo history
+
+Show loading state during all AI actions
+SECTION 6 — AUTONEST + SMARTFILL LOGIC
+Autonest Implementation
+
+Create packing algorithm:
+
+Sort layers by size
+
+Pack top-left downward
+
+Maintain margin and spacing
+
+Prevent overlap
+
+SmartFill Implementation
+
+Take selected layer
+
+Calculate how many copies can fit on sheet
+
+Duplicate and place evenly spaced
+
+Respect margins
+
+SECTION 7 — REMOVE EXPORT BUTTONS
+
+User must NOT export PNG or PDF. Remove these:
+
+Export PNG
+
+Export PDF
+
+Replace with:
+
+A single button:
+
+👉 Add to Cart
+When user clicks Add to Cart:
+
+Save sheet JSON
+
+Save preview image (150–300 DPI)
+
+Attach sheet metadata to product
+
+Add item to WooCommerce / Shopify / ITP Cart
+
+Print-ready file generation happens on backend ONLY
+
+Users never receive raw exports
+
+SECTION 8 — IMAGE QUALITY & DPI DETECTION
+
+Implement DPI checker:
+
+On image upload:
+
+Read pixel dimensions
+
+Determine DPI based on on-canvas scale
+
+Provide warnings:
+
+DPI >150 = OK (Green)
+100–150 = Medium (Yellow)
+<100 = Low (Red)
+
+Show warnings in sidebar + on image layer
+
+This is crucial to prevent bad prints.
+
+SECTION 9 — PRINT MODE BEHAVIOR FIXES
+
+Each print type must trigger specific rules:
+
+DTF
+
+No mirror
+
+PNG/PDF export backend only
+
+Width fixed at 22.5 in
+
+Sublimation
+
+Mirror toggle must function
+
+Width fixed at 22 in
+
+UV DTF
+
+Cut lines toggle must function
+
+Width fixed at 16 in
+
+Sheet size presets must resize the Konva canvas instantly.
+SECTION 10 — PRICING ENGINE FIX
+
+Use Quick Transfers pricing with ITP markup:
+
+Print Type	Base	ITP Price (USD)	ITC Price
+DTF	$14	$15.00	$14.00
+Sublimation	$8	$9.00	$8.00
+UV DTF	$12	$13.00	$12.00
+Pricing Logic:
+
+If payment method = USD → add $1
+If payment method = ITC → remove the $1
+
+Update all UI + checkout totals dynamically.
+SECTION 11 — MIRROR & CUTLINES
+Fix Mirror:
+
+Selected layers mirror horizontally
+
+Only active in Sublimation mode
+
+Fix Cutlines:
+
+Add stroke outline around each layer
+
+Toggle on/off
+
+Use configurable color and stroke width
+
+SECTION 12 — SAVE BUTTON FIX
+
+Save button must:
+
+Save project JSON
+
+Save thumbnail
+
+Save metadata
+
+Allow users to return later and continue
+
+SECTION 13 — STABILITY FEATURES
+
+Add:
+
+Global error boundary
+
+Soft autosave every 30 seconds
+
+Undo/redo history stack improved
+
+Disable broken UI paths
+
+Add notifications for all AI actions
+
+SECTION 14 — FINAL QA REQUIREMENTS
+
+MetaDev must verify:
+
+All buttons work
+
+All AI endpoints called correctly
+
+ITC deductions correct
+
+Canvas scaling stable
+
+Add to Cart works end-to-end
+
+Print type switching reconfigures canvas width
+
+All white-label naming consistent
+
+SECTION 15 — SUMMARY OF REQUIRED OUTPUT
+
+MetaDev must deliver:
+
+Frontend
+
+Fully functional Imagination Station
+
+All UI buttons working
+
+Pricing logic
+
+AI actions
+
+Add to Cart flow
+
+DPI checker
+
+Cutlines
+
+Mirror
+
+Sidebar + lock + hide fixes
+
+Backend
+
+All AI endpoints functional
+
+ITC integration
+
+Sheet export pipeline
+
+Project save system
+
+Code Cleanliness
+
+Remove Nano Banana naming
+
+Add comments
+
+Organize components
+
+**Your task begins now.
+
+Implement every fix, restore full functionality, and prepare the system for production.**

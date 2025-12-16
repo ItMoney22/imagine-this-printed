@@ -1,0 +1,425 @@
+Imagination Station – Master Product Blueprint
+
+A Complete Product, UX, and System Design Specification for Imagine This Printed
+
+📘 Imagination Station – Master Product Blueprint
+A Complete Product, UX, and System Design Specification for Imagine This Printed (ITP)
+
+Version 1.0 – Living Document
+
+1. Overview
+1.1 Purpose
+
+Imagination Station is Imagine This Printed’s next-generation design builder that replaces traditional “gang sheet” tools with an AI-powered creative workspace where users can generate art, upload designs, arrange them intelligently, and export print-ready sheets across multiple print technologies (DTF, UV DTF, Sublimation).
+
+1.2 Vision
+
+To create the most advanced layout builder in the print-on-demand industry, incorporating:
+
+Smart automation
+
+AI guidance
+
+Powerful editing features
+
+ITC-powered enhancements
+
+Seamless ITP integration
+
+1.3 Supported Print Types
+
+DTF (Direct-to-Film)
+
+UV DTF (Sticker / Hard Surface Transfers)
+
+Sublimation
+
+Each print type has its own sheet size presets and export rules.
+
+2. Competitive Research Summary
+2.1 Sites Analyzed
+
+Quick Transfers
+
+GangSheetBuilder.com
+
+NinjaTransfers (UV DTF)
+
+TeddyTransfers
+
+CounterCulture DIY
+
+Drip Apps Builder
+
+Rolled Up Printing
+
+DTF Dallas
+
+Glowtronics
+
+2.2 Key Features Identified Across Competitors
+
+Common:
+
+Drag-and-drop design placement
+
+Standard sheet sizes
+
+Manual layout controls
+
+Print-ready export
+
+Advanced:
+
+Auto-nesting / auto layout
+
+Background removal
+
+DPI warnings
+
+Transparent pixel trimming
+
+Duplicates autofill
+
+Re-download / edit after purchase
+
+Saved design library
+
+2.3 Gaps in Competitors (Opportunities for ITP)
+
+Lack of AI-powered creative generation
+
+Weak mobile UX
+
+Little integration with in-platform currency
+
+No mascot-driven creative guidance
+
+No predictive layout optimization
+
+Limited editing tools inside the builder
+
+Weak branding / user emotional experience
+
+2.4 Imagination Station Advantage
+
+Unlike any competitor, Imagination Station will integrate:
+
+Mr. Imagine (AI creative assistant)
+
+Nano Banana editing tools (upscale, BG remove, enhancements)
+
+ITC-based smart economy
+
+Auto-optimization AI
+
+Next-level UX and animation layers
+
+3. Core Features
+3.1 Builder Canvas Features
+
+Real-time drag-and-drop
+
+Resize, rotate, scale, duplicate
+
+Snap-to-grid
+
+Precision rulers (inches)
+
+Layer management panel
+
+Transparent trim removal
+
+High-resolution preview
+
+Grouping multiple designs
+
+Undo / redo history stack
+
+Zoom and pan control
+
+3.2 Smart Automation
+Auto-Nesting
+
+Automatically arranges elements to maximize sheet usage by minimizing unused space.
+
+Auto-Layout
+
+Sorts and organizes user uploads in a clean grid or flow layout.
+
+Magic Spacing
+
+Evenly distributes selected objects with perfect spacing.
+
+Smart Fill
+
+Fills the sheet with duplicates of selected artwork to reach maximum yield.
+
+3.3 AI Tools Integration
+Mr. Imagine Creative Panel
+
+Users can:
+
+Generate art via text prompts
+
+Modify existing designs
+
+Request variations
+
+Request matching sets
+
+Add elements to uploaded images
+
+Nano Banana Powered Tools
+
+Background Removal
+
+Upscaling to Print-Ready Resolution
+
+Color Enhancement
+
+Edge Sharpening
+
+Add Elements / Reconstruct Art
+
+Each of these actions will have an ITC cost.
+
+3.4 File Support
+Uploads
+
+PNG
+
+JPG
+
+SVG (optional)
+
+PDF (optional)
+
+AI / EPS (optional)
+
+Exports
+
+High-resolution PNG (300 DPI)
+
+Print-ready PDF
+
+Optional: TIFF
+
+Naming convention:
+ITP_[DATE]_[USER]_[PRINT_TYPE]_[SIZE].pdf
+
+4. Sheet Setup
+4.1 Print Type Selector
+
+DTF (22.5” width sheets)
+
+Sublimation (22” width sheets)
+
+UV DTF (16” width sheets)
+
+4.2 Sheet Sizes (Based on Quick Transfers)
+DTF Sheet Sizes
+
+22.5” x:
+24, 36, 48, 53, 60, 72, 84, 96, 108, 120,
+132, 144, 168, 192, 216, 240 inches
+
+Sublimation Sheet Sizes
+
+22” x:
+24, 36, 48, 60, 72, 84, 96, 120 inches
+
+UV DTF Sheet Sizes
+
+16” x:
+12, 24, 36, 48, 60, 72, 84, 96, 108, 120 inches
+
+4.3 Print Type Rules
+DTF
+
+No mirroring
+
+Can print any color
+
+Must output PNG/PDF at 300 DPI
+
+Sublimation
+
+Required orientation
+
+Heat press guidance
+
+No white ink
+
+UV DTF
+
+Hard surface application
+
+No heat press
+
+Cutline visibility option
+
+5. ITC Integration Design
+5.1 ITC Cost Model
+
+Each of these can be adjusted dynamically on the backend:
+
+Feature	ITC Cost
+Background Removal	5 ITC
+Upscale	5–10 ITC
+Mr. Imagine Generations	10–20 ITC
+Auto-Nesting	2 ITC
+Smart Fill	3 ITC
+Export Sheet	0–5 ITC (optional)
+5.2 ITC Wallet Integration
+
+ITC balance shown in sidebar
+
+“Add ITC” button opens purchase modal
+
+All ITC actions logged in DB
+
+Refund logic for failed AI generations
+
+6. User Experience Flow
+6.1 Step-by-Step Process
+
+User opens Imagination Station
+
+Chooses print type (DTF / UV / Sublimation)
+
+Selects sheet size preset
+
+Uploads designs or generates via AI
+
+Edits, arranges, duplicates, trims
+
+Runs auto-layout (optional)
+
+Performs AI enhancements (ITC-based)
+
+Runs DPI check
+
+Approves design
+
+Exports print-ready sheet
+
+Adds to cart or sends directly to production backend
+
+7. UI Layout Specification
+Sidebar Left
+
+Print type selector
+
+Sheet size selector
+
+Upload button
+
+AI tools:
+
+“Create With Mr. Imagine”
+
+“Enhance With Nano Banana”
+
+Layers panel
+
+ITC balance
+
+Canvas (Center)
+
+Interactive sheet
+
+Zoom controls
+
+Grid toggle
+
+Sidebar Right
+
+Object settings
+
+Spacing tools
+
+Auto layout controls
+
+Export options
+
+8. Backend & Database Requirements
+8.1 New API Endpoints
+
+POST /api/imagination-station/upload
+
+POST /api/imagination-station/generate
+
+POST /api/imagination-station/remove-bg
+
+POST /api/imagination-station/upscale
+
+POST /api/imagination-station/auto-layout
+
+POST /api/imagination-station/export
+
+8.2 Supabase Tables
+
+imagination_sheets
+
+imagination_layers
+
+ai_jobs
+
+itc_transactions
+
+8.3 GCS Buckets
+
+/temp/imagination
+
+/sheets/export
+
+/uploads/users
+
+9. Admin Workflow
+Admin Portal Tools
+
+View all submitted sheets
+
+Download print files
+
+Regenerate sheets
+
+Approve or flag designs
+
+DPI / quality checks
+
+ITC transaction view
+
+10. Roadmap (Future Enhancements)
+Phase 1
+
+Full canvas builder
+
+AI tools
+
+ITC integration
+
+Basic admin panel
+
+Phase 2
+
+Team templates
+
+Smart backgrounds
+
+Real-time collaboration
+
+Customer order history panel
+
+Phase 3
+
+3D previews
+
+Full character builder via Mr. Imagine
+
+Automated multi-sheet optimization
+
+END OF DOCUMENT
+
+This is a living master specification.

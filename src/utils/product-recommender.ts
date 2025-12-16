@@ -49,6 +49,7 @@ export class ProductRecommender {
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .neq('status', 'draft')
         .eq('is_active', true)
         .limit(20) // Fetch more to allow for random selection
 

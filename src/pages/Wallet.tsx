@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe, type StripeElementsOptions } from '@stripe/stripe-js'
 import { apiFetch } from '../lib/api'
-import type { PointsTransaction, ITCTransaction } from '../types'
+import type { ITCTransaction } from '../types'
 import { type ITCPackage, ITC_PACKAGES } from '../utils/stripe-itc'
 import PaymentForm from '../components/PaymentForm'
 
@@ -11,13 +11,9 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
 
 const Wallet: React.FC = () => {
   const { user } = useAuth()
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'points' | 'itc' | 'redeem' | 'purchase'>('overview')
-  const [pointsBalance, setPointsBalance] = useState(0)
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'history' | 'purchase'>('overview')
   const [itcBalance, setItcBalance] = useState(0)
-  const [pointsHistory, setPointsHistory] = useState<PointsTransaction[]>([])
   const [itcHistory, setItcHistory] = useState<ITCTransaction[]>([])
-  const [redeemAmount, setRedeemAmount] = useState('')
-  const [redeemType, setRedeemType] = useState<'product' | 'discount' | 'itc'>('itc')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -28,9 +24,8 @@ const Wallet: React.FC = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [paymentError, setPaymentError] = useState('')
 
-  // Exchange rates
-  const pointsToUSD = 0.01 // 1 point = $0.01
-  const usdToITC = 0.25 // $1 = 0.25 ITC
+  // ITC to USD rate (1 ITC = $0.01)
+  const itcToUSD = 0.01
 
   // Load user wallet data
   useEffect(() => {
@@ -71,7 +66,6 @@ const Wallet: React.FC = () => {
         throw new Error('No wallet data returned')
       }
 
-      setPointsBalance(wallet.points || 0)
       setItcBalance(Number(wallet.itc_balance || 0))
 
       // Load transaction history
@@ -98,29 +92,12 @@ const Wallet: React.FC = () => {
         userId: t.user_id,
         type: t.type,
         amount: t.amount,
-        usdValue: t.metadata?.usd_value || 0,
-        reason: t.reference || 'ITC Transaction',
+        usdValue: t.metadata?.usd_value || Math.abs(t.amount) * itcToUSD,
+        reason: t.reference || t.type || 'ITC Transaction',
         createdAt: t.created_at,
         metadata: t.metadata
       }))
       setItcHistory(mappedItcTransactions)
-
-      // Load points transactions
-      const pointsResponse = await apiFetch('/api/wallet/transactions/points', {
-        method: 'GET'
-      })
-
-      // Map snake_case to camelCase for points transactions
-      const mappedPointsTransactions = (pointsResponse.transactions || []).map((t: any) => ({
-        id: t.id,
-        userId: t.user_id,
-        type: 'points',
-        amount: t.points_change,
-        reason: t.reason || 'Points Transaction',
-        createdAt: t.created_at,
-        relatedId: t.reference
-      }))
-      setPointsHistory(mappedPointsTransactions)
     } catch (error) {
       console.error('Failed to load transaction history:', error)
       // Non-critical, don't show error
@@ -142,7 +119,7 @@ const Wallet: React.FC = () => {
         body: JSON.stringify({
           amount: amountInCents,
           currency: 'usd',
-          description: `Purchase ${pkg.itcAmount} ITC tokens`
+          description: `Purchase ${pkg.itcAmount} ITC`
         })
       })
 
@@ -175,33 +152,6 @@ const Wallet: React.FC = () => {
     setSelectedPackage(null)
     setIsProcessingPayment(false)
     setPaymentError('')
-  }
-
-  const handleRedeem = async () => {
-    if (!user?.id || !redeemAmount) return
-
-    const amount = parseInt(redeemAmount)
-    if (amount > pointsBalance) {
-      alert('Insufficient points balance')
-      return
-    }
-
-    try {
-      const result = await apiFetch('/api/wallet/redeem', {
-        method: 'POST',
-        body: JSON.stringify({
-          points: amount,
-          redeemType: redeemType
-        })
-      })
-
-      await loadWalletData()
-      setRedeemAmount('')
-      alert('Points redeemed successfully!')
-    } catch (error) {
-      console.error('Redemption error:', error)
-      alert('Redemption failed. Please try again.')
-    }
   }
 
   if (!user) {
@@ -274,19 +224,9 @@ const Wallet: React.FC = () => {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
       </svg>
     )},
-    { key: 'points' as const, label: 'Points', icon: (
+    { key: 'history' as const, label: 'Transaction History', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-      </svg>
-    )},
-    { key: 'itc' as const, label: 'ITC', icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    )},
-    { key: 'redeem' as const, label: 'Redeem', icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
       </svg>
     )},
     { key: 'purchase' as const, label: 'Buy ITC', icon: (
@@ -307,7 +247,7 @@ const Wallet: React.FC = () => {
         </div>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12 relative">
           <h1 className="text-3xl sm:text-4xl font-display font-bold text-white mb-2">My Wallet</h1>
-          <p className="text-purple-100">Manage your points and ITC tokens</p>
+          <p className="text-purple-100">Manage your ITC balance</p>
         </div>
       </div>
 
@@ -322,7 +262,7 @@ const Wallet: React.FC = () => {
             </div>
             <div>
               <p className="text-emerald-800 font-semibold">Payment successful!</p>
-              <p className="text-emerald-600 text-sm">Your ITC tokens have been added to your wallet.</p>
+              <p className="text-emerald-600 text-sm">Your ITC has been added to your wallet.</p>
             </div>
             <button onClick={() => setPaymentSuccess(false)} className="ml-auto text-emerald-400 hover:text-emerald-600">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -333,66 +273,55 @@ const Wallet: React.FC = () => {
         </div>
       )}
 
-      {/* Wallet Overview Cards */}
+      {/* Wallet Overview Card */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 -mt-6 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
-          {/* Points Card */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          {/* ITC Balance Card */}
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6 hover:shadow-soft-lg transition-shadow">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Points Balance</p>
-                <p className="text-2xl font-display font-bold text-slate-900">{pointsBalance.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="pt-3 border-t border-slate-100">
-              <p className="text-sm text-slate-500">
-                <span className="text-amber-600 font-medium">${(pointsBalance * pointsToUSD).toFixed(2)}</span> USD value
-              </p>
-            </div>
-          </div>
-
-          {/* ITC Card */}
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6 hover:shadow-soft-lg transition-shadow">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-500">ITC Tokens</p>
-                <p className="text-2xl font-display font-bold text-slate-900">{itcBalance.toFixed(2)}</p>
+                <p className="text-sm font-medium text-slate-500">ITC Balance</p>
+                <p className="text-3xl font-display font-bold text-slate-900">{itcBalance.toFixed(2)}</p>
               </div>
             </div>
             <div className="pt-3 border-t border-slate-100">
               <p className="text-sm text-slate-500">
-                <span className="text-purple-600 font-medium">${(itcBalance / usdToITC).toFixed(2)}</span> USD value
+                <span className="text-purple-600 font-semibold">${(itcBalance * itcToUSD).toFixed(2)}</span> USD value
               </p>
             </div>
           </div>
 
-          {/* Total Value Card */}
+          {/* Quick Actions Card */}
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-soft p-6 text-white">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+              <div className="w-14 h-14 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
+                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-300">Total Value</p>
-                <p className="text-2xl font-display font-bold">
-                  ${((pointsBalance * pointsToUSD) + (itcBalance / usdToITC)).toFixed(2)}
-                </p>
+                <p className="text-sm font-medium text-slate-300">Quick Actions</p>
+                <p className="text-lg font-display font-bold">Get More ITC</p>
               </div>
             </div>
-            <div className="pt-3 border-t border-white/10">
-              <p className="text-sm text-slate-400">Combined wallet value</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setSelectedTab('purchase')}
+                className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium text-sm transition-colors"
+              >
+                Buy ITC
+              </button>
+              <button
+                onClick={() => setSelectedTab('history')}
+                className="flex-1 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium text-sm transition-colors"
+              >
+                View History
+              </button>
             </div>
           </div>
         </div>
@@ -423,63 +352,112 @@ const Wallet: React.FC = () => {
       {/* Tab Content */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-6">
         {selectedTab === 'overview' && (
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-display font-bold text-slate-900">Recent Transactions</h3>
+          <div className="space-y-6">
+            {/* What is ITC */}
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 p-6">
+              <h3 className="text-lg font-display font-bold text-slate-900 mb-3">What is ITC?</h3>
+              <p className="text-slate-600 mb-4">
+                ITC (Imagine This Coin) is the currency of ImagineThisPrinted. Use it to:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl p-4 border border-purple-100">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
+                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h4 className="font-semibold text-slate-900 mb-1">AI Design Generation</h4>
+                  <p className="text-sm text-slate-500">Create unique designs with AI</p>
+                </div>
+                <div className="bg-white rounded-xl p-4 border border-purple-100">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
+                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
+                  <h4 className="font-semibold text-slate-900 mb-1">Store Credit</h4>
+                  <p className="text-sm text-slate-500">Apply to purchases</p>
+                </div>
+                <div className="bg-white rounded-xl p-4 border border-purple-100">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
+                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
+                  <h4 className="font-semibold text-slate-900 mb-1">Cash Out</h4>
+                  <p className="text-sm text-slate-500">Convert to real money</p>
+                </div>
+              </div>
             </div>
-            <div className="divide-y divide-slate-100">
-              {[...itcHistory.slice(0, 3), ...pointsHistory.slice(0, 3)]
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                .slice(0, 5)
-                .map((transaction, index) => {
-                  const date = transaction.createdAt
-                  const description = (transaction as any).description || transaction.reason
-                  const isItc = 'usd_value' in transaction || 'metadata' in transaction
 
-                  return (
-                    <div key={transaction.id || index} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          transaction.amount > 0
-                            ? 'bg-emerald-50 text-emerald-600'
-                            : 'bg-red-50 text-red-600'
-                        }`}>
-                          {transaction.amount > 0 ? (
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
-                            </svg>
-                          ) : (
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
-                            </svg>
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-900">{description}</p>
-                          <p className="text-sm text-slate-500">
-                            {new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </p>
-                        </div>
+            {/* Recent Transactions */}
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-lg font-display font-bold text-slate-900">Recent Transactions</h3>
+                {itcHistory.length > 0 && (
+                  <button
+                    onClick={() => setSelectedTab('history')}
+                    className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                  >
+                    View All
+                  </button>
+                )}
+              </div>
+              <div className="divide-y divide-slate-100">
+                {itcHistory.slice(0, 5).map((transaction, index) => (
+                  <div key={transaction.id || index} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        transaction.amount > 0
+                          ? 'bg-emerald-50 text-emerald-600'
+                          : 'bg-red-50 text-red-600'
+                      }`}>
+                        {transaction.amount > 0 ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
+                          </svg>
+                        )}
                       </div>
+                      <div>
+                        <p className="font-medium text-slate-900">{transaction.reason}</p>
+                        <p className="text-sm text-slate-500">
+                          {new Date(transaction.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
                       <p className={`font-semibold ${
                         transaction.amount > 0 ? 'text-emerald-600' : 'text-red-600'
                       }`}>
-                        {transaction.amount > 0 ? '+' : ''}{Math.abs(transaction.amount).toFixed(isItc ? 2 : 0)}
-                        <span className="text-xs ml-1 text-slate-400">{isItc ? 'ITC' : 'PTS'}</span>
+                        {transaction.amount > 0 ? '+' : ''}{Math.abs(transaction.amount).toFixed(2)} ITC
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        ${(Math.abs(transaction.amount) * itcToUSD).toFixed(2)}
                       </p>
                     </div>
-                  )
-                })}
-              {itcHistory.length === 0 && pointsHistory.length === 0 && (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
-                    <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
                   </div>
-                  <p className="text-slate-500">No transactions yet</p>
-                </div>
-              )}
+                ))}
+                {itcHistory.length === 0 && (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                    </div>
+                    <p className="text-slate-500 mb-4">No transactions yet</p>
+                    <button
+                      onClick={() => setSelectedTab('purchase')}
+                      className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium transition-colors"
+                    >
+                      Buy Your First ITC
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -490,8 +468,8 @@ const Wallet: React.FC = () => {
               <>
                 <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
                   <div className="px-6 py-4 border-b border-slate-100">
-                    <h3 className="text-lg font-display font-bold text-slate-900">Purchase ITC Tokens</h3>
-                    <p className="text-slate-500 text-sm mt-1">Select a package below to purchase ITC tokens with your credit card.</p>
+                    <h3 className="text-lg font-display font-bold text-slate-900">Purchase ITC</h3>
+                    <p className="text-slate-500 text-sm mt-1">Select a package below to purchase ITC with your credit card.</p>
                   </div>
                   <div className="p-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -512,7 +490,7 @@ const Wallet: React.FC = () => {
                           )}
                           <div className="text-center">
                             <p className="text-3xl font-display font-bold text-slate-900 mb-1">{pkg.itcAmount}</p>
-                            <p className="text-sm text-slate-500 mb-4">ITC Tokens</p>
+                            <p className="text-sm text-slate-500 mb-4">ITC</p>
                             <p className="text-2xl font-bold text-purple-600 mb-2">${pkg.priceUSD.toFixed(2)}</p>
                             {pkg.bonusPercent && pkg.bonusPercent > 0 && (
                               <span className="inline-block px-2 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full">
@@ -551,7 +529,7 @@ const Wallet: React.FC = () => {
                     <div className="mb-6 p-4 bg-purple-50 rounded-xl border border-purple-100">
                       <div className="flex justify-between items-center">
                         <div>
-                          <p className="text-slate-900 font-semibold">{selectedPackage.itcAmount} ITC Tokens</p>
+                          <p className="text-slate-900 font-semibold">{selectedPackage.itcAmount} ITC</p>
                           {selectedPackage.bonusPercent && selectedPackage.bonusPercent > 0 && (
                             <p className="text-sm text-emerald-600 font-medium">Save {selectedPackage.bonusPercent}%</p>
                           )}
@@ -580,154 +558,49 @@ const Wallet: React.FC = () => {
           </div>
         )}
 
-        {selectedTab === 'redeem' && (
+        {selectedTab === 'history' && (
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-display font-bold text-slate-900">Redeem Points</h3>
-            </div>
-            <div className="p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Points to Redeem
-                </label>
-                <input
-                  type="number"
-                  value={redeemAmount}
-                  onChange={(e) => setRedeemAmount(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors"
-                  placeholder="Enter points amount"
-                  max={pointsBalance}
-                />
-                <p className="text-sm text-slate-500 mt-2">
-                  Available: <span className="font-semibold text-amber-600">{pointsBalance.toLocaleString()}</span> points
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Redeem For
-                </label>
-                <select
-                  value={redeemType}
-                  onChange={(e) => setRedeemType(e.target.value as any)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors"
-                >
-                  <option value="itc">ITC Tokens</option>
-                  <option value="discount">Store Discount</option>
-                  <option value="product">Free Product</option>
-                </select>
-              </div>
-
-              {redeemType === 'itc' && redeemAmount && (
-                <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
-                  <p className="text-slate-700">
-                    <span className="font-semibold">{redeemAmount}</span> points = <span className="font-semibold text-purple-600">${(parseInt(redeemAmount || '0') * pointsToUSD).toFixed(2)}</span> = <span className="font-semibold text-purple-600">{((parseInt(redeemAmount || '0') * pointsToUSD) * usdToITC).toFixed(2)} ITC</span> tokens
-                  </p>
-                </div>
-              )}
-
-              <button
-                onClick={handleRedeem}
-                disabled={!redeemAmount || parseInt(redeemAmount) > pointsBalance}
-                className="w-full px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-semibold transition-all"
-              >
-                Redeem Points
-              </button>
-            </div>
-          </div>
-        )}
-
-        {selectedTab === 'points' && (
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-display font-bold text-slate-900">Points History</h3>
+              <h3 className="text-lg font-display font-bold text-slate-900">Transaction History</h3>
             </div>
             <div className="divide-y divide-slate-100">
-              {pointsHistory.map((transaction) => {
-                const date = transaction.createdAt
-                const description = transaction.reason
-
-                return (
-                  <div key={transaction.id} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        transaction.amount > 0
-                          ? 'bg-emerald-50 text-emerald-600'
-                          : 'bg-red-50 text-red-600'
-                      }`}>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-900">{description}</p>
-                        <p className="text-sm text-slate-500">
-                          {new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </p>
-                      </div>
-                    </div>
-                    <p className={`font-semibold ${
-                      transaction.amount > 0 ? 'text-emerald-600' : 'text-red-600'
+              {itcHistory.map((transaction) => (
+                <div key={transaction.id} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      transaction.amount > 0
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : 'bg-red-50 text-red-600'
                     }`}>
-                      {transaction.amount > 0 ? '+' : ''}{Math.abs(transaction.amount)} PTS
-                    </p>
-                  </div>
-                )
-              })}
-              {pointsHistory.length === 0 && (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
-                    <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                    </svg>
-                  </div>
-                  <p className="text-slate-500">No points transactions yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {selectedTab === 'itc' && (
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-display font-bold text-slate-900">ITC Transaction History</h3>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {itcHistory.map((transaction) => {
-                const date = transaction.createdAt
-                const description = transaction.reason
-
-                return (
-                  <div key={transaction.id} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        transaction.amount > 0
-                          ? 'bg-emerald-50 text-emerald-600'
-                          : 'bg-red-50 text-red-600'
-                      }`}>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-900">{description}</p>
-                        <p className="text-sm text-slate-500">
-                          {new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </p>
-                        {transaction.usdValue && (
-                          <p className="text-xs text-slate-400">${transaction.usdValue.toFixed(2)} USD</p>
-                        )}
-                      </div>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                     </div>
+                    <div>
+                      <p className="font-medium text-slate-900">{transaction.reason}</p>
+                      <p className="text-sm text-slate-500">
+                        {new Date(transaction.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
                     <p className={`font-semibold text-lg ${
                       transaction.amount > 0 ? 'text-emerald-600' : 'text-red-600'
                     }`}>
                       {transaction.amount > 0 ? '+' : ''}{Math.abs(transaction.amount).toFixed(2)} ITC
                     </p>
+                    <p className="text-xs text-slate-400">
+                      ${(Math.abs(transaction.amount) * itcToUSD).toFixed(2)} USD
+                    </p>
                   </div>
-                )
-              })}
+                </div>
+              ))}
               {itcHistory.length === 0 && (
                 <div className="text-center py-12">
                   <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
@@ -735,7 +608,7 @@ const Wallet: React.FC = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <p className="text-slate-500">No ITC transactions yet</p>
+                  <p className="text-slate-500">No transactions yet</p>
                 </div>
               )}
             </div>

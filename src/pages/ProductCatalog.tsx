@@ -63,36 +63,48 @@ const ProductCatalog: React.FC = () => {
   }
 
   const categories = [
-    { id: 'all', name: 'All Products', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-      </svg>
-    )},
-    { id: 'dtf-transfers', name: 'DTF Transfers', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-      </svg>
-    )},
-    { id: 'shirts', name: 'T-Shirts', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 2L2 6v3h4v13h12V9h4V6l-4-4h-4l-2 2-2-2H6z" />
-      </svg>
-    )},
-    { id: 'tumblers', name: 'Tumblers', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6l1 2h2a1 1 0 011 1v1H5V6a1 1 0 011-1h2l1-2zM5 7l1 14a2 2 0 002 2h8a2 2 0 002-2l1-14H5z" />
-      </svg>
-    )},
-    { id: 'hoodies', name: 'Hoodies', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2C8 2 6 4 6 4L2 8v4h4v10h12V12h4V8l-4-4s-2-2-6-2zm0 0v6" />
-      </svg>
-    )},
-    { id: '3d-prints', name: '3D Prints', icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-      </svg>
-    )}
+    {
+      id: 'all', name: 'All Products', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+        </svg>
+      )
+    },
+    {
+      id: 'dtf-transfers', name: 'DTF Transfers', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+        </svg>
+      )
+    },
+    {
+      id: 'shirts', name: 'T-Shirts', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 2L2 6v3h4v13h12V9h4V6l-4-4h-4l-2 2-2-2H6z" />
+        </svg>
+      )
+    },
+    {
+      id: 'tumblers', name: 'Tumblers', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6l1 2h2a1 1 0 011 1v1H5V6a1 1 0 011-1h2l1-2zM5 7l1 14a2 2 0 002 2h8a2 2 0 002-2l1-14H5z" />
+        </svg>
+      )
+    },
+    {
+      id: 'hoodies', name: 'Hoodies', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2C8 2 6 4 6 4L2 8v4h4v10h12V12h4V8l-4-4s-2-2-6-2zm0 0v6" />
+        </svg>
+      )
+    },
+    {
+      id: '3d-prints', name: '3D Prints', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+        </svg>
+      )
+    }
   ]
 
   const filteredProducts = selectedCategory === 'all'
@@ -110,7 +122,9 @@ const ProductCatalog: React.FC = () => {
         return (b.metadata?.viewCount || 0) - (a.metadata?.viewCount || 0)
       case 'newest':
       default:
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return dateB - dateA
     }
   })
 
@@ -155,21 +169,19 @@ const ProductCatalog: React.FC = () => {
                     <button
                       key={cat.id}
                       onClick={() => setSelectedCategory(cat.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all mb-1 ${
-                        selectedCategory === cat.id
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all mb-1 ${selectedCategory === cat.id
                           ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
                           : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      }`}
+                        }`}
                     >
                       <span className={selectedCategory === cat.id ? 'text-purple-200' : 'text-slate-400'}>
                         {cat.icon}
                       </span>
                       <span className="flex-1 text-left font-medium">{cat.name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        selectedCategory === cat.id
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${selectedCategory === cat.id
                           ? 'bg-white/20 text-white'
                           : 'bg-slate-100 text-slate-500'
-                      }`}>
+                        }`}>
                         {count}
                       </span>
                     </button>
@@ -233,11 +245,10 @@ const ProductCatalog: React.FC = () => {
                   <div className="flex items-center bg-slate-100 rounded-lg p-1">
                     <button
                       onClick={() => setViewMode('grid')}
-                      className={`p-2 rounded-md transition-colors ${
-                        viewMode === 'grid'
+                      className={`p-2 rounded-md transition-colors ${viewMode === 'grid'
                           ? 'bg-white text-purple-600 shadow-sm'
                           : 'text-slate-400 hover:text-slate-600'
-                      }`}
+                        }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -245,11 +256,10 @@ const ProductCatalog: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setViewMode('list')}
-                      className={`p-2 rounded-md transition-colors ${
-                        viewMode === 'list'
+                      className={`p-2 rounded-md transition-colors ${viewMode === 'list'
                           ? 'bg-white text-purple-600 shadow-sm'
                           : 'text-slate-400 hover:text-slate-600'
-                      }`}
+                        }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
