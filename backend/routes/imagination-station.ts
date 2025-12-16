@@ -4,11 +4,11 @@ import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import { SHEET_PRESETS, validateSheetSize, PrintType } from '../config/imagination-presets';
-import { pricingService } from '../services/imagination-pricing';
-import { aiService } from '../services/imagination-ai';
-import { layoutService } from '../services/imagination-layout';
-import gcsStorage from '../services/gcs-storage';
+import { SHEET_PRESETS, validateSheetSize, PrintType } from '../config/imagination-presets.js';
+import { pricingService } from '../services/imagination-pricing.js';
+import { aiService } from '../services/imagination-ai.js';
+import { layoutService } from '../services/imagination-layout.js';
+import gcsStorage from '../services/gcs-storage.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit

@@ -2,9 +2,9 @@
 
 import Replicate from 'replicate';
 import { createClient } from '@supabase/supabase-js';
-import { pricingService } from './imagination-pricing';
-import { AI_STYLES } from '../config/imagination-presets';
-import { removeBackgroundWithRemoveBg } from './removebg';
+import { pricingService } from './imagination-pricing.js';
+import { AI_STYLES } from '../config/imagination-presets.js';
+import { removeBackgroundWithRemoveBg } from './removebg.js';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!
