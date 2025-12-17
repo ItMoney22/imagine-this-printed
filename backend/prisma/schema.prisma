@@ -496,3 +496,34 @@ model ProductCostBreakdown {
   
   @@map("product_cost_breakdowns")
 }
+
+model ImaginationProduct {
+  id          String   @id @default(uuid())
+  printType   String   @unique @map("print_type") // 'dtf', 'uv_dtf', 'sublimation'
+  displayName String   @map("display_name")
+  description String?
+  width       Decimal
+  minDpi      Int      @default(300) @map("min_dpi")
+  rules       Json     // { mirror: boolean, whiteInk: boolean, ... }
+  
+  sizes       ImaginationProductSize[]
+  
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("imagination_products")
+}
+
+model ImaginationProductSize {
+  id          String   @id @default(uuid())
+  productId   String   @map("product_id")
+  height      Int
+  priceUsd    Decimal  @map("price_usd")
+  priceItc    Decimal  @map("price_itc")
+  enabled     Boolean  @default(true)
+  
+  product     ImaginationProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@unique([productId, height])
+  @@map("imagination_product_sizes")
+}

@@ -56,6 +56,7 @@ import UserMediaGallery from './pages/UserMediaGallery'
 // UserProductCreator discontinued - using ImaginationStation instead
 import UserDesignDashboard from './pages/UserDesignDashboard'
 import { AdminVoiceSettings } from './pages/admin/VoiceSettings'
+import AdminImaginationProducts from './pages/admin/ImaginationProducts'
 import ImaginationStation from './pages/ImaginationStation'
 import { ImaginationErrorBoundary } from './components/imagination'
 
@@ -150,6 +151,7 @@ function App() {
                   <Route path="/admin/social-content" element={<SocialContentManagement />} />
                   <Route path="/admin/ai/products/create" element={<AdminAIProductBuilder />} />
                   <Route path="/admin/voice-settings" element={<AdminVoiceSettings />} />
+                  <Route path="/admin/imagination-products" element={<AdminImaginationProducts />} />
 
                   {/* Imagination Station Routes */}
                   <Route

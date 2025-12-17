@@ -4,7 +4,8 @@ import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import { SHEET_PRESETS, validateSheetSize, PrintType } from '../config/imagination-presets.js';
+import { PrintType } from '../config/imagination-presets.js';
+import { imaginationProducts } from '../services/imagination-products.js';
 import { pricingService } from '../services/imagination-pricing.js';
 import { aiService } from '../services/imagination-ai.js';
 import { layoutService } from '../services/imagination-layout.js';
@@ -39,8 +40,30 @@ const requireAuth = async (req: Request, res: Response, next: Function): Promise
 };
 
 // Get sheet presets configuration
-router.get('/presets', (req: Request, res: Response) => {
-  res.json(SHEET_PRESETS);
+router.get('/presets', async (req: Request, res: Response) => {
+  try {
+    const products = await imaginationProducts.getAllProducts();
+    // Transform to expected format if needed, but new format is better. 
+    // Allowing frontend to adapt to new structure or we map it here.
+    // Let's stick to returning the full product list which includes rules and sizes.
+    // However, legacy frontend expects { dtf: {...}, uv_dtf: {...} } map.
+    // For backward compatibility while I update frontend:
+    const presetsMap: any = {};
+    for (const p of products) {
+      presetsMap[p.printType] = {
+        width: p.width,
+        heights: p.sizes?.filter(s => s.enabled).map(s => s.height) || [],
+        rules: p.rules,
+        displayName: p.displayName,
+        description: p.description
+      };
+    }
+
+    // Check if we have data, if not (e.g. migration failed), the service already falls back to hardcoded.
+    res.json(presetsMap);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get pricing with user's free trial status
@@ -62,15 +85,16 @@ router.post('/sheets', requireAuth, async (req: Request, res: Response): Promise
     const user = (req as any).user;
     const { name, print_type, sheet_height } = req.body;
 
-    if (!print_type || !SHEET_PRESETS[print_type as PrintType]) {
+    const product = await imaginationProducts.getProductByType(print_type as string);
+    if (!product) {
       res.status(400).json({ error: 'Invalid print type' });
       return;
     }
 
-    const preset = SHEET_PRESETS[print_type as PrintType];
     const height = sheet_height || 48;
+    const isValidSize = product.sizes?.some(s => s.height === height && s.enabled);
 
-    if (!validateSheetSize(print_type as PrintType, height)) {
+    if (!isValidSize) {
       res.status(400).json({ error: 'Invalid sheet height for this print type' });
       return;
     }
@@ -81,7 +105,7 @@ router.post('/sheets', requireAuth, async (req: Request, res: Response): Promise
         user_id: user.id,
         name: name || 'Untitled Sheet',
         print_type,
-        sheet_width: preset.width,
+        sheet_width: product.width,
         sheet_height: height,
         canvas_state: { version: 1, layers: [], gridEnabled: true, snapEnabled: true },
         status: 'draft'

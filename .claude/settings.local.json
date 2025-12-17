@@ -120,7 +120,14 @@
       "Bash(railway logs:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nfix: support GCS_CREDENTIALS JSON string for Railway deployment\n\nModified gcs-storage.ts to parse credentials from either:\n- GCS_CREDENTIALS env var (JSON string for cloud deployment)\n- GCS_CREDENTIALS_PATH env var (file path for local dev)\n- Application default credentials as fallback\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(railway redeploy:*)",
-      "Bash(railway up:*)"
+      "Bash(railway up:*)",
+      "Bash(timeout 30 railway logs:*)",
+      "Bash(timeout 15 bash -c 'cd \"\"\"\"e:/Projects for MetaSphere/imagine-this-printed\"\"\"\" && railway logs')",
+      "Bash(timeout 20 railway logs:*)",
+      "Bash(timeout 15 railway logs:*)",
+      "Bash(railway deployment:*)",
+      "Bash(printf:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

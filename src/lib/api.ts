@@ -353,6 +353,13 @@ export const imaginationApi = {
 
   listProjects: (params?: { status?: string; limit?: number }) =>
     api.get('/api/imagination-station/projects', { params }),
+
+  admin: {
+    getProducts: () => api.get('/api/admin/imagination-products'),
+    updateProduct: (id: string, data: any) => api.put(`/api/admin/imagination-products/${id}`, data),
+    upsertSize: (data: any) => api.post('/api/admin/imagination-products/size', data),
+    deleteSize: (productId: string, height: number) => api.delete('/api/admin/imagination-products/size', { body: { productId, height } })
+  }
 };
 
 // Admin API methods

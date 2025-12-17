@@ -32,6 +32,7 @@ import {
   ZoomIn,
   ZoomOut,
   ChevronLeft,
+  ChevronDown,
   Plus,
   Trash2,
   Eye,
@@ -69,45 +70,28 @@ import {
 
 // Sheet preset configurations
 // Sheet presets - FIXED WIDTHS by print type, heights must match backend/config/imagination-presets.ts
-const SHEET_PRESETS = {
+// Sheet UI configurations (static data like colors/icons)
+const PRESET_UI_CONFIG: Record<string, any> = {
   dtf: {
-    name: 'DTF',
-    description: 'Direct-to-Film transfers for fabric',
-    width: 22.5, // FIXED WIDTH - cannot be changed
-    heights: [24, 36, 48, 60], // Must match backend: [24, 36, 48, 53, 60, 72, ...]
     color: 'from-purple-500 to-violet-600',
     bgColor: 'bg-purple-50',
     borderColor: 'border-purple-200',
     textColor: 'text-purple-700',
     icon: '🎨',
-    allowMirror: false, // DTF does NOT support mirror toggle
-    allowCutlines: false // DTF does NOT support cutlines toggle
   },
   uv_dtf: {
-    name: 'UV DTF',
-    description: 'UV-cured transfers for hard surfaces',
-    width: 16, // FIXED WIDTH - cannot be changed
-    heights: [12, 24, 36, 48], // Must match backend: [12, 24, 36, 48, 60, ...]
     color: 'from-blue-500 to-cyan-500',
     bgColor: 'bg-blue-50',
     borderColor: 'border-blue-200',
     textColor: 'text-blue-700',
     icon: '✨',
-    allowMirror: false, // UV DTF does NOT support mirror toggle
-    allowCutlines: true // UV DTF DOES support cutlines toggle
   },
   sublimation: {
-    name: 'Sublimation',
-    description: 'Dye-sublimation for polyester & coated items',
-    width: 22, // FIXED WIDTH - cannot be changed
-    heights: [24, 36, 48, 60], // Must match backend: [24, 36, 48, 60, 72, ...]
     color: 'from-pink-500 to-rose-500',
     bgColor: 'bg-pink-50',
     borderColor: 'border-pink-200',
     textColor: 'text-pink-700',
     icon: '🌈',
-    allowMirror: true, // Sublimation DOES support mirror toggle
-    allowCutlines: false // Sublimation does NOT support cutlines toggle
   }
 };
 
@@ -159,6 +143,7 @@ const ImaginationStation: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [presets, setPresets] = useState<any>(null); // State for dynamic presets
 
   // Pricing
   const [pricing, setPricing] = useState<ImaginationPricing[]>([]);
@@ -396,6 +381,28 @@ const ImaginationStation: React.FC = () => {
         console.log('Pricing not available:', e);
       }
 
+      // Load presets
+      try {
+        const { data: presetData } = await imaginationApi.getPresets();
+        // Merge API data with UI config
+        const merged: any = {};
+        if (presetData) {
+          Object.keys(presetData).forEach(key => {
+            merged[key] = {
+              ...presetData[key],
+              ...(PRESET_UI_CONFIG[key] || {}),
+              name: presetData[key].displayName, // Map displayName to name for compatibility
+              allowMirror: presetData[key].rules?.mirror,
+              allowCutlines: presetData[key].rules?.cutlineOption,
+              heights: presetData[key].sizes ? presetData[key].sizes.map((s: any) => s.height).sort((a: number, b: number) => a - b) : []
+            };
+          });
+          setPresets(merged);
+        }
+      } catch (e) {
+        console.error('Failed to load presets:', e);
+      }
+
       // Load specific sheet if ID provided
       if (id) {
         const { data: sheetData } = await imaginationApi.getSheet(id);
@@ -437,7 +444,12 @@ const ImaginationStation: React.FC = () => {
   const createSheet = async (printType: PrintType, height: number) => {
     setIsCreating(true);
     try {
-      const preset = SHEET_PRESETS[printType];
+      if (!presets) {
+        alert('Configuration is loading...');
+        setIsCreating(false);
+        return;
+      }
+      const preset = presets[printType];
       console.log('Creating sheet:', { print_type: printType, height, preset_name: preset.name });
       const { data } = await imaginationApi.createSheet({
         name: `${preset.name} Sheet - ${preset.width}" x ${height}"`,
@@ -863,7 +875,8 @@ const ImaginationStation: React.FC = () => {
 
   // Calculate sheet price based on size
   const calculateSheetPrice = (printType: PrintType, height: number): number => {
-    const preset = SHEET_PRESETS[printType];
+    const preset = presets ? presets[printType] : null;
+    if (!preset) return 0;
     const sqInches = preset.width * height;
     const pricePerSqInch = 0.02; // $0.02 per square inch base
     return Math.round(sqInches * pricePerSqInch * 100) / 100;
@@ -939,7 +952,7 @@ const ImaginationStation: React.FC = () => {
 
       // Calculate price
       const price = calculateSheetPrice(sheet.print_type as PrintType, sheet.sheet_height);
-      const preset = SHEET_PRESETS[sheet.print_type as PrintType];
+      const preset = presets ? presets[sheet.print_type as PrintType] : { name: sheet.print_type };
 
       // Create a Product-like object for the cart
       const imaginationSheetProduct: Product = {
@@ -1261,15 +1274,15 @@ const ImaginationStation: React.FC = () => {
         setLayers(prev => prev.map(l =>
           l.id === selectedLayer.id
             ? {
-                ...l,
-                processed_url: newUrl,
-                metadata: {
-                  ...l.metadata,
-                  enhanced: true,
-                  // Store original for revert
-                  beforeEnhanceUrl: originalUrl,
-                }
+              ...l,
+              processed_url: newUrl,
+              metadata: {
+                ...l.metadata,
+                enhanced: true,
+                // Store original for revert
+                beforeEnhanceUrl: originalUrl,
               }
+            }
             : l
         ));
         setSaveStatus('unsaved');
@@ -1617,8 +1630,8 @@ const ImaginationStation: React.FC = () => {
           </div>
 
           {/* Sheet Type Cards - Glassmorphism Style */}
-          <div className="grid md:grid-cols-3 gap-6 mb-16">
-            {(Object.entries(SHEET_PRESETS) as [PrintType, typeof SHEET_PRESETS.dtf][]).map(([type, preset], index) => {
+          {presets && <div className="grid md:grid-cols-3 gap-6 mb-16">
+            {(Object.entries(presets) as [PrintType, any][]).map(([type, preset], index) => {
               const gradients = {
                 dtf: 'from-violet-500 to-purple-600',
                 uv_dtf: 'from-cyan-500 to-blue-600',
@@ -1661,7 +1674,7 @@ const ImaginationStation: React.FC = () => {
 
                     {/* Height options with pricing */}
                     <div className="space-y-2.5">
-                      {preset.heights.map((height, i) => {
+                      {preset.heights.map((height: number, i: number) => {
                         const sqInches = preset.width * height;
                         const price = Math.round(sqInches * 0.02 * 100) / 100;
                         return (
@@ -1696,7 +1709,7 @@ const ImaginationStation: React.FC = () => {
                 </div>
               );
             })}
-          </div>
+          </div>}
 
           {/* Pending Image Notice - Enhanced */}
           {pendingImage && (
@@ -1752,7 +1765,7 @@ const ImaginationStation: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {recentSheets.slice(0, 6).map((s, i) => {
-                  const presetData = SHEET_PRESETS[s.print_type as PrintType];
+                  const presetData = presets ? presets[s.print_type as PrintType] : null;
                   const layerCount = s.canvas_state?.layers?.length || 0;
                   return (
                     <Link
@@ -1778,13 +1791,12 @@ const ImaginationStation: React.FC = () => {
                         )}
                         {/* Status badge */}
                         <div className="absolute top-3 right-3">
-                          <span className={`px-3 py-1 text-xs font-semibold rounded-full backdrop-blur-sm ${
-                            s.status === 'draft'
-                              ? 'bg-white/20 text-white'
-                              : s.status === 'submitted'
+                          <span className={`px-3 py-1 text-xs font-semibold rounded-full backdrop-blur-sm ${s.status === 'draft'
+                            ? 'bg-white/20 text-white'
+                            : s.status === 'submitted'
                               ? 'bg-violet-500/80 text-white'
                               : 'bg-emerald-500/80 text-white'
-                          }`}>
+                            }`}>
                             {s.status === 'draft' ? 'Draft' : s.status === 'submitted' ? 'Submitted' : s.status}
                           </span>
                         </div>
@@ -1851,13 +1863,13 @@ const ImaginationStation: React.FC = () => {
             animation: float 6s ease-in-out infinite;
           }
         `}</style>
-      </div>
+      </div >
     );
   }
 
   // Main Editor View
   const selectedLayers = layers.filter(l => selectedLayerIds.includes(l.id));
-  const preset = SHEET_PRESETS[sheet.print_type as PrintType];
+  const preset = presets ? presets[sheet.print_type as PrintType] : { name: sheet.print_type };
 
   return (
     <div className="h-screen flex flex-col bg-[#F5F5F5] overflow-hidden">
@@ -1970,11 +1982,10 @@ const ImaginationStation: React.FC = () => {
           {/* Export Settings */}
           <button
             onClick={() => setActivePanel('export')}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
-              activePanel === 'export'
-                ? 'text-purple-600 bg-purple-100'
-                : 'text-stone-500 hover:text-purple-600 hover:bg-purple-50'
-            }`}
+            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${activePanel === 'export'
+              ? 'text-purple-600 bg-purple-100'
+              : 'text-stone-500 hover:text-purple-600 hover:bg-purple-50'
+              }`}
             title="Export & Settings"
           >
             <Settings className="w-4 h-4" />
@@ -1986,187 +1997,229 @@ const ImaginationStation: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - Tools */}
         {leftSidebarVisible && (
-        <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0 relative">
-          {/* Hide button */}
-          <button
-            onClick={() => setLeftSidebarVisible(false)}
-            className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
-            title="Hide panel"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </button>
-          {/* Upload & Add Element Buttons */}
-          <div className="p-4 border-b border-stone-100 space-y-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleFileUpload}
-              className="hidden"
-            />
+          <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0 relative">
+            {/* Hide button */}
             <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-purple-700 hover:to-purple-800 transition-all shadow-lg shadow-purple-200 disabled:opacity-50"
+              onClick={() => setLeftSidebarVisible(false)}
+              className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
+              title="Hide panel"
             >
-              <Upload className="w-5 h-5" />
-              Upload Images
+              <PanelLeft className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => setShowAddElementPanel(true)}
-              disabled={isProcessing}
-              className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-blue-700 hover:to-cyan-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
-            >
-              <Plus className="w-5 h-5" />
-              Add Element
-            </button>
-          </div>
+            {/* Sheet Configuration (Admins Only) */}
+            {presets && presets[sheet.print_type as PrintType] && user?.role === 'admin' && (
+              <div className="p-4 border-b border-stone-100">
+                <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Sheet Size</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-2 bg-stone-50 rounded-lg border border-stone-100">
+                    <div className="flex items-center justify-center w-8 h-8 rounded bg-white shadow-sm text-lg">
+                      {presets[sheet.print_type as PrintType].icon}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-[10px] text-stone-400 font-medium uppercase tracking-wider">Type</div>
+                      <div className="text-sm font-semibold text-stone-700">{presets[sheet.print_type as PrintType].name}</div>
+                    </div>
+                  </div>
 
-          {/* AI Tools */}
-          <div className="p-4 border-b border-stone-100">
-            <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">AI Tools</h3>
-            <div className="space-y-2">
-              <button
-                onClick={() => setActivePanel('ai')}
-                className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 ${
-                  activePanel === 'ai'
-                    ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                    : 'bg-stone-50 text-stone-700 hover:bg-purple-50 border border-transparent'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">Mr. Imagine</div>
-                  <div className="text-xs text-stone-500">
-                    {getFreeTrial('generate') > 0 ? `${getFreeTrial('generate')} free` : `${getFeaturePrice('generate')} ITC`}
+                  <div>
+                    <label className="text-xs text-stone-500 font-medium block mb-1.5 ml-1">Sheet Height</label>
+                    <div className="relative">
+                      <select
+                        value={sheet.sheet_height}
+                        onChange={(e) => {
+                          const h = parseInt(e.target.value);
+                          setSheet(prev => prev ? { ...prev, sheet_height: h } : null);
+                          setSaveStatus('unsaved');
+                        }}
+                        className="w-full pl-3 pr-8 py-2.5 bg-white border border-stone-200 rounded-xl text-sm font-medium text-stone-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow appearance-none cursor-pointer hover:border-purple-300"
+                        style={{ backgroundImage: 'none' }}
+                      >
+                        {presets[sheet.print_type as PrintType].heights.map((h: number) => {
+                          const width = presets[sheet.print_type as PrintType].width;
+                          const price = Math.round(width * h * 0.02 * 100) / 100;
+                          return (
+                            <option key={h} value={h}>{width}" x {h}" - ${price.toFixed(2)}</option>
+                          );
+                        })}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-stone-400">
+                        <ChevronDown className="w-4 h-4" />
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </button>
+              </div>
+            )}
 
+            {/* Upload & Add Element Buttons */}
+            <div className="p-4 border-b border-stone-100 space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileUpload}
+                className="hidden"
+              />
               <button
-                onClick={() => setActivePanel('tools')}
-                className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 ${
-                  activePanel === 'tools'
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessing}
+                className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-purple-700 hover:to-purple-800 transition-all shadow-lg shadow-purple-200 disabled:opacity-50"
+              >
+                <Upload className="w-5 h-5" />
+                Upload Images
+              </button>
+              <button
+                onClick={() => setShowAddElementPanel(true)}
+                disabled={isProcessing}
+                className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-blue-700 hover:to-cyan-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
+              >
+                <Plus className="w-5 h-5" />
+                Add Element
+              </button>
+            </div>
+
+            {/* AI Tools */}
+            <div className="p-4 border-b border-stone-100">
+              <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">AI Tools</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setActivePanel('ai')}
+                  className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 ${activePanel === 'ai'
+                    ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                    : 'bg-stone-50 text-stone-700 hover:bg-purple-50 border border-transparent'
+                    }`}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium">Mr. Imagine</div>
+                    <div className="text-xs text-stone-500">
+                      {getFreeTrial('generate') > 0 ? `${getFreeTrial('generate')} free` : `${getFeaturePrice('generate')} ITC`}
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setActivePanel('tools')}
+                  className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 ${activePanel === 'tools'
                     ? 'bg-amber-100 text-amber-700 border border-amber-200'
                     : 'bg-stone-50 text-stone-700 hover:bg-amber-50 border border-transparent'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                  <Wand2 className="w-4 h-4 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">ITP Enhance</div>
-                  <div className="text-xs text-stone-500">BG Remove, Upscale, Enhance</div>
-                </div>
-              </button>
+                    }`}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                    <Wand2 className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium">ITP Enhance</div>
+                    <div className="text-xs text-stone-500">BG Remove, Upscale, Enhance</div>
+                  </div>
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Layers Panel */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-4 pb-2 flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Layers</h3>
-              <span className="text-xs text-stone-400">{layers.length}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 pb-4">
-              {layers.length === 0 ? (
-                <div className="text-center py-8 text-stone-400">
-                  <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No layers yet</p>
-                  <p className="text-xs">Upload images to get started</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {[...layers].reverse().map(layer => {
-                    const imageUrl = layer.processed_url || layer.source_url;
-                    const isVisible = layer.metadata?.visible !== false;
-                    const isLocked = layer.metadata?.locked === true;
-                    const layerName = layer.metadata?.name || `Layer ${layer.z_index + 1}`;
-                    const dpiInfo = layer.metadata?.dpiInfo as DpiInfo | undefined;
-                    const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality) : null;
+            {/* Layers Panel */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-4 pb-2 flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Layers</h3>
+                <span className="text-xs text-stone-400">{layers.length}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
+                {layers.length === 0 ? (
+                  <div className="text-center py-8 text-stone-400">
+                    <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No layers yet</p>
+                    <p className="text-xs">Upload images to get started</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {[...layers].reverse().map(layer => {
+                      const imageUrl = layer.processed_url || layer.source_url;
+                      const isVisible = layer.metadata?.visible !== false;
+                      const isLocked = layer.metadata?.locked === true;
+                      const layerName = layer.metadata?.name || `Layer ${layer.z_index + 1}`;
+                      const dpiInfo = layer.metadata?.dpiInfo as DpiInfo | undefined;
+                      const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality) : null;
 
-                    return (
-                      <div
-                        key={layer.id}
-                        onClick={() => selectLayer(layer.id)}
-                        className={`p-2 rounded-lg cursor-pointer transition-all flex items-center gap-2 ${
-                          selectedLayerIds.includes(layer.id)
+                      return (
+                        <div
+                          key={layer.id}
+                          onClick={() => selectLayer(layer.id)}
+                          className={`p-2 rounded-lg cursor-pointer transition-all flex items-center gap-2 ${selectedLayerIds.includes(layer.id)
                             ? 'bg-purple-100 border border-purple-300'
                             : 'hover:bg-stone-100 border border-transparent'
-                        }`}
-                      >
-                        {/* Layer thumbnail */}
-                        <div className="w-8 h-8 rounded bg-stone-200 flex items-center justify-center overflow-hidden shrink-0 relative">
-                          {(layer.layer_type === 'image' || layer.layer_type === 'ai_generated') && imageUrl ? (
-                            <img src={imageUrl} alt="" className="w-full h-full object-cover" />
-                          ) : layer.layer_type === 'text' ? (
-                            <Type className="w-4 h-4 text-stone-500" />
-                          ) : (
-                            <Square className="w-4 h-4 text-stone-500" />
-                          )}
-                          {/* DPI quality indicator badge */}
-                          {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
-                            <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border border-white ${dpiDisplay?.indicatorColor}`} />
-                          )}
-                        </div>
+                            }`}
+                        >
+                          {/* Layer thumbnail */}
+                          <div className="w-8 h-8 rounded bg-stone-200 flex items-center justify-center overflow-hidden shrink-0 relative">
+                            {(layer.layer_type === 'image' || layer.layer_type === 'ai_generated') && imageUrl ? (
+                              <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+                            ) : layer.layer_type === 'text' ? (
+                              <Type className="w-4 h-4 text-stone-500" />
+                            ) : (
+                              <Square className="w-4 h-4 text-stone-500" />
+                            )}
+                            {/* DPI quality indicator badge */}
+                            {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
+                              <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border border-white ${dpiDisplay?.indicatorColor}`} />
+                            )}
+                          </div>
 
-                        {/* Layer name */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-stone-800 truncate">{layerName}</p>
-                          {/* DPI warning text */}
-                          {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
-                            <p className={`text-xs ${dpiDisplay?.color} truncate`}>
-                              {dpiInfo.dpi} DPI - {dpiDisplay?.label}
-                            </p>
-                          )}
-                        </div>
+                          {/* Layer name */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-stone-800 truncate">{layerName}</p>
+                            {/* DPI warning text */}
+                            {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
+                              <p className={`text-xs ${dpiDisplay?.color} truncate`}>
+                                {dpiInfo.dpi} DPI - {dpiDisplay?.label}
+                              </p>
+                            )}
+                          </div>
 
-                        {/* Layer controls */}
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer.id); }}
-                            className="p-1 text-stone-400 hover:text-stone-600"
-                          >
-                            {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleLayerLock(layer.id); }}
-                            className="p-1 text-stone-400 hover:text-stone-600"
-                          >
-                            {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                          </button>
+                          {/* Layer controls */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer.id); }}
+                              className="p-1 text-stone-400 hover:text-stone-600"
+                            >
+                              {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleLayerLock(layer.id); }}
+                              className="p-1 text-stone-400 hover:text-stone-600"
+                            >
+                              {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Layer actions */}
+              {selectedLayerIds.length > 0 && (
+                <div className="p-4 border-t border-stone-100 flex gap-2">
+                  <button
+                    onClick={duplicateSelectedLayers}
+                    className="flex-1 px-3 py-2 bg-stone-100 text-stone-600 rounded-lg text-sm font-medium hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Duplicate
+                  </button>
+                  <button
+                    onClick={deleteSelectedLayers}
+                    className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
                 </div>
               )}
             </div>
-
-            {/* Layer actions */}
-            {selectedLayerIds.length > 0 && (
-              <div className="p-4 border-t border-stone-100 flex gap-2">
-                <button
-                  onClick={duplicateSelectedLayers}
-                  className="flex-1 px-3 py-2 bg-stone-100 text-stone-600 rounded-lg text-sm font-medium hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
-                >
-                  <Copy className="w-4 h-4" />
-                  Duplicate
-                </button>
-                <button
-                  onClick={deleteSelectedLayers}
-                  className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-1"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete
-                </button>
-              </div>
-            )}
-          </div>
-        </aside>
+          </aside>
         )}
 
         {/* Show Left Sidebar Button */}
@@ -2221,26 +2274,23 @@ const ImaginationStation: React.FC = () => {
             <div className="w-px h-6 bg-stone-200 mx-2"></div>
             <button
               onClick={() => setGridEnabled(g => !g)}
-              className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                gridEnabled ? 'bg-purple-100 text-purple-700' : 'text-stone-500 hover:bg-stone-100'
-              }`}
+              className={`px-3 py-1 text-sm rounded-full transition-colors ${gridEnabled ? 'bg-purple-100 text-purple-700' : 'text-stone-500 hover:bg-stone-100'
+                }`}
             >
               <Grid3X3 className="w-4 h-4" />
             </button>
             <button
               onClick={() => setSnapEnabled(s => !s)}
-              className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                snapEnabled ? 'bg-purple-100 text-purple-700' : 'text-stone-500 hover:bg-stone-100'
-              }`}
+              className={`px-3 py-1 text-sm rounded-full transition-colors ${snapEnabled ? 'bg-purple-100 text-purple-700' : 'text-stone-500 hover:bg-stone-100'
+                }`}
               title="Toggle Snap"
             >
               <Magnet className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowSafeMargin(s => !s)}
-              className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                showSafeMargin ? 'bg-purple-100 text-purple-700' : 'text-stone-500 hover:bg-stone-100'
-              }`}
+              className={`px-3 py-1 text-sm rounded-full transition-colors ${showSafeMargin ? 'bg-purple-100 text-purple-700' : 'text-stone-500 hover:bg-stone-100'
+                }`}
               title="Toggle Safe Margin"
             >
               <Maximize className="w-4 h-4" />
@@ -2270,808 +2320,798 @@ const ImaginationStation: React.FC = () => {
         )}
 
         {rightSidebarVisible && (
-        <aside className="w-80 bg-white border-l border-stone-200 flex flex-col shrink-0 relative">
-          {/* Hide button */}
-          <button
-            onClick={() => setRightSidebarVisible(false)}
-            className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
-            title="Hide panel"
-          >
-            <PanelRight className="w-4 h-4" />
-          </button>
-          {/* Panel Header */}
-          <div className="p-4 border-b border-stone-100">
-            <div className="flex gap-1 bg-stone-100 p-1 rounded-lg">
-              {[
-                { id: 'layers', label: 'Properties', icon: Settings },
-                { id: 'ai', label: 'AI', icon: Sparkles },
-                { id: 'tools', label: 'Tools', icon: Wand2 },
-                { id: 'export', label: 'Cart', icon: ShoppingCart },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActivePanel(tab.id as typeof activePanel)}
-                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-1 ${
-                    activePanel === tab.id
+          <aside className="w-80 bg-white border-l border-stone-200 flex flex-col shrink-0 relative">
+            {/* Hide button */}
+            <button
+              onClick={() => setRightSidebarVisible(false)}
+              className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
+              title="Hide panel"
+            >
+              <PanelRight className="w-4 h-4" />
+            </button>
+            {/* Panel Header */}
+            <div className="p-4 border-b border-stone-100">
+              <div className="flex gap-1 bg-stone-100 p-1 rounded-lg">
+                {[
+                  { id: 'layers', label: 'Properties', icon: Settings },
+                  { id: 'ai', label: 'AI', icon: Sparkles },
+                  { id: 'tools', label: 'Tools', icon: Wand2 },
+                  { id: 'export', label: 'Cart', icon: ShoppingCart },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActivePanel(tab.id as typeof activePanel)}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-1 ${activePanel === tab.id
                       ? 'bg-white text-purple-700 shadow-sm'
                       : 'text-stone-500 hover:text-stone-700'
-                  }`}
-                >
-                  <tab.icon className="w-4 h-4" />
-                </button>
-              ))}
+                      }`}
+                  >
+                    <tab.icon className="w-4 h-4" />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          {/* Panel Content */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {/* Properties Panel */}
-            {activePanel === 'layers' && (
-              <div className="space-y-6">
-                {selectedLayers.length > 0 ? (
-                  <>
-                    <div>
-                      <h3 className="text-sm font-semibold text-stone-800 mb-3">Selected Layer</h3>
-                      <p className="text-stone-600">{selectedLayers[0].metadata?.name || `Layer ${selectedLayers[0].z_index + 1}`}</p>
-                    </div>
+            {/* Panel Content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* Properties Panel */}
+              {activePanel === 'layers' && (
+                <div className="space-y-6">
+                  {selectedLayers.length > 0 ? (
+                    <>
+                      <div>
+                        <h3 className="text-sm font-semibold text-stone-800 mb-3">Selected Layer</h3>
+                        <p className="text-stone-600">{selectedLayers[0].metadata?.name || `Layer ${selectedLayers[0].z_index + 1}`}</p>
+                      </div>
 
-                    {/* DPI Quality Warning */}
-                    {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && (
-                      <div className={`p-4 rounded-xl border ${
-                        selectedLayers[0].metadata.dpiInfo.quality === 'danger'
+                      {/* DPI Quality Warning */}
+                      {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && (
+                        <div className={`p-4 rounded-xl border ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
                           ? 'bg-red-50 border-red-300'
                           : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                          ? 'bg-amber-50 border-amber-300'
-                          : 'bg-green-50 border-green-300'
-                      }`}>
-                        <div className="flex items-start gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            selectedLayers[0].metadata.dpiInfo.quality === 'danger'
+                            ? 'bg-amber-50 border-amber-300'
+                            : 'bg-green-50 border-green-300'
+                          }`}>
+                          <div className="flex items-start gap-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
                               ? 'bg-red-100'
                               : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                              ? 'bg-amber-100'
-                              : 'bg-green-100'
-                          }`}>
-                            <span className="text-lg">{getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).icon}</span>
-                          </div>
-                          <div className="flex-1">
-                            <h4 className={`font-semibold text-sm mb-1 ${
-                              selectedLayers[0].metadata.dpiInfo.quality === 'danger'
+                                ? 'bg-amber-100'
+                                : 'bg-green-100'
+                              }`}>
+                              <span className="text-lg">{getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).icon}</span>
+                            </div>
+                            <div className="flex-1">
+                              <h4 className={`font-semibold text-sm mb-1 ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
                                 ? 'text-red-800'
                                 : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                ? 'text-amber-800'
-                                : 'text-green-800'
-                            }`}>
-                              Print Quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).label}
-                            </h4>
-                            <p className={`text-xs mb-2 ${
-                              selectedLayers[0].metadata.dpiInfo.quality === 'danger'
+                                  ? 'text-amber-800'
+                                  : 'text-green-800'
+                                }`}>
+                                Print Quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).label}
+                              </h4>
+                              <p className={`text-xs mb-2 ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
                                 ? 'text-red-700'
                                 : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                ? 'text-amber-700'
-                                : 'text-green-700'
-                            }`}>
-                              {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).description}
-                            </p>
-                            <div className={`text-xs ${
-                              selectedLayers[0].metadata.dpiInfo.quality === 'danger'
+                                  ? 'text-amber-700'
+                                  : 'text-green-700'
+                                }`}>
+                                {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).description}
+                              </p>
+                              <div className={`text-xs ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
                                 ? 'text-red-600'
                                 : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                ? 'text-amber-600'
-                                : 'text-green-600'
-                            }`}>
-                              <div className="flex justify-between mb-1">
-                                <span>Current DPI:</span>
-                                <span className="font-bold">{selectedLayers[0].metadata.dpiInfo.dpi}</span>
+                                  ? 'text-amber-600'
+                                  : 'text-green-600'
+                                }`}>
+                                <div className="flex justify-between mb-1">
+                                  <span>Current DPI:</span>
+                                  <span className="font-bold">{selectedLayers[0].metadata.dpiInfo.dpi}</span>
+                                </div>
+                                <div className="flex justify-between mb-1">
+                                  <span>Original size:</span>
+                                  <span>{selectedLayers[0].metadata.dpiInfo.originalWidth} × {selectedLayers[0].metadata.dpiInfo.originalHeight}px</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Print size:</span>
+                                  <span>{selectedLayers[0].metadata.dpiInfo.canvasSizeInches.width}" × {selectedLayers[0].metadata.dpiInfo.canvasSizeInches.height}"</span>
+                                </div>
                               </div>
-                              <div className="flex justify-between mb-1">
-                                <span>Original size:</span>
-                                <span>{selectedLayers[0].metadata.dpiInfo.originalWidth} × {selectedLayers[0].metadata.dpiInfo.originalHeight}px</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Print size:</span>
-                                <span>{selectedLayers[0].metadata.dpiInfo.canvasSizeInches.width}" × {selectedLayers[0].metadata.dpiInfo.canvasSizeInches.height}"</span>
-                              </div>
+                              {selectedLayers[0].metadata.dpiInfo.quality === 'danger' && (
+                                <div className="mt-2 pt-2 border-t border-red-200">
+                                  <p className="text-xs text-red-800 font-medium">
+                                    Recommendation: Reduce the size or use a higher resolution image
+                                  </p>
+                                </div>
+                              )}
+                              {selectedLayers[0].metadata.dpiInfo.quality === 'warning' && (
+                                <div className="mt-2 pt-2 border-t border-amber-200">
+                                  <p className="text-xs text-amber-800 font-medium">
+                                    Tip: For best results, reduce size or consider upscaling
+                                  </p>
+                                </div>
+                              )}
                             </div>
-                            {selectedLayers[0].metadata.dpiInfo.quality === 'danger' && (
-                              <div className="mt-2 pt-2 border-t border-red-200">
-                                <p className="text-xs text-red-800 font-medium">
-                                  Recommendation: Reduce the size or use a higher resolution image
-                                </p>
-                              </div>
-                            )}
-                            {selectedLayers[0].metadata.dpiInfo.quality === 'warning' && (
-                              <div className="mt-2 pt-2 border-t border-amber-200">
-                                <p className="text-xs text-amber-800 font-medium">
-                                  Tip: For best results, reduce size or consider upscaling
-                                </p>
-                              </div>
-                            )}
                           </div>
                         </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Position</h4>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs text-stone-500 block mb-1">X (inches)</label>
-                          <input
-                            type="number"
-                            value={selectedLayers[0].position_x.toFixed(2)}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              setLayers(prev => prev.map(l =>
-                                l.id === selectedLayers[0].id ? { ...l, position_x: val } : l
-                              ));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            step="0.1"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-stone-500 block mb-1">Y (inches)</label>
-                          <input
-                            type="number"
-                            value={selectedLayers[0].position_y.toFixed(2)}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              setLayers(prev => prev.map(l =>
-                                l.id === selectedLayers[0].id ? { ...l, position_y: val } : l
-                              ));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            step="0.1"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Size (inches)</h4>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs text-stone-500 block mb-1">Width</label>
-                          <input
-                            type="number"
-                            value={selectedLayers[0].width.toFixed(2)}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0.1;
-                              const currentLayer = selectedLayers[0];
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, val, l.height);
-                                  return {
-                                    ...l,
-                                    width: val,
-                                    metadata: {
-                                      ...l.metadata,
-                                      dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
-                                    }
-                                  };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            step="0.25"
-                            min="0.25"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-stone-500 block mb-1">Height</label>
-                          <input
-                            type="number"
-                            value={selectedLayers[0].height.toFixed(2)}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0.1;
-                              const currentLayer = selectedLayers[0];
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, l.width, val);
-                                  return {
-                                    ...l,
-                                    height: val,
-                                    metadata: {
-                                      ...l.metadata,
-                                      dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
-                                    }
-                                  };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            step="0.25"
-                            min="0.25"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Quick Size Presets for T-Shirts */}
-                      <div className="mt-3 pt-3 border-t border-stone-200">
-                        <p className="text-xs text-stone-500 mb-2">Quick sizes:</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          <button
-                            onClick={() => {
-                              const currentLayer = selectedLayers[0];
-                              const aspectRatio = currentLayer.width / currentLayer.height;
-                              const newWidth = 11;
-                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
-                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors"
-                            title="Front chest - Adult L/XL"
-                          >
-                            11" Front
-                          </button>
-                          <button
-                            onClick={() => {
-                              const currentLayer = selectedLayers[0];
-                              const aspectRatio = currentLayer.width / currentLayer.height;
-                              const newWidth = 10;
-                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
-                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors"
-                            title="Front chest - Adult M"
-                          >
-                            10" Front
-                          </button>
-                          <button
-                            onClick={() => {
-                              const currentLayer = selectedLayers[0];
-                              const aspectRatio = currentLayer.width / currentLayer.height;
-                              const newWidth = 3.5;
-                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
-                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="px-2 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-700 rounded transition-colors"
-                            title="Left chest pocket size"
-                          >
-                            3.5" Pocket
-                          </button>
-                          <button
-                            onClick={() => {
-                              const currentLayer = selectedLayers[0];
-                              const aspectRatio = currentLayer.width / currentLayer.height;
-                              const newWidth = 12;
-                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
-                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
-                            title="Full back print"
-                          >
-                            12" Back
-                          </button>
-                          <button
-                            onClick={() => {
-                              const currentLayer = selectedLayers[0];
-                              const aspectRatio = currentLayer.width / currentLayer.height;
-                              const newWidth = 4;
-                              const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
-                              setLayers(prev => prev.map(l => {
-                                if (l.id === currentLayer.id) {
-                                  const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
-                                  return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
-                                }
-                                return l;
-                              }));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="px-2 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded transition-colors"
-                            title="Sleeve print"
-                          >
-                            4" Sleeve
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Size Guide Reference */}
-                      <details className="mt-3">
-                        <summary className="text-xs text-purple-600 cursor-pointer hover:text-purple-800">
-                          T-Shirt Size Guide
-                        </summary>
-                        <div className="mt-2 p-2 bg-stone-50 rounded-lg text-xs text-stone-600 space-y-1">
-                          <p><strong>Front Chest (Full):</strong></p>
-                          <p className="pl-2">• Youth S-M: 7-8" wide</p>
-                          <p className="pl-2">• Youth L-XL: 8-9" wide</p>
-                          <p className="pl-2">• Adult S-M: 9-10" wide</p>
-                          <p className="pl-2">• Adult L-XL: 10-11" wide</p>
-                          <p className="pl-2">• Adult 2XL+: 11-12" wide</p>
-                          <p className="mt-2"><strong>Left Chest (Pocket):</strong> 3-4" wide</p>
-                          <p><strong>Full Back:</strong> 11-14" wide</p>
-                          <p><strong>Sleeve:</strong> 3-4" wide</p>
-                          <p className="mt-2 text-purple-600 italic">Tip: Height auto-scales based on aspect ratio</p>
-                        </div>
-                      </details>
-                    </div>
-
-                    <div>
-                      <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Transform</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-xs text-stone-500 block mb-1">Rotation (degrees)</label>
-                          <input
-                            type="range"
-                            min="0"
-                            max="360"
-                            value={selectedLayers[0].rotation}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value);
-                              setLayers(prev => prev.map(l =>
-                                l.id === selectedLayers[0].id ? { ...l, rotation: val } : l
-                              ));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="w-full accent-purple-600"
-                          />
-                          <div className="text-right text-xs text-stone-500">{selectedLayers[0].rotation}°</div>
-                        </div>
-                        <div>
-                          <label className="text-xs text-stone-500 block mb-1">Opacity</label>
-                          <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={selectedLayers[0].metadata?.opacity ?? 1}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              setLayers(prev => prev.map(l =>
-                                l.id === selectedLayers[0].id ? {
-                                  ...l,
-                                  metadata: { ...l.metadata, opacity: val }
-                                } : l
-                              ));
-                              setSaveStatus('unsaved');
-                            }}
-                            className="w-full accent-purple-600"
-                          />
-                          <div className="text-right text-xs text-stone-500">{Math.round((selectedLayers[0].metadata?.opacity ?? 1) * 100)}%</div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-12 text-stone-400">
-                    <Settings className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                    <p className="font-medium text-stone-500">No layer selected</p>
-                    <p className="text-sm">Select a layer to edit its properties</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* AI Panel */}
-            {activePanel === 'ai' && (
-              <div className="space-y-6">
-                {/* Mr. Imagine Lightbox Launcher */}
-                <button
-                  onClick={() => setShowMrImagineModal(true)}
-                  className="w-full p-4 bg-gradient-to-r from-purple-600 to-pink-500 rounded-xl text-white font-semibold text-sm hover:from-purple-700 hover:to-pink-600 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3 group"
-                >
-                  <img
-                    src="/mr-imagine/mr-imagine-waving.png"
-                    alt="Mr. Imagine"
-                    className="w-10 h-10 object-contain group-hover:scale-110 transition-transform"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="text-left">
-                    <div className="font-bold">Open Mr. Imagine Studio</div>
-                    <div className="text-xs text-purple-200">
-                      DTF-optimized AI image generation
-                    </div>
-                  </div>
-                </button>
-
-                {/* Quick Generate (legacy fallback) */}
-                <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                      <Sparkles className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-stone-800">Quick Generate</h3>
-                      <p className="text-xs text-stone-500">Simple AI generation</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <textarea
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      placeholder="Describe the image you want to create..."
-                      className="w-full px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none h-24"
-                    />
-
-                    <select
-                      value={aiStyle}
-                      onChange={(e) => setAiStyle(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    >
-                      <option value="vibrant">Vibrant & Bold</option>
-                      <option value="realistic">Photorealistic</option>
-                      <option value="cartoon">Cartoon Style</option>
-                      <option value="vintage">Vintage Retro</option>
-                      <option value="minimalist">Minimalist</option>
-                    </select>
-
-                    <button
-                      onClick={handleAiGenerate}
-                      disabled={isProcessing || !aiPrompt.trim()}
-                      className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Generate ({getFreeTrial('generate') > 0 ? 'Free' : `${getFeaturePrice('generate')} ITC`})
-                        </>
                       )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* Tools Panel */}
-            {activePanel === 'tools' && (
-              <div className="space-y-4">
-                <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                      <Wand2 className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-stone-800">ITP Enhance</h3>
-                      <p className="text-xs text-stone-500">AI Enhancement Tools</p>
-                    </div>
-                  </div>
-
-                  {selectedLayers.length > 0 && (selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') ? (
-                    <div className="space-y-2">
-                      <button
-                        onClick={handleRemoveBackground}
-                        disabled={isRemovingBg || isProcessing}
-                        className="w-full px-4 py-3 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors disabled:opacity-50 flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                            {isRemovingBg ? (
-                              <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
-                            ) : (
-                              <ImageIcon className="w-4 h-4 text-amber-600" />
-                            )}
+                      <div>
+                        <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Position</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-stone-500 block mb-1">X (inches)</label>
+                            <input
+                              type="number"
+                              value={selectedLayers[0].position_x.toFixed(2)}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                setLayers(prev => prev.map(l =>
+                                  l.id === selectedLayers[0].id ? { ...l, position_x: val } : l
+                                ));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                              step="0.1"
+                            />
                           </div>
                           <div>
-                            <div className="font-medium text-stone-800">
-                              {isRemovingBg ? 'Removing...' : 'Remove Background'}
-                            </div>
-                            <div className="text-xs text-stone-500">
-                              {getFreeTrial('bg_remove') > 0 ? `${getFreeTrial('bg_remove')} free` : `${getFeaturePrice('bg_remove')} ITC`}
-                            </div>
+                            <label className="text-xs text-stone-500 block mb-1">Y (inches)</label>
+                            <input
+                              type="number"
+                              value={selectedLayers[0].position_y.toFixed(2)}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                setLayers(prev => prev.map(l =>
+                                  l.id === selectedLayers[0].id ? { ...l, position_y: val } : l
+                                ));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                              step="0.1"
+                            />
                           </div>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-stone-400" />
-                      </button>
+                      </div>
 
-                      <button
-                        onClick={handleUpscale}
-                        disabled={isUpscaling || isProcessing}
-                        className="w-full px-4 py-3 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors disabled:opacity-50 flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                            {isUpscaling ? (
-                              <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
-                            ) : (
-                              <Maximize2 className="w-4 h-4 text-amber-600" />
-                            )}
+                      <div>
+                        <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Size (inches)</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-stone-500 block mb-1">Width</label>
+                            <input
+                              type="number"
+                              value={selectedLayers[0].width.toFixed(2)}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0.1;
+                                const currentLayer = selectedLayers[0];
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, val, l.height);
+                                    return {
+                                      ...l,
+                                      width: val,
+                                      metadata: {
+                                        ...l.metadata,
+                                        dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
+                                      }
+                                    };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                              step="0.25"
+                              min="0.25"
+                            />
                           </div>
                           <div>
-                            <div className="font-medium text-stone-800">
-                              {isUpscaling ? 'Upscaling...' : 'Upscale 2x'}
-                            </div>
-                            <div className="text-xs text-stone-500">
-                              {getFreeTrial('upscale_2x') > 0 ? `${getFreeTrial('upscale_2x')} free` : `${getFeaturePrice('upscale_2x')} ITC`}
-                            </div>
+                            <label className="text-xs text-stone-500 block mb-1">Height</label>
+                            <input
+                              type="number"
+                              value={selectedLayers[0].height.toFixed(2)}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0.1;
+                                const currentLayer = selectedLayers[0];
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, l.width, val);
+                                    return {
+                                      ...l,
+                                      height: val,
+                                      metadata: {
+                                        ...l.metadata,
+                                        dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
+                                      }
+                                    };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                              step="0.25"
+                              min="0.25"
+                            />
                           </div>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-stone-400" />
-                      </button>
 
-                      <button
-                        onClick={handleEnhance}
-                        disabled={isEnhancing || isProcessing}
-                        className="w-full px-4 py-3 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors disabled:opacity-50 flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                            {isEnhancing ? (
-                              <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
-                            ) : (
-                              <Sparkles className="w-4 h-4 text-amber-600" />
-                            )}
+                        {/* Quick Size Presets for T-Shirts */}
+                        <div className="mt-3 pt-3 border-t border-stone-200">
+                          <p className="text-xs text-stone-500 mb-2">Quick sizes:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              onClick={() => {
+                                const currentLayer = selectedLayers[0];
+                                const aspectRatio = currentLayer.width / currentLayer.height;
+                                const newWidth = 11;
+                                const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                    return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors"
+                              title="Front chest - Adult L/XL"
+                            >
+                              11" Front
+                            </button>
+                            <button
+                              onClick={() => {
+                                const currentLayer = selectedLayers[0];
+                                const aspectRatio = currentLayer.width / currentLayer.height;
+                                const newWidth = 10;
+                                const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                    return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors"
+                              title="Front chest - Adult M"
+                            >
+                              10" Front
+                            </button>
+                            <button
+                              onClick={() => {
+                                const currentLayer = selectedLayers[0];
+                                const aspectRatio = currentLayer.width / currentLayer.height;
+                                const newWidth = 3.5;
+                                const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                    return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="px-2 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-700 rounded transition-colors"
+                              title="Left chest pocket size"
+                            >
+                              3.5" Pocket
+                            </button>
+                            <button
+                              onClick={() => {
+                                const currentLayer = selectedLayers[0];
+                                const aspectRatio = currentLayer.width / currentLayer.height;
+                                const newWidth = 12;
+                                const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                    return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
+                              title="Full back print"
+                            >
+                              12" Back
+                            </button>
+                            <button
+                              onClick={() => {
+                                const currentLayer = selectedLayers[0];
+                                const aspectRatio = currentLayer.width / currentLayer.height;
+                                const newWidth = 4;
+                                const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+                                setLayers(prev => prev.map(l => {
+                                  if (l.id === currentLayer.id) {
+                                    const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
+                                    return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+                                  }
+                                  return l;
+                                }));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="px-2 py-1 text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 rounded transition-colors"
+                              title="Sleeve print"
+                            >
+                              4" Sleeve
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Size Guide Reference */}
+                        <details className="mt-3">
+                          <summary className="text-xs text-purple-600 cursor-pointer hover:text-purple-800">
+                            T-Shirt Size Guide
+                          </summary>
+                          <div className="mt-2 p-2 bg-stone-50 rounded-lg text-xs text-stone-600 space-y-1">
+                            <p><strong>Front Chest (Full):</strong></p>
+                            <p className="pl-2">• Youth S-M: 7-8" wide</p>
+                            <p className="pl-2">• Youth L-XL: 8-9" wide</p>
+                            <p className="pl-2">• Adult S-M: 9-10" wide</p>
+                            <p className="pl-2">• Adult L-XL: 10-11" wide</p>
+                            <p className="pl-2">• Adult 2XL+: 11-12" wide</p>
+                            <p className="mt-2"><strong>Left Chest (Pocket):</strong> 3-4" wide</p>
+                            <p><strong>Full Back:</strong> 11-14" wide</p>
+                            <p><strong>Sleeve:</strong> 3-4" wide</p>
+                            <p className="mt-2 text-purple-600 italic">Tip: Height auto-scales based on aspect ratio</p>
+                          </div>
+                        </details>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Transform</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-xs text-stone-500 block mb-1">Rotation (degrees)</label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="360"
+                              value={selectedLayers[0].rotation}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setLayers(prev => prev.map(l =>
+                                  l.id === selectedLayers[0].id ? { ...l, rotation: val } : l
+                                ));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="w-full accent-purple-600"
+                            />
+                            <div className="text-right text-xs text-stone-500">{selectedLayers[0].rotation}°</div>
                           </div>
                           <div>
-                            <div className="font-medium text-stone-800">
-                              {isEnhancing ? 'Enhancing...' : 'Enhance Quality'}
-                            </div>
-                            <div className="text-xs text-stone-500">
-                              {getFreeTrial('enhance') > 0 ? `${getFreeTrial('enhance')} free` : `${getFeaturePrice('enhance')} ITC`}
-                            </div>
+                            <label className="text-xs text-stone-500 block mb-1">Opacity</label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={selectedLayers[0].metadata?.opacity ?? 1}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                setLayers(prev => prev.map(l =>
+                                  l.id === selectedLayers[0].id ? {
+                                    ...l,
+                                    metadata: { ...l.metadata, opacity: val }
+                                  } : l
+                                ));
+                                setSaveStatus('unsaved');
+                              }}
+                              className="w-full accent-purple-600"
+                            />
+                            <div className="text-right text-xs text-stone-500">{Math.round((selectedLayers[0].metadata?.opacity ?? 1) * 100)}%</div>
                           </div>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-stone-400" />
-                      </button>
-
-                      {/* Reimagine It - Add elements with AI */}
-                      <button
-                        onClick={() => {
-                          const selectedImageLayer = selectedLayers.find(l => l.layer_type === 'image' || l.layer_type === 'ai_generated');
-                          if (selectedImageLayer) {
-                            openReimagineIt(selectedImageLayer.id);
-                          }
-                        }}
-                        disabled={isProcessing}
-                        className="w-full px-4 py-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-300 rounded-lg text-left hover:from-purple-100 hover:to-pink-100 transition-colors disabled:opacity-50 flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center">
-                            <span className="text-sm">&#10024;</span>
-                          </div>
-                          <div>
-                            <div className="font-medium text-stone-800">Reimagine It</div>
-                            <div className="text-xs text-stone-500">Transform with AI ({getFeaturePrice('generate')} ITC)</div>
-                          </div>
-                        </div>
-                        <ArrowRight className="w-4 h-4 text-stone-400" />
-                      </button>
-                    </div>
+                      </div>
+                    </>
                   ) : (
-                    <div className="text-center py-6 text-stone-400">
-                      <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">Select an image layer to use enhancement tools</p>
+                    <div className="text-center py-12 text-stone-400">
+                      <Settings className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                      <p className="font-medium text-stone-500">No layer selected</p>
+                      <p className="text-sm">Select a layer to edit its properties</p>
                     </div>
                   )}
                 </div>
+              )}
 
-                {/* Auto Layout */}
-                <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
-                  <h4 className="font-semibold text-stone-800 mb-3">Auto Layout</h4>
-                  <div className="space-y-2">
-                    <button
-                      onClick={handleAutoNest}
-                      disabled={isProcessing || layers.length === 0}
-                      className="w-full px-4 py-3 bg-white border border-stone-200 rounded-lg text-left hover:bg-purple-50 hover:border-purple-200 transition-colors disabled:opacity-50 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <LayoutGrid className="w-5 h-5 text-purple-600" />
-                        <div>
-                          <div className="font-medium text-stone-800">Auto-Nest</div>
-                          <div className="text-xs text-stone-500">{getFeaturePrice('auto_nest')} ITC</div>
-                        </div>
-                      </div>
-                      {isProcessing ? (
-                        <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
-                      ) : (
-                        <ArrowRight className="w-4 h-4 text-stone-400" />
-                      )}
-                    </button>
-
-                    <button
-                      onClick={handleSmartFill}
-                      disabled={isProcessing || layers.length === 0}
-                      className="w-full px-4 py-3 bg-white border border-stone-200 rounded-lg text-left hover:bg-purple-50 hover:border-purple-200 transition-colors disabled:opacity-50 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Copy className="w-5 h-5 text-purple-600" />
-                        <div>
-                          <div className="font-medium text-stone-800">Smart Fill</div>
-                          <div className="text-xs text-stone-500">{getFeaturePrice('smart_fill')} ITC</div>
-                        </div>
-                      </div>
-                      {isProcessing ? (
-                        <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
-                      ) : (
-                        <ArrowRight className="w-4 h-4 text-stone-400" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Cart Panel (formerly Export) */}
-            {activePanel === 'export' && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="font-semibold text-stone-800 mb-4">Order Your Imagination Sheet™</h3>
-
-                  <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 mb-4">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm text-purple-800 font-medium">Sheet Summary</p>
-                        <p className="text-xs text-purple-600 mt-1">
-                          {sheet.sheet_width}" × {sheet.sheet_height}" {preset?.name} sheet with {layers.length} layer{layers.length !== 1 ? 's' : ''}
-                        </p>
-                        <p className="text-sm text-purple-800 font-bold mt-2">
-                          Price: ${calculateSheetPrice(sheet.print_type as PrintType, sheet.sheet_height).toFixed(2)}
-                        </p>
+              {/* AI Panel */}
+              {activePanel === 'ai' && (
+                <div className="space-y-6">
+                  {/* Mr. Imagine Lightbox Launcher */}
+                  <button
+                    onClick={() => setShowMrImagineModal(true)}
+                    className="w-full p-4 bg-gradient-to-r from-purple-600 to-pink-500 rounded-xl text-white font-semibold text-sm hover:from-purple-700 hover:to-pink-600 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3 group"
+                  >
+                    <img
+                      src="/mr-imagine/mr-imagine-waving.png"
+                      alt="Mr. Imagine"
+                      className="w-10 h-10 object-contain group-hover:scale-110 transition-transform"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <div className="text-left">
+                      <div className="font-bold">Open Mr. Imagine Studio</div>
+                      <div className="text-xs text-purple-200">
+                        DTF-optimized AI image generation
                       </div>
                     </div>
+                  </button>
+
+                  {/* Quick Generate (legacy fallback) */}
+                  <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                        <Sparkles className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-stone-800">Quick Generate</h3>
+                        <p className="text-xs text-stone-500">Simple AI generation</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <textarea
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        placeholder="Describe the image you want to create..."
+                        className="w-full px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none h-24"
+                      />
+
+                      <select
+                        value={aiStyle}
+                        onChange={(e) => setAiStyle(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      >
+                        <option value="vibrant">Vibrant & Bold</option>
+                        <option value="realistic">Photorealistic</option>
+                        <option value="cartoon">Cartoon Style</option>
+                        <option value="vintage">Vintage Retro</option>
+                        <option value="minimalist">Minimalist</option>
+                      </select>
+
+                      <button
+                        onClick={handleAiGenerate}
+                        disabled={isProcessing || !aiPrompt.trim()}
+                        className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {isProcessing ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            Generate ({getFreeTrial('generate') > 0 ? 'Free' : `${getFeaturePrice('generate')} ITC`})
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
+                </div>
+              )}
 
-                  {/* DPI Quality Summary */}
-                  {(() => {
-                    const dangerCount = layers.filter(l =>
-                      (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'danger'
-                    ).length;
-                    const warningCount = layers.filter(l =>
-                      (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'warning'
-                    ).length;
+              {/* Tools Panel */}
+              {activePanel === 'tools' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                        <Wand2 className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-stone-800">ITP Enhance</h3>
+                        <p className="text-xs text-stone-500">AI Enhancement Tools</p>
+                      </div>
+                    </div>
 
-                    if (dangerCount > 0 || warningCount > 0) {
-                      return (
-                        <div className={`p-4 rounded-xl border mb-4 ${
-                          dangerCount > 0
-                            ? 'bg-red-50 border-red-300'
-                            : 'bg-amber-50 border-amber-300'
-                        }`}>
-                          <div className="flex items-start gap-3">
-                            <AlertCircle className={`w-5 h-5 shrink-0 mt-0.5 ${
-                              dangerCount > 0 ? 'text-red-600' : 'text-amber-600'
-                            }`} />
-                            <div className="flex-1">
-                              <p className={`text-sm font-medium mb-1 ${
-                                dangerCount > 0 ? 'text-red-800' : 'text-amber-800'
-                              }`}>
-                                {dangerCount > 0 ? 'Print Quality Issues' : 'Print Quality Warning'}
-                              </p>
-                              {dangerCount > 0 && (
-                                <p className="text-xs text-red-700 mb-2">
-                                  {dangerCount} image{dangerCount !== 1 ? 's' : ''} with critically low DPI (below 100). Cannot add to cart.
-                                </p>
+                    {selectedLayers.length > 0 && (selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') ? (
+                      <div className="space-y-2">
+                        <button
+                          onClick={handleRemoveBackground}
+                          disabled={isRemovingBg || isProcessing}
+                          className="w-full px-4 py-3 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors disabled:opacity-50 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                              {isRemovingBg ? (
+                                <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                              ) : (
+                                <ImageIcon className="w-4 h-4 text-amber-600" />
                               )}
-                              {warningCount > 0 && (
-                                <p className="text-xs text-amber-700 mb-2">
-                                  {warningCount} image{warningCount !== 1 ? 's' : ''} with low DPI (100-150). May appear pixelated.
-                                </p>
-                              )}
-                              <p className={`text-xs ${
-                                dangerCount > 0 ? 'text-red-600' : 'text-amber-600'
-                              }`}>
-                                {dangerCount > 0
-                                  ? 'Fix quality issues before ordering'
-                                  : 'Consider improving quality before ordering'}
-                              </p>
+                            </div>
+                            <div>
+                              <div className="font-medium text-stone-800">
+                                {isRemovingBg ? 'Removing...' : 'Remove Background'}
+                              </div>
+                              <div className="text-xs text-stone-500">
+                                {getFreeTrial('bg_remove') > 0 ? `${getFreeTrial('bg_remove')} free` : `${getFeaturePrice('bg_remove')} ITC`}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
+                          <ArrowRight className="w-4 h-4 text-stone-400" />
+                        </button>
 
-                  <button
-                    onClick={handleAddToCart}
-                    disabled={isProcessing || layers.length === 0}
-                    className="w-full px-4 py-4 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium hover:from-purple-700 hover:to-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Processing...
-                      </>
+                        <button
+                          onClick={handleUpscale}
+                          disabled={isUpscaling || isProcessing}
+                          className="w-full px-4 py-3 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors disabled:opacity-50 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                              {isUpscaling ? (
+                                <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                              ) : (
+                                <Maximize2 className="w-4 h-4 text-amber-600" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-medium text-stone-800">
+                                {isUpscaling ? 'Upscaling...' : 'Upscale 2x'}
+                              </div>
+                              <div className="text-xs text-stone-500">
+                                {getFreeTrial('upscale_2x') > 0 ? `${getFreeTrial('upscale_2x')} free` : `${getFeaturePrice('upscale_2x')} ITC`}
+                              </div>
+                            </div>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-stone-400" />
+                        </button>
+
+                        <button
+                          onClick={handleEnhance}
+                          disabled={isEnhancing || isProcessing}
+                          className="w-full px-4 py-3 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors disabled:opacity-50 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                              {isEnhancing ? (
+                                <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-4 h-4 text-amber-600" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-medium text-stone-800">
+                                {isEnhancing ? 'Enhancing...' : 'Enhance Quality'}
+                              </div>
+                              <div className="text-xs text-stone-500">
+                                {getFreeTrial('enhance') > 0 ? `${getFreeTrial('enhance')} free` : `${getFeaturePrice('enhance')} ITC`}
+                              </div>
+                            </div>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-stone-400" />
+                        </button>
+
+                        {/* Reimagine It - Add elements with AI */}
+                        <button
+                          onClick={() => {
+                            const selectedImageLayer = selectedLayers.find(l => l.layer_type === 'image' || l.layer_type === 'ai_generated');
+                            if (selectedImageLayer) {
+                              openReimagineIt(selectedImageLayer.id);
+                            }
+                          }}
+                          disabled={isProcessing}
+                          className="w-full px-4 py-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-300 rounded-lg text-left hover:from-purple-100 hover:to-pink-100 transition-colors disabled:opacity-50 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center">
+                              <span className="text-sm">&#10024;</span>
+                            </div>
+                            <div>
+                              <div className="font-medium text-stone-800">Reimagine It</div>
+                              <div className="text-xs text-stone-500">Transform with AI ({getFeaturePrice('generate')} ITC)</div>
+                            </div>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-stone-400" />
+                        </button>
+                      </div>
                     ) : (
-                      <>
-                        <ShoppingCart className="w-5 h-5" />
-                        Add to Cart
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="p-4 bg-stone-50 rounded-xl">
-                  <h4 className="font-medium text-stone-800 mb-3">Print Options</h4>
-                  <div className="space-y-3">
-                    {/* Show cutlines toggle only for UV DTF */}
-                    {preset?.allowCutlines && (
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={showCutLines}
-                          onChange={(e) => setShowCutLines(e.target.checked)}
-                          className="w-4 h-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
-                        />
-                        <div className="flex items-center gap-2">
-                          <Scissors className="w-4 h-4 text-stone-500" />
-                          <span className="text-sm text-stone-600">Include cut lines</span>
-                        </div>
-                      </label>
-                    )}
-
-                    {/* Show mirror toggle only for Sublimation */}
-                    {preset?.allowMirror && (
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={mirrorForSublimation}
-                          onChange={(e) => setMirrorForSublimation(e.target.checked)}
-                          className="w-4 h-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
-                        />
-                        <div className="flex items-center gap-2">
-                          <FlipHorizontal className="w-4 h-4 text-stone-500" />
-                          <span className="text-sm text-stone-600">Mirror for sublimation</span>
-                        </div>
-                      </label>
-                    )}
-
-                    {/* Show info if no options available */}
-                    {!preset?.allowCutlines && !preset?.allowMirror && (
-                      <div className="text-sm text-stone-500 italic">
-                        No additional print options for {preset?.name}
+                      <div className="text-center py-6 text-stone-400">
+                        <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Select an image layer to use enhancement tools</p>
                       </div>
                     )}
                   </div>
-                </div>
 
-                <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm text-blue-800 font-medium">Production Note</p>
-                      <p className="text-xs text-blue-600 mt-1">
-                        Your design will be saved and processed for printing after checkout. High-resolution print files will be generated by our production system.
-                      </p>
+                  {/* Auto Layout */}
+                  <div className="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                    <h4 className="font-semibold text-stone-800 mb-3">Auto Layout</h4>
+                    <div className="space-y-2">
+                      <button
+                        onClick={handleAutoNest}
+                        disabled={isProcessing || layers.length === 0}
+                        className="w-full px-4 py-3 bg-white border border-stone-200 rounded-lg text-left hover:bg-purple-50 hover:border-purple-200 transition-colors disabled:opacity-50 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <LayoutGrid className="w-5 h-5 text-purple-600" />
+                          <div>
+                            <div className="font-medium text-stone-800">Auto-Nest</div>
+                            <div className="text-xs text-stone-500">{getFeaturePrice('auto_nest')} ITC</div>
+                          </div>
+                        </div>
+                        {isProcessing ? (
+                          <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-4 h-4 text-stone-400" />
+                        )}
+                      </button>
+
+                      <button
+                        onClick={handleSmartFill}
+                        disabled={isProcessing || layers.length === 0}
+                        className="w-full px-4 py-3 bg-white border border-stone-200 rounded-lg text-left hover:bg-purple-50 hover:border-purple-200 transition-colors disabled:opacity-50 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Copy className="w-5 h-5 text-purple-600" />
+                          <div>
+                            <div className="font-medium text-stone-800">Smart Fill</div>
+                            <div className="text-xs text-stone-500">{getFeaturePrice('smart_fill')} ITC</div>
+                          </div>
+                        </div>
+                        {isProcessing ? (
+                          <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-4 h-4 text-stone-400" />
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </aside>
+              )}
+
+              {/* Cart Panel (formerly Export) */}
+              {activePanel === 'export' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="font-semibold text-stone-800 mb-4">Order Your Imagination Sheet™</h3>
+
+                    <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 mb-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm text-purple-800 font-medium">Sheet Summary</p>
+                          <p className="text-xs text-purple-600 mt-1">
+                            {sheet.sheet_width}" × {sheet.sheet_height}" {preset?.name} sheet with {layers.length} layer{layers.length !== 1 ? 's' : ''}
+                          </p>
+                          <p className="text-sm text-purple-800 font-bold mt-2">
+                            Price: ${calculateSheetPrice(sheet.print_type as PrintType, sheet.sheet_height).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* DPI Quality Summary */}
+                    {(() => {
+                      const dangerCount = layers.filter(l =>
+                        (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'danger'
+                      ).length;
+                      const warningCount = layers.filter(l =>
+                        (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'warning'
+                      ).length;
+
+                      if (dangerCount > 0 || warningCount > 0) {
+                        return (
+                          <div className={`p-4 rounded-xl border mb-4 ${dangerCount > 0
+                            ? 'bg-red-50 border-red-300'
+                            : 'bg-amber-50 border-amber-300'
+                            }`}>
+                            <div className="flex items-start gap-3">
+                              <AlertCircle className={`w-5 h-5 shrink-0 mt-0.5 ${dangerCount > 0 ? 'text-red-600' : 'text-amber-600'
+                                }`} />
+                              <div className="flex-1">
+                                <p className={`text-sm font-medium mb-1 ${dangerCount > 0 ? 'text-red-800' : 'text-amber-800'
+                                  }`}>
+                                  {dangerCount > 0 ? 'Print Quality Issues' : 'Print Quality Warning'}
+                                </p>
+                                {dangerCount > 0 && (
+                                  <p className="text-xs text-red-700 mb-2">
+                                    {dangerCount} image{dangerCount !== 1 ? 's' : ''} with critically low DPI (below 100). Cannot add to cart.
+                                  </p>
+                                )}
+                                {warningCount > 0 && (
+                                  <p className="text-xs text-amber-700 mb-2">
+                                    {warningCount} image{warningCount !== 1 ? 's' : ''} with low DPI (100-150). May appear pixelated.
+                                  </p>
+                                )}
+                                <p className={`text-xs ${dangerCount > 0 ? 'text-red-600' : 'text-amber-600'
+                                  }`}>
+                                  {dangerCount > 0
+                                    ? 'Fix quality issues before ordering'
+                                    : 'Consider improving quality before ordering'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
+                    <button
+                      onClick={handleAddToCart}
+                      disabled={isProcessing || layers.length === 0}
+                      className="w-full px-4 py-4 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium hover:from-purple-700 hover:to-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <ShoppingCart className="w-5 h-5" />
+                          Add to Cart
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="p-4 bg-stone-50 rounded-xl">
+                    <h4 className="font-medium text-stone-800 mb-3">Print Options</h4>
+                    <div className="space-y-3">
+                      {/* Show cutlines toggle only for UV DTF */}
+                      {preset?.allowCutlines && (
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showCutLines}
+                            onChange={(e) => setShowCutLines(e.target.checked)}
+                            className="w-4 h-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Scissors className="w-4 h-4 text-stone-500" />
+                            <span className="text-sm text-stone-600">Include cut lines</span>
+                          </div>
+                        </label>
+                      )}
+
+                      {/* Show mirror toggle only for Sublimation */}
+                      {preset?.allowMirror && (
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={mirrorForSublimation}
+                            onChange={(e) => setMirrorForSublimation(e.target.checked)}
+                            className="w-4 h-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <div className="flex items-center gap-2">
+                            <FlipHorizontal className="w-4 h-4 text-stone-500" />
+                            <span className="text-sm text-stone-600">Mirror for sublimation</span>
+                          </div>
+                        </label>
+                      )}
+
+                      {/* Show info if no options available */}
+                      {!preset?.allowCutlines && !preset?.allowMirror && (
+                        <div className="text-sm text-stone-500 italic">
+                          No additional print options for {preset?.name}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm text-blue-800 font-medium">Production Note</p>
+                        <p className="text-xs text-blue-600 mt-1">
+                          Your design will be saved and processed for printing after checkout. High-resolution print files will be generated by our production system.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </aside>
         )}
       </div>
 
@@ -3115,7 +3155,7 @@ const ImaginationStation: React.FC = () => {
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
                   {recentSheets.map(s => {
-                    const preset = SHEET_PRESETS[s.print_type as PrintType];
+                    const preset = presets ? presets[s.print_type as PrintType] : null;
                     const layerCount = s.canvas_state?.layers?.length || 0;
                     const isCurrentProject = s.id === sheet?.id;
                     return (
@@ -3139,9 +3179,8 @@ const ImaginationStation: React.FC = () => {
                             setShowProjectsModal(false);
                           }
                         }}
-                        className={`text-left border rounded-xl overflow-hidden hover:border-purple-300 hover:shadow-md transition-all duration-200 ${
-                          isCurrentProject ? 'border-purple-500 ring-2 ring-purple-200' : 'border-stone-200'
-                        }`}
+                        className={`text-left border rounded-xl overflow-hidden hover:border-purple-300 hover:shadow-md transition-all duration-200 ${isCurrentProject ? 'border-purple-500 ring-2 ring-purple-200' : 'border-stone-200'
+                          }`}
                       >
                         <div className="aspect-video bg-stone-100 relative overflow-hidden">
                           {s.thumbnail_url ? (
@@ -3154,9 +3193,8 @@ const ImaginationStation: React.FC = () => {
                             </div>
                           )}
                           <div className="absolute top-2 right-2">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              s.status === 'draft' ? 'bg-stone-800/80 text-white' : s.status === 'submitted' ? 'bg-purple-600/80 text-white' : 'bg-green-600/80 text-white'
-                            }`}>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${s.status === 'draft' ? 'bg-stone-800/80 text-white' : s.status === 'submitted' ? 'bg-purple-600/80 text-white' : 'bg-green-600/80 text-white'
+                              }`}>
                               {s.status === 'draft' ? 'Draft' : s.status === 'submitted' ? 'Submitted' : s.status}
                             </span>
                           </div>

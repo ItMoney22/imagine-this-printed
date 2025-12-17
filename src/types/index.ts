@@ -1331,3 +1331,29 @@ export function layerToDbLayer(layer: Layer, sheetId: string, zIndex: number): P
     },
   };
 }
+
+// Imagination Configuration Types
+export interface ImaginationProductConfig {
+  id: string;
+  printType: string;
+  displayName: string;
+  description?: string;
+  width: number;
+  minDpi: number;
+  rules: {
+    mirror: boolean;
+    whiteInk: boolean;
+    cutlineOption?: boolean;
+    minDPI: number;
+  };
+  sizes?: ImaginationProductSizeConfig[];
+}
+
+export interface ImaginationProductSizeConfig {
+  id: string;
+  productId: string;
+  height: number;
+  priceUsd: number;
+  priceItc: number;
+  enabled: boolean;
+}
