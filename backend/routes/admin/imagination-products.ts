@@ -1,6 +1,6 @@
 
 import { Router, Request, Response } from 'express';
-import { imaginationProducts } from '../../services/imagination-products';
+import { imaginationProducts } from '../../services/imagination-products.js';
 
 const router = Router();
 

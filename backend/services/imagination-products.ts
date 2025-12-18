@@ -1,6 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { SHEET_PRESETS } from '../config/imagination-presets';
+import { SHEET_PRESETS } from '../config/imagination-presets.js';
 
 // Define types locally since we can't fully rely on generated Prisma types yet
 export interface ImaginationProduct {
