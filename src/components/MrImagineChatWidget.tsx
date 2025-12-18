@@ -1,7 +1,9 @@
-
 import React, { useState, useRef, useEffect } from 'react'
 import { X, Send, Sparkles, MessageSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+
+// API base URL for production
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 interface Message {
     role: 'user' | 'assistant'
@@ -160,7 +162,7 @@ export function MrImagineChatWidget() {
                 content: m.content
             }))
 
-            const response = await fetch('/api/ai/chat', {
+            const response = await fetch(`${API_BASE}/api/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -221,7 +221,8 @@ const Home: React.FC = () => {
                     className="w-full h-auto object-cover"
                     playsInline
                     loop
-                  // muted={false} // Intentionally unmuted as requested, but might be blocked
+                    muted
+                    autoPlay
                   />
                 </div>
 
