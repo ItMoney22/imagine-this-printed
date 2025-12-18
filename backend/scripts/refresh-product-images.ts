@@ -18,7 +18,7 @@ const storage = new Storage({
     ? JSON.parse(process.env.GCS_CREDENTIALS)
     : undefined,
 })
-const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-products'
+const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-main'
 const bucket = storage.bucket(bucketName)
 
 function extractPathFromUrl(signedUrl: string): string | null {

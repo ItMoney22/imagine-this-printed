@@ -132,7 +132,11 @@
       "Bash(railway service --help:*)",
       "Bash(railway add --help:*)",
       "Bash(railway service worker:*)",
-      "Bash(railway add:*)"
+      "Bash(railway add:*)",
+      "Bash(gcloud storage buckets list:*)",
+      "Bash(gcloud storage buckets create:*)",
+      "Bash(gcloud storage buckets add-iam-policy-binding:*)",
+      "Bash(gcloud projects list:*)"
     ],
     "deny": [],
     "ask": []

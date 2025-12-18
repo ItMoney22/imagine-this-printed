@@ -9,7 +9,7 @@ const storage = new Storage({
     : undefined,
 })
 
-const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-products'
+const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-main'
 const bucket = storage.bucket(bucketName)
 
 export interface UploadImageResult {

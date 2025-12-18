@@ -8,7 +8,7 @@ import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
 const projectId = process.env.GCS_PROJECT_ID || 'imagine-this-printed-main'
-const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-media'
+const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-main'
 
 // Initialize GCS client - supports both file path and JSON string credentials
 function createStorageClient(): Storage {
