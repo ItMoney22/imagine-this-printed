@@ -8,12 +8,13 @@ import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
 import AdminSupport from '../components/AdminSupport'
 import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/AdminCreatorProductsTab'
+import AdminImaginationProducts from './admin/ImaginationProducts'
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -1274,7 +1275,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-2 mb-8 overflow-x-auto">
           <nav className="flex space-x-1">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'imagination', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -1286,7 +1287,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -1532,7 +1533,7 @@ const AdminDashboard: React.FC = () => {
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-4 py-3 text-left">
+                    <th className="px-3 py-3 text-left w-10">
                       <input
                         type="checkbox"
                         checked={products.length > 0 && selectedProducts.size === products.length}
@@ -1540,20 +1541,20 @@ const AdminDashboard: React.FC = () => {
                         className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
                       />
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Image</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Promo</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Featured</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">Image</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Category</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Price</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Promo</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-16 text-center">Featured</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-32">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
                   {products.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                      <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                         No products found. Click "Create Product" to add your first product.
                       </td>
                     </tr>
@@ -1566,7 +1567,7 @@ const AdminDashboard: React.FC = () => {
                       return (
                         <React.Fragment key={product.id}>
                           <tr className="hover:bg-slate-50 transition-colors">
-                            <td className="px-4 py-4">
+                            <td className="px-3 py-4">
                               <input
                                 type="checkbox"
                                 checked={selectedProducts.has(product.id)}
@@ -1574,14 +1575,14 @@ const AdminDashboard: React.FC = () => {
                                 className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
                               />
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-4 whitespace-nowrap">
                               <div className="flex items-center space-x-3">
                                 {sourceAsset ? (
                                   <>
                                     <img
                                       src={sourceAsset.url}
                                       alt={product.name}
-                                      className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                                      className="w-10 h-10 object-cover rounded-lg border border-slate-200"
                                     />
                                     <a
                                       href={sourceAsset.url}
@@ -1589,7 +1590,7 @@ const AdminDashboard: React.FC = () => {
                                       className="text-purple-600 hover:text-purple-700 font-medium text-sm"
                                       title="Download source image"
                                     >
-                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                       </svg>
                                     </a>
@@ -1598,39 +1599,39 @@ const AdminDashboard: React.FC = () => {
                                   <img
                                     src={product.images[0]}
                                     alt={product.name}
-                                    className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                                    className="w-10 h-10 object-cover rounded-lg border border-slate-200"
                                   />
                                 ) : (
-                                  <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                                    <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                                    <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                     </svg>
                                   </div>
                                 )}
                               </div>
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="px-4 py-4">
                               <div className="flex items-center space-x-2">
-                                <div>
-                                  <div className="text-sm font-semibold text-slate-900">{product.name}</div>
-                                  <div className="text-sm text-slate-500 truncate max-w-xs">{product.description}</div>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-slate-900 truncate">{product.name}</div>
+                                  <div className="text-xs text-slate-500 truncate max-w-[180px]">{product.description}</div>
                                 </div>
                                 {isAIProduct && (
-                                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
+                                  <span className="flex-shrink-0 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-purple-100 text-purple-700">
                                     AI
                                   </span>
                                 )}
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="px-3 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-700 capitalize">
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-700 capitalize">
                                 {product.category.replace('-', ' ')}
                               </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-semibold">
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-900 font-semibold">
                               ${product.price.toFixed(2)}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-4 whitespace-nowrap">
                               <label className="flex items-center space-x-2 cursor-pointer">
                                 <input
                                   type="checkbox"
@@ -1638,53 +1639,65 @@ const AdminDashboard: React.FC = () => {
                                   onChange={() => togglePromo(product)}
                                   className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
                                 />
-                                <span className="text-sm text-slate-600">3 for $25</span>
+                                <span className="text-xs text-slate-600">3 for $25</span>
                               </label>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-4 whitespace-nowrap">
                               <div className="flex flex-col space-y-1">
-                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.status === 'active'
+                                <span className={`w-fit px-2.5 py-0.5 text-[10px] font-semibold rounded-full ${product.status === 'active'
                                   ? 'bg-emerald-100 text-emerald-700'
                                   : 'bg-amber-100 text-amber-700'
                                   }`}>
                                   {product.status === 'active' ? 'Active' : 'Draft'}
                                 </span>
-                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.inStock
+                                <span className={`w-fit px-2.5 py-0.5 text-[10px] font-semibold rounded-full ${product.inStock
                                   ? 'bg-emerald-100 text-emerald-700'
                                   : 'bg-red-100 text-red-700'
                                   }`}>
-                                  {product.inStock ? 'In Stock' : 'Out of Stock'}
+                                  {product.inStock ? 'In Stock' : 'Out'}
                                 </span>
                               </div>
 
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-4 whitespace-nowrap text-center">
                               <button
                                 onClick={() => toggleFeatured(product)}
-                                className={`p-2 rounded-xl transition-colors ${product.is_featured
+                                className={`p-1.5 rounded-lg transition-colors ${product.is_featured
                                   ? 'text-amber-500 bg-amber-50 hover:bg-amber-100'
                                   : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100'
                                   }`}
                                 title={product.is_featured ? "Remove from Featured" : "Add to Featured"}
                               >
-                                <svg className="w-6 h-6" fill={product.is_featured ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-5 h-5" fill={product.is_featured ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                                 </svg>
                               </button>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <div className="flex flex-col space-y-2">
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center space-x-2">
                                 <button
                                   onClick={() => toggleProductExpansion(product.id)}
-                                  className="text-purple-600 hover:text-purple-700 hover:underline text-left"
+                                  className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 p-1.5 rounded-lg transition-colors"
+                                  title={isExpanded ? 'Collapse' : 'Expand'}
                                 >
-                                  {isExpanded ? '▼ Collapse' : '▶ Expand'}
+                                  {isExpanded ? (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  )}
                                 </button>
                                 <button
                                   onClick={() => openEnhancedEditModal(product)}
-                                  className="text-blue-600 hover:text-blue-700 hover:underline text-left font-medium"
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"
+                                  title="Edit Product"
                                 >
-                                  Edit Product
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                  </svg>
                                 </button>
                                 <button
                                   onClick={async () => {
@@ -1698,9 +1711,12 @@ const AdminDashboard: React.FC = () => {
                                       }
                                     }
                                   }}
-                                  className="text-red-600 hover:text-red-700 hover:underline text-left"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                                  title="Delete Product"
                                 >
-                                  Delete
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
                               </div>
                             </td>
@@ -2006,6 +2022,13 @@ const AdminDashboard: React.FC = () => {
                 </div>
               )}
             </div>
+          )
+        }
+
+        {/* Imagination Products Tab */}
+        {
+          selectedTab === 'imagination' && (
+            <AdminImaginationProducts />
           )
         }
 
@@ -2745,9 +2768,9 @@ const AdminDashboard: React.FC = () => {
             </div>
           )
         }
-    </div>
       </div>
-      )
+    </div>
+  )
 }
 
-      export default AdminDashboard
+export default AdminDashboard
