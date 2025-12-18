@@ -53,7 +53,7 @@ A modern web application for custom printing services built with React, TypeScri
 - 💱 Points-to-ITC conversion system
 
 ✅ **Phase 8 - Role-Based Access Control (COMPLETED):**
-- 👤 5 user roles: Customer, Founder, Vendor, Admin, Manager
+- 👤 7 user roles: Customer, Founder, Vendor, Admin, Manager, Wholesale, Support Agent
 - 🔐 Role-based navigation and access control
 - 📱 Dynamic navbar with role-specific links
 
@@ -87,6 +87,30 @@ A modern web application for custom printing services built with React, TypeScri
 - 📦 Complete product listing ready for review
 - 🔐 Admin/Manager access control
 - 📝 Comprehensive webhook integration for completion callbacks
+
+✅ **Phase 12 - Coupon Codes & Gift Cards (COMPLETED):**
+- 🎟️ Admin-managed coupon code system
+- 💵 Multiple discount types: percentage, fixed amount, free shipping
+- 🛒 Checkout integration with real-time discount calculation
+- 📊 Usage tracking and limits (per-coupon and per-user)
+- ⏰ Validity periods with start/end dates
+- 🎁 Gift card system with redeemable ITC codes
+- 🔢 Bulk gift card generation for promotions
+- 💰 One-click gift card redemption to wallet
+- 🛡️ Admin dashboard for coupon and gift card management
+
+✅ **Phase 13 - Support Ticket System with Live Chat (COMPLETED):**
+- 🤖 Mr. Imagine AI chatbot widget for customer support
+- 🎫 Automatic ticket creation via AI tool calling (GPT-4)
+- 💬 Real-time live chat with human agent handoff
+- 👤 New `support_agent` user role for support staff
+- 🔔 Admin notification bell with real-time ticket alerts
+- 📧 Email notifications for new tickets and responses
+- 🟢 Database-backed agent online/offline status
+- 📝 Ticket categories: general, order, technical, billing
+- 🚨 Priority levels: low, medium, high, urgent
+- 📊 Support dashboard with ticket management
+- 🔄 Seamless AI-to-human escalation workflow
 
 ## Technology Stack
 
@@ -526,7 +550,9 @@ After deploying changes:
 - ✅ AI Product Builder for automated product creation with image generation
 - ✅ Product feed exports for advertising platforms
 - ✅ Audit logging and system monitoring
-- ✅ Multi-role access control and user management
+- ✅ Multi-role access control and user management (7 roles)
+- ✅ Coupon codes and gift cards with checkout integration
+- ✅ Support ticket system with AI chatbot and live human handoff
 
 ## Next Steps for Production
 

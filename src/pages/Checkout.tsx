@@ -7,7 +7,7 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
-import { Coins } from 'lucide-react'
+import { Coins, Tag, X } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -129,7 +129,7 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
 }
 
 const Checkout: React.FC = () => {
-  const { state, clearCart } = useCart()
+  const { state, clearCart, appliedCoupon, discount, finalTotal, applyCoupon, removeCoupon, couponLoading } = useCart()
   const { user } = useAuth()
   const navigate = useNavigate()
   const [clientSecret, setClientSecret] = useState('')
@@ -137,6 +137,8 @@ const Checkout: React.FC = () => {
   const [loadingShipping, setLoadingShipping] = useState(false)
   const [processingITCPayment, setProcessingITCPayment] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [couponCode, setCouponCode] = useState('')
+  const [couponError, setCouponError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -182,7 +184,7 @@ const Checkout: React.FC = () => {
     if (state.items.length > 0 && shippingCalculation && requiresUSDPayment) {
       createPaymentIntent()
     }
-  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment])
+  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment, discount])
 
   const calculateShipping = async () => {
     if (!formData.address || !formData.city || !formData.state || !formData.zipCode) {
@@ -220,15 +222,34 @@ const Checkout: React.FC = () => {
     }
   }
 
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return
+    setCouponError(null)
+    const result = await applyCoupon(couponCode.trim(), user?.id)
+    if (!result.success) {
+      setCouponError(result.error || 'Failed to apply coupon')
+    } else {
+      setCouponCode('')
+    }
+  }
+
+  const handleRemoveCoupon = () => {
+    removeCoupon()
+    setCouponError(null)
+  }
+
   const createPaymentIntent = async () => {
     try {
+      const discountedTotal = Math.max(0, totalUSD - discount)
       const data = await apiFetch('/api/create-payment-intent', {
         method: 'POST',
         body: JSON.stringify({
-          amount: Math.round(totalUSD * 100),
+          amount: Math.round(discountedTotal * 100),
           currency: 'usd',
           items: usdItems,
-          shipping: formData
+          shipping: formData,
+          couponCode: appliedCoupon?.code,
+          discount: discount
         }),
       })
 
@@ -574,6 +595,49 @@ const Checkout: React.FC = () => {
               ))}
             </div>
 
+            {/* Coupon Code Section */}
+            <div className="border-t pt-4 mb-4">
+              <label className="block text-sm font-medium mb-2">Coupon Code</label>
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-green-600" />
+                    <span className="font-medium text-green-700">{appliedCoupon.code}</span>
+                    <span className="text-green-600 text-sm">
+                      (-${discount.toFixed(2)})
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleRemoveCoupon}
+                    className="text-green-600 hover:text-green-800"
+                    title="Remove coupon"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    placeholder="Enter coupon code"
+                    className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
+                  <button
+                    onClick={handleApplyCoupon}
+                    disabled={couponLoading || !couponCode.trim()}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {couponLoading ? 'Applying...' : 'Apply'}
+                  </button>
+                </div>
+              )}
+              {couponError && (
+                <p className="text-red-500 text-sm mt-1">{couponError}</p>
+              )}
+            </div>
+
             <div className="border-t pt-4 space-y-2">
               {requiresUSDPayment && (
                 <>
@@ -585,13 +649,19 @@ const Checkout: React.FC = () => {
                     <span>Shipping</span>
                     <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
                   </div>
+                  {discount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Discount ({appliedCoupon?.code})</span>
+                      <span>-${discount.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span>Tax</span>
                     <span>${tax.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between font-semibold">
                     <span>USD Total</span>
-                    <span>${totalUSD.toFixed(2)}</span>
+                    <span>${(totalUSD - discount).toFixed(2)}</span>
                   </div>
                 </>
               )}
@@ -612,7 +682,7 @@ const Checkout: React.FC = () => {
               {requiresUSDPayment && requiresITCPayment && (
                 <div className="border-t pt-2 mt-2">
                   <p className="text-xs text-muted">
-                    You will be charged ${totalUSD.toFixed(2)} USD and {totalITC.toFixed(2)} ITC
+                    You will be charged ${(totalUSD - discount).toFixed(2)} USD and {totalITC.toFixed(2)} ITC
                   </p>
                 </div>
               )}

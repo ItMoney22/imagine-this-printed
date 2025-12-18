@@ -24,6 +24,12 @@ const Wallet: React.FC = () => {
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [paymentError, setPaymentError] = useState('')
 
+  // Gift card redemption state
+  const [giftCardCode, setGiftCardCode] = useState('')
+  const [giftCardLoading, setGiftCardLoading] = useState(false)
+  const [giftCardError, setGiftCardError] = useState('')
+  const [giftCardSuccess, setGiftCardSuccess] = useState<{ amount: number; newBalance: number } | null>(null)
+
   // ITC to USD rate (1 ITC = $0.01)
   const itcToUSD = 0.01
 
@@ -140,6 +146,41 @@ const Wallet: React.FC = () => {
 
     // Scroll to top and show success message
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleRedeemGiftCard = async () => {
+    if (!giftCardCode.trim() || !user?.id) return
+
+    setGiftCardLoading(true)
+    setGiftCardError('')
+    setGiftCardSuccess(null)
+
+    try {
+      const response = await apiFetch('/api/gift-cards/redeem', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: giftCardCode.trim().toUpperCase(),
+          userId: user.id
+        })
+      })
+
+      if (response.success) {
+        setGiftCardSuccess({
+          amount: response.itc_credited,
+          newBalance: response.new_balance
+        })
+        setGiftCardCode('')
+        setItcBalance(response.new_balance)
+        await loadTransactionHistory()
+      } else {
+        setGiftCardError(response.error || 'Failed to redeem gift card')
+      }
+    } catch (error: any) {
+      console.error('Failed to redeem gift card:', error)
+      setGiftCardError(error.message || 'Failed to redeem gift card')
+    } finally {
+      setGiftCardLoading(false)
+    }
   }
 
   const handlePaymentError = (error: string) => {
@@ -387,6 +428,113 @@ const Wallet: React.FC = () => {
                   <h4 className="font-semibold text-slate-900 mb-1">Cash Out</h4>
                   <p className="text-sm text-slate-500">Convert to real money</p>
                 </div>
+              </div>
+            </div>
+
+            {/* Redeem Gift Card */}
+            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100">
+                <h3 className="text-lg font-display font-bold text-slate-900">Redeem Gift Card</h3>
+                <p className="text-slate-500 text-sm mt-1">Enter your gift card code to add ITC to your wallet</p>
+              </div>
+              <div className="p-6">
+                {/* Success Message */}
+                {giftCardSuccess && (
+                  <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-emerald-800 font-semibold">Gift Card Redeemed!</p>
+                        <p className="text-emerald-600 text-sm">
+                          +{giftCardSuccess.amount.toFixed(2)} ITC added to your wallet
+                        </p>
+                        <p className="text-emerald-600 text-sm">
+                          New balance: {giftCardSuccess.newBalance.toFixed(2)} ITC
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setGiftCardSuccess(null)}
+                        className="ml-auto text-emerald-400 hover:text-emerald-600"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {giftCardError && (
+                  <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-red-800 font-semibold">Error</p>
+                      <p className="text-red-600 text-sm">{giftCardError}</p>
+                    </div>
+                    <button
+                      onClick={() => setGiftCardError('')}
+                      className="ml-auto text-red-400 hover:text-red-600"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                {/* Input Form */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                      <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                      </svg>
+                    </div>
+                    <input
+                      type="text"
+                      value={giftCardCode}
+                      onChange={(e) => setGiftCardCode(e.target.value.toUpperCase())}
+                      placeholder="Enter gift card code (e.g., ITP-XXXX-XXXX-XXXX)"
+                      className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm uppercase tracking-wider"
+                      disabled={giftCardLoading}
+                    />
+                  </div>
+                  <button
+                    onClick={handleRedeemGiftCard}
+                    disabled={giftCardLoading || !giftCardCode.trim()}
+                    className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 min-w-[140px]"
+                  >
+                    {giftCardLoading ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Redeeming...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+                        </svg>
+                        <span>Redeem</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <p className="mt-3 text-xs text-slate-400">
+                  Gift card codes are case-insensitive. Each code can only be redeemed once.
+                </p>
               </div>
             </div>
 

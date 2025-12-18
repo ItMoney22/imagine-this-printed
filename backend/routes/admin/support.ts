@@ -1,6 +1,11 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+import {
+    sendTicketReplyEmail,
+    sendTicketEscalationEmail,
+    sendTicketResolvedEmail
+} from '../../utils/email'
 
 dotenv.config()
 
@@ -16,16 +21,109 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl!, supabaseKey!)
 
-// In-memory store for admin online status (simple solution for single-instance)
-// For multi-instance, use Redis or Database
-// Export for use by chat.ts to check availability without HTTP call
-export const onlineAgents: Map<string, boolean> = new Map()
+// ===============================
+// AUTHENTICATION MIDDLEWARE
+// ===============================
+
+/**
+ * Middleware to verify user is admin or support_agent
+ */
+const requireSupportAccess = async (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authorization token required' })
+    }
+
+    const token = authHeader.split(' ')[1]
+
+    try {
+        const { data: { user }, error } = await supabase.auth.getUser(token)
+
+        if (error || !user) {
+            return res.status(401).json({ error: 'Invalid or expired token' })
+        }
+
+        // Get user profile with role
+        const { data: profile, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('id, role, first_name, last_name, email')
+            .eq('id', user.id)
+            .single()
+
+        if (profileError || !profile) {
+            return res.status(401).json({ error: 'User profile not found' })
+        }
+
+        // Check role
+        if (!['admin', 'support_agent'].includes(profile.role)) {
+            return res.status(403).json({ error: 'Access denied. Admin or Support Agent role required.' })
+        }
+
+        // Attach user info to request
+        (req as any).user = profile
+        next()
+    } catch (error: any) {
+        console.error('[Support Auth] Error:', error)
+        return res.status(500).json({ error: 'Authentication failed' })
+    }
+}
+
+// ===============================
+// HELPER FUNCTIONS
+// ===============================
+
+/**
+ * Create an admin notification
+ */
+const createNotification = async (
+    type: 'new_ticket' | 'ticket_reply' | 'ticket_escalation' | 'agent_needed',
+    title: string,
+    message: string,
+    ticketId?: string,
+    userId?: string
+) => {
+    try {
+        await supabase.from('admin_notifications').insert({
+            type,
+            title,
+            message,
+            ticket_id: ticketId,
+            user_id: userId
+        })
+    } catch (error) {
+        console.error('[Notification] Failed to create:', error)
+    }
+}
+
+/**
+ * Check if any agent is online (from database)
+ */
+export const checkAgentAvailability = async (): Promise<{ available: boolean; count: number }> => {
+    try {
+        const { data, error } = await supabase
+            .from('agent_status')
+            .select('id')
+            .eq('is_online', true)
+
+        if (error) throw error
+
+        return { available: (data?.length || 0) > 0, count: data?.length || 0 }
+    } catch (error) {
+        console.error('[Agent Availability] Error:', error)
+        return { available: false, count: 0 }
+    }
+}
+
+// ===============================
+// TICKET ENDPOINTS
+// ===============================
 
 /**
  * GET /api/admin/support/tickets
  * List all support tickets
  */
-router.get('/tickets', async (req: Request, res: Response) => {
+router.get('/tickets', requireSupportAccess, async (req: Request, res: Response) => {
     try {
         const { status, priority, limit = 50, offset = 0 } = req.query
 
@@ -58,7 +156,7 @@ router.get('/tickets', async (req: Request, res: Response) => {
  * GET /api/admin/support/tickets/:id
  * Get details of a specific ticket including messages
  */
-router.get('/tickets/:id', async (req: Request, res: Response) => {
+router.get('/tickets/:id', requireSupportAccess, async (req: Request, res: Response) => {
     try {
         const { id } = req.params
 
@@ -78,7 +176,14 @@ router.get('/tickets/:id', async (req: Request, res: Response) => {
 
         if (messagesError) throw messagesError
 
-        res.json({ ticket, messages })
+        // Get chat session status
+        const { data: session } = await supabase
+            .from('chat_sessions')
+            .select('*')
+            .eq('ticket_id', id)
+            .single()
+
+        res.json({ ticket, messages, chatSession: session })
     } catch (error: any) {
         console.error('Error fetching ticket details:', error)
         res.status(500).json({ error: error.message })
@@ -87,12 +192,13 @@ router.get('/tickets/:id', async (req: Request, res: Response) => {
 
 /**
  * POST /api/admin/support/tickets/:id/reply
- * Admin reply to a ticket
+ * Admin/Agent reply to a ticket
  */
-router.post('/tickets/:id/reply', async (req: Request, res: Response) => {
+router.post('/tickets/:id/reply', requireSupportAccess, async (req: Request, res: Response) => {
     try {
         const { id } = req.params
-        const { content, adminId, status } = req.body
+        const { content, status, isInternal } = req.body
+        const user = (req as any).user
 
         if (!content) {
             return res.status(400).json({ error: 'Message content is required' })
@@ -103,24 +209,43 @@ router.post('/tickets/:id/reply', async (req: Request, res: Response) => {
             .from('ticket_messages')
             .insert({
                 ticket_id: id,
-                sender_id: adminId, // Assuming adminId is passed or extracted from auth middleware
-                content,
-                is_internal: false
+                sender_id: user.id,
+                sender_type: 'agent',
+                message: content,
+                is_internal: isInternal || false
             })
             .select()
             .single()
 
         if (messageError) throw messageError
 
-        // 2. Update ticket status if provided
+        // 2. Get ticket info for email
+        const { data: ticket } = await supabase
+            .from('support_tickets')
+            .select('*, user:user_profiles!user_id(email, first_name)')
+            .eq('id', id)
+            .single()
+
+        // 3. Update ticket status if provided
         if (status) {
             await supabase
                 .from('support_tickets')
-                .update({ status, updated_at: new Date() })
+                .update({ status, updated_at: new Date().toISOString() })
                 .eq('id', id)
+
+            // Send resolution email if ticket is closed
+            if (status === 'resolved' || status === 'closed') {
+                if (ticket?.email) {
+                    await sendTicketResolvedEmail(ticket.email, id, ticket.subject)
+                }
+            }
         }
 
-        // 3. TODO: Trigger Email Notification to User via Email Service
+        // 4. Send email notification to customer (only for non-internal messages)
+        if (!isInternal && ticket?.email) {
+            const agentName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Support Team'
+            await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName)
+        }
 
         res.json({ message })
         return
@@ -131,75 +256,221 @@ router.post('/tickets/:id/reply', async (req: Request, res: Response) => {
     }
 })
 
+// ===============================
+// AGENT STATUS ENDPOINTS (DB-BACKED)
+// ===============================
+
 /**
  * POST /api/admin/support/status
- * Update Admin Online Status
+ * Update Agent Online Status (persisted to database)
  */
-router.post('/status', async (req: Request, res: Response) => {
-    const { adminId, isOnline } = req.body
+router.post('/status', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { isOnline } = req.body
+        const user = (req as any).user
 
-    if (!adminId) {
-        return res.status(400).json({ error: 'Admin ID required' })
+        // Upsert agent status
+        const { error } = await supabase
+            .from('agent_status')
+            .upsert({
+                user_id: user.id,
+                is_online: isOnline,
+                last_seen_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }, {
+                onConflict: 'user_id'
+            })
+
+        if (error) throw error
+
+        console.log(`[Agent Status] ${user.email} is now ${isOnline ? 'ONLINE' : 'OFFLINE'}`)
+        res.json({ success: true, status: isOnline ? 'online' : 'offline' })
+        return
+    } catch (error: any) {
+        console.error('Error updating agent status:', error)
+        res.status(500).json({ error: error.message })
+        return
     }
-
-    if (isOnline) {
-        onlineAgents.set(adminId, true)
-    } else {
-        onlineAgents.delete(adminId)
-    }
-
-    // Also update user profile for persistence if needed
-    // await supabase.from('user_profiles').update({ is_online: isOnline }).eq('id', adminId)
-
-    res.json({ success: true, status: onlineAgents.has(adminId) ? 'online' : 'offline' })
-    return
 })
 
 /**
  * GET /api/admin/support/availability
- * Check if any admin is online
+ * Check if any agent is online (public endpoint)
  */
-router.get('/availability', (req: Request, res: Response) => {
-    const onlineAdmins = onlineAgents.size
-    res.json({ available: onlineAdmins > 0, count: onlineAdmins })
+router.get('/availability', async (req: Request, res: Response) => {
+    const availability = await checkAgentAvailability()
+    res.json(availability)
+})
+
+/**
+ * GET /api/admin/support/agents/online
+ * List all online agents (requires auth)
+ */
+router.get('/agents/online', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { data, error } = await supabase
+            .from('agent_status')
+            .select('*, user:user_profiles!user_id(email, first_name, last_name, avatar_url)')
+            .eq('is_online', true)
+            .order('last_seen_at', { ascending: false })
+
+        if (error) throw error
+
+        res.json({ agents: data || [] })
+    } catch (error: any) {
+        console.error('Error fetching online agents:', error)
+        res.status(500).json({ error: error.message })
+    }
 })
 
 // ===============================
-// LIVE CHAT ENDPOINTS
+// NOTIFICATION ENDPOINTS
 // ===============================
 
-// In-memory store for active live chat sessions
-// Maps ticketId -> { adminId, startedAt }
-export const liveChatSessions: Map<string, { adminId: string, startedAt: Date }> = new Map()
+/**
+ * GET /api/admin/support/notifications
+ * Get unread notifications for support team
+ */
+router.get('/notifications', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { limit = 20, includeRead = false } = req.query
+
+        let query = supabase
+            .from('admin_notifications')
+            .select('*, ticket:support_tickets!ticket_id(subject, status, priority)')
+            .order('created_at', { ascending: false })
+            .limit(Number(limit))
+
+        if (!includeRead) {
+            query = query.eq('is_read', false)
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+
+        // Get unread count
+        const { count } = await supabase
+            .from('admin_notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('is_read', false)
+
+        res.json({ notifications: data || [], unreadCount: count || 0 })
+    } catch (error: any) {
+        console.error('Error fetching notifications:', error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+/**
+ * POST /api/admin/support/notifications/:id/read
+ * Mark a notification as read
+ */
+router.post('/notifications/:id/read', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params
+
+        const { error } = await supabase
+            .from('admin_notifications')
+            .update({ is_read: true })
+            .eq('id', id)
+
+        if (error) throw error
+
+        res.json({ success: true })
+    } catch (error: any) {
+        console.error('Error marking notification as read:', error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+/**
+ * POST /api/admin/support/notifications/read-all
+ * Mark all notifications as read
+ */
+router.post('/notifications/read-all', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { error } = await supabase
+            .from('admin_notifications')
+            .update({ is_read: true })
+            .eq('is_read', false)
+
+        if (error) throw error
+
+        res.json({ success: true })
+    } catch (error: any) {
+        console.error('Error marking all notifications as read:', error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// ===============================
+// LIVE CHAT ENDPOINTS (DB-BACKED)
+// ===============================
 
 /**
  * POST /api/admin/support/tickets/:id/claim
- * Admin claims a ticket for live chat
+ * Agent claims a ticket for live chat
  */
-router.post('/tickets/:id/claim', async (req: Request, res: Response) => {
+router.post('/tickets/:id/claim', requireSupportAccess, async (req: Request, res: Response) => {
     try {
         const { id } = req.params
-        const { adminId } = req.body
+        const user = (req as any).user
 
-        if (!adminId) {
-            return res.status(400).json({ error: 'Admin ID required' })
+        // Check if already claimed by another agent
+        const { data: existingSession } = await supabase
+            .from('chat_sessions')
+            .select('*, agent:user_profiles!agent_id(email, first_name)')
+            .eq('ticket_id', id)
+            .eq('status', 'active')
+            .single()
+
+        if (existingSession && existingSession.agent_id !== user.id) {
+            return res.status(409).json({
+                error: 'Ticket already claimed by another agent',
+                agent: existingSession.agent?.first_name || 'Another agent'
+            })
         }
 
-        // Check if already claimed
-        const existing = liveChatSessions.get(id)
-        if (existing && existing.adminId !== adminId) {
-            return res.status(409).json({ error: 'Ticket already claimed by another agent' })
-        }
+        // Get ticket info
+        const { data: ticket } = await supabase
+            .from('support_tickets')
+            .select('user_id')
+            .eq('id', id)
+            .single()
 
-        // Claim the ticket
-        liveChatSessions.set(id, { adminId, startedAt: new Date() })
+        // Create or update chat session
+        const { error: sessionError } = await supabase
+            .from('chat_sessions')
+            .upsert({
+                ticket_id: id,
+                user_id: ticket?.user_id,
+                agent_id: user.id,
+                status: 'active',
+                started_at: new Date().toISOString()
+            }, {
+                onConflict: 'ticket_id'
+            })
+
+        if (sessionError) throw sessionError
 
         // Update ticket status to in_progress
         await supabase
             .from('support_tickets')
-            .update({ status: 'in_progress', updated_at: new Date() })
+            .update({
+                status: 'in_progress',
+                assigned_to: user.id,
+                updated_at: new Date().toISOString()
+            })
             .eq('id', id)
 
+        // Update agent's active ticket
+        await supabase
+            .from('agent_status')
+            .update({ active_ticket_id: id })
+            .eq('user_id', user.id)
+
+        console.log(`[Live Chat] Agent ${user.email} claimed ticket ${id.slice(0, 8)}`)
         res.json({ success: true, claimed: true })
         return
     } catch (error: any) {
@@ -211,26 +482,88 @@ router.post('/tickets/:id/claim', async (req: Request, res: Response) => {
 
 /**
  * POST /api/admin/support/tickets/:id/release
- * Admin releases a live chat claim
+ * Agent releases a live chat claim
  */
-router.post('/tickets/:id/release', async (req: Request, res: Response) => {
-    const { id } = req.params
-    liveChatSessions.delete(id)
-    res.json({ success: true, released: true })
+router.post('/tickets/:id/release', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params
+        const user = (req as any).user
+
+        // End the chat session
+        await supabase
+            .from('chat_sessions')
+            .update({
+                status: 'ended',
+                ended_at: new Date().toISOString()
+            })
+            .eq('ticket_id', id)
+            .eq('agent_id', user.id)
+
+        // Clear agent's active ticket
+        await supabase
+            .from('agent_status')
+            .update({ active_ticket_id: null })
+            .eq('user_id', user.id)
+
+        console.log(`[Live Chat] Agent ${user.email} released ticket ${id.slice(0, 8)}`)
+        res.json({ success: true, released: true })
+    } catch (error: any) {
+        console.error('Error releasing ticket:', error)
+        res.status(500).json({ error: error.message })
+    }
 })
 
 /**
  * GET /api/admin/support/tickets/:id/live-status
  * Check if a ticket has an active live chat session
  */
-router.get('/tickets/:id/live-status', (req: Request, res: Response) => {
-    const { id } = req.params
-    const session = liveChatSessions.get(id)
-    res.json({
-        isLive: !!session,
-        adminId: session?.adminId || null,
-        startedAt: session?.startedAt || null
-    })
+router.get('/tickets/:id/live-status', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params
+
+        const { data: session } = await supabase
+            .from('chat_sessions')
+            .select('*, agent:user_profiles!agent_id(first_name, last_name)')
+            .eq('ticket_id', id)
+            .eq('status', 'active')
+            .single()
+
+        res.json({
+            isLive: !!session,
+            agentId: session?.agent_id || null,
+            agentName: session?.agent ? `${session.agent.first_name || ''} ${session.agent.last_name || ''}`.trim() : null,
+            startedAt: session?.started_at || null
+        })
+    } catch (error: any) {
+        console.error('Error checking live status:', error)
+        res.json({ isLive: false, agentId: null, startedAt: null })
+    }
+})
+
+/**
+ * GET /api/admin/support/chat-sessions
+ * Get all active/waiting chat sessions
+ */
+router.get('/chat-sessions', requireSupportAccess, async (req: Request, res: Response) => {
+    try {
+        const { data, error } = await supabase
+            .from('chat_sessions')
+            .select(`
+                *,
+                ticket:support_tickets!ticket_id(id, subject, priority, email, created_at),
+                user:user_profiles!user_id(email, first_name, last_name),
+                agent:user_profiles!agent_id(email, first_name, last_name)
+            `)
+            .in('status', ['waiting', 'active'])
+            .order('created_at', { ascending: true })
+
+        if (error) throw error
+
+        res.json({ sessions: data || [] })
+    } catch (error: any) {
+        console.error('Error fetching chat sessions:', error)
+        res.status(500).json({ error: error.message })
+    }
 })
 
 // ===============================
@@ -239,7 +572,7 @@ router.get('/tickets/:id/live-status', (req: Request, res: Response) => {
 // ===============================
 
 /**
- * GET /api/support/tickets/:id/messages
+ * GET /api/admin/support/tickets/:id/messages/poll
  * Get messages for a ticket (for live chat polling)
  */
 router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => {
@@ -249,7 +582,7 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
 
         let query = supabase
             .from('ticket_messages')
-            .select('id, content, created_at, is_internal, sender:user_profiles!sender_id(first_name, role)')
+            .select('id, message, created_at, is_internal, sender_type, sender:user_profiles!sender_id(first_name, role)')
             .eq('ticket_id', id)
             .eq('is_internal', false) // Don't expose internal notes
             .order('created_at', { ascending: true })
@@ -263,11 +596,16 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
         if (error) throw error
 
         // Check if this is a live session
-        const session = liveChatSessions.get(id)
+        const { data: session } = await supabase
+            .from('chat_sessions')
+            .select('status, agent:user_profiles!agent_id(first_name)')
+            .eq('ticket_id', id)
+            .single()
 
         res.json({
             messages: messages || [],
-            isLive: !!session
+            isLive: session?.status === 'active',
+            agentName: session?.agent?.first_name || null
         })
     } catch (error: any) {
         console.error('Error polling messages:', error)
@@ -276,7 +614,7 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
 })
 
 /**
- * POST /api/support/tickets/:id/messages
+ * POST /api/admin/support/tickets/:id/messages
  * User sends a message in live chat
  */
 router.post('/tickets/:id/messages', async (req: Request, res: Response) => {
@@ -293,7 +631,8 @@ router.post('/tickets/:id/messages', async (req: Request, res: Response) => {
             .insert({
                 ticket_id: id,
                 sender_id: userId || null,
-                content,
+                sender_type: userId ? 'user' : 'user',
+                message: content,
                 is_internal: false
             })
             .select()
@@ -309,5 +648,71 @@ router.post('/tickets/:id/messages', async (req: Request, res: Response) => {
         return
     }
 })
+
+/**
+ * POST /api/admin/support/tickets/:id/escalate
+ * Escalate a ticket (customer requesting live agent)
+ */
+router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params
+
+        // Get ticket info
+        const { data: ticket } = await supabase
+            .from('support_tickets')
+            .select('*')
+            .eq('id', id)
+            .single()
+
+        if (!ticket) {
+            return res.status(404).json({ error: 'Ticket not found' })
+        }
+
+        // Update ticket priority
+        await supabase
+            .from('support_tickets')
+            .update({
+                priority: 'high',
+                status: 'waiting',
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+
+        // Create or update chat session as waiting
+        await supabase
+            .from('chat_sessions')
+            .upsert({
+                ticket_id: id,
+                user_id: ticket.user_id,
+                status: 'waiting',
+                started_at: new Date().toISOString()
+            }, {
+                onConflict: 'ticket_id'
+            })
+
+        // Create notification for agents
+        await createNotification(
+            'agent_needed',
+            'Customer Waiting for Live Support',
+            `Customer is waiting for help with: ${ticket.subject}`,
+            id,
+            ticket.user_id
+        )
+
+        // Send escalation email to support team
+        await sendTicketEscalationEmail(id, ticket.subject, ticket.email)
+
+        console.log(`[Escalation] Ticket ${id.slice(0, 8)} escalated - customer waiting for live chat`)
+        res.json({ success: true, escalated: true })
+        return
+    } catch (error: any) {
+        console.error('Error escalating ticket:', error)
+        res.status(500).json({ error: error.message })
+        return
+    }
+})
+
+// Export notification helper for use by chat.ts
+export { createNotification }
 
 export default router

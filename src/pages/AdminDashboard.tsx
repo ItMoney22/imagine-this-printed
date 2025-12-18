@@ -9,12 +9,15 @@ import AdminWalletManagement from '../components/AdminWalletManagement'
 import AdminSupport from '../components/AdminSupport'
 import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/AdminCreatorProductsTab'
 import AdminImaginationProducts from './admin/ImaginationProducts'
+import AdminCouponManagement from '../components/AdminCouponManagement'
+import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
+import AdminNotificationBell from '../components/AdminNotificationBell'
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -1207,8 +1210,16 @@ const AdminDashboard: React.FC = () => {
           }} />
         </div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative">
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold text-white mb-2">Admin Dashboard</h1>
-          <p className="text-purple-100">Manage users, approvals, and monitor system performance</p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold text-white mb-2">Admin Dashboard</h1>
+              <p className="text-purple-100">Manage users, approvals, and monitor system performance</p>
+            </div>
+            <AdminNotificationBell onNotificationClick={(ticketId) => {
+              setSelectedTab('support')
+              setSearchParams({ tab: 'support' })
+            }} />
+          </div>
         </div>
       </div>
 
@@ -1275,7 +1286,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-2 mb-8 overflow-x-auto">
           <nav className="flex space-x-1">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'imagination', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -1287,7 +1298,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -2043,6 +2054,20 @@ const AdminDashboard: React.FC = () => {
         {
           selectedTab === 'creator-products' && (
             <CreatorProductsTab />
+          )
+        }
+
+        {/* Coupons Tab */}
+        {
+          selectedTab === 'coupons' && (
+            <AdminCouponManagement />
+          )
+        }
+
+        {/* Gift Cards Tab */}
+        {
+          selectedTab === 'gift-cards' && (
+            <AdminGiftCardManagement />
           )
         }
 

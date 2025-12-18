@@ -128,9 +128,10 @@ const Navbar: React.FC = () => {
                     <div className="px-4 py-2 text-sm text-gray-700 border-b">
                       <div className="font-medium">{user.email}</div>
                       <div className="text-xs text-gray-500">
-                        Role: <span className="capitalize font-semibold">{user.role}</span>
+                        Role: <span className="capitalize font-semibold">{user.role?.replace('_', ' ')}</span>
                         {user.role === 'admin' && <span className="ml-2 text-green-600">✓ Admin</span>}
                         {user.role === 'manager' && <span className="ml-2 text-blue-600">✓ Manager</span>}
+                        {user.role === 'support_agent' && <span className="ml-2 text-purple-600">✓ Support</span>}
                       </div>
                     </div>
 
@@ -341,6 +342,21 @@ const Navbar: React.FC = () => {
                           className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                         >
                           Wholesale Portal
+                        </Link>
+                      </>
+                    )}
+
+                    {user.role === 'support_agent' && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-t mt-2 pt-2">
+                          Support
+                        </div>
+                        <Link
+                          to="/admin?tab=support"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Support Dashboard
                         </Link>
                       </>
                     )}

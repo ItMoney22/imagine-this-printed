@@ -41,7 +41,7 @@ export interface CartItem {
 export interface User {
   id: string
   email: string
-  role: 'customer' | 'founder' | 'vendor' | 'admin' | 'manager' | 'wholesale' | 'kiosk'
+  role: 'customer' | 'founder' | 'vendor' | 'admin' | 'manager' | 'wholesale' | 'kiosk' | 'support_agent'
   firstName?: string
   lastName?: string
   points?: number
@@ -1356,4 +1356,167 @@ export interface ImaginationProductSizeConfig {
   priceUsd: number;
   priceItc: number;
   enabled: boolean;
+}
+
+// Coupon / Discount Code Types
+export interface Coupon {
+  id: string;
+  code: string;
+  type: 'percentage' | 'fixed' | 'free_shipping';
+  value: number;
+  max_uses?: number;
+  current_uses: number;
+  expires_at?: string;
+  is_active: boolean;
+  description?: string;
+  min_order_amount?: number;
+  max_discount_amount?: number;
+  per_user_limit?: number;
+  applies_to?: 'usd' | 'itc' | 'both';
+  created_at: string;
+  created_by?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface CouponUsage {
+  id: string;
+  discount_code_id: string;
+  user_id?: string;
+  order_id?: string;
+  discount_applied: number;
+  used_at: string;
+}
+
+export interface AppliedCoupon {
+  code: string;
+  type: 'percentage' | 'fixed' | 'free_shipping' | 'fixed_amount';
+  value: number;
+  discount: number;
+  couponId: string;
+  discountAmount?: number;
+  description?: string;
+}
+
+// Gift Card Types
+export interface GiftCard {
+  id: string;
+  code: string;
+  itc_amount: number;
+  amount?: number;
+  balance?: number;
+  is_active: boolean;
+  redeemed_by?: string;
+  redeemed_at?: string;
+  expires_at?: string;
+  created_at: string;
+  created_by?: string;
+  recipient_email?: string;
+  sender_name?: string;
+  message?: string;
+  notes?: string;
+  redeemer?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+}
+
+// Support System Types
+export interface SupportTicket {
+  id: string;
+  user_id?: string;
+  email: string;
+  name?: string;
+  subject: string;
+  description: string;
+  category: 'general' | 'order' | 'technical' | 'billing' | 'other';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
+  assigned_to?: string;
+  order_id?: string;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+  user?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+  assignee?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+}
+
+export interface TicketMessage {
+  id: string;
+  ticket_id: string;
+  sender_type: 'user' | 'agent' | 'system' | 'ai';
+  sender_id?: string;
+  message: string;
+  is_internal: boolean;
+  created_at: string;
+  sender?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+}
+
+export interface AgentStatus {
+  id: string;
+  user_id: string;
+  is_online: boolean;
+  last_seen_at: string;
+  active_ticket_id?: string;
+  created_at: string;
+  updated_at: string;
+  user?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+}
+
+export interface ChatSession {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  agent_id?: string;
+  status: 'waiting' | 'active' | 'ended';
+  started_at: string;
+  ended_at?: string;
+  created_at: string;
+  ticket?: SupportTicket;
+  user?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+  agent?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  };
+}
+
+export interface AdminNotification {
+  id: string;
+  type: 'new_ticket' | 'ticket_reply' | 'ticket_escalation' | 'agent_needed';
+  title: string;
+  message?: string;
+  ticket_id?: string;
+  user_id?: string;
+  is_read: boolean;
+  created_at: string;
+  ticket?: SupportTicket;
+}
+
+export interface AppliedCoupon {
+  code: string;
+  type: 'percentage' | 'fixed_amount' | 'free_shipping';
+  value: number;
+  discount: number;
+  couponId: string;
 }

@@ -30,6 +30,7 @@ KNOWLEDGE BASE:
 
 CAPABILITIES:
 - **TICKET CREATION**: You can create support tickets for users if they have a problem (order issues, bugs, billing). If a user reports an issue, ASK for details then call the 'create_support_ticket' tool. Do not just say you will do it, actually use the tool.
+- **LIVE CHAT**: You can check if a human support agent is available using 'check_agent_availability'. If the user wants to talk to a human, check availability first, then use 'request_live_chat' to connect them.
 
 RESTRICTIONS (CRITICAL):
 - You are strictly a CUSTOMER-FACING assistant.
@@ -162,14 +163,15 @@ export function MrImagineChatWidget() {
                 const data = await response.json()
 
                 if (data.messages && data.messages.length > 0) {
-                    // Add new messages from admin
+                    // Add new messages from agent (filter to only show agent messages)
                     const newMessages = data.messages
-                        .filter((m: any) => m.sender?.role === 'admin')
+                        .filter((m: any) => m.sender_type === 'agent' || m.sender?.role === 'admin' || m.sender?.role === 'support_agent')
                         .map((m: any) => ({
                             role: 'assistant' as const,
-                            content: m.content,
+                            content: m.message || m.content,
                             timestamp: new Date(m.created_at),
-                            isAgent: true
+                            isAgent: true,
+                            agentName: data.agentName || m.sender?.first_name || 'Support Agent'
                         }))
 
                     if (newMessages.length > 0) {
@@ -273,7 +275,8 @@ export function MrImagineChatWidget() {
                     message: userMessage,
                     systemPrompt: SYSTEM_PROMPT,
                     history: history, // Send full history for context
-                    userId: user?.id || null // Pass user ID for ticket creation association
+                    userId: user?.id || null, // Pass user ID for ticket creation association
+                    userEmail: user?.email || null // Pass email for ticket notifications
                 })
             })
 
@@ -341,7 +344,7 @@ export function MrImagineChatWidget() {
                                         {isLiveChat ? "Live Support" : "Mr. Imagine"}
                                     </h3>
                                     <span className="text-purple-100 text-xs">
-                                        {isLiveChat ? "Connected to Agent" : ticketId ? `Ticket #${ticketId}` : "AI Design Assistant"}
+                                        {isLiveChat ? "Connected to Agent" : ticketId ? `Ticket #${ticketId.slice(0, 8).toUpperCase()}` : "AI Design Assistant"}
                                     </span>
                                 </div>
                             </div>

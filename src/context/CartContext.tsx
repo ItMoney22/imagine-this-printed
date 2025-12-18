@@ -1,11 +1,13 @@
-import React, { createContext, useContext, useReducer } from 'react'
+import React, { createContext, useContext, useReducer, useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import type { CartItem, Product } from '../types'
+import type { CartItem, Product, AppliedCoupon } from '../types'
 
 interface CartState {
   items: CartItem[]
   total: number
 }
+
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 interface CartContextType {
   state: CartState
@@ -13,6 +15,12 @@ interface CartContextType {
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
+  appliedCoupon: AppliedCoupon | null
+  discount: number
+  finalTotal: number
+  applyCoupon: (code: string, userId?: string) => Promise<{ success: boolean; error?: string }>
+  removeCoupon: () => void
+  couponLoading: boolean
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined)
@@ -110,6 +118,8 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
 
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(cartReducer, { items: [], total: 0 })
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null)
+  const [couponLoading, setCouponLoading] = useState(false)
 
   const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc') => {
     dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod } })
@@ -125,10 +135,64 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const clearCart = () => {
     dispatch({ type: 'CLEAR_CART' })
+    setAppliedCoupon(null)
   }
 
+  const applyCoupon = useCallback(async (code: string, userId?: string): Promise<{ success: boolean; error?: string }> => {
+    setCouponLoading(true)
+    try {
+      const params = new URLSearchParams({
+        code: code.toUpperCase(),
+        orderTotal: state.total.toString()
+      })
+      if (userId) {
+        params.append('userId', userId)
+      }
+
+      const response = await fetch(`${API_BASE}/api/coupons/validate?${params}`)
+      const data = await response.json()
+
+      if (!data.valid) {
+        setCouponLoading(false)
+        return { success: false, error: data.error || 'Invalid coupon code' }
+      }
+
+      setAppliedCoupon({
+        code: data.coupon.code,
+        type: data.coupon.type,
+        value: data.coupon.value,
+        discount: data.discount,
+        couponId: data.coupon.id
+      })
+      setCouponLoading(false)
+      return { success: true }
+    } catch (error: any) {
+      setCouponLoading(false)
+      return { success: false, error: error.message || 'Failed to validate coupon' }
+    }
+  }, [state.total])
+
+  const removeCoupon = useCallback(() => {
+    setAppliedCoupon(null)
+  }, [])
+
+  const discount = appliedCoupon?.discount || 0
+  const finalTotal = Math.max(0, state.total - discount)
+
   return (
-    <CartContext.Provider value={{ state, addToCart, removeFromCart, updateQuantity, clearCart }}>
+    <CartContext.Provider value={{
+      state,
+      addToCart,
+      removeFromCart,
+      updateQuantity,
+      clearCart,
+      appliedCoupon,
+      discount,
+      finalTotal,
+      applyCoupon,
+      removeCoupon,
+      couponLoading
+    }}>
       {children}
     </CartContext.Provider>
   )
