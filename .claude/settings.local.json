@@ -127,7 +127,12 @@
       "Bash(timeout 15 railway logs:*)",
       "Bash(railway deployment:*)",
       "Bash(printf:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git push)",
+      "Bash(railway service --help:*)",
+      "Bash(railway add --help:*)",
+      "Bash(railway service worker:*)",
+      "Bash(railway add:*)"
     ],
     "deny": [],
     "ask": []
