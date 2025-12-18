@@ -414,7 +414,8 @@ const ImaginationStation: React.FC = () => {
               name: presetData[key].displayName, // Map displayName to name for compatibility
               allowMirror: presetData[key].rules?.mirror,
               allowCutlines: presetData[key].rules?.cutlineOption,
-              heights: presetData[key].sizes ? presetData[key].sizes.map((s: any) => s.height).sort((a: number, b: number) => a - b) : []
+              // API returns heights directly as array of numbers (not sizes array of objects)
+              heights: presetData[key].heights || []
             };
           });
           setPresets(merged);
