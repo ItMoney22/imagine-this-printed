@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+import { sendNewSupportTicketEmail, sendTicketConfirmationEmail } from '../../utils/email.js'
 
 dotenv.config()
 
@@ -130,9 +131,22 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
 
                     // Insert into Supabase
                     let ticketId = `TKT-${Math.floor(Math.random() * 10000)}`
+                    let userEmail: string | undefined
 
                     if (supabase) {
                         try {
+                            // Get user email if userId is provided
+                            if (userId) {
+                                const { data: profile } = await supabase
+                                    .from('user_profiles')
+                                    .select('email')
+                                    .eq('id', userId)
+                                    .single()
+                                if (profile?.email) {
+                                    userEmail = profile.email
+                                }
+                            }
+
                             const { data: ticket, error } = await supabase
                                 .from('support_tickets')
                                 .insert({
@@ -150,6 +164,25 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
                                 ticketId = ticket.id
                                 meta.ticket_id = ticket.id
                                 meta.ticket_status = 'open'
+
+                                // Send email notification to support team
+                                sendNewSupportTicketEmail(
+                                    ticket.id,
+                                    args.issue_summary,
+                                    args.description || args.issue_summary,
+                                    args.priority,
+                                    args.category,
+                                    userEmail
+                                ).catch(e => console.error('[chat] Email to support failed:', e))
+
+                                // Send confirmation email to user if we have their email
+                                if (userEmail) {
+                                    sendTicketConfirmationEmail(
+                                        userEmail,
+                                        ticket.id,
+                                        args.issue_summary
+                                    ).catch(e => console.error('[chat] Confirmation email failed:', e))
+                                }
                             }
                         } catch (e) {
                             console.error('Error creating ticket in DB:', e)
@@ -164,10 +197,11 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
                 }
                 else if (toolCall.function.name === 'check_agent_availability') {
                     try {
-                        const availRes = await fetch('http://localhost:4000/api/admin/support/availability')
-                        if (!availRes.ok) throw new Error('Failed to fetch availability')
-                        const availData = (await availRes.json()) as { available: boolean }
-                        const isAvailable = availData.available
+                        // Check directly from in-memory store (same process)
+                        // Import the online agents map from support routes
+                        const { onlineAgents } = await import('../admin/support.js')
+                        const isAvailable = onlineAgents && onlineAgents.size > 0
+
                         if (isAvailable) {
                             meta.handoff = true
                             meta.agent_online = true

@@ -168,6 +168,115 @@ export const sendProductRejectionEmail = async (
 }
 
 /**
+ * Send notification email to support team when a new ticket is created
+ */
+export const sendNewSupportTicketEmail = async (
+  ticketId: string,
+  subject: string,
+  description: string,
+  priority: string,
+  category: string,
+  userEmail?: string
+): Promise<boolean> => {
+  const supportEmail = process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com'
+
+  const priorityColors: Record<string, string> = {
+    urgent: '#ef4444',
+    high: '#f97316',
+    medium: '#eab308',
+    low: '#22c55e'
+  }
+
+  return sendEmail({
+    to: supportEmail,
+    subject: `🎫 New Support Ticket [${priority.toUpperCase()}]: ${subject}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">New Support Ticket 🎫</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+            <span style="font-size: 14px; color: #6b7280;">Ticket ID: <strong>${ticketId.slice(0, 8)}</strong></span>
+            <span style="background: ${priorityColors[priority] || '#6b7280'}; color: white; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: bold; text-transform: uppercase;">${priority}</span>
+          </div>
+          <h2 style="color: #374151; margin: 0 0 10px 0;">${subject}</h2>
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">Category: ${category.replace('_', ' ')}</p>
+          ${userEmail ? `<p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">From: ${userEmail}</p>` : ''}
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">Description</h3>
+          <p style="color: #6b7280; font-size: 15px; line-height: 1.6; white-space: pre-wrap;">${description}</p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/admin/dashboard?tab=support" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            View in Admin Dashboard
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            This ticket was created via Mr. Imagine chat assistant.<br>
+            Please respond promptly to maintain customer satisfaction.
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
+ * Send confirmation email to user when their ticket is created
+ */
+export const sendTicketConfirmationEmail = async (
+  email: string,
+  ticketId: string,
+  subject: string
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `✅ Your Support Request Has Been Received - ${subject}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">We Got Your Request! ✅</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">Reference Number</p>
+          <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${ticketId.slice(0, 8).toUpperCase()}</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">What happens next?</h3>
+          <ul style="color: #6b7280; font-size: 15px; line-height: 1.8;">
+            <li>Our support team will review your request</li>
+            <li>You'll receive a response within 24 hours</li>
+            <li>We'll email you with updates</li>
+          </ul>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Continue Shopping
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Thank you for reaching out to us!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
  * Send payout notification email to creator
  */
 export const sendPayoutEmail = async (

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, X, Search, Filter, MessageSquare, Clock, AlertCircle, RefreshCw, UserCheck, UserX } from 'lucide-react'
+import { Check, X, Search, Filter, MessageSquare, Clock, AlertCircle, RefreshCw, UserCheck, UserX, PhoneCall, PhoneOff } from 'lucide-react'
 import axios from 'axios'
+import { useAuth } from '../context/SupabaseAuthContext'
 
 interface Ticket {
     id: string
@@ -32,12 +33,15 @@ interface TicketMessage {
 }
 
 const AdminSupport: React.FC = () => {
+    const { user } = useAuth()
     const [tickets, setTickets] = useState<Ticket[]>([])
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
     const [messages, setMessages] = useState<TicketMessage[]>([])
     const [loading, setLoading] = useState(true)
     const [replyContent, setReplyContent] = useState('')
     const [isAgentOnline, setIsAgentOnline] = useState(false)
+    const [isLiveChatActive, setIsLiveChatActive] = useState(false)
+    const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     // Filter states
     const [statusFilter, setStatusFilter] = useState('all')
@@ -57,7 +61,7 @@ const AdminSupport: React.FC = () => {
     const fetchTickets = async () => {
         try {
             setLoading(true)
-            let url = `${import.meta.env.VITE_API_BASE}/admin/support/tickets?limit=50`
+            let url = `${import.meta.env.VITE_API_BASE}/api/admin/support/tickets?limit=50`
             if (statusFilter !== 'all') url += `&status=${statusFilter}`
             if (priorityFilter !== 'all') url += `&priority=${priorityFilter}`
 
@@ -72,7 +76,7 @@ const AdminSupport: React.FC = () => {
 
     const fetchTicketMessages = async (ticketId: string) => {
         try {
-            const response = await axios.get(`${import.meta.env.VITE_API_BASE}/admin/support/tickets/${ticketId}`, { withCredentials: true })
+            const response = await axios.get(`${import.meta.env.VITE_API_BASE}/api/admin/support/tickets/${ticketId}`, { withCredentials: true })
             setMessages(response.data.messages)
         } catch (error) {
             console.error('Error fetching messages:', error)
@@ -83,7 +87,7 @@ const AdminSupport: React.FC = () => {
         if (!selectedTicket || !replyContent.trim()) return
 
         try {
-            await axios.post(`${import.meta.env.VITE_API_BASE}/admin/support/tickets/${selectedTicket.id}/reply`, {
+            await axios.post(`${import.meta.env.VITE_API_BASE}/api/admin/support/tickets/${selectedTicket.id}/reply`, {
                 content: replyContent,
                 adminId: 'current-admin-id', // Ideally get this from auth context
                 status: 'in_progress' // Auto update status on reply
@@ -101,7 +105,7 @@ const AdminSupport: React.FC = () => {
     const toggleAgentStatus = async () => {
         try {
             const newStatus = !isAgentOnline
-            await axios.post(`${import.meta.env.VITE_API_BASE}/admin/support/status`, {
+            await axios.post(`${import.meta.env.VITE_API_BASE}/api/admin/support/status`, {
                 adminId: 'current-admin-id', // Get from context
                 isOnline: newStatus
             }, { withCredentials: true })
@@ -115,6 +119,61 @@ const AdminSupport: React.FC = () => {
         // In a real app we'd fetch this user's specific status or the global availability
         // For now, toggle locally or fetch initial
     }
+
+    // Live Chat Functions
+    const claimLiveChat = async () => {
+        if (!selectedTicket || !user) return
+        try {
+            await axios.post(`${import.meta.env.VITE_API_BASE}/api/admin/support/tickets/${selectedTicket.id}/claim`, {
+                adminId: user.id
+            }, { withCredentials: true })
+            setIsLiveChatActive(true)
+            startLiveChatPolling()
+        } catch (error: any) {
+            console.error('Error claiming live chat:', error)
+            alert(error.response?.data?.error || 'Failed to claim live chat')
+        }
+    }
+
+    const releaseLiveChat = async () => {
+        if (!selectedTicket) return
+        try {
+            await axios.post(`${import.meta.env.VITE_API_BASE}/api/admin/support/tickets/${selectedTicket.id}/release`, {}, { withCredentials: true })
+            setIsLiveChatActive(false)
+            stopLiveChatPolling()
+        } catch (error) {
+            console.error('Error releasing live chat:', error)
+        }
+    }
+
+    const startLiveChatPolling = () => {
+        if (pollIntervalRef.current) return
+        pollIntervalRef.current = setInterval(() => {
+            if (selectedTicket) {
+                fetchTicketMessages(selectedTicket.id)
+            }
+        }, 2000)
+    }
+
+    const stopLiveChatPolling = () => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+        }
+    }
+
+    // Clean up polling when ticket changes or component unmounts
+    useEffect(() => {
+        return () => stopLiveChatPolling()
+    }, [])
+
+    useEffect(() => {
+        if (isLiveChatActive && selectedTicket) {
+            startLiveChatPolling()
+        } else {
+            stopLiveChatPolling()
+        }
+    }, [isLiveChatActive, selectedTicket])
 
     const getPriorityColor = (priority: string) => {
         switch (priority) {
@@ -229,9 +288,16 @@ const AdminSupport: React.FC = () => {
             <div className="w-2/3 flex flex-col glass-card border-white/5 bg-black/40 rounded-2xl overflow-hidden">
                 {selectedTicket ? (
                     <>
-                        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/5">
+                        <div className={`p-4 border-b border-white/5 flex justify-between items-center ${isLiveChatActive ? 'bg-green-500/10' : 'bg-white/5'}`}>
                             <div>
-                                <h3 className="text-lg font-bold text-white">{selectedTicket.subject}</h3>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-lg font-bold text-white">{selectedTicket.subject}</h3>
+                                    {isLiveChatActive && (
+                                        <span className="px-2 py-0.5 text-[10px] font-bold bg-green-500 text-white rounded-full animate-pulse">
+                                            LIVE
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="flex items-center gap-4 text-xs text-white/50 mt-1">
                                     <span>ID: {selectedTicket.id.slice(0, 8)}</span>
                                     <span>Category: {selectedTicket.category}</span>
@@ -239,7 +305,23 @@ const AdminSupport: React.FC = () => {
                                 </div>
                             </div>
                             <div className="flex gap-2">
-                                {/* Actions like Close, Delete could go here */}
+                                {isLiveChatActive ? (
+                                    <button
+                                        onClick={releaseLiveChat}
+                                        className="px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 transition-all bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
+                                    >
+                                        <PhoneOff size={14} />
+                                        End Live Chat
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={claimLiveChat}
+                                        className="px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 transition-all bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30"
+                                    >
+                                        <PhoneCall size={14} />
+                                        Take Over Chat
+                                    </button>
+                                )}
                             </div>
                         </div>
 

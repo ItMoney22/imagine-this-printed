@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { X, Send, Sparkles, MessageSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useAuth } from '../context/SupabaseAuthContext'
 
 // API base URL for production
 const API_BASE = import.meta.env.VITE_API_BASE || ''
@@ -55,6 +56,7 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
 // However, I will define the functions to play them.
 
 export function MrImagineChatWidget() {
+    const { user } = useAuth()
     const [isOpen, setIsOpen] = useState(false)
     const [unreadCount, setUnreadCount] = useState(0) // Start with 0, will increment on invite
     const [messages, setMessages] = useState<Message[]>([
@@ -68,7 +70,9 @@ export function MrImagineChatWidget() {
     const [isTyping, setIsTyping] = useState(false)
     const [ticketId, setTicketId] = useState<string | null>(null)
     const [isLiveChat, setIsLiveChat] = useState(false)
+    const [lastPollTime, setLastPollTime] = useState<string | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     // Audio Refs
     const typingAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -134,6 +138,83 @@ export function MrImagineChatWidget() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
 
+    // Poll for new messages when in live chat mode
+    useEffect(() => {
+        if (!isLiveChat || !ticketId) {
+            // Clear any existing polling
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current)
+                pollIntervalRef.current = null
+            }
+            return
+        }
+
+        const pollMessages = async () => {
+            try {
+                const url = new URL(`${API_BASE}/api/admin/support/tickets/${ticketId}/messages/poll`)
+                if (lastPollTime) {
+                    url.searchParams.set('since', lastPollTime)
+                }
+
+                const response = await fetch(url.toString())
+                if (!response.ok) return
+
+                const data = await response.json()
+
+                if (data.messages && data.messages.length > 0) {
+                    // Add new messages from admin
+                    const newMessages = data.messages
+                        .filter((m: any) => m.sender?.role === 'admin')
+                        .map((m: any) => ({
+                            role: 'assistant' as const,
+                            content: m.content,
+                            timestamp: new Date(m.created_at),
+                            isAgent: true
+                        }))
+
+                    if (newMessages.length > 0) {
+                        setMessages(prev => [...prev, ...newMessages])
+                        playDing()
+                        if (!isOpen) {
+                            setUnreadCount(prev => prev + newMessages.length)
+                        }
+                    }
+
+                    // Update last poll time to the latest message timestamp
+                    const latestTime = data.messages[data.messages.length - 1].created_at
+                    setLastPollTime(latestTime)
+                }
+
+                // Check if still live
+                if (!data.isLive) {
+                    setIsLiveChat(false)
+                    setMessages(prev => [
+                        ...prev,
+                        {
+                            role: 'assistant',
+                            content: "The support agent has left the chat. I'm Mr. Imagine again! 🎨 How can I help you?",
+                            timestamp: new Date()
+                        }
+                    ])
+                }
+            } catch (error) {
+                console.error('Error polling messages:', error)
+            }
+        }
+
+        // Start polling every 2 seconds
+        pollIntervalRef.current = setInterval(pollMessages, 2000)
+        // Also poll immediately
+        pollMessages()
+
+        return () => {
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current)
+                pollIntervalRef.current = null
+            }
+        }
+    }, [isLiveChat, ticketId, isOpen])
+
     useEffect(() => {
         scrollToBottom()
     }, [messages])
@@ -152,6 +233,29 @@ export function MrImagineChatWidget() {
         ]
         setMessages(newMessages)
 
+        // If in live chat mode, send to ticket messages instead of AI
+        if (isLiveChat && ticketId) {
+            try {
+                await fetch(`${API_BASE}/api/admin/support/tickets/${ticketId}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: userMessage,
+                        userId: user?.id || null
+                    })
+                })
+                // Message is stored, admin will see it via their polling/refresh
+                // No typing indicator needed as it's live chat
+            } catch (error) {
+                console.error('Error sending live chat message:', error)
+                setMessages(prev => [
+                    ...prev,
+                    { role: 'assistant', content: "Sorry, I couldn't send your message. Please try again.", timestamp: new Date() }
+                ])
+            }
+            return
+        }
+
         setIsTyping(true)
         // playTypingSound(true) // Should play while waiting? Or while "Mr Imagine is typing" (which is effectively the wait time)
 
@@ -168,7 +272,8 @@ export function MrImagineChatWidget() {
                 body: JSON.stringify({
                     message: userMessage,
                     systemPrompt: SYSTEM_PROMPT,
-                    history: history // Send full history for context
+                    history: history, // Send full history for context
+                    userId: user?.id || null // Pass user ID for ticket creation association
                 })
             })
 
@@ -192,6 +297,8 @@ export function MrImagineChatWidget() {
                     }
                     if (meta.handoff) {
                         setIsLiveChat(true)
+                        // Set poll time to now so we only get new messages
+                        setLastPollTime(new Date().toISOString())
                     }
                 }
             } else {
