@@ -106,7 +106,27 @@ const ImaginationStation: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addToCart } = useCart();
-  const itcBalance = user?.wallet?.itcBalance || 0;
+
+  // Wallet state - fetch lazily since it's not loaded with user for performance
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+
+  // Fetch wallet balance on mount
+  useEffect(() => {
+    const fetchWallet = async () => {
+      if (!user?.id) return;
+      try {
+        const response = await imaginationApi.get('/wallet/get');
+        if (response.data?.wallet?.itc_balance) {
+          setWalletBalance(Number(response.data.wallet.itc_balance));
+        }
+      } catch (err) {
+        console.error('[ImaginationStation] Failed to fetch wallet:', err);
+      }
+    };
+    fetchWallet();
+  }, [user?.id]);
+
+  const itcBalance = walletBalance;
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasProcessedUrlImage = useRef(false);

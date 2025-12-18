@@ -144,7 +144,17 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
           })
           setUser(mappedUser)
         } else {
-          console.warn('[AuthContext] ⚠️ Failed to map user profile')
+          console.warn('[AuthContext] ⚠️ Failed to map user profile, using basic user from session')
+          // Fallback: use basic data from Supabase session so user isn't logged out
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            role: 'customer',
+            username: session.user.email?.split('@')[0] || 'user',
+            emailVerified: !!session.user.email_confirmed_at,
+            profileCompleted: false,
+            wallet: undefined
+          })
         }
       } else {
         console.log('[AuthContext] ℹ️ No active session found')
@@ -171,8 +181,17 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
           console.log('[AuthContext] ✅ User profile loaded:', mappedUser.username)
           setUser(mappedUser)
         } else {
-          console.warn('[AuthContext] ⚠️ Failed to load user profile, keeping existing user state')
-          // Don't set user to null - keep existing user data if profile fetch fails
+          console.warn('[AuthContext] ⚠️ Failed to load user profile, using basic user from session')
+          // Fallback: use basic data from Supabase session so user isn't logged out
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            role: 'customer',
+            username: session.user.email?.split('@')[0] || 'user',
+            emailVerified: !!session.user.email_confirmed_at,
+            profileCompleted: false,
+            wallet: undefined
+          })
         }
       } else {
         console.log('[AuthContext] 👋 User signed out')
