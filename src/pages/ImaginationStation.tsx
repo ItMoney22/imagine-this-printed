@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/SupabaseAuthContext';
 import { useCart } from '../context/CartContext';
-import { imaginationApi } from '../lib/api';
+import { imaginationApi, apiFetch } from '../lib/api';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
   ImaginationSheet,
@@ -115,9 +115,9 @@ const ImaginationStation: React.FC = () => {
     const fetchWallet = async () => {
       if (!user?.id) return;
       try {
-        const response = await imaginationApi.get('/wallet/get');
-        if (response.data?.wallet?.itc_balance) {
-          setWalletBalance(Number(response.data.wallet.itc_balance));
+        const response = await apiFetch('/api/wallet/get');
+        if (response?.wallet?.itc_balance) {
+          setWalletBalance(Number(response.wallet.itc_balance));
         }
       } catch (err) {
         console.error('[ImaginationStation] Failed to fetch wallet:', err);
