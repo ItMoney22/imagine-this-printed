@@ -129,7 +129,7 @@ router.get('/tickets', requireSupportAccess, async (req: Request, res: Response)
 
         let query = supabase
             .from('support_tickets')
-            .select('*, user:user_profiles!user_id(email, first_name, last_name, avatar_url)', { count: 'exact' })
+            .select('*', { count: 'exact' })
             .order('created_at', { ascending: false })
             .range(Number(offset), Number(offset) + Number(limit) - 1)
 
@@ -141,11 +141,28 @@ router.get('/tickets', requireSupportAccess, async (req: Request, res: Response)
             query = query.eq('priority', priority)
         }
 
-        const { data, count, error } = await query
+        const { data: tickets, count, error } = await query
 
         if (error) throw error
 
-        res.json({ tickets: data, total: count })
+        // Fetch user profiles separately
+        const userIds = [...new Set(tickets?.filter(t => t.user_id).map(t => t.user_id) || [])]
+        let userProfiles: Record<string, any> = {}
+        if (userIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, email, first_name, last_name, avatar_url')
+                .in('id', userIds)
+            profiles?.forEach(p => userProfiles[p.id] = p)
+        }
+
+        // Attach user info to tickets
+        const ticketsWithUser = tickets?.map(t => ({
+            ...t,
+            user: t.user_id ? userProfiles[t.user_id] : null
+        }))
+
+        res.json({ tickets: ticketsWithUser, total: count })
     } catch (error: any) {
         console.error('Error fetching tickets:', error)
         res.status(500).json({ error: error.message })
@@ -162,11 +179,22 @@ router.get('/tickets/:id', requireSupportAccess, async (req: Request, res: Respo
 
         const { data: ticket, error: ticketError } = await supabase
             .from('support_tickets')
-            .select('*, user:user_profiles!user_id(email, first_name, last_name)')
+            .select('*')
             .eq('id', id)
             .single()
 
         if (ticketError) throw ticketError
+
+        // Fetch user profile for ticket
+        let ticketWithUser = { ...ticket, user: null as any }
+        if (ticket.user_id) {
+            const { data: userProfile } = await supabase
+                .from('user_profiles')
+                .select('id, email, first_name, last_name')
+                .eq('id', ticket.user_id)
+                .single()
+            ticketWithUser.user = userProfile
+        }
 
         const { data: messages, error: messagesError } = await supabase
             .from('ticket_messages')
@@ -200,7 +228,7 @@ router.get('/tickets/:id', requireSupportAccess, async (req: Request, res: Respo
             .eq('ticket_id', id)
             .single()
 
-        res.json({ ticket, messages: messagesWithSender, chatSession: session })
+        res.json({ ticket: ticketWithUser, messages: messagesWithSender, chatSession: session })
     } catch (error: any) {
         console.error('Error fetching ticket details:', error)
         res.status(500).json({ error: error.message })
@@ -237,11 +265,22 @@ router.post('/tickets/:id/reply', requireSupportAccess, async (req: Request, res
         if (messageError) throw messageError
 
         // 2. Get ticket info for email
-        const { data: ticket } = await supabase
+        const { data: ticketData } = await supabase
             .from('support_tickets')
-            .select('*, user:user_profiles!user_id(email, first_name)')
+            .select('*')
             .eq('id', id)
             .single()
+
+        // Fetch user email separately
+        let ticket: any = ticketData
+        if (ticketData?.user_id) {
+            const { data: userProfile } = await supabase
+                .from('user_profiles')
+                .select('email, first_name')
+                .eq('id', ticketData.user_id)
+                .single()
+            ticket = { ...ticketData, email: userProfile?.email, user: userProfile }
+        }
 
         // 3. Update ticket status if provided
         if (status) {
@@ -325,15 +364,32 @@ router.get('/availability', async (req: Request, res: Response) => {
  */
 router.get('/agents/online', requireSupportAccess, async (req: Request, res: Response) => {
     try {
-        const { data, error } = await supabase
+        const { data: agentStatuses, error } = await supabase
             .from('agent_status')
-            .select('*, user:user_profiles!user_id(email, first_name, last_name, avatar_url)')
+            .select('*')
             .eq('is_online', true)
             .order('last_seen_at', { ascending: false })
 
         if (error) throw error
 
-        res.json({ agents: data || [] })
+        // Fetch user profiles separately
+        const userIds = [...new Set(agentStatuses?.filter(a => a.user_id).map(a => a.user_id) || [])]
+        let userProfiles: Record<string, any> = {}
+        if (userIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, email, first_name, last_name, avatar_url')
+                .in('id', userIds)
+            profiles?.forEach(p => userProfiles[p.id] = p)
+        }
+
+        // Attach user info
+        const agentsWithUser = agentStatuses?.map(a => ({
+            ...a,
+            user: a.user_id ? userProfiles[a.user_id] : null
+        }))
+
+        res.json({ agents: agentsWithUser || [] })
     } catch (error: any) {
         console.error('Error fetching online agents:', error)
         res.status(500).json({ error: error.message })
@@ -437,15 +493,23 @@ router.post('/tickets/:id/claim', requireSupportAccess, async (req: Request, res
         // Check if already claimed by another agent
         const { data: existingSession } = await supabase
             .from('chat_sessions')
-            .select('*, agent:user_profiles!agent_id(email, first_name)')
+            .select('*')
             .eq('ticket_id', id)
             .eq('status', 'active')
             .single()
 
-        if (existingSession && existingSession.agent_id !== user.id) {
+        // Fetch agent name if session exists
+        let agentName = 'Another agent'
+        if (existingSession?.agent_id && existingSession.agent_id !== user.id) {
+            const { data: agentProfile } = await supabase
+                .from('user_profiles')
+                .select('first_name')
+                .eq('id', existingSession.agent_id)
+                .single()
+            agentName = agentProfile?.first_name || 'Another agent'
             return res.status(409).json({
                 error: 'Ticket already claimed by another agent',
-                agent: existingSession.agent?.first_name || 'Another agent'
+                agent: agentName
             })
         }
 
@@ -540,15 +604,26 @@ router.get('/tickets/:id/live-status', async (req: Request, res: Response) => {
 
         const { data: session } = await supabase
             .from('chat_sessions')
-            .select('*, agent:user_profiles!agent_id(first_name, last_name)')
+            .select('*')
             .eq('ticket_id', id)
             .eq('status', 'active')
             .single()
 
+        // Fetch agent name if session exists
+        let agentName = null
+        if (session?.agent_id) {
+            const { data: agentProfile } = await supabase
+                .from('user_profiles')
+                .select('first_name, last_name')
+                .eq('id', session.agent_id)
+                .single()
+            agentName = agentProfile ? `${agentProfile.first_name || ''} ${agentProfile.last_name || ''}`.trim() : null
+        }
+
         res.json({
             isLive: !!session,
             agentId: session?.agent_id || null,
-            agentName: session?.agent ? `${session.agent.first_name || ''} ${session.agent.last_name || ''}`.trim() : null,
+            agentName,
             startedAt: session?.started_at || null
         })
     } catch (error: any) {
@@ -563,20 +638,39 @@ router.get('/tickets/:id/live-status', async (req: Request, res: Response) => {
  */
 router.get('/chat-sessions', requireSupportAccess, async (req: Request, res: Response) => {
     try {
-        const { data, error } = await supabase
+        const { data: sessions, error } = await supabase
             .from('chat_sessions')
             .select(`
                 *,
-                ticket:support_tickets!ticket_id(id, subject, priority, email, created_at),
-                user:user_profiles!user_id(email, first_name, last_name),
-                agent:user_profiles!agent_id(email, first_name, last_name)
+                ticket:support_tickets!ticket_id(id, subject, priority, email, created_at)
             `)
             .in('status', ['waiting', 'active'])
             .order('created_at', { ascending: true })
 
         if (error) throw error
 
-        res.json({ sessions: data || [] })
+        // Fetch user and agent profiles separately
+        const userIds = [...new Set(sessions?.filter(s => s.user_id).map(s => s.user_id) || [])]
+        const agentIds = [...new Set(sessions?.filter(s => s.agent_id).map(s => s.agent_id) || [])]
+        const allIds = [...new Set([...userIds, ...agentIds])]
+
+        let profiles: Record<string, any> = {}
+        if (allIds.length > 0) {
+            const { data: profileData } = await supabase
+                .from('user_profiles')
+                .select('id, email, first_name, last_name')
+                .in('id', allIds)
+            profileData?.forEach(p => profiles[p.id] = p)
+        }
+
+        // Attach user and agent info
+        const sessionsWithProfiles = sessions?.map(s => ({
+            ...s,
+            user: s.user_id ? profiles[s.user_id] : null,
+            agent: s.agent_id ? profiles[s.agent_id] : null
+        }))
+
+        res.json({ sessions: sessionsWithProfiles || [] })
     } catch (error: any) {
         console.error('Error fetching chat sessions:', error)
         res.status(500).json({ error: error.message })
