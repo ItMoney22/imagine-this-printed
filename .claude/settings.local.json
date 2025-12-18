@@ -140,7 +140,10 @@
       "Bash(git commit -m \"$(cat <<''EOF''\nfix: standardize GCS bucket name to imagine-this-printed-main\n\n- Updated default bucket name in gcs-storage.ts\n- Updated default bucket name in google-cloud-storage.ts\n- Updated default bucket name in refresh-product-images.ts script\n- Updated local .env to use correct bucket name\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(curl -s \"https://api.imaginethisprinted.com/api/admin/imagination-products\")",
       "Bash(yes:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(ping:*)",
+      "Bash(railway help:*)",
+      "Bash(railway service)"
     ],
     "deny": [],
     "ask": []

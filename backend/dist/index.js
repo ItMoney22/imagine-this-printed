@@ -31,6 +31,10 @@ import adminSupportRouter from './routes/admin/support.js';
 import adminImaginationPricingRouter from './routes/admin/imagination-pricing.js';
 import adminImaginationProductsRouter from './routes/admin/imagination-products.js';
 import imaginationStationRouter from './routes/imagination-station.js';
+import adminCouponsRouter from './routes/admin/coupons.js';
+import adminGiftCardsRouter from './routes/admin/gift-cards.js';
+import couponsRouter from './routes/coupons.js';
+import giftCardsRouter from './routes/gift-cards.js';
 import { requireAuth } from './middleware/supabaseAuth.js';
 dotenv.config();
 const logger = pino({
@@ -136,6 +140,10 @@ app.use('/api/admin/support', adminSupportRouter);
 app.use('/api/admin/imagination-pricing', adminImaginationPricingRouter);
 app.use('/api/admin/imagination-products', adminImaginationProductsRouter);
 app.use('/api/imagination-station', imaginationStationRouter);
+app.use('/api/admin/coupons', adminCouponsRouter);
+app.use('/api/admin/gift-cards', adminGiftCardsRouter);
+app.use('/api/coupons', couponsRouter);
+app.use('/api/gift-cards', giftCardsRouter);
 app.get('/api/auth/me', requireAuth, (req, res) => {
     return res.json({ ok: true, user: req.user });
 });

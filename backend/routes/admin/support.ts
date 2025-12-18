@@ -28,11 +28,12 @@ const supabase = createClient(supabaseUrl!, supabaseKey!)
 /**
  * Middleware to verify user is admin or support_agent
  */
-const requireSupportAccess = async (req: Request, res: Response, next: NextFunction) => {
+const requireSupportAccess = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers.authorization
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'Authorization token required' })
+        res.status(401).json({ error: 'Authorization token required' })
+        return
     }
 
     const token = authHeader.split(' ')[1]
@@ -41,7 +42,8 @@ const requireSupportAccess = async (req: Request, res: Response, next: NextFunct
         const { data: { user }, error } = await supabase.auth.getUser(token)
 
         if (error || !user) {
-            return res.status(401).json({ error: 'Invalid or expired token' })
+            res.status(401).json({ error: 'Invalid or expired token' })
+            return
         }
 
         // Get user profile with role
@@ -52,12 +54,14 @@ const requireSupportAccess = async (req: Request, res: Response, next: NextFunct
             .single()
 
         if (profileError || !profile) {
-            return res.status(401).json({ error: 'User profile not found' })
+            res.status(401).json({ error: 'User profile not found' })
+            return
         }
 
         // Check role
         if (!['admin', 'support_agent'].includes(profile.role)) {
-            return res.status(403).json({ error: 'Access denied. Admin or Support Agent role required.' })
+            res.status(403).json({ error: 'Access denied. Admin or Support Agent role required.' })
+            return
         }
 
         // Attach user info to request
@@ -65,7 +69,7 @@ const requireSupportAccess = async (req: Request, res: Response, next: NextFunct
         next()
     } catch (error: any) {
         console.error('[Support Auth] Error:', error)
-        return res.status(500).json({ error: 'Authentication failed' })
+        res.status(500).json({ error: 'Authentication failed' })
     }
 }
 
