@@ -7,7 +7,7 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
-import { Coins, Tag, X } from 'lucide-react'
+import { Tag, X } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -512,7 +512,7 @@ const Checkout: React.FC = () => {
             {requiresITCPayment && (
               <div className="bg-card rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-secondary" />
+                  <img src="/itc-coin.png" alt="ITC" className="w-5 h-5 object-contain" />
                   ITC Wallet Payment
                 </h2>
 
@@ -671,7 +671,7 @@ const Checkout: React.FC = () => {
                   {requiresUSDPayment && <div className="border-t pt-2" />}
                   <div className="flex justify-between items-center">
                     <span className="flex items-center gap-1">
-                      <Coins className="w-4 h-4 text-secondary" />
+                      <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
                       ITC Total
                     </span>
                     <span className="font-semibold text-secondary">{totalITC.toFixed(2)} ITC</span>

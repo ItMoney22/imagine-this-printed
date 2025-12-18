@@ -232,11 +232,17 @@ export default function AdminGiftCardManagement() {
             <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.unredeemed}</p>
           </div>
           <div className="bg-white border border-slate-200 rounded-xl p-4">
-            <p className="text-slate-500 text-sm">ITC Issued</p>
+            <div className="flex items-center gap-2">
+              <img src="/itc-coin.png" alt="ITC" className="w-5 h-5 object-contain" />
+              <p className="text-slate-500 text-sm">ITC Issued</p>
+            </div>
             <p className="text-2xl font-bold text-purple-600 mt-1">{stats.totalItcIssued.toLocaleString()}</p>
           </div>
           <div className="bg-white border border-slate-200 rounded-xl p-4">
-            <p className="text-slate-500 text-sm">ITC Redeemed</p>
+            <div className="flex items-center gap-2">
+              <img src="/itc-coin.png" alt="ITC" className="w-5 h-5 object-contain" />
+              <p className="text-slate-500 text-sm">ITC Redeemed</p>
+            </div>
             <p className="text-2xl font-bold text-blue-600 mt-1">{stats.totalItcRedeemed.toLocaleString()}</p>
           </div>
         </div>
@@ -334,10 +340,13 @@ export default function AdminGiftCardManagement() {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="font-mono font-semibold text-purple-600">
-                        {giftCard.itc_amount.toLocaleString()} ITC
-                      </span>
-                      <span className="text-slate-400 text-sm ml-1">
+                      <div className="flex items-center gap-1.5">
+                        <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
+                        <span className="font-mono font-semibold text-purple-600">
+                          {giftCard.itc_amount.toLocaleString()}
+                        </span>
+                      </div>
+                      <span className="text-slate-400 text-sm">
                         (${(giftCard.itc_amount * 0.10).toFixed(2)})
                       </span>
                     </td>

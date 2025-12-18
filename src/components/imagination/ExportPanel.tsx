@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import type { Layer, Sheet, PrintType, PaymentMethod } from '../../types';
 import { imaginationApi } from '../../lib/api';
-import { Loader2, ShoppingCart, Eye, CheckCircle2, AlertTriangle, XCircle, DollarSign, Coins } from 'lucide-react';
+import { Loader2, ShoppingCart, Eye, CheckCircle2, AlertTriangle, XCircle, DollarSign } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/SupabaseAuthContext';
 
@@ -357,7 +357,7 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
             } ${(!user || (user.wallet?.itcBalance || 0) < pricing.itc) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <div className="flex items-center justify-between mb-1">
-              <Coins className={`w-5 h-5 ${paymentMethod === 'itc' ? 'text-secondary' : 'text-muted'}`} />
+              <img src="/itc-coin.png" alt="ITC" className={`w-5 h-5 object-contain ${paymentMethod === 'itc' ? '' : 'opacity-50'}`} />
               <span className={`text-xs font-medium ${paymentMethod === 'itc' ? 'text-secondary' : 'text-muted'}`}>
                 ITC
               </span>
@@ -396,7 +396,7 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
               </>
             ) : (
               <>
-                <Coins className="w-4 h-4 text-secondary" />
+                <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
                 <span className="text-xl font-bold text-secondary">
                   {selectedPrice.toFixed(2)} ITC
                 </span>

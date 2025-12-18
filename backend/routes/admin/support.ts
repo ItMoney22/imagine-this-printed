@@ -170,9 +170,26 @@ router.get('/tickets/:id', requireSupportAccess, async (req: Request, res: Respo
 
         const { data: messages, error: messagesError } = await supabase
             .from('ticket_messages')
-            .select('*, sender:user_profiles!sender_id(first_name, last_name, role)')
+            .select('*')
             .eq('ticket_id', id)
             .order('created_at', { ascending: true })
+
+        // Fetch sender profiles for messages that have sender_id
+        const senderIds = [...new Set(messages?.filter(m => m.sender_id).map(m => m.sender_id) || [])]
+        let senderProfiles: Record<string, any> = {}
+        if (senderIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, first_name, last_name, role')
+                .in('id', senderIds)
+            profiles?.forEach(p => senderProfiles[p.id] = p)
+        }
+
+        // Attach sender info to messages
+        const messagesWithSender = messages?.map(m => ({
+            ...m,
+            sender: m.sender_id ? senderProfiles[m.sender_id] : null
+        }))
 
         if (messagesError) throw messagesError
 
@@ -183,7 +200,7 @@ router.get('/tickets/:id', requireSupportAccess, async (req: Request, res: Respo
             .eq('ticket_id', id)
             .single()
 
-        res.json({ ticket, messages, chatSession: session })
+        res.json({ ticket, messages: messagesWithSender, chatSession: session })
     } catch (error: any) {
         console.error('Error fetching ticket details:', error)
         res.status(500).json({ error: error.message })
@@ -582,7 +599,7 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
 
         let query = supabase
             .from('ticket_messages')
-            .select('id, message, created_at, is_internal, sender_type, sender:user_profiles!sender_id(first_name, role)')
+            .select('id, message, created_at, is_internal, sender_type, sender_id')
             .eq('ticket_id', id)
             .eq('is_internal', false) // Don't expose internal notes
             .order('created_at', { ascending: true })
@@ -595,17 +612,45 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
 
         if (error) throw error
 
+        // Fetch sender profiles for messages that have sender_id
+        const senderIds = [...new Set(messages?.filter(m => m.sender_id).map(m => m.sender_id) || [])]
+        let senderProfiles: Record<string, any> = {}
+        if (senderIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, first_name, role')
+                .in('id', senderIds)
+            profiles?.forEach(p => senderProfiles[p.id] = p)
+        }
+
+        // Attach sender info to messages
+        const messagesWithSender = messages?.map(m => ({
+            ...m,
+            sender: m.sender_id ? senderProfiles[m.sender_id] : null
+        }))
+
         // Check if this is a live session
         const { data: session } = await supabase
             .from('chat_sessions')
-            .select('status, agent:user_profiles!agent_id(first_name)')
+            .select('status, agent_id')
             .eq('ticket_id', id)
             .single()
 
+        // Get agent name if session exists
+        let agentName = null
+        if (session?.agent_id) {
+            const { data: agentProfile } = await supabase
+                .from('user_profiles')
+                .select('first_name')
+                .eq('id', session.agent_id)
+                .single()
+            agentName = agentProfile?.first_name || null
+        }
+
         res.json({
-            messages: messages || [],
+            messages: messagesWithSender || [],
             isLive: session?.status === 'active',
-            agentName: session?.agent?.first_name || null
+            agentName
         })
     } catch (error: any) {
         console.error('Error polling messages:', error)

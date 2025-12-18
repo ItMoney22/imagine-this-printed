@@ -1,5 +1,5 @@
 import React from 'react'
-import { Coins, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 interface ITCBalanceProps {
@@ -20,7 +20,7 @@ export default function ITCBalance({ balance }: ITCBalanceProps) {
         <span className="text-xs font-semibold text-muted uppercase tracking-wide">
           ITC Balance
         </span>
-        <Coins className="w-4 h-4 text-primary" />
+        <img src="/itc-coin.png" alt="ITC" className="w-5 h-5 object-contain" />
       </div>
 
       {/* Balance Display */}
