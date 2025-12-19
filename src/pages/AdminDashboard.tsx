@@ -1355,8 +1355,8 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-2 mb-8 overflow-x-auto">
-          <nav className="flex space-x-1">
+        <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
+          <nav className="flex flex-wrap gap-2">
             {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
@@ -1364,9 +1364,9 @@ const AdminDashboard: React.FC = () => {
                   setSelectedTab(tab as any)
                   setSearchParams({ tab })
                 }}
-                className={`px-4 py-2.5 rounded-xl font-medium text-sm whitespace-nowrap transition-all ${selectedTab === tab
+                className={`px-3 py-2 rounded-lg font-medium text-sm transition-all ${selectedTab === tab
                   ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
                   }`}
               >
                 {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab.charAt(0).toUpperCase() + tab.slice(1)}
