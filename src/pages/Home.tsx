@@ -48,25 +48,26 @@ const Home: React.FC = () => {
 
   /* Scroll-triggered video logic */
   const videoRef = React.useRef<HTMLVideoElement>(null)
-  const hasPlayedRef = React.useRef(false)
 
   React.useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && !hasPlayedRef.current) {
-            if (videoRef.current) {
+          if (!videoRef.current) return
+
+          if (entry.isIntersecting) {
+            // Provide a better experience by not restarting if it's already ended
+            if (!videoRef.current.ended) {
               videoRef.current.muted = false
-              videoRef.current.play()
-                .then(() => {
-                  hasPlayedRef.current = true
-                })
-                .catch((e) => console.log('Autoplay blocked:', e))
+              videoRef.current.play().catch((e) => console.log('Autoplay blocked:', e))
             }
+          } else {
+            // Pause when out of view
+            videoRef.current.pause()
           }
         })
       },
-      { threshold: 0.5 } // Play when 50% visible
+      { threshold: 0.5 } // Play/Pause when 50% visible
     )
 
     if (videoRef.current) {
