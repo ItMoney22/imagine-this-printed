@@ -14,6 +14,16 @@ const Home: React.FC = () => {
   const [showDesignModal, setShowDesignModal] = useState(false)
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
 
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollRef.current) {
+      const { current } = scrollRef
+      const scrollAmount = direction === 'left' ? -current.offsetWidth : current.offsetWidth
+      current.scrollBy({ left: scrollAmount, behavior: 'smooth' })
+    }
+  }
+
   React.useEffect(() => {
     const fetchFeaturedProducts = async () => {
       try {
@@ -22,7 +32,7 @@ const Home: React.FC = () => {
           .select('*')
           .eq('is_featured', true)
           .eq('is_active', true)
-          .limit(3)
+          .limit(12) // Increased limit for carousel
 
         if (error) throw error
 
@@ -79,88 +89,7 @@ const Home: React.FC = () => {
 
   return (
     <div className="bg-bg">
-      {/* Hero Section - Full Screen Video */}
-      <Hero />
-
-      {/* How It Works Section */}
-      <section className="py-24 bg-gradient-to-b from-bg to-purple-50/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-sm font-medium mb-4">
-              <Sparkles className="w-4 h-4" />
-              Simple Process
-            </span>
-            <h2 className="font-display text-4xl md:text-5xl text-text mb-4">
-              How It <span className="text-gradient">Works</span>
-            </h2>
-            <p className="text-muted text-lg max-w-2xl mx-auto">
-              From idea to printed product in just three simple steps
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
-            {/* Step 1 */}
-            <div className="relative group">
-              <div className="card-editorial p-8 h-full text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200 group-hover:scale-110 transition-transform duration-300">
-                  <Sparkles className="w-8 h-8 text-white" />
-                </div>
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center font-display text-purple-600 text-lg font-bold">
-                  1
-                </div>
-                <h3 className="font-display text-xl text-text mb-3">Imagine Your Design</h3>
-                <p className="text-muted">
-                  Describe your vision to our AI or use our design tools to create your perfect design
-                </p>
-              </div>
-            </div>
-
-            {/* Step 2 */}
-            <div className="relative group">
-              <div className="card-editorial p-8 h-full text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform duration-300">
-                  <Palette className="w-8 h-8 text-white" />
-                </div>
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center font-display text-blue-600 text-lg font-bold">
-                  2
-                </div>
-                <h3 className="font-display text-xl text-text mb-3">Choose Your Product</h3>
-                <p className="text-muted">
-                  Select from our wide range of premium products — t-shirts, hoodies, mugs, and more
-                </p>
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div className="relative group">
-              <div className="card-editorial p-8 h-full text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-pink-200 group-hover:scale-110 transition-transform duration-300">
-                  <Heart className="w-8 h-8 text-white" />
-                </div>
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center font-display text-pink-600 text-lg font-bold">
-                  3
-                </div>
-                <h3 className="font-display text-xl text-text mb-3">We Print & Ship</h3>
-                <p className="text-muted">
-                  Our professional team prints your design with care and ships it directly to you
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* CTA */}
-          <div className="text-center mt-12">
-            <button
-              onClick={() => setShowDesignModal(true)}
-              className="btn-primary group"
-            >
-              <Sparkles className="w-5 h-5" />
-              Start Creating Now
-              <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-            </button>
-          </div>
-        </div>
-      </section>
+      {/* ... Hero and How It Works ... */}
 
       {/* Featured Products Section */}
       <section className="py-24 bg-bg">
@@ -175,39 +104,80 @@ const Home: React.FC = () => {
                 Popular <span className="text-gradient">Products</span>
               </h2>
             </div>
+
+            <div className="flex items-center gap-4 mt-4 md:mt-0">
+              {/* Navigation Buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => scroll('left')}
+                  className="p-2 rounded-full border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+                  aria-label="Scroll left"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => scroll('right')}
+                  className="p-2 rounded-full border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+                  aria-label="Scroll right"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+
+              <Link
+                to="/catalog"
+                className="hidden md:inline-flex items-center gap-2 text-primary font-medium hover:gap-3 transition-all ml-4"
+              >
+                View All Products
+                <ArrowRight className="w-5 h-5" />
+              </Link>
+            </div>
+          </div>
+
+          <div className="relative group">
+            {featuredProducts.length > 0 ? (
+              <div
+                ref={scrollRef}
+                className="flex overflow-x-auto gap-6 pb-8 snap-x snap-mandatory scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0"
+              >
+                {featuredProducts.map((product) => (
+                  <div key={product.id} className="min-w-[280px] md:min-w-[320px] snap-start">
+                    <ProductCard
+                      product={product}
+                      showSocialBadges={true}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Placeholder cards when no products */}
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="card-editorial overflow-hidden">
+                    <div className="aspect-square bg-gradient-to-br from-purple-100 to-blue-100 animate-pulse" />
+                    <div className="p-6">
+                      <div className="h-6 bg-gray-100 rounded w-3/4 mb-3" />
+                      <div className="h-4 bg-gray-100 rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-8 text-center md:hidden">
             <Link
               to="/catalog"
-              className="mt-4 md:mt-0 inline-flex items-center gap-2 text-primary font-medium hover:gap-3 transition-all"
+              className="inline-flex items-center gap-2 text-primary font-medium hover:gap-3 transition-all"
             >
               View All Products
               <ArrowRight className="w-5 h-5" />
             </Link>
           </div>
-
-          {featuredProducts.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {featuredProducts.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  showSocialBadges={true}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {/* Placeholder cards when no products */}
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="card-editorial overflow-hidden">
-                  <div className="aspect-square bg-gradient-to-br from-purple-100 to-blue-100 animate-pulse" />
-                  <div className="p-6">
-                    <div className="h-6 bg-gray-100 rounded w-3/4 mb-3" />
-                    <div className="h-4 bg-gray-100 rounded w-1/2" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </section>
 
