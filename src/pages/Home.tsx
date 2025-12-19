@@ -15,6 +15,7 @@ const Home: React.FC = () => {
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
 
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const autoScrollRef = React.useRef<NodeJS.Timeout | null>(null)
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -23,6 +24,28 @@ const Home: React.FC = () => {
       current.scrollBy({ left: scrollAmount, behavior: 'smooth' })
     }
   }
+
+  const startAutoScroll = () => {
+    if (autoScrollRef.current) clearInterval(autoScrollRef.current)
+    autoScrollRef.current = setInterval(() => {
+      if (scrollRef.current) {
+        const { current } = scrollRef
+        // Check if we reached the end
+        if (current.scrollLeft + current.offsetWidth >= current.scrollWidth - 10) {
+          current.scrollTo({ left: 0, behavior: 'smooth' })
+        } else {
+          scroll('right')
+        }
+      }
+    }, 4000) // Scroll every 4 seconds
+  }
+
+  React.useEffect(() => {
+    startAutoScroll()
+    return () => {
+      if (autoScrollRef.current) clearInterval(autoScrollRef.current)
+    }
+  }, [])
 
   React.useEffect(() => {
     const fetchFeaturedProducts = async () => {
@@ -138,11 +161,19 @@ const Home: React.FC = () => {
             </div>
           </div>
 
-          <div className="relative group">
+          <div className="relative group"
+            onMouseEnter={() => {
+              if (autoScrollRef.current) clearInterval(autoScrollRef.current)
+            }}
+            onMouseLeave={() => {
+              startAutoScroll()
+            }}
+          >
             {featuredProducts.length > 0 ? (
               <div
                 ref={scrollRef}
                 className="flex overflow-x-auto gap-6 pb-8 snap-x snap-mandatory scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
               >
                 {featuredProducts.map((product) => (
                   <div key={product.id} className="min-w-[280px] md:min-w-[320px] snap-start">
