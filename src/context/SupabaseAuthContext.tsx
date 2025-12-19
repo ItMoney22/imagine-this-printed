@@ -140,21 +140,38 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
           console.log('[AuthContext] ✅ User loaded:', {
             id: mappedUser.id,
             email: mappedUser.email,
-            username: mappedUser.username
+            username: mappedUser.username,
+            role: mappedUser.role
           })
           setUser(mappedUser)
         } else {
-          console.warn('[AuthContext] ⚠️ Failed to map user profile, using basic user from session')
-          // Fallback: use basic data from Supabase session so user isn't logged out
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            role: 'customer',
-            username: session.user.email?.split('@')[0] || 'user',
-            emailVerified: !!session.user.email_confirmed_at,
-            profileCompleted: false,
-            wallet: undefined
-          })
+          console.warn('[AuthContext] ⚠️ Failed to map user profile, retrying once...')
+          // Retry once after a short delay
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          const retryUser = await mapSupabaseUserToUser(session.user)
+          if (retryUser) {
+            console.log('[AuthContext] ✅ User loaded on retry:', retryUser.role)
+            setUser(retryUser)
+          } else {
+            console.error('[AuthContext] ❌ Failed to load user profile after retry')
+            // Only use fallback if we truly can't get the profile
+            // Keep previous user state if it exists with a non-customer role
+            setUser(prev => {
+              if (prev && prev.id === session.user.id && prev.role !== 'customer') {
+                console.log('[AuthContext] 🔒 Preserving existing role:', prev.role)
+                return prev
+              }
+              return {
+                id: session.user.id,
+                email: session.user.email || '',
+                role: 'customer',
+                username: session.user.email?.split('@')[0] || 'user',
+                emailVerified: !!session.user.email_confirmed_at,
+                profileCompleted: false,
+                wallet: undefined
+              }
+            })
+          }
         }
       } else {
         console.log('[AuthContext] ℹ️ No active session found')
@@ -178,20 +195,35 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
         console.log('[AuthContext] 👤 User signed in, fetching profile...')
         const mappedUser = await mapSupabaseUserToUser(session.user)
         if (mappedUser) {
-          console.log('[AuthContext] ✅ User profile loaded:', mappedUser.username)
+          console.log('[AuthContext] ✅ User profile loaded:', mappedUser.username, 'role:', mappedUser.role)
           setUser(mappedUser)
         } else {
-          console.warn('[AuthContext] ⚠️ Failed to load user profile, using basic user from session')
-          // Fallback: use basic data from Supabase session so user isn't logged out
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            role: 'customer',
-            username: session.user.email?.split('@')[0] || 'user',
-            emailVerified: !!session.user.email_confirmed_at,
-            profileCompleted: false,
-            wallet: undefined
-          })
+          console.warn('[AuthContext] ⚠️ Failed to load user profile, retrying...')
+          // Retry once after a short delay
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          const retryUser = await mapSupabaseUserToUser(session.user)
+          if (retryUser) {
+            console.log('[AuthContext] ✅ User loaded on retry:', retryUser.role)
+            setUser(retryUser)
+          } else {
+            console.error('[AuthContext] ❌ Failed to load user profile after retry')
+            // Preserve existing role if user is already set with non-customer role
+            setUser(prev => {
+              if (prev && prev.id === session.user.id && prev.role !== 'customer') {
+                console.log('[AuthContext] 🔒 Preserving existing role:', prev.role)
+                return prev
+              }
+              return {
+                id: session.user.id,
+                email: session.user.email || '',
+                role: 'customer',
+                username: session.user.email?.split('@')[0] || 'user',
+                emailVerified: !!session.user.email_confirmed_at,
+                profileCompleted: false,
+                wallet: undefined
+              }
+            })
+          }
         }
       } else {
         console.log('[AuthContext] 👋 User signed out')

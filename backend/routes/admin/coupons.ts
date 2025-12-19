@@ -138,15 +138,33 @@ router.get('/:id/usage', async (req: Request, res: Response) => {
     try {
         const { id } = req.params
 
+        // Fetch coupon usage
         const { data: usage, error } = await supabase
             .from('coupon_usage')
-            .select('*, user:user_profiles!user_id(email, first_name, last_name)')
+            .select('*')
             .eq('discount_code_id', id)
             .order('used_at', { ascending: false })
 
         if (error) throw error
 
-        res.json({ usage })
+        // Fetch user profiles separately
+        const userIds = [...new Set(usage?.filter(u => u.user_id).map(u => u.user_id) || [])]
+        let userProfiles: Record<string, any> = {}
+        if (userIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, email, first_name, last_name')
+                .in('id', userIds)
+            profiles?.forEach(p => userProfiles[p.id] = p)
+        }
+
+        // Attach user info
+        const usageWithUser = usage?.map(u => ({
+            ...u,
+            user: u.user_id ? userProfiles[u.user_id] : null
+        }))
+
+        res.json({ usage: usageWithUser })
     } catch (error: any) {
         console.error('Error fetching coupon usage:', error)
         res.status(500).json({ error: error.message })

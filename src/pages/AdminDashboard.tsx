@@ -892,21 +892,37 @@ const AdminDashboard: React.FC = () => {
 
   const loadUsersData = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch profiles first
+      const { data: profileData, error: profileError } = await supabase
         .from('user_profiles')
-        .select('*, user_wallets(points, itc_balance)')
+        .select('*')
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (profileError) throw profileError
 
-      const mappedUsers: User[] = (data || []).map((u: any) => ({
+      // Fetch wallets separately to avoid FK join issues
+      const userIds = profileData?.map(u => u.id) || []
+      let walletMap: Record<string, { points: number; itc_balance: number }> = {}
+
+      if (userIds.length > 0) {
+        const { data: walletData } = await supabase
+          .from('user_wallets')
+          .select('user_id, points, itc_balance')
+          .in('user_id', userIds)
+
+        walletData?.forEach(w => {
+          walletMap[w.user_id] = { points: w.points || 0, itc_balance: w.itc_balance || 0 }
+        })
+      }
+
+      const mappedUsers: User[] = (profileData || []).map((u: any) => ({
         id: u.id,
         email: u.email || '',
         role: u.role || 'customer',
         firstName: u.first_name || '',
         lastName: u.last_name || '',
-        points: u.user_wallets?.[0]?.points || 0,
-        itcBalance: u.user_wallets?.[0]?.itc_balance || 0,
+        points: walletMap[u.id]?.points || 0,
+        itcBalance: walletMap[u.id]?.itc_balance || 0,
         stripeAccountId: u.stripe_account_id || undefined,
         createdAt: u.created_at
       }))
@@ -1262,16 +1278,18 @@ const AdminDashboard: React.FC = () => {
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
           }} />
         </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10">
           <div className="flex items-start justify-between">
             <div>
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold text-white mb-2">Admin Dashboard</h1>
               <p className="text-purple-100">Manage users, approvals, and monitor system performance</p>
             </div>
-            <AdminNotificationBell onNotificationClick={(ticketId) => {
-              setSelectedTab('support')
-              setSearchParams({ tab: 'support' })
-            }} />
+            <div className="relative z-50">
+              <AdminNotificationBell onNotificationClick={(ticketId) => {
+                setSelectedTab('support')
+                setSearchParams({ tab: 'support' })
+              }} />
+            </div>
           </div>
         </div>
       </div>

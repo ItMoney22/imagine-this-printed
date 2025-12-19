@@ -38,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
 
         let query = supabase
             .from('gift_cards')
-            .select('*, redeemer:user_profiles!redeemed_by(email, first_name, last_name)')
+            .select('*')
             .order('created_at', { ascending: false })
 
         if (status === 'redeemed') {
@@ -51,7 +51,24 @@ router.get('/', async (req: Request, res: Response) => {
 
         if (error) throw error
 
-        res.json({ giftCards })
+        // Fetch redeemer profiles separately
+        const redeemerIds = [...new Set(giftCards?.filter(gc => gc.redeemed_by).map(gc => gc.redeemed_by) || [])]
+        let redeemerProfiles: Record<string, any> = {}
+        if (redeemerIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, email, first_name, last_name')
+                .in('id', redeemerIds)
+            profiles?.forEach(p => redeemerProfiles[p.id] = p)
+        }
+
+        // Attach redeemer info
+        const giftCardsWithRedeemer = giftCards?.map(gc => ({
+            ...gc,
+            redeemer: gc.redeemed_by ? redeemerProfiles[gc.redeemed_by] : null
+        }))
+
+        res.json({ giftCards: giftCardsWithRedeemer })
     } catch (error: any) {
         console.error('Error fetching gift cards:', error)
         res.status(500).json({ error: error.message })

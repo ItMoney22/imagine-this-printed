@@ -414,7 +414,7 @@ router.get('/notifications', requireSupportAccess, async (req: Request, res: Res
 
         let query = supabase
             .from('admin_notifications')
-            .select('*, ticket:support_tickets!ticket_id(subject, status, priority)')
+            .select('*')
             .order('created_at', { ascending: false })
             .limit(Number(limit))
 
@@ -426,13 +426,30 @@ router.get('/notifications', requireSupportAccess, async (req: Request, res: Res
 
         if (error) throw error
 
+        // Fetch ticket info separately to avoid FK hint issues
+        const ticketIds = [...new Set(data?.filter(n => n.ticket_id).map(n => n.ticket_id) || [])]
+        let ticketInfo: Record<string, any> = {}
+        if (ticketIds.length > 0) {
+            const { data: tickets } = await supabase
+                .from('support_tickets')
+                .select('id, subject, status, priority')
+                .in('id', ticketIds)
+            tickets?.forEach(t => ticketInfo[t.id] = t)
+        }
+
+        // Attach ticket info
+        const notificationsWithTicket = data?.map(n => ({
+            ...n,
+            ticket: n.ticket_id ? ticketInfo[n.ticket_id] : null
+        }))
+
         // Get unread count
         const { count } = await supabase
             .from('admin_notifications')
             .select('id', { count: 'exact', head: true })
             .eq('is_read', false)
 
-        res.json({ notifications: data || [], unreadCount: count || 0 })
+        res.json({ notifications: notificationsWithTicket || [], unreadCount: count || 0 })
     } catch (error: any) {
         console.error('Error fetching notifications:', error)
         res.status(500).json({ error: error.message })
@@ -644,14 +661,22 @@ router.get('/chat-sessions', requireSupportAccess, async (req: Request, res: Res
     try {
         const { data: sessions, error } = await supabase
             .from('chat_sessions')
-            .select(`
-                *,
-                ticket:support_tickets!ticket_id(id, subject, priority, email, created_at)
-            `)
+            .select('*')
             .in('status', ['waiting', 'active'])
             .order('created_at', { ascending: true })
 
         if (error) throw error
+
+        // Fetch ticket info separately to avoid FK hint issues
+        const ticketIds = [...new Set(sessions?.filter(s => s.ticket_id).map(s => s.ticket_id) || [])]
+        let ticketInfo: Record<string, any> = {}
+        if (ticketIds.length > 0) {
+            const { data: tickets } = await supabase
+                .from('support_tickets')
+                .select('id, subject, priority, email, created_at')
+                .in('id', ticketIds)
+            tickets?.forEach(t => ticketInfo[t.id] = t)
+        }
 
         // Fetch user and agent profiles separately
         const userIds = [...new Set(sessions?.filter(s => s.user_id).map(s => s.user_id) || [])]
@@ -667,9 +692,10 @@ router.get('/chat-sessions', requireSupportAccess, async (req: Request, res: Res
             profileData?.forEach(p => profiles[p.id] = p)
         }
 
-        // Attach user and agent info
+        // Attach ticket, user, and agent info
         const sessionsWithProfiles = sessions?.map(s => ({
             ...s,
+            ticket: s.ticket_id ? ticketInfo[s.ticket_id] : null,
             user: s.user_id ? profiles[s.user_id] : null,
             agent: s.agent_id ? profiles[s.agent_id] : null
         }))
