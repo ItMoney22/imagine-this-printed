@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Bell, X, Check, AlertTriangle, MessageSquare, User } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { supabase } from '../lib/supabase'
 import type { AdminNotification } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
@@ -10,7 +11,8 @@ interface AdminNotificationBellProps {
 }
 
 export default function AdminNotificationBell({ onNotificationClick }: AdminNotificationBellProps) {
-  const { user, session } = useAuth()
+  const { user } = useAuth()
+  const [accessToken, setAccessToken] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<AdminNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
@@ -20,14 +22,30 @@ export default function AdminNotificationBell({ onNotificationClick }: AdminNoti
   // Check if user has support access
   const hasAccess = user?.role === 'admin' || user?.role === 'support_agent'
 
+  // Get access token on mount
+  useEffect(() => {
+    const getToken = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      setAccessToken(session?.access_token || null)
+    }
+    getToken()
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccessToken(session?.access_token || null)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
   // Fetch notifications
   const fetchNotifications = async () => {
-    if (!hasAccess || !session?.access_token) return
+    if (!hasAccess || !accessToken) return
 
     try {
       const response = await fetch(`${API_BASE}/api/admin/support/notifications?limit=20&includeRead=true`, {
         headers: {
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
@@ -43,13 +61,13 @@ export default function AdminNotificationBell({ onNotificationClick }: AdminNoti
 
   // Mark notification as read
   const markAsRead = async (notificationId: string) => {
-    if (!session?.access_token) return
+    if (!accessToken) return
 
     try {
       await fetch(`${API_BASE}/api/admin/support/notifications/${notificationId}/read`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
@@ -64,13 +82,13 @@ export default function AdminNotificationBell({ onNotificationClick }: AdminNoti
 
   // Mark all as read
   const markAllAsRead = async () => {
-    if (!session?.access_token) return
+    if (!accessToken) return
 
     try {
       await fetch(`${API_BASE}/api/admin/support/notifications/read-all`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
@@ -90,7 +108,7 @@ export default function AdminNotificationBell({ onNotificationClick }: AdminNoti
     const interval = setInterval(fetchNotifications, 30000) // Poll every 30 seconds
 
     return () => clearInterval(interval)
-  }, [hasAccess, session?.access_token])
+  }, [hasAccess, accessToken])
 
   // Click outside to close
   useEffect(() => {

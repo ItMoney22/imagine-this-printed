@@ -1513,10 +1513,4 @@ export interface AdminNotification {
   ticket?: SupportTicket;
 }
 
-export interface AppliedCoupon {
-  code: string;
-  type: 'percentage' | 'fixed_amount' | 'free_shipping';
-  value: number;
-  discount: number;
-  couponId: string;
-}
+// Note: AppliedCoupon is defined above near line 1390

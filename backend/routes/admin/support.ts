@@ -5,7 +5,7 @@ import {
     sendTicketReplyEmail,
     sendTicketEscalationEmail,
     sendTicketResolvedEmail
-} from '../../utils/email'
+} from '../../utils/email.js'
 
 dotenv.config()
 

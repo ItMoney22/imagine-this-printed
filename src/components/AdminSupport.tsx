@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X, Search, Filter, MessageSquare, Clock, AlertCircle, RefreshCw, UserCheck, UserX, PhoneCall, PhoneOff, Users } from 'lucide-react'
 import axios from 'axios'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { supabase } from '../lib/supabase'
 
 interface Ticket {
     id: string
@@ -58,7 +59,8 @@ interface ChatSession {
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 const AdminSupport: React.FC = () => {
-    const { user, session } = useAuth()
+    const { user } = useAuth()
+    const [accessToken, setAccessToken] = useState<string | null>(null)
     const [tickets, setTickets] = useState<Ticket[]>([])
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
     const [messages, setMessages] = useState<TicketMessage[]>([])
@@ -74,31 +76,46 @@ const AdminSupport: React.FC = () => {
     const [statusFilter, setStatusFilter] = useState('all')
     const [priorityFilter, setPriorityFilter] = useState('all')
 
+    // Get access token on mount
+    useEffect(() => {
+        const getToken = async () => {
+            const { data: { session } } = await supabase.auth.getSession()
+            setAccessToken(accessToken || null)
+        }
+        getToken()
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setAccessToken(accessToken || null)
+        })
+
+        return () => subscription.unsubscribe()
+    }, [])
+
     // Get auth headers
     const getAuthHeaders = () => ({
-        'Authorization': `Bearer ${session?.access_token}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
     })
 
     // Initial fetch when session is ready
     useEffect(() => {
-        if (session?.access_token) {
+        if (accessToken) {
             fetchTickets()
             checkAgentStatus()
             fetchOnlineAgents()
             fetchWaitingChats()
         }
-    }, [statusFilter, priorityFilter, session?.access_token])
+    }, [statusFilter, priorityFilter, accessToken])
 
     useEffect(() => {
-        if (selectedTicket && session?.access_token) {
+        if (selectedTicket && accessToken) {
             fetchTicketMessages(selectedTicket.id)
         }
-    }, [selectedTicket, session?.access_token])
+    }, [selectedTicket, accessToken])
 
     // Poll for updates when online
     useEffect(() => {
-        if (!isAgentOnline || !session?.access_token) return
+        if (!isAgentOnline || !accessToken) return
 
         const interval = setInterval(() => {
             fetchWaitingChats()
@@ -109,10 +126,10 @@ const AdminSupport: React.FC = () => {
         }, 5000)
 
         return () => clearInterval(interval)
-    }, [isAgentOnline, isLiveChatActive, selectedTicket, session?.access_token])
+    }, [isAgentOnline, isLiveChatActive, selectedTicket, accessToken])
 
     const fetchTickets = async () => {
-        if (!session?.access_token) return
+        if (!accessToken) return
 
         try {
             setLoading(true)
@@ -136,7 +153,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const fetchTicketMessages = async (ticketId: string) => {
-        if (!session?.access_token) return
+        if (!accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/tickets/${ticketId}`, {
@@ -153,7 +170,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const fetchOnlineAgents = async () => {
-        if (!session?.access_token) return
+        if (!accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/agents/online`, {
@@ -173,7 +190,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const fetchWaitingChats = async () => {
-        if (!session?.access_token) return
+        if (!accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/chat-sessions?status=waiting`, {
@@ -190,7 +207,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const handleReply = async () => {
-        if (!selectedTicket || !replyContent.trim() || !session?.access_token) return
+        if (!selectedTicket || !replyContent.trim() || !accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/tickets/${selectedTicket.id}/reply`, {
@@ -217,7 +234,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const toggleAgentStatus = async () => {
-        if (!session?.access_token) return
+        if (!accessToken) return
 
         try {
             const newStatus = !isAgentOnline
@@ -245,7 +262,7 @@ const AdminSupport: React.FC = () => {
 
     // Live Chat Functions
     const claimLiveChat = async () => {
-        if (!selectedTicket || !user || !session?.access_token) return
+        if (!selectedTicket || !user || !accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/tickets/${selectedTicket.id}/claim`, {
@@ -268,7 +285,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const releaseLiveChat = async () => {
-        if (!selectedTicket || !session?.access_token) return
+        if (!selectedTicket || !accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/tickets/${selectedTicket.id}/release`, {
@@ -287,7 +304,7 @@ const AdminSupport: React.FC = () => {
     }
 
     const updateTicketStatus = async (ticketId: string, status: string) => {
-        if (!session?.access_token) return
+        if (!accessToken) return
 
         try {
             const response = await fetch(`${API_BASE}/api/admin/support/tickets/${ticketId}`, {
