@@ -16,6 +16,11 @@ export interface Product {
   digitalPrice?: number
   fileUrl?: string
   shippingCost?: number
+  // Snake_case variants (from database)
+  product_type?: 'physical' | 'digital' | 'both'
+  digital_price?: number
+  file_url?: string
+  shipping_cost?: number
   stock?: number
   is_featured?: boolean
   sizes?: string[]

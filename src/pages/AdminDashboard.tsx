@@ -290,10 +290,10 @@ const AdminDashboard: React.FC = () => {
       category: product.category,
       images: product.images.join(', '),
       inStock: product.inStock,
-      productType: product.productType || 'physical',
-      digitalPrice: product.digitalPrice || 0,
-      fileUrl: product.fileUrl || '',
-      shippingCost: product.shippingCost || 0,
+      productType: product.product_type || 'physical',
+      digitalPrice: product.digital_price || 0,
+      fileUrl: product.file_url || '',
+      shippingCost: product.shipping_cost || 0,
       isFeatured: product.is_featured || false
     })
     setShowProductModal(true)
@@ -336,10 +336,10 @@ const AdminDashboard: React.FC = () => {
         category: productForm.category,
         images,
         is_active: productForm.inStock,
-        productType: productForm.productType,
-        digitalPrice: productForm.digitalPrice,
-        fileUrl: productForm.fileUrl,
-        shippingCost: productForm.shippingCost,
+        product_type: productForm.productType,
+        digital_price: productForm.digitalPrice,
+        file_url: productForm.fileUrl,
+        shipping_cost: productForm.shippingCost,
         is_featured: productForm.isFeatured
       }
 

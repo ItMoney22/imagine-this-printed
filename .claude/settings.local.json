@@ -156,7 +156,8 @@
       "Bash(npx prisma generate:*)",
       "Skill(superpowers:systematic-debugging)",
       "Bash(railway link --help:*)",
-      "Bash(timeout 10 railway logs:*)"
+      "Bash(timeout 10 railway logs:*)",
+      "Bash(railway unlink:*)"
     ],
     "deny": [],
     "ask": []
