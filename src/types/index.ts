@@ -1400,6 +1400,7 @@ export interface AppliedCoupon {
   couponId: string;
   discountAmount?: number;
   description?: string;
+  freeShipping?: boolean;
 }
 
 // Gift Card Types

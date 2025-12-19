@@ -94,7 +94,11 @@ router.get('/validate', async (req: Request, res: Response) => {
                 max_discount_amount: coupon.max_discount_amount,
                 applies_to: coupon.applies_to
             },
-            discountAmount: Math.round(discountAmount * 100) / 100
+            // Frontend expects 'discount' field
+            discount: Math.round(discountAmount * 100) / 100,
+            discountAmount: Math.round(discountAmount * 100) / 100,
+            // Flag for free shipping coupons
+            freeShipping: coupon.type === 'free_shipping'
         })
     } catch (error: any) {
         console.error('Error validating coupon:', error)

@@ -162,7 +162,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         type: data.coupon.type,
         value: data.coupon.value,
         discount: data.discount,
-        couponId: data.coupon.id
+        couponId: data.coupon.id,
+        freeShipping: data.freeShipping || false
       })
       setCouponLoading(false)
       return { success: true }

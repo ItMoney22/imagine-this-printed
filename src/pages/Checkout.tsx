@@ -169,7 +169,9 @@ const Checkout: React.FC = () => {
   }, [state.items])
 
   const subtotal = state.total
-  const shipping = shippingCalculation?.selectedRate?.amount || 0
+  // If free_shipping coupon is applied, shipping is $0
+  const baseShipping = shippingCalculation?.selectedRate?.amount || 0
+  const shipping = appliedCoupon?.freeShipping ? 0 : baseShipping
   const tax = usdTotal * 0.08 // Only apply tax to USD items
   const totalUSD = usdTotal + shipping + tax
   const totalITC = itcTotal
@@ -604,7 +606,10 @@ const Checkout: React.FC = () => {
                     <Tag className="w-4 h-4 text-green-600" />
                     <span className="font-medium text-green-700">{appliedCoupon.code}</span>
                     <span className="text-green-600 text-sm">
-                      (-${discount.toFixed(2)})
+                      {appliedCoupon.freeShipping
+                        ? '(Free Shipping)'
+                        : `(-$${discount.toFixed(2)})`
+                      }
                     </span>
                   </div>
                   <button
@@ -647,7 +652,15 @@ const Checkout: React.FC = () => {
                   </div>
                   <div className="flex justify-between">
                     <span>Shipping</span>
-                    <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
+                    <span>
+                      {appliedCoupon?.freeShipping ? (
+                        <span className="text-green-600">Free (coupon)</span>
+                      ) : shipping === 0 ? (
+                        'Free'
+                      ) : (
+                        `$${shipping.toFixed(2)}`
+                      )}
+                    </span>
                   </div>
                   {discount > 0 && (
                     <div className="flex justify-between text-green-600">
