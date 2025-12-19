@@ -112,7 +112,88 @@ const Home: React.FC = () => {
 
   return (
     <div className="bg-bg">
-      {/* ... Hero and How It Works ... */}
+      {/* Hero Section - Full Screen Video */}
+      <Hero />
+
+      {/* How It Works Section */}
+      <section className="py-24 bg-gradient-to-b from-bg to-purple-50/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-sm font-medium mb-4">
+              <Sparkles className="w-4 h-4" />
+              Simple Process
+            </span>
+            <h2 className="font-display text-4xl md:text-5xl text-text mb-4">
+              How It <span className="text-gradient">Works</span>
+            </h2>
+            <p className="text-muted text-lg max-w-2xl mx-auto">
+              From idea to printed product in just three simple steps
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
+            {/* Step 1 */}
+            <div className="relative group">
+              <div className="card-editorial p-8 h-full text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200 group-hover:scale-110 transition-transform duration-300">
+                  <Sparkles className="w-8 h-8 text-white" />
+                </div>
+                <div className="absolute -top-3 -left-3 w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center font-display text-purple-600 text-lg font-bold">
+                  1
+                </div>
+                <h3 className="font-display text-xl text-text mb-3">Imagine Your Design</h3>
+                <p className="text-muted">
+                  Describe your vision to our AI or use our design tools to create your perfect design
+                </p>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="relative group">
+              <div className="card-editorial p-8 h-full text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform duration-300">
+                  <Palette className="w-8 h-8 text-white" />
+                </div>
+                <div className="absolute -top-3 -left-3 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center font-display text-blue-600 text-lg font-bold">
+                  2
+                </div>
+                <h3 className="font-display text-xl text-text mb-3">Choose Your Product</h3>
+                <p className="text-muted">
+                  Select from our wide range of premium products — t-shirts, hoodies, mugs, and more
+                </p>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="relative group">
+              <div className="card-editorial p-8 h-full text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-pink-200 group-hover:scale-110 transition-transform duration-300">
+                  <Heart className="w-8 h-8 text-white" />
+                </div>
+                <div className="absolute -top-3 -left-3 w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center font-display text-pink-600 text-lg font-bold">
+                  3
+                </div>
+                <h3 className="font-display text-xl text-text mb-3">We Print & Ship</h3>
+                <p className="text-muted">
+                  Our professional team prints your design with care and ships it directly to you
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="text-center mt-12">
+            <button
+              onClick={() => setShowDesignModal(true)}
+              className="btn-primary group"
+            >
+              <Sparkles className="w-5 h-5" />
+              Start Creating Now
+              <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+            </button>
+          </div>
+        </div>
+      </section>
 
       {/* Featured Products Section */}
       <section className="py-24 bg-bg">
