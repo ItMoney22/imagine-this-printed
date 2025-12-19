@@ -48,7 +48,7 @@ export default function AdminCouponManagement() {
     try {
       setLoading(true)
       setError(null)
-      const response = await api.get('/admin/coupons')
+      const response = await api.get('/api/admin/coupons')
       setCoupons(response.data.coupons || [])
     } catch (err: any) {
       console.error('Error fetching coupons:', err)
@@ -102,13 +102,13 @@ export default function AdminCouponManagement() {
 
     try {
       if (editingCoupon) {
-        await api.put(`/admin/coupons/${editingCoupon.id}`, {
+        await api.put(`/api/admin/coupons/${editingCoupon.id}`, {
           ...formData,
           expires_at: formData.expires_at ? new Date(formData.expires_at).toISOString() : null
         })
         setSuccess('Coupon updated successfully!')
       } else {
-        await api.post('/admin/coupons', {
+        await api.post('/api/admin/coupons', {
           ...formData,
           expires_at: formData.expires_at ? new Date(formData.expires_at).toISOString() : null
         })
@@ -129,7 +129,7 @@ export default function AdminCouponManagement() {
     if (!confirm(`Are you sure you want to deactivate the coupon "${coupon.code}"?`)) return
 
     try {
-      await api.delete(`/admin/coupons/${coupon.id}`)
+      await api.delete(`/api/admin/coupons/${coupon.id}`)
       setSuccess('Coupon deactivated successfully!')
       fetchCoupons()
       setTimeout(() => setSuccess(null), 3000)

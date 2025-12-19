@@ -66,7 +66,7 @@ export default function AdminGiftCardManagement() {
     try {
       setLoading(true)
       setError(null)
-      const response = await api.get('/admin/gift-cards', {
+      const response = await api.get('/api/admin/gift-cards', {
         params: { status: statusFilter }
       })
       setGiftCards(response.data.giftCards || [])
@@ -80,7 +80,7 @@ export default function AdminGiftCardManagement() {
 
   const fetchStats = async () => {
     try {
-      const response = await api.get('/admin/gift-cards/stats')
+      const response = await api.get('/api/admin/gift-cards/stats')
       setStats(response.data.stats)
     } catch (err) {
       console.error('Error fetching stats:', err)
@@ -93,7 +93,7 @@ export default function AdminGiftCardManagement() {
     setError(null)
 
     try {
-      await api.post('/admin/gift-cards', {
+      await api.post('/api/admin/gift-cards', {
         ...formData,
         expires_at: formData.expires_at ? new Date(formData.expires_at).toISOString() : null
       })
@@ -117,7 +117,7 @@ export default function AdminGiftCardManagement() {
     setError(null)
 
     try {
-      const response = await api.post('/admin/gift-cards/bulk', {
+      const response = await api.post('/api/admin/gift-cards/bulk', {
         ...bulkFormData,
         expires_at: bulkFormData.expires_at ? new Date(bulkFormData.expires_at).toISOString() : null
       })
@@ -143,7 +143,7 @@ export default function AdminGiftCardManagement() {
     if (!confirm(`Are you sure you want to delete gift card "${giftCard.code}"?`)) return
 
     try {
-      await api.delete(`/admin/gift-cards/${giftCard.id}`)
+      await api.delete(`/api/admin/gift-cards/${giftCard.id}`)
       setSuccess('Gift card deleted successfully!')
       fetchGiftCards()
       fetchStats()
