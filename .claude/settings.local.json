@@ -143,7 +143,19 @@
       "Bash(find:*)",
       "Bash(ping:*)",
       "Bash(railway help:*)",
-      "Bash(railway service)"
+      "Bash(railway service)",
+      "Bash(timeout /t 90 /nobreak)",
+      "Bash(railway open:*)",
+      "Bash(railway deployment --help:*)",
+      "Bash(railway deployment list:*)",
+      "Bash(railway domain:*)",
+      "Bash(railway deploy --help:*)",
+      "Bash(railway variables:get:*)",
+      "Bash(railway connect --help:*)",
+      "Bash(railway whoami:*)",
+      "Bash(npx prisma generate:*)",
+      "Skill(superpowers:systematic-debugging)",
+      "Bash(railway link --help:*)"
     ],
     "deny": [],
     "ask": []

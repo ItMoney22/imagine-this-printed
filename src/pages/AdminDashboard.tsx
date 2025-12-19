@@ -69,6 +69,11 @@ const AdminDashboard: React.FC = () => {
     isFeatured: false
   })
 
+  // OTC/ITC Grant State
+  const [showItcModal, setShowItcModal] = useState(false)
+  const [itcUser, setItcUser] = useState<User | null>(null)
+  const [itcAmount, setItcAmount] = useState<number>(0)
+
   // Load products and metrics from Supabase
   useEffect(() => {
     loadProducts()
@@ -1035,6 +1040,54 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  const handleGrantItc = async () => {
+    if (!itcUser || itcAmount === 0) return
+
+    try {
+      // Fetch current wallet first
+      const { data: wallet } = await supabase
+        .from('user_wallets')
+        .select('*')
+        .eq('user_id', itcUser.id)
+        .single()
+
+      if (!wallet) {
+        alert('User has no wallet initialized.')
+        return
+      }
+
+      const newBalance = (wallet.itc_balance || 0) + itcAmount
+
+      const { error } = await supabase
+        .from('user_wallets')
+        .update({ itc_balance: newBalance })
+        .eq('user_id', itcUser.id)
+
+      if (error) throw error
+
+      setUsers(users.map(u => u.id === itcUser.id ? { ...u, itcBalance: newBalance } : u))
+
+      // Audit log
+      await supabase.from('audit_logs').insert({
+        user_id: user?.id || 'admin',
+        action: 'GRANT_ITC',
+        entity: 'UserWallet',
+        entity_id: itcUser.id,
+        changes: { amount: itcAmount, previous_balance: wallet.itc_balance, new_balance: newBalance },
+        ip_address: '192.168.1.100',
+        user_agent: navigator.userAgent
+      })
+
+      setShowItcModal(false)
+      setItcAmount(0)
+      setItcUser(null)
+      alert('ITC Balance updated successfully')
+    } catch (error: any) {
+      console.error('Error granting ITC:', error)
+      alert('Failed to update ITC: ' + error.message)
+    }
+  }
+
   const approveVendorProduct = async (productId: string) => {
     try {
       const { error } = await supabase
@@ -1434,7 +1487,17 @@ const AdminDashboard: React.FC = () => {
                         {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        <button className="text-purple-600 hover:text-purple-700 hover:underline">Edit</button>
+                        <button className="text-purple-600 hover:text-purple-700 hover:underline" onClick={() => { }}>Edit</button>
+                        <button
+                          onClick={() => {
+                            setItcUser(user)
+                            setItcAmount(0)
+                            setShowItcModal(true)
+                          }}
+                          className="text-emerald-600 hover:text-emerald-700 hover:underline"
+                        >
+                          Grant ITC
+                        </button>
                         <button className="text-red-600 hover:text-red-700 hover:underline">Suspend</button>
                       </td>
                     </tr>
@@ -2793,6 +2856,44 @@ const AdminDashboard: React.FC = () => {
             </div>
           )
         }
+
+        {/* Grant ITC Modal */}
+        {showItcModal && itcUser && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 p-6">
+              <h3 className="text-xl font-display font-bold text-slate-900 mb-4">
+                Grant/Revoke ITC
+              </h3>
+              <p className="text-slate-600 mb-4">
+                Adjust ITC balance for <span className="font-semibold">{itcUser.firstName} {itcUser.lastName}</span>
+              </p>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Amount (use negative to revoke)</label>
+                <input
+                  type="number"
+                  value={itcAmount}
+                  onChange={(e) => setItcAmount(parseInt(e.target.value) || 0)}
+                  className="w-full border border-slate-300 rounded-xl px-4 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-xs text-slate-500 mt-2">Current Balance: <span className="font-medium text-purple-600">{itcUser.itcBalance} ITC</span></p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowItcModal(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGrantItc}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-md shadow-purple-500/20"
+                >
+                  Update Balance
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

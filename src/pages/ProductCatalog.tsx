@@ -140,7 +140,7 @@ const ProductCatalog: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 pt-20">
       {/* Header Section */}
       <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
@@ -170,8 +170,8 @@ const ProductCatalog: React.FC = () => {
                       key={cat.id}
                       onClick={() => setSelectedCategory(cat.id)}
                       className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all mb-1 ${selectedCategory === cat.id
-                          ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                         }`}
                     >
                       <span className={selectedCategory === cat.id ? 'text-purple-200' : 'text-slate-400'}>
@@ -179,8 +179,8 @@ const ProductCatalog: React.FC = () => {
                       </span>
                       <span className="flex-1 text-left font-medium">{cat.name}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${selectedCategory === cat.id
-                          ? 'bg-white/20 text-white'
-                          : 'bg-slate-100 text-slate-500'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-100 text-slate-500'
                         }`}>
                         {count}
                       </span>
@@ -246,8 +246,8 @@ const ProductCatalog: React.FC = () => {
                     <button
                       onClick={() => setViewMode('grid')}
                       className={`p-2 rounded-md transition-colors ${viewMode === 'grid'
-                          ? 'bg-white text-purple-600 shadow-sm'
-                          : 'text-slate-400 hover:text-slate-600'
+                        ? 'bg-white text-purple-600 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-600'
                         }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -257,8 +257,8 @@ const ProductCatalog: React.FC = () => {
                     <button
                       onClick={() => setViewMode('list')}
                       className={`p-2 rounded-md transition-colors ${viewMode === 'list'
-                          ? 'bg-white text-purple-600 shadow-sm'
-                          : 'text-slate-400 hover:text-slate-600'
+                        ? 'bg-white text-purple-600 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-600'
                         }`}
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -48,15 +48,21 @@ const Home: React.FC = () => {
 
   /* Scroll-triggered video logic */
   const videoRef = React.useRef<HTMLVideoElement>(null)
+  const hasPlayedRef = React.useRef(false)
 
   React.useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            videoRef.current?.play().catch((e) => console.log('Autoplay blocked:', e))
-          } else {
-            videoRef.current?.pause()
+          if (entry.isIntersecting && !hasPlayedRef.current) {
+            if (videoRef.current) {
+              videoRef.current.muted = false
+              videoRef.current.play()
+                .then(() => {
+                  hasPlayedRef.current = true
+                })
+                .catch((e) => console.log('Autoplay blocked:', e))
+            }
           }
         })
       },
@@ -220,9 +226,6 @@ const Home: React.FC = () => {
                     src="/mr-imagine/welcome-video.mp4"
                     className="w-full h-auto object-cover"
                     playsInline
-                    loop
-                    muted
-                    autoPlay
                   />
                 </div>
 

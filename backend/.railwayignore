@@ -1,0 +1,10 @@
+# Railway ignore file
+node_modules
+.env
+.env.local
+.env.tmp
+dist
+*.log
+backend.log
+logs/
+nul
