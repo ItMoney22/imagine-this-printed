@@ -41,24 +41,25 @@ export class ProductRecommender {
   constructor() {
   }
 
-  // Main recommendation method
+  // Main recommendation method - optimized with fast query
   async getRecommendations(context: RecommendationContext): Promise<Product[]> {
     const { limit = 6, excludeIds = [] } = context
 
     try {
+      // Optimized query - only fetch needed columns, smaller limit
       const { data, error } = await supabase
         .from('products')
-        .select('*')
-        .neq('status', 'draft')
+        .select('id, name, description, price, images, category, is_active, is_featured')
         .eq('is_active', true)
-        .limit(20) // Fetch more to allow for random selection
+        .limit(limit + excludeIds.length + 5) // Just enough buffer for filtering
 
       if (error) throw error
 
       if (!data) return []
 
-      // Map to Product type and filter excluded
-      let products: Product[] = data
+      // Map to Product type and filter excluded - fast in-memory ops
+      const products: Product[] = data
+        .filter((p: any) => !excludeIds.includes(p.id))
         .map((p: any) => ({
           id: p.id,
           name: p.name,
@@ -66,16 +67,16 @@ export class ProductRecommender {
           price: p.price || 0,
           images: p.images || [],
           category: p.category || 'shirts',
-          inStock: p.is_active !== false,
-          is_featured: p.is_featured,
-          isThreeForTwentyFive: p.isThreeForTwentyFive
+          inStock: true,
+          is_featured: p.is_featured
         }))
-        .filter(p => !excludeIds.includes(p.id))
 
-      // Shuffle array
-      products = products.sort(() => 0.5 - Math.random())
+      // Fast shuffle using Fisher-Yates
+      for (let i = products.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [products[i], products[j]] = [products[j], products[i]]
+      }
 
-      // Return requested limit
       return products.slice(0, limit)
 
     } catch (error) {

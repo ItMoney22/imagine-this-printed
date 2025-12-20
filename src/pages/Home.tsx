@@ -1,18 +1,39 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, Suspense, lazy, memo } from 'react'
 import { Link } from 'react-router-dom'
 import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star } from 'lucide-react'
 import { Hero } from '../components/Hero'
-import ProductRecommendations from '../components/ProductRecommendations'
-import FeaturedSocialContent from '../components/FeaturedSocialContent'
 import ProductCard from '../components/ProductCard'
-import DesignStudioModal from '../components/DesignStudioModal'
 import type { Product } from '../types'
 
 import { supabase } from '../lib/supabase'
 
+// Lazy load heavy components - they load AFTER initial render
+const ProductRecommendations = lazy(() => import('../components/ProductRecommendations'))
+const FeaturedSocialContent = lazy(() => import('../components/FeaturedSocialContent'))
+const DesignStudioModal = lazy(() => import('../components/DesignStudioModal'))
+
+// Loading skeleton for lazy-loaded sections
+const SectionSkeleton = memo(() => (
+  <div className="animate-pulse">
+    <div className="h-8 bg-gray-200 rounded w-48 mb-6" />
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="bg-gray-100 rounded-lg h-48" />
+      ))}
+    </div>
+  </div>
+))
+
+// Product cache to prevent refetching on navigation
+let featuredProductsCache: { data: Product[]; timestamp: number } | null = null
+const CACHE_TTL = 60000 // 1 minute
+
 const Home: React.FC = () => {
   const [showDesignModal, setShowDesignModal] = useState(false)
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
+  const [featuredProducts, setFeaturedProducts] = useState<Product[]>(() =>
+    featuredProductsCache?.data || []
+  )
+  const [isLoading, setIsLoading] = useState(!featuredProductsCache)
 
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const autoScrollRef = React.useRef<NodeJS.Timeout | null>(null)
@@ -47,20 +68,31 @@ const Home: React.FC = () => {
     }
   }, [])
 
-  React.useEffect(() => {
+  // Optimized featured products fetch with caching
+  useEffect(() => {
+    // Use cache if fresh
+    if (featuredProductsCache && Date.now() - featuredProductsCache.timestamp < CACHE_TTL) {
+      if (featuredProducts.length === 0) {
+        setFeaturedProducts(featuredProductsCache.data)
+      }
+      setIsLoading(false)
+      return
+    }
+
     const fetchFeaturedProducts = async () => {
       try {
+        // Optimized query - only fetch needed columns
         const { data, error } = await supabase
           .from('products')
-          .select('*')
+          .select('id, name, description, price, images, category, is_active, is_featured')
           .eq('is_featured', true)
           .eq('is_active', true)
-          .limit(12) // Increased limit for carousel
+          .limit(12)
 
         if (error) throw error
 
         if (data) {
-          setFeaturedProducts(data.map((p: any) => ({
+          const products = data.map((p: any) => ({
             id: p.id,
             name: p.name,
             description: p.description || '',
@@ -69,10 +101,16 @@ const Home: React.FC = () => {
             category: p.category || 'shirts',
             inStock: p.is_active !== false,
             is_featured: p.is_featured
-          })))
+          }))
+
+          // Cache the result
+          featuredProductsCache = { data: products, timestamp: Date.now() }
+          setFeaturedProducts(products)
         }
       } catch (error) {
         console.error('Error fetching featured products:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
 
@@ -250,7 +288,19 @@ const Home: React.FC = () => {
               startAutoScroll()
             }}
           >
-            {featuredProducts.length > 0 ? (
+            {isLoading ? (
+              <div className="flex gap-6 overflow-hidden">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="min-w-[280px] md:min-w-[320px] card-editorial overflow-hidden animate-pulse">
+                    <div className="aspect-square bg-gradient-to-br from-purple-100 to-blue-100" />
+                    <div className="p-6">
+                      <div className="h-6 bg-gray-200 rounded w-3/4 mb-3" />
+                      <div className="h-4 bg-gray-200 rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : featuredProducts.length > 0 ? (
               <div
                 ref={scrollRef}
                 className="flex overflow-x-auto gap-6 pb-8 snap-x snap-mandatory scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0"
@@ -266,17 +316,8 @@ const Home: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* Placeholder cards when no products */}
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="card-editorial overflow-hidden">
-                    <div className="aspect-square bg-gradient-to-br from-purple-100 to-blue-100 animate-pulse" />
-                    <div className="p-6">
-                      <div className="h-6 bg-gray-100 rounded w-3/4 mb-3" />
-                      <div className="h-4 bg-gray-100 rounded w-1/2" />
-                    </div>
-                  </div>
-                ))}
+              <div className="text-center py-12 text-muted">
+                No featured products available
               </div>
             )}
           </div>
@@ -390,21 +431,25 @@ const Home: React.FC = () => {
             </p>
           </div>
 
-          <FeaturedSocialContent limit={5} />
+          <Suspense fallback={<SectionSkeleton />}>
+            <FeaturedSocialContent limit={5} />
+          </Suspense>
         </div>
       </section>
 
       {/* Personalized Recommendations */}
       <section className="py-24 bg-gradient-to-b from-bg to-purple-50/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <ProductRecommendations
-            context={{
-              page: 'home',
-              limit: 6
-            }}
-            title="Recommended for You"
-            showReason={true}
-          />
+          <Suspense fallback={<SectionSkeleton />}>
+            <ProductRecommendations
+              context={{
+                page: 'home',
+                limit: 6
+              }}
+              title="Recommended for You"
+              showReason={true}
+            />
+          </Suspense>
         </div>
       </section>
 
@@ -492,10 +537,14 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      <DesignStudioModal
-        isOpen={showDesignModal}
-        onClose={() => setShowDesignModal(false)}
-      />
+      {showDesignModal && (
+        <Suspense fallback={null}>
+          <DesignStudioModal
+            isOpen={showDesignModal}
+            onClose={() => setShowDesignModal(false)}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }

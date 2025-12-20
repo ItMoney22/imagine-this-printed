@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { productRecommender } from '../utils/product-recommender'
 import type { Product, RecommendationContext } from '../types'
+
+// Cache for recommendations
+const recommendationsCache = new Map<string, { products: Product[]; timestamp: number }>()
+const CACHE_TTL = 120000 // 2 minutes
 
 interface ProductRecommendationsProps {
   context: RecommendationContext
@@ -11,7 +15,7 @@ interface ProductRecommendationsProps {
   onProductClick?: (product: Product, position: number) => void
 }
 
-const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
+const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
   context,
   title = "You Might Also Like",
   className = "",
@@ -22,12 +26,24 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
   const [recommendations, setRecommendations] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const loadingRef = useRef(false)
 
-  useEffect(() => {
-    loadRecommendations()
-  }, [context, user])
+  const loadRecommendations = useCallback(async () => {
+    // Generate cache key from context
+    const cacheKey = `${context.page}-${user?.id || 'anon'}-${context.limit || 6}`
 
-  const loadRecommendations = async () => {
+    // Check cache first
+    const cached = recommendationsCache.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      setRecommendations(cached.products)
+      setIsLoading(false)
+      return
+    }
+
+    // Prevent duplicate loads
+    if (loadingRef.current) return
+    loadingRef.current = true
+
     setIsLoading(true)
     setError(null)
 
@@ -44,14 +60,22 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
       }
 
       const products = await productRecommender.getRecommendations(recommendationContext)
+
+      // Cache the result
+      recommendationsCache.set(cacheKey, { products, timestamp: Date.now() })
       setRecommendations(products)
     } catch (err) {
       setError('Failed to load recommendations')
       console.error('Error loading recommendations:', err)
     } finally {
       setIsLoading(false)
+      loadingRef.current = false
     }
-  }
+  }, [context.page, context.limit, user?.id])
+
+  useEffect(() => {
+    loadRecommendations()
+  }, [loadRecommendations])
 
   const handleProductClick = (product: Product, position: number) => {
     // Track recommendation click
@@ -180,6 +204,6 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = ({
       </div>
     </div>
   )
-}
+})
 
 export default ProductRecommendations

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { supabase, STORAGE_KEY } from '../lib/supabase'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
@@ -17,6 +17,10 @@ interface User {
     itcBalance: number
   }
 }
+
+// Profile cache to prevent redundant fetches
+const profileCache = new Map<string, { user: User; timestamp: number }>()
+const CACHE_TTL = 60000 // 1 minute cache
 
 interface AuthContextType {
   user: User | null
@@ -40,45 +44,47 @@ export const useAuth = () => {
   return context
 }
 
-// Helper function to convert Supabase user to our User interface
-// NOTE: Wallet data is NOT fetched here for faster login - fetch it lazily on wallet page
-const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User | null> => {
+// Fast profile fetch with caching - eliminates redundant queries
+const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null> => {
+  const userId = supabaseUser.id
+
+  // Check cache first
+  const cached = profileCache.get(userId)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log('[AuthContext] ⚡ Using cached profile for:', userId)
+    return cached.user
+  }
+
   try {
-    console.log('[AuthContext] 🔍 Fetching profile for user:', supabaseUser.id)
+    console.log('[AuthContext] 🔍 Fetching profile for:', userId)
 
-    // Only fetch profile - wallet is fetched lazily when needed
-    const profilePromise = supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', supabaseUser.id)
-      .single()
+    // Optimized query - only fetch needed columns, 5s timeout
+    const { data: profile, error } = await Promise.race([
+      supabase
+        .from('user_profiles')
+        .select('id, email, role, username, display_name, first_name, last_name, email_verified, profile_completed')
+        .eq('id', userId)
+        .single(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Profile timeout')), 5000)
+      )
+    ])
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Profile query timed out after 10s')), 10000)
-    )
-
-    const profileResult = await Promise.race([profilePromise, timeoutPromise]) as any
-
-    console.log('[AuthContext] 📊 Profile query result:', {
-      profile: profileResult.data,
-      profileError: profileResult.error
-    })
-
-    if (profileResult.error) {
-      console.error('[AuthContext] ❌ Error fetching user profile:', profileResult.error)
-      return null
+    if (error || !profile) {
+      console.warn('[AuthContext] ⚠️ Profile fetch failed:', error?.message)
+      // Return minimal user from Supabase data for fast fallback
+      return {
+        id: userId,
+        email: supabaseUser.email || '',
+        role: 'customer',
+        username: supabaseUser.email?.split('@')[0] || 'user',
+        emailVerified: !!supabaseUser.email_confirmed_at,
+        profileCompleted: false,
+        wallet: undefined
+      }
     }
 
-    if (!profileResult.data) {
-      console.warn('[AuthContext] ⚠️ No profile data returned')
-      return null
-    }
-
-    const profile = profileResult.data
-
-    console.log('[AuthContext] ✅ Profile data received, mapping to User object...')
-
-    const mappedUser = {
+    const mappedUser: User = {
       id: profile.id,
       email: profile.email,
       role: profile.role || 'customer',
@@ -88,155 +94,104 @@ const mapSupabaseUserToUser = async (supabaseUser: SupabaseUser): Promise<User |
       lastName: profile.last_name,
       emailVerified: profile.email_verified || false,
       profileCompleted: profile.profile_completed || false,
-      // Wallet is NOT loaded here - fetch lazily on wallet page for faster login
       wallet: undefined
     }
 
-    console.log('[AuthContext] 🎉 User mapped successfully:', {
-      id: mappedUser.id,
-      email: mappedUser.email,
-      role: mappedUser.role,
-      username: mappedUser.username
-    })
-
-    // CRITICAL: Verify role was properly mapped from database
-    if (!mappedUser.role || mappedUser.role === 'customer') {
-      console.warn('[AuthContext] ⚠️ ROLE CHECK: User role is', mappedUser.role)
-      console.warn('[AuthContext] 📊 Raw profile data:', profile)
-      console.warn('[AuthContext] 🔍 Profile.role value:', profile.role, 'Type:', typeof profile.role)
-    }
+    // Cache the result
+    profileCache.set(userId, { user: mappedUser, timestamp: Date.now() })
+    console.log('[AuthContext] ✅ Profile loaded:', mappedUser.username, 'role:', mappedUser.role)
 
     return mappedUser
   } catch (error) {
-    console.error('[AuthContext] ❌ Error mapping Supabase user:', error)
-    return null
+    console.error('[AuthContext] ❌ Profile error:', error)
+    // Fast fallback - don't block on errors
+    return {
+      id: userId,
+      email: supabaseUser.email || '',
+      role: 'customer',
+      username: supabaseUser.email?.split('@')[0] || 'user',
+      emailVerified: !!supabaseUser.email_confirmed_at,
+      profileCompleted: false,
+      wallet: undefined
+    }
   }
 }
 
 export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const isProcessingRef = useRef(false)
+  const lastUserIdRef = useRef<string | null>(null)
+
+  // Memoized user loader to prevent duplicate fetches
+  const loadUser = useCallback(async (supabaseUser: SupabaseUser | null, source: string) => {
+    if (!supabaseUser) {
+      console.log(`[AuthContext] ${source}: No user, clearing state`)
+      setUser(null)
+      setLoading(false)
+      lastUserIdRef.current = null
+      return
+    }
+
+    // Skip if we're already processing this user
+    if (isProcessingRef.current && lastUserIdRef.current === supabaseUser.id) {
+      console.log(`[AuthContext] ${source}: Already processing user, skipping`)
+      return
+    }
+
+    // Skip if user hasn't changed and we already have data
+    if (lastUserIdRef.current === supabaseUser.id && user?.id === supabaseUser.id) {
+      console.log(`[AuthContext] ${source}: User unchanged, using existing`)
+      setLoading(false)
+      return
+    }
+
+    isProcessingRef.current = true
+    lastUserIdRef.current = supabaseUser.id
+
+    try {
+      const mappedUser = await fetchUserProfile(supabaseUser)
+      if (mappedUser) {
+        setUser(prev => {
+          // Preserve non-customer role if new fetch returns customer
+          if (prev?.id === mappedUser.id && prev.role !== 'customer' && mappedUser.role === 'customer') {
+            console.log('[AuthContext] 🔒 Preserving role:', prev.role)
+            return { ...mappedUser, role: prev.role }
+          }
+          return mappedUser
+        })
+      }
+    } finally {
+      isProcessingRef.current = false
+      setLoading(false)
+    }
+  }, [user])
 
   useEffect(() => {
-    console.log('[AuthContext] 🚀 Initializing auth context...')
+    console.log('[AuthContext] 🚀 Initializing...')
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-      console.log('[AuthContext] 📦 Initial session check:', {
-        hasSession: !!session,
-        hasUser: !!session?.user,
-        userId: session?.user?.id,
-        error: error?.message
-      })
-
-      if (error) {
-        console.error('[AuthContext] ❌ Error getting initial session:', error)
-      }
-
-      if (session?.user) {
-        console.log('[AuthContext] 👤 Mapping Supabase user to app user...')
-        const mappedUser = await mapSupabaseUserToUser(session.user)
-        if (mappedUser) {
-          console.log('[AuthContext] ✅ User loaded:', {
-            id: mappedUser.id,
-            email: mappedUser.email,
-            username: mappedUser.username,
-            role: mappedUser.role
-          })
-          setUser(mappedUser)
-        } else {
-          console.warn('[AuthContext] ⚠️ Failed to map user profile, retrying once...')
-          // Retry once after a short delay
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          const retryUser = await mapSupabaseUserToUser(session.user)
-          if (retryUser) {
-            console.log('[AuthContext] ✅ User loaded on retry:', retryUser.role)
-            setUser(retryUser)
-          } else {
-            console.error('[AuthContext] ❌ Failed to load user profile after retry')
-            // Only use fallback if we truly can't get the profile
-            // Keep previous user state if it exists with a non-customer role
-            setUser(prev => {
-              if (prev && prev.id === session.user.id && prev.role !== 'customer') {
-                console.log('[AuthContext] 🔒 Preserving existing role:', prev.role)
-                return prev
-              }
-              return {
-                id: session.user.id,
-                email: session.user.email || '',
-                role: 'customer',
-                username: session.user.email?.split('@')[0] || 'user',
-                emailVerified: !!session.user.email_confirmed_at,
-                profileCompleted: false,
-                wallet: undefined
-              }
-            })
-          }
-        }
-      } else {
-        console.log('[AuthContext] ℹ️ No active session found')
-      }
-
-      setLoading(false)
-      console.log('[AuthContext] ✅ Initial auth check complete')
+    // Fast initial session check
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) console.error('[AuthContext] Session error:', error.message)
+      loadUser(session?.user || null, 'init')
     })
 
-    // Listen for auth changes
-    console.log('[AuthContext] 👂 Setting up auth state change listener...')
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('[AuthContext] 🔄 Auth state changed:', event, {
-        hasSession: !!session,
-        userId: session?.user?.id
-      })
+    // Listen for auth changes - cache prevents duplicate fetches
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[AuthContext] 🔄 Auth event:', event)
 
-      if (session?.user) {
-        console.log('[AuthContext] 👤 User signed in, fetching profile...')
-        const mappedUser = await mapSupabaseUserToUser(session.user)
-        if (mappedUser) {
-          console.log('[AuthContext] ✅ User profile loaded:', mappedUser.username, 'role:', mappedUser.role)
-          setUser(mappedUser)
-        } else {
-          console.warn('[AuthContext] ⚠️ Failed to load user profile, retrying...')
-          // Retry once after a short delay
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          const retryUser = await mapSupabaseUserToUser(session.user)
-          if (retryUser) {
-            console.log('[AuthContext] ✅ User loaded on retry:', retryUser.role)
-            setUser(retryUser)
-          } else {
-            console.error('[AuthContext] ❌ Failed to load user profile after retry')
-            // Preserve existing role if user is already set with non-customer role
-            setUser(prev => {
-              if (prev && prev.id === session.user.id && prev.role !== 'customer') {
-                console.log('[AuthContext] 🔒 Preserving existing role:', prev.role)
-                return prev
-              }
-              return {
-                id: session.user.id,
-                email: session.user.email || '',
-                role: 'customer',
-                username: session.user.email?.split('@')[0] || 'user',
-                emailVerified: !!session.user.email_confirmed_at,
-                profileCompleted: false,
-                wallet: undefined
-              }
-            })
-          }
-        }
-      } else {
-        console.log('[AuthContext] 👋 User signed out')
+      if (event === 'SIGNED_OUT') {
+        profileCache.clear()
         setUser(null)
+        setLoading(false)
+        lastUserIdRef.current = null
+      } else if (session?.user) {
+        loadUser(session.user, event)
       }
-      setLoading(false)
     })
 
-    return () => {
-      console.log('[AuthContext] 🧹 Cleaning up auth listener')
-      subscription.unsubscribe()
-    }
-  }, [])
+    return () => subscription.unsubscribe()
+  }, [loadUser])
 
   const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting sign in for:', email)

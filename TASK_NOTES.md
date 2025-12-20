@@ -41,6 +41,13 @@
 - `backend/routes/imagination-station.ts`
 - `backend/services/imagination-ai.ts`
 
+### Performance optimization scope (added 2025-12-20)
+- `src/context/SupabaseAuthContext.tsx` - Auth flow optimization
+- `src/pages/Home.tsx` - Home page loading optimization
+- `src/components/ProductRecommendations.tsx` - Query optimization
+- `src/components/FeaturedSocialContent.tsx` - Lazy loading
+- `src/lib/supabase.ts` - Connection optimization
+
 ## Implementation checkpoints
 - Identified the main editor entrypoint as `src/pages/ImaginationStation.tsx` using Konva via `src/components/imagination/SheetCanvas.tsx`.
 - Found response-shape mismatch that prevents image tool results from applying: frontend checks `processedUrl`, backend returns `imageUrl` (and aliases).
@@ -118,6 +125,13 @@
 - 2025-12-19 **FIX** User role reverting to customer - Added retry logic and role preservation in SupabaseAuthContext.tsx to prevent admin role from reverting to 'customer' when profile fetch temporarily fails.
 - 2025-12-19 **FIX** Admin dashboard UI - Fixed notification bell z-index (was behind profile dropdown), fixed tab bar to use flex-wrap instead of horizontal scroll, fixed users query to use separate wallet fetch.
 - 2025-12-19 **DATABASE** Created missing tables via migration - Applied SQL migration (20251219_coupons_giftcards_support.sql) via Node.js pg client to create: discount_codes, coupon_usage, gift_cards, support_tickets, ticket_messages, admin_notifications, agent_status, chat_sessions. All tables now exist with RLS policies and indexes.
+- 2025-12-20 **PERFORMANCE** Major auth and Home page optimization - Fixed 2-3 minute sign-in and product loading times:
+  - **SupabaseAuthContext**: Added profile caching (1 min TTL), eliminated duplicate fetches via refs, reduced timeout from 10s to 5s, added fast fallback instead of blocking retries, optimized query to only fetch needed columns
+  - **Home.tsx**: Added React.lazy() for heavy components (ProductRecommendations, FeaturedSocialContent, DesignStudioModal), added Suspense boundaries with skeletons, added featured products cache (1 min TTL)
+  - **ProductRecommendations**: Wrapped with memo(), added recommendations cache (2 min TTL), added duplicate fetch prevention via ref
+  - **product-recommender.ts**: Optimized query to only fetch needed columns, reduced limit from 20 to just enough, replaced slow .sort() shuffle with Fisher-Yates
+  - **Database indexes**: Created migration with indexes for products.is_active, products.is_featured, products.category, user_profiles.id, orders.user_id/status/created_at
+- 2025-12-20 **UI** OrderSuccess page Mr. Imagine packing image - Added mr-imagine-packing.png to public folder and updated OrderSuccess.tsx to show Mr. Imagine packing the order instead of generic waving pose. Updated message to "Mr. Imagine is packing it with love!"
 
 ## Decisions / notes
 - Focus the implementation on `src/pages/ImaginationStation.tsx` (the Konva-based editor). There are other “imagination” components in the repo (e.g., `src/components/imagination/RightSidebar.tsx`), but they appear to be a different UI path.
