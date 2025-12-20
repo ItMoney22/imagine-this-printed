@@ -41,7 +41,69 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-// POST /api/stripe/create-payment-intent
+// POST /api/stripe/checkout-payment-intent - Create payment intent for product checkout
+router.post('/checkout-payment-intent', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { amount, currency, items, shipping, couponCode, discount } = req.body
+
+    // Validate amount (in cents)
+    if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents
+      return res.status(400).json({ error: 'Invalid amount - minimum is $0.50' })
+    }
+
+    // Validate currency
+    if (currency !== 'usd') {
+      return res.status(400).json({ error: 'Only USD currency is supported' })
+    }
+
+    // Build description from items
+    const itemDescriptions = items?.map((item: any) =>
+      `${item.quantity}x ${item.product?.name || 'Product'}`
+    ).join(', ') || 'Order'
+
+    // Create payment intent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount, // Amount in cents
+      currency,
+      description: `Order: ${itemDescriptions}`,
+      metadata: {
+        items: JSON.stringify(items?.map((i: any) => ({
+          id: i.product?.id,
+          name: i.product?.name,
+          qty: i.quantity
+        })) || []),
+        couponCode: couponCode || '',
+        discount: discount?.toString() || '0',
+        shippingCity: shipping?.city || '',
+        shippingState: shipping?.state || '',
+        shippingCountry: shipping?.country || 'US'
+      },
+      receipt_email: shipping?.email || undefined,
+      automatic_payment_methods: {
+        enabled: true
+      }
+    })
+
+    req.log?.info({
+      paymentIntentId: paymentIntent.id,
+      amount: amount / 100,
+      itemCount: items?.length || 0
+    }, 'Checkout payment intent created')
+
+    return res.json({
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id
+    })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'Error creating checkout payment intent')
+    return res.status(500).json({
+      error: 'Failed to create payment intent',
+      message: error.message
+    })
+  }
+})
+
+// POST /api/stripe/create-payment-intent - Create payment intent for ITC token purchase
 router.post('/create-payment-intent', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.sub
