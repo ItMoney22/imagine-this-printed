@@ -1,12 +1,48 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { supabase } from '../lib/supabase'
 import { shippoAPI } from '../utils/shippo'
 import type { Order, ShippingAddress } from '../types'
 
+// Database order interface
+interface DBOrder {
+  id: string
+  order_number: string | null
+  user_id: string | null
+  customer_email: string | null
+  customer_name: string | null
+  subtotal: number
+  tax_amount: number
+  shipping_amount: number
+  discount_amount: number
+  total: number
+  status: string
+  payment_status: string
+  fulfillment_status: string
+  shipping_address: any
+  tracking_number: string | null
+  shipping_label_url: string | null
+  notes: string | null
+  internal_notes: string | null
+  created_at: string
+  updated_at: string
+  order_items: {
+    id: string
+    product_id: string | null
+    product_name: string
+    quantity: number
+    price: number
+    total: number
+    variations: any
+    personalization: any
+  }[]
+}
+
 const OrderManagement: React.FC = () => {
   const { user } = useAuth()
-  const [selectedTab, setSelectedTab] = useState<'pending' | 'printed' | 'shipped' | 'on_hold' | 'all'>('pending')
+  const [selectedTab, setSelectedTab] = useState<'pending' | 'processing' | 'shipped' | 'on_hold' | 'all'>('pending')
   const [orders, setOrders] = useState<Order[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
@@ -14,168 +50,146 @@ const OrderManagement: React.FC = () => {
   const [internalNotes, setInternalNotes] = useState('')
   const [customerNotes, setCustomerNotes] = useState('')
 
-  // Mock data - replace with real PostgreSQL queries
+  // Fetch orders from database
   useEffect(() => {
-    const mockOrders: Order[] = [
-      {
-        id: 'ORD-001',
-        userId: 'user1',
-        items: [
-          {
-            id: 'item1',
-            product: {
-              id: '1',
-              name: 'Custom T-Shirt',
-              description: 'Custom designed t-shirt',
-              price: 24.99,
-              images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=300&h=300&fit=crop'],
-              category: 'shirts',
-              inStock: true
-            },
-            quantity: 2,
-            customDesign: 'Custom design with logo'
-          }
-        ],
-        total: 49.98,
-        status: 'pending',
-        createdAt: '2025-01-10T10:00:00Z',
-        shippingAddress: {
-          name: 'John Doe',
-          address1: '123 Main St',
-          city: 'San Francisco',
-          state: 'CA',
-          zip: '94102',
-          country: 'US',
-          phone: '+1-555-0123',
-          email: 'john@example.com'
-        },
-        customerNotes: 'Please include gift wrapping',
-        internalNotes: ''
-      },
-      {
-        id: 'ORD-KIOSK-001',
-        userId: 'kiosk_user_123',
-        items: [
-          {
-            id: 'item_k1',
-            product: {
-              id: '1',
-              name: 'Custom T-Shirt',
-              description: 'Custom designed t-shirt',
-              price: 24.99,
-              images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=300&h=300&fit=crop'],
-              category: 'shirts',
-              inStock: true
-            },
-            quantity: 1
-          }
-        ],
-        total: 24.99,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        customerIdentifier: 'JOHN-4829',
-        shippingAddress: {
-          name: 'John Smith',
-          address1: 'Kiosk Order',
-          city: 'Store Pickup',
-          state: 'CA',
-          zip: '00000',
-          country: 'US',
-          email: 'john@example.com'
-        },
-        internalNotes: 'Kiosk Order - Pickup'
-      },
-      {
-        id: 'ORD-002',
-        userId: 'user2',
-        items: [
-          {
-            id: 'item2',
-            product: {
-              id: '2',
-              name: 'Custom Tumbler',
-              description: 'Personalized tumbler',
-              price: 29.99,
-              images: ['https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=300&h=300&fit=crop'],
-              category: 'tumblers',
-              inStock: true
-            },
-            quantity: 1
-          }
-        ],
-        total: 29.99,
-        status: 'printed',
-        createdAt: '2025-01-09T14:30:00Z',
-        shippingAddress: {
-          name: 'Sarah Wilson',
-          address1: '456 Oak Ave',
-          city: 'Los Angeles',
-          state: 'CA',
-          zip: '90210',
-          country: 'US',
-          phone: '+1-555-0456',
-          email: 'sarah@example.com'
-        },
-        internalNotes: 'Rush order - priority shipping'
-      },
-      {
-        id: 'ORD-003',
-        userId: 'user3',
-        items: [
-          {
-            id: 'item3',
-            product: {
-              id: '3',
-              name: 'Custom Hoodie',
-              description: 'Personalized hoodie',
-              price: 45.99,
-              images: ['https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=300&h=300&fit=crop'],
-              category: 'hoodies',
-              inStock: true
-            },
-            quantity: 1
-          }
-        ],
-        total: 45.99,
-        status: 'shipped',
-        createdAt: '2025-01-08T09:15:00Z',
-        trackingNumber: 'MOCK123456789',
-        shippingLabelUrl: 'https://shippo-delivery-east.s3.amazonaws.com/mock-label.pdf',
-        estimatedDelivery: '2025-01-15T00:00:00Z',
-        shippingAddress: {
-          name: 'Mike Johnson',
-          address1: '789 Pine St',
-          city: 'Seattle',
-          state: 'WA',
-          zip: '98101',
-          country: 'US'
-        }
-      }
-    ]
-
-    setOrders(mockOrders)
+    fetchOrders()
   }, [])
 
-  const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
-    setOrders(prev => prev.map(order =>
-      order.id === orderId
-        ? { ...order, status: newStatus, updatedAt: new Date().toISOString() }
-        : order
-    ))
+  const fetchOrders = async () => {
+    setIsLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          order_items (
+            id,
+            product_id,
+            product_name,
+            quantity,
+            price,
+            total,
+            variations,
+            personalization
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100)
 
-    // In real app, update PostgreSQL here
-    console.log(`Order ${orderId} status updated to ${newStatus}`)
+      if (error) {
+        console.error('Error fetching orders:', error)
+        return
+      }
+
+      // Transform database orders to the Order type expected by the UI
+      const transformedOrders: Order[] = (data || []).map((dbOrder: DBOrder) => ({
+        id: dbOrder.order_number || dbOrder.id.slice(0, 8).toUpperCase(),
+        orderId: dbOrder.id,
+        userId: dbOrder.user_id || '',
+        items: (dbOrder.order_items || []).map(item => ({
+          id: item.id,
+          product: {
+            id: item.product_id || '',
+            name: item.product_name,
+            description: '',
+            price: item.price,
+            images: [] as string[],
+            category: 'shirts' as const, // Default to shirts for type compatibility
+            inStock: true
+          },
+          quantity: item.quantity,
+          customDesign: item.personalization?.designUrl
+        })),
+        total: dbOrder.total || 0,
+        status: dbOrder.status as Order['status'],
+        paymentStatus: dbOrder.payment_status,
+        createdAt: dbOrder.created_at,
+        updatedAt: dbOrder.updated_at,
+        trackingNumber: dbOrder.tracking_number || undefined,
+        shippingLabelUrl: dbOrder.shipping_label_url || undefined,
+        shippingAddress: dbOrder.shipping_address ? {
+          name: dbOrder.customer_name || (dbOrder.shipping_address.firstName + ' ' + dbOrder.shipping_address.lastName) || '',
+          address1: dbOrder.shipping_address.address || '',
+          city: dbOrder.shipping_address.city || '',
+          state: dbOrder.shipping_address.state || '',
+          zip: dbOrder.shipping_address.zipCode || '',
+          country: dbOrder.shipping_address.country || 'US',
+          email: dbOrder.customer_email || dbOrder.shipping_address.email || '',
+          phone: dbOrder.shipping_address.phone
+        } : undefined,
+        customerNotes: dbOrder.notes || '',
+        internalNotes: dbOrder.internal_notes || ''
+      }))
+
+      setOrders(transformedOrders)
+    } catch (err) {
+      console.error('Failed to fetch orders:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
+    // Find the order to get the actual database ID
+    const order = orders.find(o => o.id === orderId)
+    const dbOrderId = (order as any)?.orderId || orderId
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', dbOrderId)
+
+      if (error) {
+        console.error('Error updating order status:', error)
+        return
+      }
+
+      setOrders(prev => prev.map(o =>
+        o.id === orderId
+          ? { ...o, status: newStatus, updatedAt: new Date().toISOString() }
+          : o
+      ))
+
+      console.log(`Order ${orderId} status updated to ${newStatus}`)
+    } catch (err) {
+      console.error('Failed to update order status:', err)
+    }
   }
 
   const updateOrderNotes = async (orderId: string, internal: string, customer: string) => {
-    setOrders(prev => prev.map(order =>
-      order.id === orderId
-        ? { ...order, internalNotes: internal, customerNotes: customer }
-        : order
-    ))
+    // Find the order to get the actual database ID
+    const order = orders.find(o => o.id === orderId)
+    const dbOrderId = (order as any)?.orderId || orderId
 
-    // In real app, update PostgreSQL here
-    console.log(`Order ${orderId} notes updated`)
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          internal_notes: internal,
+          notes: customer,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', dbOrderId)
+
+      if (error) {
+        console.error('Error updating order notes:', error)
+        return
+      }
+
+      setOrders(prev => prev.map(o =>
+        o.id === orderId
+          ? { ...o, internalNotes: internal, customerNotes: customer }
+          : o
+      ))
+
+      console.log(`Order ${orderId} notes updated`)
+    } catch (err) {
+      console.error('Failed to update order notes:', err)
+    }
   }
 
   const generateShippingLabel = async (order: Order) => {
@@ -237,13 +251,16 @@ const OrderManagement: React.FC = () => {
     window.open(labelUrl, '_blank')
   }
 
-  const getStatusColor = (status: Order['status']) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-800'
+      case 'processing': return 'bg-blue-100 text-blue-800'
       case 'printed': return 'bg-blue-100 text-blue-800'
       case 'shipped': return 'bg-green-100 text-green-800'
       case 'delivered': return 'bg-green-100 text-green-800'
+      case 'completed': return 'bg-green-100 text-green-800'
       case 'on_hold': return 'bg-red-100 text-red-800'
+      case 'cancelled': return 'bg-gray-100 text-gray-800'
       default: return 'bg-card text-gray-800'
     }
   }
@@ -293,8 +310,8 @@ const OrderManagement: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Printed</p>
-              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'printed').length}</p>
+              <p className="text-sm font-medium text-muted">Processing</p>
+              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'processing').length}</p>
             </div>
           </div>
         </div>
@@ -342,10 +359,18 @@ const OrderManagement: React.FC = () => {
         </div>
       </div>
 
+      {/* Loading State */}
+      {isLoading && (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-muted">Loading orders...</p>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="border-b card-border mb-6">
         <nav className="-mb-px flex space-x-8">
-          {['pending', 'printed', 'shipped', 'on_hold', 'all'].map((tab) => (
+          {['pending', 'processing', 'shipped', 'on_hold', 'all'].map((tab) => (
             <button
               key={tab}
               onClick={() => setSelectedTab(tab as any)}
@@ -418,7 +443,7 @@ const OrderManagement: React.FC = () => {
                     >
                       Manage
                     </button>
-                    {order.status === 'printed' && !order.shippingLabelUrl && (
+                    {(order.status === 'printed' || order.status === 'processing') && !order.shippingLabelUrl && (
                       <button
                         onClick={() => {
                           setSelectedOrder(order)
@@ -495,8 +520,8 @@ const OrderManagement: React.FC = () => {
 
             <div className="mb-6">
               <h4 className="font-semibold text-text mb-3">Status Management</h4>
-              <div className="flex space-x-2">
-                {['pending', 'printed', 'shipped', 'on_hold'].map((status) => (
+              <div className="flex flex-wrap gap-2">
+                {['pending', 'processing', 'shipped', 'delivered', 'on_hold', 'cancelled'].map((status) => (
                   <button
                     key={status}
                     onClick={() => updateOrderStatus(selectedOrder.id, status as Order['status'])}

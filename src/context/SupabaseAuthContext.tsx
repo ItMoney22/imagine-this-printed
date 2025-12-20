@@ -48,11 +48,17 @@ export const useAuth = () => {
 const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null> => {
   const userId = supabaseUser.id
 
-  // Check cache first
+  // Check cache first - but only use it if it has proper data (username and role)
   const cached = profileCache.get(userId)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log('[AuthContext] ⚡ Using cached profile for:', userId)
-    return cached.user
+    // Only use cache if it has real username (not email-derived) and proper role
+    if (cached.user.username && !cached.user.username.includes('@')) {
+      console.log('[AuthContext] ⚡ Using cached profile:', cached.user.username, 'role:', cached.user.role)
+      return cached.user
+    }
+    // Cache has stale data, clear it
+    console.log('[AuthContext] 🧹 Cache has stale data, refetching...')
+    profileCache.delete(userId)
   }
 
   try {
@@ -92,9 +98,9 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
 
     const mappedUser: User = {
       id: profile.id,
-      email: profile.email,
+      email: profile.email || supabaseUser.email || '',
       role: profile.role || 'customer',
-      username: profile.username,
+      username: profile.username || profile.display_name || supabaseUser.email?.split('@')[0] || 'user',
       displayName: profile.display_name,
       firstName: profile.first_name,
       lastName: profile.last_name,
@@ -151,33 +157,21 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       return
     }
 
-    // Skip if user hasn't changed and we already have data
-    if (lastUserIdRef.current === supabaseUser.id && user?.id === supabaseUser.id) {
-      console.log(`[AuthContext] ${source}: User unchanged, using existing`)
-      setLoading(false)
-      return
-    }
-
     isProcessingRef.current = true
     lastUserIdRef.current = supabaseUser.id
 
     try {
       const mappedUser = await fetchUserProfile(supabaseUser)
       if (mappedUser) {
-        setUser(prev => {
-          // Preserve non-customer role if new fetch returns customer
-          if (prev?.id === mappedUser.id && prev.role !== 'customer' && mappedUser.role === 'customer') {
-            console.log('[AuthContext] 🔒 Preserving role:', prev.role)
-            return { ...mappedUser, role: prev.role }
-          }
-          return mappedUser
-        })
+        // Always use the fetched role - database is source of truth
+        console.log('[AuthContext] 📋 Setting user:', mappedUser.username, 'role:', mappedUser.role)
+        setUser(mappedUser)
       }
     } finally {
       isProcessingRef.current = false
       setLoading(false)
     }
-  }, [user])
+  }, []) // No dependencies - always fetch fresh from database
 
   useEffect(() => {
     console.log('[AuthContext] 🚀 Initializing...')
@@ -207,7 +201,11 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting sign in for:', email)
-    
+
+    // Clear profile cache to force fresh profile fetch
+    profileCache.clear()
+    lastUserIdRef.current = null
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -267,6 +265,10 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const signInWithGoogle = async (): Promise<{ error?: string }> => {
     console.log('[AuthContext] 🔄 Attempting Google OAuth sign in')
+
+    // Clear profile cache to force fresh profile fetch after OAuth
+    profileCache.clear()
+    lastUserIdRef.current = null
 
     try {
       // Save current path for post-auth redirect

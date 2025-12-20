@@ -40,10 +40,12 @@ interface Design {
 
 interface Order {
   id: string
+  order_number?: string
   total: number
   status: string
+  payment_status?: string
   created_at: string
-  order_items: { product_name: string; quantity: number }[]
+  order_items: { product_name: string; quantity: number; price?: number }[]
 }
 
 interface Review {
@@ -226,7 +228,7 @@ const UserProfilePage = () => {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('id, total, status, created_at, order_items(product_name, quantity)')
+        .select('id, order_number, total, status, payment_status, created_at, order_items(product_name, quantity, price)')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(20)
@@ -582,7 +584,7 @@ const UserProfilePage = () => {
                 <h3 className="text-lg font-display font-bold text-slate-900 mb-2">No orders yet</h3>
                 <p className="text-slate-500 mb-6">Start shopping to see your order history here.</p>
                 <Link
-                  to="/products"
+                  to="/catalog"
                   className="btn-primary"
                 >
                   Browse Products
@@ -592,32 +594,68 @@ const UserProfilePage = () => {
               orders.map(order => (
                 <div
                   key={order.id}
-                  className="bg-white rounded-2xl shadow-soft border border-slate-100 p-5 flex items-center justify-between hover:shadow-soft-lg transition-shadow"
+                  className="bg-white rounded-2xl shadow-soft border border-slate-100 p-5 hover:shadow-soft-lg transition-shadow"
                 >
-                  <div>
-                    <p className="text-slate-900 font-semibold">Order #{order.id.slice(0, 8)}</p>
-                    <p className="text-sm text-slate-500 mt-0.5">
-                      {new Date(order.created_at).toLocaleDateString('en-US', {
-                        month: 'long',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                    </p>
-                    <p className="text-sm text-slate-400 mt-1">
-                      {(order.order_items || []).length} item(s)
-                    </p>
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <p className="text-slate-900 font-semibold">
+                        Order #{order.order_number || order.id.slice(0, 8).toUpperCase()}
+                      </p>
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {new Date(order.created_at).toLocaleDateString('en-US', {
+                          month: 'long',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xl font-display font-bold text-slate-900">${order.total?.toFixed(2) || '0.00'}</p>
+                      <div className="flex gap-2 mt-1 justify-end">
+                        <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full ${
+                          order.status === 'delivered' ? 'bg-emerald-50 text-emerald-700' :
+                          order.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
+                          order.status === 'shipped' ? 'bg-blue-50 text-blue-700' :
+                          order.status === 'processing' ? 'bg-amber-50 text-amber-700' :
+                          order.status === 'pending' ? 'bg-slate-100 text-slate-600' :
+                          'bg-slate-100 text-slate-600'
+                        }`}>
+                          {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || 'Pending'}
+                        </span>
+                        {order.payment_status && order.payment_status !== order.status && (
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            order.payment_status === 'paid' ? 'bg-green-50 text-green-600' :
+                            order.payment_status === 'pending' ? 'bg-yellow-50 text-yellow-600' :
+                            'bg-red-50 text-red-600'
+                          }`}>
+                            {order.payment_status === 'paid' ? '✓ Paid' : order.payment_status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xl font-display font-bold text-slate-900">${order.total?.toFixed(2) || '0.00'}</p>
-                    <span className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full mt-1 ${
-                      order.status === 'delivered' ? 'bg-emerald-50 text-emerald-700' :
-                      order.status === 'shipped' ? 'bg-blue-50 text-blue-700' :
-                      order.status === 'processing' ? 'bg-amber-50 text-amber-700' :
-                      'bg-slate-100 text-slate-600'
-                    }`}>
-                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                    </span>
-                  </div>
+
+                  {/* Order Items */}
+                  {order.order_items && order.order_items.length > 0 && (
+                    <div className="border-t border-slate-100 pt-3 mt-3">
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Items</p>
+                      <div className="space-y-1.5">
+                        {order.order_items.slice(0, 3).map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">{item.product_name}</span>
+                            <span className="text-slate-500">
+                              x{item.quantity} {item.price && <span className="text-slate-400">· ${(item.price * item.quantity).toFixed(2)}</span>}
+                            </span>
+                          </div>
+                        ))}
+                        {order.order_items.length > 3 && (
+                          <p className="text-xs text-slate-400">+{order.order_items.length - 3} more item(s)</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             )}

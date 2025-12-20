@@ -59,9 +59,10 @@ import { AdminVoiceSettings } from './pages/admin/VoiceSettings'
 import AdminImaginationProducts from './pages/admin/ImaginationProducts'
 import ImaginationStation from './pages/ImaginationStation'
 import { ImaginationErrorBoundary } from './components/imagination'
+import OrderSuccess from './pages/OrderSuccess'
 
 // Routes that should hide the main header/footer for full-screen experience
-const FULL_SCREEN_ROUTES = ['/imagination-station']
+const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success']
 
 // Layout component that conditionally shows header/footer
 function AppLayout({ children }: { children: React.ReactNode }) {
@@ -106,6 +107,7 @@ function App() {
                   <Route path="/designer" element={<Navigate to="/imagination-station" replace />} />
                   <Route path="/cart" element={<Cart />} />
                   <Route path="/checkout" element={<Checkout />} />
+                  <Route path="/order-success" element={<OrderSuccess />} />
                   <Route path="/founders" element={<FoundersDashboard />} />
                   <Route path="/vendor" element={<VendorDashboard />} />
                   <Route path="/models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />

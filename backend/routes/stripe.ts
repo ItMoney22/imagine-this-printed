@@ -44,7 +44,7 @@ function checkRateLimit(userId: string): boolean {
 // POST /api/stripe/checkout-payment-intent - Create payment intent for product checkout
 router.post('/checkout-payment-intent', async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, discount } = req.body
+    const { amount, currency, items, shipping, couponCode, discount, userId, shippingCost, tax } = req.body
 
     // Validate amount (in cents)
     if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents
@@ -56,6 +56,82 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
       return res.status(400).json({ error: 'Only USD currency is supported' })
     }
 
+    // Calculate subtotal from items
+    const subtotal = items?.reduce((sum: number, item: any) =>
+      sum + (item.product?.price || 0) * (item.quantity || 1), 0) || 0
+
+    // Generate order number
+    const orderNumber = `ITP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+
+    // Create order in database
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        order_number: orderNumber,
+        user_id: userId || null,
+        customer_email: shipping?.email || null,
+        customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
+        subtotal: subtotal,
+        tax_amount: tax || 0,
+        shipping_amount: shippingCost || 0,
+        discount_amount: discount || 0,
+        total: amount / 100,
+        currency: 'USD',
+        status: 'pending',
+        payment_status: 'pending',
+        fulfillment_status: 'unfulfilled',
+        payment_method: 'stripe',
+        shipping_address: {
+          firstName: shipping?.firstName,
+          lastName: shipping?.lastName,
+          address: shipping?.address,
+          city: shipping?.city,
+          state: shipping?.state,
+          zipCode: shipping?.zipCode,
+          country: shipping?.country || 'US',
+          email: shipping?.email
+        },
+        discount_codes: couponCode ? [couponCode] : [],
+        source: 'web',
+        metadata: {
+          items: items?.map((i: any) => ({
+            id: i.product?.id,
+            name: i.product?.name,
+            price: i.product?.price,
+            quantity: i.quantity,
+            image: i.product?.images?.[0]
+          }))
+        }
+      })
+      .select()
+      .single()
+
+    if (orderError) {
+      req.log?.error({ err: orderError }, 'Error creating order in database')
+      return res.status(500).json({ error: 'Failed to create order', message: orderError.message })
+    }
+
+    // Create order items
+    if (items && items.length > 0) {
+      const orderItems = items.map((item: any) => ({
+        order_id: order.id,
+        product_id: item.product?.id || null,
+        product_name: item.product?.name || 'Unknown Product',
+        quantity: item.quantity || 1,
+        price: item.product?.price || 0,
+        total: (item.product?.price || 0) * (item.quantity || 1),
+        variations: item.selectedSize || item.selectedColor ? {
+          size: item.selectedSize,
+          color: item.selectedColor
+        } : {},
+        personalization: item.customDesign ? {
+          designUrl: item.customDesign
+        } : {}
+      }))
+
+      await supabase.from('order_items').insert(orderItems)
+    }
+
     // Build description from items
     const itemDescriptions = items?.map((item: any) =>
       `${item.quantity}x ${item.product?.name || 'Product'}`
@@ -65,8 +141,10 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
     const paymentIntent = await stripe.paymentIntents.create({
       amount, // Amount in cents
       currency,
-      description: `Order: ${itemDescriptions}`,
+      description: `Order ${orderNumber}: ${itemDescriptions}`,
       metadata: {
+        orderId: order.id,
+        orderNumber: orderNumber,
         items: JSON.stringify(items?.map((i: any) => ({
           id: i.product?.id,
           name: i.product?.name,
@@ -84,15 +162,25 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
       }
     })
 
+    // Update order with payment intent ID
+    await supabase
+      .from('orders')
+      .update({ payment_intent_id: paymentIntent.id })
+      .eq('id', order.id)
+
     req.log?.info({
       paymentIntentId: paymentIntent.id,
+      orderId: order.id,
+      orderNumber: orderNumber,
       amount: amount / 100,
       itemCount: items?.length || 0
-    }, 'Checkout payment intent created')
+    }, 'Checkout payment intent and order created')
 
     return res.json({
       clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id
+      paymentIntentId: paymentIntent.id,
+      orderId: order.id,
+      orderNumber: orderNumber
     })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error creating checkout payment intent')
@@ -262,30 +350,107 @@ router.post('/webhook', async (req: Request, res: Response): Promise<any> => {
 
 // Handle successful payment
 async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent, req: Request) {
-  const { userId, itcAmount, packagePriceUSD, orderId, productId } = paymentIntent.metadata
+  const { userId, itcAmount, packagePriceUSD, orderId, orderNumber, productId } = paymentIntent.metadata
 
-  // Determine payment type: ITC purchase or product order
+  // Determine payment type: ITC purchase, checkout order, or legacy product order
   const isITCPurchase = itcAmount && packagePriceUSD
-  const isProductOrder = orderId && productId
-
-  if (!userId) {
-    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing userId in metadata')
-    throw new Error('Missing userId in metadata')
-  }
+  const isCheckoutOrder = orderId && orderNumber && !productId
+  const isLegacyProductOrder = orderId && productId
 
   // Handle ITC token purchase
   if (isITCPurchase) {
+    if (!userId) {
+      req.log?.error({ metadata: paymentIntent.metadata }, 'Missing userId in ITC purchase metadata')
+      throw new Error('Missing userId in metadata')
+    }
     await handleITCPurchase(paymentIntent, req)
+    return
   }
 
-  // Handle product order payment
-  if (isProductOrder) {
+  // Handle checkout order (product order from checkout page)
+  if (isCheckoutOrder) {
+    await handleCheckoutOrderPayment(paymentIntent, req)
+    return
+  }
+
+  // Handle legacy product order payment
+  if (isLegacyProductOrder) {
+    if (!userId) {
+      req.log?.error({ metadata: paymentIntent.metadata }, 'Missing userId in product order metadata')
+      throw new Error('Missing userId in metadata')
+    }
     await handleProductOrderPayment(paymentIntent, req)
+    return
   }
 
-  if (!isITCPurchase && !isProductOrder) {
-    req.log?.warn({ metadata: paymentIntent.metadata }, 'Payment type could not be determined')
+  req.log?.warn({ metadata: paymentIntent.metadata }, 'Payment type could not be determined')
+}
+
+// Handle checkout order payment (from checkout page)
+async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, req: Request) {
+  const { orderId, orderNumber } = paymentIntent.metadata
+
+  if (!orderId) {
+    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing orderId in checkout order metadata')
+    throw new Error('Missing orderId in metadata')
   }
+
+  req.log?.info({
+    orderId,
+    orderNumber,
+    amount: paymentIntent.amount
+  }, 'Processing checkout order payment')
+
+  // Update order status to paid/processing
+  const { error: orderUpdateError } = await supabase
+    .from('orders')
+    .update({
+      status: 'processing',
+      payment_status: 'paid',
+      payment_intent_id: paymentIntent.id,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+
+  if (orderUpdateError) {
+    req.log?.error({ err: orderUpdateError, orderId }, 'Failed to update order status')
+    throw new Error('Failed to update order status')
+  }
+
+  // Get order details for notification/email
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .select('*, order_items(*)')
+    .eq('id', orderId)
+    .single()
+
+  if (orderError) {
+    req.log?.error({ err: orderError, orderId }, 'Failed to fetch order details')
+    // Don't throw - order was updated successfully
+  }
+
+  // Send order confirmation email
+  if (order?.customer_email) {
+    try {
+      await sendOrderConfirmationEmail(order)
+    } catch (emailError) {
+      req.log?.error({ err: emailError, orderId }, 'Failed to send order confirmation email')
+      // Don't throw - this is non-critical
+    }
+  }
+
+  req.log?.info({
+    orderId,
+    orderNumber,
+    paymentIntentId: paymentIntent.id,
+    customerEmail: order?.customer_email
+  }, '✅ Checkout order payment processed successfully')
+}
+
+// Send order confirmation email
+async function sendOrderConfirmationEmail(order: any) {
+  // TODO: Implement Brevo email sending for order confirmation
+  console.log(`[Email] Would send order confirmation to ${order.customer_email}: Order #${order.order_number}`)
 }
 
 // Handle ITC token purchase

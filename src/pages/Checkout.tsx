@@ -11,7 +11,7 @@ import { Tag, X } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
-const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> = ({ }) => {
+const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, orderId: string }> = ({ orderId }) => {
   const { clearCart } = useCart()
   const navigate = useNavigate()
   const stripe = useStripe()
@@ -20,7 +20,7 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> 
     const result = await stripe?.confirmPayment({
       elements: event.elements,
       confirmParams: {
-        return_url: `${window.location.origin}/`,
+        return_url: `${window.location.origin}/order-success?order_id=${orderId}`,
       },
       redirect: 'if_required'
     })
@@ -29,7 +29,7 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> 
       console.error('Express payment failed:', result.error)
     } else {
       clearCart()
-      navigate('/')
+      navigate(`/order-success?order_id=${orderId}`)
     }
   }
 
@@ -60,7 +60,7 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any }> 
   )
 }
 
-const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[], shipping: any }> = ({ total, items, shipping }) => {
+const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[], shipping: any, orderId: string }> = ({ orderId }) => {
   const stripe = useStripe()
   const elements = useElements()
   const { clearCart } = useCart()
@@ -82,7 +82,7 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
     const { error } = await stripe.confirmPayment({
       elements,
       confirmParams: {
-        return_url: `${window.location.origin}/`,
+        return_url: `${window.location.origin}/order-success?order_id=${orderId}`,
       },
       redirect: 'if_required'
     })
@@ -92,14 +92,14 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
     } else {
       setMessage('Payment successful!')
       clearCart()
-      navigate('/')
+      navigate(`/order-success?order_id=${orderId}`)
     }
     setLoading(false)
   }
 
   return (
     <div className="space-y-6">
-      <ExpressCheckout total={total} items={items} shipping={shipping} />
+      <ExpressCheckout total={0} items={[]} shipping={{}} orderId={orderId} />
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-card rounded-lg shadow p-6">
@@ -156,6 +156,7 @@ const Checkout: React.FC = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [clientSecret, setClientSecret] = useState('')
+  const [orderId, setOrderId] = useState('')
   const [shippingCalculation, setShippingCalculation] = useState<ShippingCalculation | null>(null)
   const [loadingShipping, setLoadingShipping] = useState(false)
   const [processingITCPayment, setProcessingITCPayment] = useState(false)
@@ -291,12 +292,18 @@ const Checkout: React.FC = () => {
           items: usdItems,
           shipping: formData,
           couponCode: appliedCoupon?.code,
-          discount: discount
+          discount: discount,
+          userId: user?.id || null,
+          shippingCost: shipping,
+          tax: tax
         }),
       })
 
       if (data.clientSecret) {
         setClientSecret(data.clientSecret)
+        if (data.orderId) {
+          setOrderId(data.orderId)
+        }
       } else {
         console.error('No client secret received:', data)
       }
@@ -334,7 +341,7 @@ const Checkout: React.FC = () => {
         // If there are no USD items, complete the order
         if (!requiresUSDPayment) {
           clearCart()
-          navigate('/')
+          navigate(`/order-success?order_id=${response.orderId || 'itc'}`)
         }
         // Otherwise, wait for USD payment to complete
       } else {
@@ -610,6 +617,7 @@ const Checkout: React.FC = () => {
                   total={totalUSD}
                   items={usdItems}
                   shipping={formData}
+                  orderId={orderId}
                 />
               </Elements>
             )}
