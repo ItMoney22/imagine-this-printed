@@ -72,6 +72,12 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
 
     if (error || !profile) {
       console.warn('[AuthContext] ⚠️ Profile fetch failed:', error?.message)
+      // Check if we have a cached version with better role
+      const staleCache = profileCache.get(userId)
+      if (staleCache && staleCache.user.role !== 'customer') {
+        console.log('[AuthContext] 🔒 Using stale cache to preserve role:', staleCache.user.role)
+        return staleCache.user
+      }
       // Return minimal user from Supabase data for fast fallback
       return {
         id: userId,
@@ -104,6 +110,12 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
     return mappedUser
   } catch (error) {
     console.error('[AuthContext] ❌ Profile error:', error)
+    // Check if we have a cached version with better role
+    const staleCache = profileCache.get(userId)
+    if (staleCache && staleCache.user.role !== 'customer') {
+      console.log('[AuthContext] 🔒 Using stale cache to preserve role:', staleCache.user.role)
+      return staleCache.user
+    }
     // Fast fallback - don't block on errors
     return {
       id: userId,

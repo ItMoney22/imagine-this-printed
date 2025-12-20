@@ -350,6 +350,9 @@ const Home: React.FC = () => {
                     src="/mr-imagine/welcome-video.mp4"
                     className="w-full h-auto object-cover"
                     playsInline
+                    autoPlay
+                    muted
+                    loop
                   />
                 </div>
 
