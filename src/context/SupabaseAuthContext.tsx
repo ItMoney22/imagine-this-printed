@@ -65,6 +65,7 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
     console.log('[AuthContext] 🔍 Fetching profile for:', userId)
 
     // Optimized query - only fetch needed columns, 5s timeout
+    const startTime = Date.now()
     const { data: profile, error } = await Promise.race([
       supabase
         .from('user_profiles')
@@ -75,9 +76,12 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
         setTimeout(() => reject(new Error('Profile timeout')), 5000)
       )
     ])
+    const elapsed = Date.now() - startTime
+    console.log(`[AuthContext] 📊 Profile query took ${elapsed}ms`)
 
     if (error || !profile) {
-      console.warn('[AuthContext] ⚠️ Profile fetch failed:', error?.message)
+      console.warn('[AuthContext] ⚠️ Profile fetch failed:', error?.message, 'error code:', error?.code)
+      console.warn('[AuthContext] ⚠️ FALLING BACK TO CUSTOMER ROLE - this is the problem!')
       // Check if we have a cached version with better role
       const staleCache = profileCache.get(userId)
       if (staleCache && staleCache.user.role !== 'customer') {
@@ -95,6 +99,15 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
         wallet: undefined
       }
     }
+
+    // SUCCESS - Log what we got from the database
+    console.log('[AuthContext] ✅ RAW PROFILE DATA FROM DB:', {
+      id: profile.id,
+      email: profile.email,
+      role: profile.role,
+      username: profile.username,
+      display_name: profile.display_name
+    })
 
     const mappedUser: User = {
       id: profile.id,
@@ -114,8 +127,9 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
     console.log('[AuthContext] ✅ Profile loaded:', mappedUser.username, 'role:', mappedUser.role)
 
     return mappedUser
-  } catch (error) {
-    console.error('[AuthContext] ❌ Profile error:', error)
+  } catch (error: any) {
+    console.error('[AuthContext] ❌ Profile error (TIMEOUT OR EXCEPTION):', error?.message || error)
+    console.error('[AuthContext] ❌ This caused FALLBACK TO CUSTOMER ROLE!')
     // Check if we have a cached version with better role
     const staleCache = profileCache.get(userId)
     if (staleCache && staleCache.user.role !== 'customer') {
