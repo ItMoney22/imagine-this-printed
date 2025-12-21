@@ -73,7 +73,7 @@ const CRM: React.FC = () => {
             notes: [],
             totalSpent: stats.totalSpent,
             totalOrders: stats.totalOrders,
-            lastOrderDate: stats.lastOrderDate,
+            lastOrderDate: stats.lastOrderDate || undefined,
             registrationDate: profile.created_at,
             preferredProducts: []
           }
