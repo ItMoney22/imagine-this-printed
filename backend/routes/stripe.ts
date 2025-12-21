@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import Stripe from 'stripe'
-import { requireAuth } from '../middleware/supabaseAuth.js'
+import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import {
   ITC_PACKAGES,
@@ -8,6 +8,11 @@ import {
   isValidPackageAmount
 } from '../config/itc-pricing.js'
 import { processRoyaltyPayment, calculateRoyalty } from '../services/user-royalties.js'
+import {
+  sendOrderConfirmationEmail as sendOrderEmail,
+  sendOrderShippedEmail,
+  sendOrderDeliveredEmail
+} from '../utils/email.js'
 
 const router = Router()
 
@@ -447,10 +452,27 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   }, '✅ Checkout order payment processed successfully')
 }
 
-// Send order confirmation email
+// Send order confirmation email using Brevo
 async function sendOrderConfirmationEmail(order: any) {
-  // TODO: Implement Brevo email sending for order confirmation
-  console.log(`[Email] Would send order confirmation to ${order.customer_email}: Order #${order.order_number}`)
+  if (!order.customer_email) {
+    console.log('[Email] No customer email, skipping order confirmation')
+    return
+  }
+
+  // Format items for email
+  const items = order.order_items?.map((item: any) => ({
+    name: item.product_name || 'Product',
+    quantity: item.quantity || 1,
+    price: item.price || 0
+  })) || []
+
+  await sendOrderEmail(
+    order.customer_email,
+    order.id,
+    items,
+    order.total || 0
+  )
+  console.log(`[Email] Order confirmation sent to ${order.customer_email}: Order #${order.order_number}`)
 }
 
 // Handle ITC token purchase
@@ -666,5 +688,120 @@ async function sendPurchaseConfirmationEmail(userId: string, itcAmount: number, 
   // For now, just log
   console.log(`[Email] Would send confirmation to ${profile.email}: ${itcAmount} ITC for $${usdAmount}`)
 }
+
+// PATCH /api/stripe/orders/:orderId/status - Update order status and send emails
+router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const { status, trackingNumber, carrier } = req.body
+
+    if (!orderId) {
+      return res.status(400).json({ error: 'Order ID is required' })
+    }
+
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' })
+    }
+
+    const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'completed', 'cancelled', 'refunded']
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` })
+    }
+
+    // Get order details first
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single()
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    // Prepare update object
+    const updateData: any = {
+      status,
+      updated_at: new Date().toISOString()
+    }
+
+    // Add tracking info if provided
+    if (trackingNumber) {
+      updateData.tracking_number = trackingNumber
+    }
+    if (carrier) {
+      updateData.shipping_carrier = carrier
+    }
+
+    // Update fulfillment status based on order status
+    if (status === 'shipped') {
+      updateData.fulfillment_status = 'fulfilled'
+    } else if (status === 'delivered') {
+      updateData.fulfillment_status = 'delivered'
+    }
+
+    // Update order status
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update(updateData)
+      .eq('id', orderId)
+
+    if (updateError) {
+      req.log?.error({ err: updateError, orderId }, 'Failed to update order status')
+      return res.status(500).json({ error: 'Failed to update order status' })
+    }
+
+    // Send appropriate email based on status change
+    if (order.customer_email) {
+      try {
+        if (status === 'shipped') {
+          await sendOrderShippedEmail(order.customer_email, orderId, trackingNumber, carrier)
+          req.log?.info({ orderId, email: order.customer_email }, 'Shipped notification email sent')
+        } else if (status === 'delivered') {
+          await sendOrderDeliveredEmail(order.customer_email, orderId)
+          req.log?.info({ orderId, email: order.customer_email }, 'Delivered notification email sent')
+        }
+      } catch (emailError) {
+        req.log?.error({ err: emailError, orderId }, 'Failed to send status update email')
+        // Don't fail the request if email fails
+      }
+    }
+
+    // Create audit log
+    await supabase.from('audit_logs').insert({
+      user_id: req.user?.sub,
+      action: 'order_status_updated',
+      entity: 'order',
+      entity_id: orderId,
+      changes: {
+        previous_status: order.status,
+        new_status: status,
+        tracking_number: trackingNumber || null,
+        carrier: carrier || null
+      },
+      created_at: new Date().toISOString()
+    })
+
+    req.log?.info({
+      orderId,
+      previousStatus: order.status,
+      newStatus: status
+    }, 'Order status updated successfully')
+
+    return res.json({
+      ok: true,
+      message: `Order status updated to ${status}`,
+      order: {
+        id: orderId,
+        status,
+        tracking_number: trackingNumber,
+        carrier
+      }
+    })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'Error updating order status')
+    return res.status(500).json({ error: error.message })
+  }
+})
 
 export default router

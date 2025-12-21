@@ -486,3 +486,421 @@ export const sendPayoutEmail = async (
     `
   })
 }
+
+// ===============================
+// ORDER STATUS EMAILS
+// ===============================
+
+interface OrderItem {
+  name: string
+  quantity: number
+  price: number
+}
+
+/**
+ * Send order confirmation email to customer
+ */
+export const sendOrderConfirmationEmail = async (
+  email: string,
+  orderId: string,
+  items: OrderItem[],
+  total: number
+): Promise<boolean> => {
+  const itemsHtml = items.map(item => `
+    <tr>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${item.name}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.quantity}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
+    </tr>
+  `).join('')
+
+  return sendEmail({
+    to: email,
+    subject: `🎉 Order Confirmed - ${orderId}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">Order Confirmed! 🎉</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">Order Number</p>
+          <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">Order Summary</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 12px; text-align: left; font-weight: 600; color: #374151;">Item</th>
+                <th style="padding: 12px; text-align: center; font-weight: 600; color: #374151;">Qty</th>
+                <th style="padding: 12px; text-align: right; font-weight: 600; color: #374151;">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="2" style="padding: 12px; font-weight: bold; color: #374151;">Total</td>
+                <td style="padding: 12px; text-align: right; font-weight: bold; color: #059669; font-size: 18px;">$${total.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+          <h4 style="color: #374151; margin: 0 0 10px 0;">What's Next?</h4>
+          <ul style="color: #6b7280; font-size: 14px; line-height: 1.8; margin: 0; padding-left: 20px;">
+            <li>We're preparing your order for printing</li>
+            <li>You'll receive an email when it ships</li>
+            <li>Track your order anytime in your account</li>
+          </ul>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            View Order Status
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Thank you for your order!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
+ * Send shipping notification email to customer
+ */
+export const sendOrderShippedEmail = async (
+  email: string,
+  orderId: string,
+  trackingNumber?: string,
+  carrier?: string
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `📦 Your Order Has Shipped! - ${orderId}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">Your Order is On Its Way! 📦</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #3730a3; font-size: 14px; margin: 0 0 10px 0;">Order Number</p>
+          <p style="color: #4f46e5; font-size: 24px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+        </div>
+
+        ${trackingNumber ? `
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">Tracking Information</h3>
+          <div style="background: #f9fafb; border-radius: 8px; padding: 15px;">
+            <p style="color: #6b7280; margin: 0 0 5px 0;">Carrier: <strong>${carrier || 'Standard Shipping'}</strong></p>
+            <p style="color: #6b7280; margin: 0;">Tracking Number: <strong>${trackingNumber}</strong></p>
+          </div>
+        </div>
+        ` : ''}
+
+        <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+          <h4 style="color: #374151; margin: 0 0 10px 0;">Estimated Delivery</h4>
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">
+            Your package should arrive within 3-7 business days. We'll send you an update when it's delivered!
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Track Your Order
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Can't wait to hear what you think!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
+ * Send delivery confirmation email to customer
+ */
+export const sendOrderDeliveredEmail = async (
+  email: string,
+  orderId: string
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `✅ Your Order Has Been Delivered! - ${orderId}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #059669; margin: 0;">Delivered! ✅</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #065f46; font-size: 14px; margin: 0 0 10px 0;">Order Number</p>
+          <p style="color: #047857; font-size: 24px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+          <p style="color: #065f46; font-size: 16px; margin: 15px 0 0 0;">Your order has been delivered!</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px; text-align: center;">
+          <h3 style="color: #374151; margin-top: 0;">Love your new prints?</h3>
+          <p style="color: #6b7280; font-size: 15px; line-height: 1.6;">
+            We'd love to see how you're using them! Share a photo on social media and tag us @imaginethisprinted
+          </p>
+          <div style="margin-top: 15px;">
+            <span style="font-size: 24px; cursor: pointer; margin: 0 5px;">😊</span>
+            <span style="font-size: 24px; cursor: pointer; margin: 0 5px;">😍</span>
+            <span style="font-size: 24px; cursor: pointer; margin: 0 5px;">🎉</span>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/catalog" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Shop More Designs
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Questions about your order? Just reply to this email!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+// ===============================
+// WELCOME EMAIL
+// ===============================
+
+/**
+ * Send welcome email to new users
+ */
+export const sendWelcomeEmail = async (
+  email: string,
+  username: string
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `🎨 Welcome to Imagine This Printed, ${username}!`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">Welcome to the Family! 🎨</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <h2 style="color: #374151; margin: 0 0 10px 0;">Hey ${username}!</h2>
+          <p style="color: #6b7280; font-size: 16px; margin: 0;">
+            We're so excited to have you join our creative community.
+          </p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">Here's what you can do:</h3>
+          <ul style="color: #6b7280; font-size: 15px; line-height: 2;">
+            <li>🛒 <strong>Shop</strong> - Browse thousands of unique designs</li>
+            <li>🎨 <strong>Create</strong> - Design your own custom products</li>
+            <li>💰 <strong>Earn</strong> - Submit designs and earn 10% royalties</li>
+            <li>🎁 <strong>Points</strong> - Earn points on every purchase</li>
+          </ul>
+        </div>
+
+        <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #7c3aed; font-size: 18px; font-weight: bold; margin: 0 0 5px 0;">🎉 Welcome Gift!</p>
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">
+            Use code <strong style="color: #7c3aed;">WELCOME10</strong> for 10% off your first order!
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/catalog" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Start Exploring
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Questions? Just reply to this email or use our chat widget!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+// ===============================
+// CUSTOM JOB REQUEST EMAILS
+// ===============================
+
+/**
+ * Send confirmation when a custom job is submitted
+ */
+export const sendCustomJobSubmittedEmail = async (
+  email: string,
+  jobId: string,
+  title: string
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `📋 Custom Job Request Received - ${title}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">Request Received! 📋</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">Request ID</p>
+          <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${jobId.slice(0, 8).toUpperCase()}</p>
+          <p style="color: #374151; font-size: 16px; margin: 15px 0 0 0;">${title}</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">What happens next?</h3>
+          <ol style="color: #6b7280; font-size: 15px; line-height: 1.8;">
+            <li>Our team will review your request within 24-48 hours</li>
+            <li>We'll send you a quote with pricing and timeline</li>
+            <li>Once approved, we'll start working on your custom project</li>
+            <li>You'll receive updates as we progress</li>
+          </ol>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Continue Shopping
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Have questions? Reply to this email anytime!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
+ * Send notification when a custom job is approved
+ */
+export const sendCustomJobApprovedEmail = async (
+  email: string,
+  jobId: string,
+  title: string,
+  estimatedCost: number
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `✅ Custom Job Approved - ${title}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #059669; margin: 0;">Your Request is Approved! ✅</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #065f46; font-size: 14px; margin: 0 0 10px 0;">Request ID</p>
+          <p style="color: #047857; font-size: 24px; font-weight: bold; margin: 0;">${jobId.slice(0, 8).toUpperCase()}</p>
+          <p style="color: #065f46; font-size: 16px; margin: 15px 0 0 0;">${title}</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">Project Details</h3>
+          <div style="background: #f9fafb; border-radius: 8px; padding: 15px; text-align: center;">
+            <p style="color: #6b7280; margin: 0 0 5px 0;">Estimated Cost</p>
+            <p style="color: #059669; font-size: 32px; font-weight: bold; margin: 0;">$${estimatedCost.toFixed(2)}</p>
+          </div>
+          <p style="color: #6b7280; font-size: 14px; text-align: center; margin: 15px 0 0 0;">
+            Our team has started working on your custom project!
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/contact" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Contact Us With Questions
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            We'll keep you updated on the progress!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
+ * Send notification when a custom job is completed
+ */
+export const sendCustomJobCompletedEmail = async (
+  email: string,
+  jobId: string,
+  title: string
+): Promise<boolean> => {
+  return sendEmail({
+    to: email,
+    subject: `🎉 Your Custom Project is Ready! - ${title}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">Your Project is Complete! 🎉</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">Request ID</p>
+          <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${jobId.slice(0, 8).toUpperCase()}</p>
+          <p style="color: #374151; font-size: 16px; margin: 15px 0 0 0;">${title}</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px; text-align: center;">
+          <h3 style="color: #374151; margin-top: 0;">Great news!</h3>
+          <p style="color: #6b7280; font-size: 15px; line-height: 1.6;">
+            Your custom project has been completed and is ready for shipping or pickup!
+            We can't wait for you to see the final result.
+          </p>
+        </div>
+
+        <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">
+            Our team will reach out shortly with delivery details.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/contact" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Contact Us
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Thank you for trusting us with your custom project!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}

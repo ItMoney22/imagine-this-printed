@@ -60,6 +60,7 @@ import AdminImaginationProducts from './pages/admin/ImaginationProducts'
 import ImaginationStation from './pages/ImaginationStation'
 import { ImaginationErrorBoundary } from './components/imagination'
 import OrderSuccess from './pages/OrderSuccess'
+import Contact from './pages/Contact'
 
 // Routes that should hide the main header/footer for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success']
@@ -118,6 +119,7 @@ function App() {
                   <Route path="/marketing" element={<MarketingTools />} />
                   <Route path="/orders" element={<OrderManagement />} />
                   <Route path="/referrals" element={<Referrals />} />
+                  <Route path="/contact" element={<Contact />} />
                   <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
 
                   {/* Account & Profile Routes */}

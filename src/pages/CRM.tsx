@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { supabase } from '../lib/supabase'
 import type { CustomerContact, ContactNote, CustomJobRequest, Order } from '../types'
 
 const CRM: React.FC = () => {
@@ -17,201 +18,131 @@ const CRM: React.FC = () => {
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [chatMessages, setChatMessages] = useState<{[customerId: string]: Array<{id: string, message: string, sender: string, timestamp: string}>}>({})
   const [newChatMessage, setNewChatMessage] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Mock data - replace with real PostgreSQL queries
+  // Fetch real data from Supabase
   useEffect(() => {
-    const mockCustomers: CustomerContact[] = [
-      {
-        id: '1',
-        userId: 'user1',
-        email: 'john.doe@example.com',
-        name: 'John Doe',
-        phone: '+1-555-0123',
-        company: 'Design Studio Inc',
-        tags: ['VIP', 'Bulk Orders'],
-        notes: [
-          {
-            id: 'note1',
-            content: 'Prefers DTF transfers, always orders in bulk',
-            createdBy: user?.id || 'admin',
-            createdAt: '2025-01-08T10:00:00Z',
-            type: 'general'
-          }
-        ],
-        totalSpent: 1247.89,
-        totalOrders: 23,
-        lastOrderDate: '2025-01-10T14:30:00Z',
-        registrationDate: '2024-11-15T09:00:00Z',
-        preferredProducts: ['DTF Transfers', 'Custom T-Shirts']
-      },
-      {
-        id: '2',
-        userId: 'user2',
-        email: 'sarah.wilson@corp.com',
-        name: 'Sarah Wilson',
-        phone: '+1-555-0456',
-        company: 'Corporate Events Ltd',
-        tags: ['Corporate', 'Regular'],
-        notes: [
-          {
-            id: 'note2',
-            content: 'Monthly corporate orders for employee swag',
-            createdBy: user?.id || 'admin',
-            createdAt: '2025-01-05T16:45:00Z',
-            type: 'order'
-          }
-        ],
-        totalSpent: 2890.45,
-        totalOrders: 12,
-        lastOrderDate: '2025-01-09T11:20:00Z',
-        registrationDate: '2024-10-20T14:15:00Z',
-        preferredProducts: ['Hoodies', 'Tumblers']
-      }
-    ]
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
 
-    const mockJobs: CustomJobRequest[] = [
-      {
-        id: '1',
-        customerId: '1',
-        title: 'Custom Wedding Favors',
-        description: 'Need 200 custom tumblers with wedding date and names',
-        requirements: 'Rose gold finish, elegant script font, rush delivery',
-        budget: 1500,
-        deadline: '2025-02-14T00:00:00Z',
-        files: ['wedding-design.png'],
-        status: 'under_review',
-        estimatedCost: 1350,
-        notes: ['Client is flexible on design but firm on deadline'],
-        createdAt: '2025-01-10T09:30:00Z',
-        updatedAt: '2025-01-10T15:45:00Z'
-      },
-      {
-        id: '2',
-        customerId: '2',
-        title: 'Corporate Rebrand Package',
-        description: '500 shirts, 300 hoodies with new company logo',
-        requirements: 'High-quality materials, multiple sizes, branded packaging',
-        budget: 8000,
-        deadline: '2025-01-25T00:00:00Z',
-        files: ['new-logo.svg', 'brand-guidelines.pdf'],
-        status: 'approved',
-        assignedTo: 'founder1',
-        approvedBy: user?.id || 'manager1',
-        estimatedCost: 7200,
-        finalCost: 7450,
-        notes: ['Approved with premium material upgrade', 'Assigned to lead founder'],
-        createdAt: '2025-01-08T11:00:00Z',
-        updatedAt: '2025-01-10T10:15:00Z'
-      }
-    ]
+      try {
+        // Fetch customers from user_profiles
+        const { data: profiles, error: profilesError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .order('created_at', { ascending: false })
 
-    const mockOrders: Order[] = [
-      {
-        id: 'ORD-001',
-        userId: '1',
-        status: 'printed',
-        items: [
-          {
-            id: 'item-1',
-            product: {
-              id: 'shirt-1',
-              name: 'Custom T-Shirt',
-              description: 'High-quality custom t-shirt',
-              price: 24.99,
-              images: [],
-              category: 'shirts',
-              inStock: true
-            },
-            quantity: 5,
-            customDesign: 'Logo design on front'
-          }
-        ],
-        total: 145.73,
-        shippingAddress: {
-          name: 'John Doe',
-          address1: '123 Main St',
-          city: 'Portland',
-          state: 'OR',
-          zip: '97201',
-          country: 'US'
-        },
-        createdAt: '2025-01-08T10:30:00Z',
-        trackingNumber: 'MOCK123456789',
-        shippingLabelUrl: 'https://example.com/label-001.pdf',
-        estimatedDelivery: '2025-01-15T00:00:00Z',
-        customerNotes: 'Please handle with care',
-        internalNotes: 'VIP customer - priority handling'
-      },
-      {
-        id: 'ORD-002',
-        userId: '2',
-        status: 'shipped',
-        items: [
-          {
-            id: 'item-2',
-            product: {
-              id: 'hoodie-1',
-              name: 'Custom Hoodie',
-              description: 'Premium custom hoodie',
-              price: 45.99,
-              images: [],
-              category: 'hoodies',
-              inStock: true
-            },
-            quantity: 10,
-            customDesign: 'Company logo embroidery'
-          }
-        ],
-        total: 513.96,
-        shippingAddress: {
-          name: 'Sarah Wilson',
-          address1: '456 Corporate Blvd',
-          city: 'Seattle',
-          state: 'WA',
-          zip: '98101',
-          country: 'US'
-        },
-        createdAt: '2025-01-05T09:15:00Z',
-        trackingNumber: 'MOCK987654321',
-        shippingLabelUrl: 'https://example.com/label-002.pdf'
-      },
-      {
-        id: 'ORD-003',
-        userId: '1',
-        status: 'pending',
-        items: [
-          {
-            id: 'item-3',
-            product: {
-              id: 'tumbler-1',
-              name: 'Custom Tumbler',
-              description: 'Insulated custom tumbler',
-              price: 29.99,
-              images: [],
-              category: 'tumblers',
-              inStock: true
-            },
-            quantity: 2,
-            customDesign: 'Personalized engraving'
-          }
-        ],
-        total: 73.41,
-        shippingAddress: {
-          name: 'John Doe',
-          address1: '123 Main St',
-          city: 'Portland',
-          state: 'OR',
-          zip: '97201',
-          country: 'US'
-        },
-        createdAt: '2025-01-11T15:22:00Z'
-      }
-    ]
+        if (profilesError) throw profilesError
 
-    setCustomers(mockCustomers)
-    setJobs(mockJobs)
-    setOrders(mockOrders)
-  }, [user?.id])
+        // Fetch orders
+        const { data: ordersData, error: ordersError } = await supabase
+          .from('orders')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        if (ordersError) throw ordersError
+
+        // Calculate customer stats from orders
+        const customerStats: Record<string, { totalSpent: number; totalOrders: number; lastOrderDate: string | null }> = {}
+
+        ordersData?.forEach((order: any) => {
+          const userId = order.user_id
+          if (!customerStats[userId]) {
+            customerStats[userId] = { totalSpent: 0, totalOrders: 0, lastOrderDate: null }
+          }
+          customerStats[userId].totalSpent += parseFloat(order.total_amount || order.total || 0)
+          customerStats[userId].totalOrders += 1
+          if (!customerStats[userId].lastOrderDate || order.created_at > customerStats[userId].lastOrderDate) {
+            customerStats[userId].lastOrderDate = order.created_at
+          }
+        })
+
+        // Map user_profiles to CustomerContact format
+        const mappedCustomers: CustomerContact[] = (profiles || []).map((profile: any) => {
+          const stats = customerStats[profile.id] || { totalSpent: 0, totalOrders: 0, lastOrderDate: null }
+          return {
+            id: profile.id,
+            userId: profile.id,
+            email: profile.email || '',
+            name: profile.display_name || profile.username || profile.email?.split('@')[0] || 'Unknown',
+            phone: profile.phone || '',
+            company: profile.company_name || '',
+            tags: profile.role ? [profile.role] : [],
+            notes: [],
+            totalSpent: stats.totalSpent,
+            totalOrders: stats.totalOrders,
+            lastOrderDate: stats.lastOrderDate,
+            registrationDate: profile.created_at,
+            preferredProducts: []
+          }
+        })
+
+        setCustomers(mappedCustomers)
+
+        // Map orders to Order format
+        const mappedOrders: Order[] = (ordersData || []).map((order: any) => ({
+          id: order.id,
+          userId: order.user_id,
+          status: order.status || 'pending',
+          items: order.items || [],
+          total: parseFloat(order.total_amount || order.total || 0),
+          shippingAddress: order.shipping_address || {},
+          createdAt: order.created_at,
+          trackingNumber: order.tracking_number,
+          shippingLabelUrl: order.shipping_label_url,
+          estimatedDelivery: order.estimated_delivery,
+          customerNotes: order.customer_notes,
+          internalNotes: order.internal_notes
+        }))
+
+        setOrders(mappedOrders)
+
+        // Try to fetch custom job requests (table may not exist yet)
+        try {
+          const { data: jobsData, error: jobsError } = await supabase
+            .from('custom_job_requests')
+            .select('*')
+            .order('created_at', { ascending: false })
+
+          if (!jobsError && jobsData) {
+            const mappedJobs: CustomJobRequest[] = jobsData.map((job: any) => ({
+              id: job.id,
+              customerId: job.user_id,
+              title: job.title,
+              description: job.description,
+              requirements: job.requirements,
+              budget: job.budget,
+              deadline: job.deadline,
+              files: job.files || [],
+              status: job.status || 'submitted',
+              assignedTo: job.assigned_to,
+              approvedBy: job.approved_by,
+              estimatedCost: job.estimated_cost,
+              finalCost: job.final_cost,
+              notes: job.notes || [],
+              createdAt: job.created_at,
+              updatedAt: job.updated_at
+            }))
+            setJobs(mappedJobs)
+          }
+        } catch {
+          // custom_job_requests table may not exist yet
+          console.log('[CRM] custom_job_requests table not found, using empty array')
+          setJobs([])
+        }
+
+      } catch (err: any) {
+        console.error('[CRM] Error fetching data:', err)
+        setError(err.message || 'Failed to load CRM data')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [])
 
   const addNote = (customerId: string) => {
     if (!newNote.trim()) return
@@ -359,118 +290,179 @@ const CRM: React.FC = () => {
     )
   }
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+          <span className="ml-3 text-muted">Loading CRM data...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Error loading CRM: {error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 text-purple-600 hover:text-purple-800"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-text mb-2">CRM & Order Management</h1>
-        <p className="text-muted">Manage customer relationships and custom job requests</p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-              </svg>
+    <div className="min-h-screen bg-bg">
+      {/* Gradient Header */}
+      <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">CRM & Order Management</h1>
+              <p className="text-purple-100">Manage customer relationships and track orders</p>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Total Customers</p>
-              <p className="text-2xl font-semibold text-text">{customers.length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Total Orders</p>
-              <p className="text-2xl font-semibold text-text">{orders.length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Pending Orders</p>
-              <p className="text-2xl font-semibold text-text">{orders.filter(o => o.status === 'pending').length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Total Revenue</p>
-              <p className="text-2xl font-semibold text-text">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(2)}</p>
+            <div className="flex flex-wrap gap-3">
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
+                <span className="text-purple-100 text-xs uppercase tracking-wider">Customers</span>
+                <p className="text-white text-xl font-bold">{customers.length}</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
+                <span className="text-purple-100 text-xs uppercase tracking-wider">Revenue</span>
+                <p className="text-white text-xl font-bold">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(0)}</p>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
+                <span className="text-purple-100 text-xs uppercase tracking-wider">Pending</span>
+                <p className="text-white text-xl font-bold">{orders.filter(o => o.status === 'pending').length}</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b card-border mb-6">
-        <nav className="-mb-px flex space-x-8">
-          {['customers', 'orders', 'jobs', 'analytics'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setSelectedTab(tab as any)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                selectedTab === tab
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-muted hover:text-text hover:card-border'
-              }`}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Customers Tab */}
-      {selectedTab === 'customers' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-4">
-            <div className="flex-1">
-              <input
-                type="text"
-                placeholder="Search customers..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-4 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg shadow-blue-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-muted">Total Customers</p>
+                <p className="text-2xl font-bold text-text">{customers.length}</p>
+              </div>
             </div>
-            <select
-              value={filterTag}
-              onChange={(e) => setFilterTag(e.target.value)}
-              className="px-4 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="">All Tags</option>
-              {allTags.map(tag => (
-                <option key={tag} value={tag}>{tag}</option>
-              ))}
-            </select>
-            <button
-              onClick={exportCustomers}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center"
-            >
+          </div>
+
+          <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl shadow-lg shadow-green-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-muted">Total Orders</p>
+                <p className="text-2xl font-bold text-text">{orders.length}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl shadow-lg shadow-amber-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-muted">Pending Orders</p>
+                <p className="text-2xl font-bold text-text">{orders.filter(o => o.status === 'pending').length}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl shadow-lg shadow-purple-500/25">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-muted">Total Revenue</p>
+                <p className="text-2xl font-bold text-text">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(2)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-2 mb-6">
+          <nav className="flex space-x-2">
+            {[
+              { id: 'customers', label: 'Customers', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197' },
+              { id: 'orders', label: 'Orders', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
+              { id: 'jobs', label: 'Custom Jobs', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+              { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setSelectedTab(tab.id as any)}
+                className={`flex items-center px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                  selectedTab === tab.id
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
+                    : 'text-muted hover:text-text hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
+                </svg>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Customers Tab */}
+        {selectedTab === 'customers' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row gap-4 mb-4">
+              <div className="flex-1 relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search customers..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-text"
+                />
+              </div>
+              <select
+                value={filterTag}
+                onChange={(e) => setFilterTag(e.target.value)}
+                className="px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
+              >
+                <option value="">All Roles</option>
+                {allTags.map(tag => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+              </select>
+              <button
+                onClick={exportCustomers}
+                className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-5 py-2.5 rounded-xl flex items-center shadow-lg shadow-green-500/25 transition-all"
+              >
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
@@ -478,63 +470,77 @@ const CRM: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-card rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-card">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Contact</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Tags</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Orders</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Total Spent</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Last Order</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-card divide-y divide-gray-200">
-                  {filteredCustomers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-card">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-text">{customer.name}</div>
-                          <div className="text-sm text-muted">{customer.company}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-text">{customer.email}</div>
-                        <div className="text-sm text-muted">{customer.phone}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-wrap gap-1">
-                          {customer.tags.map((tag) => (
-                            <span key={tag} className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">{customer.totalOrders}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">${customer.totalSpent.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
-                        {customer.lastOrderDate ? new Date(customer.lastOrderDate).toLocaleDateString() : 'Never'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            setSelectedCustomer(customer)
-                            setShowCustomerModal(true)
-                          }}
-                          className="text-purple-600 hover:text-purple-900 mr-3"
-                        >
-                          View Details
-                        </button>
-                      </td>
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Customer</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Contact</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Role</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Orders</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Total Spent</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Last Order</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-purple-100 dark:divide-purple-900/30">
+                    {filteredCustomers.map((customer) => (
+                      <tr key={customer.id} className="hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-sm">
+                              {customer.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="ml-3">
+                              <div className="text-sm font-medium text-text">{customer.name}</div>
+                              <div className="text-xs text-muted">{customer.company || 'Individual'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-text">{customer.email}</div>
+                          <div className="text-xs text-muted">{customer.phone || 'No phone'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex flex-wrap gap-1">
+                            {customer.tags.map((tag) => (
+                              <span key={tag} className={`px-2.5 py-1 inline-flex text-xs font-semibold rounded-lg ${
+                                tag === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+                                tag === 'vendor' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                                tag === 'founder' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                                'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                              }`}>
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm font-medium text-text">{customer.totalOrders}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm font-bold text-emerald-600">${customer.totalSpent.toFixed(2)}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
+                          {customer.lastOrderDate ? new Date(customer.lastOrderDate).toLocaleDateString() : 'Never'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <button
+                            onClick={() => {
+                              setSelectedCustomer(customer)
+                              setShowCustomerModal(true)
+                            }}
+                            className="px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-sm font-medium rounded-lg transition-colors"
+                          >
+                            View Details
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
           </div>
         </div>
       )}
@@ -1041,6 +1047,7 @@ const CRM: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

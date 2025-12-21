@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { sendWelcomeEmail } from '../utils/email.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -146,7 +147,16 @@ router.post('/register', async (req: Request, res: Response) => {
       email: user.email,
       role: user.role
     })
-    
+
+    // Send welcome email (don't fail if email fails)
+    try {
+      await sendWelcomeEmail(user.email, user.username)
+      console.log(`[Email] Welcome email sent to ${user.email}`)
+    } catch (emailError) {
+      console.error('[Email] Failed to send welcome email:', emailError)
+      // Don't fail registration if email fails
+    }
+
     return res.status(201).json({ user, token })
   } catch (error) {
     console.error('Registration error:', error)
