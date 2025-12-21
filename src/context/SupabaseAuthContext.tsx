@@ -69,7 +69,7 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
     const { data: profile, error } = await Promise.race([
       supabase
         .from('user_profiles')
-        .select('id, email, role, username, display_name, first_name, last_name, email_verified, profile_completed')
+        .select('id, email, role, username, display_name, first_name, last_name, email_verified')
         .eq('id', userId)
         .single(),
       new Promise<never>((_, reject) =>
@@ -118,7 +118,7 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
       firstName: profile.first_name,
       lastName: profile.last_name,
       emailVerified: profile.email_verified || false,
-      profileCompleted: profile.profile_completed || false,
+      profileCompleted: true, // Column doesn't exist in DB, default to true
       wallet: undefined
     }
 
