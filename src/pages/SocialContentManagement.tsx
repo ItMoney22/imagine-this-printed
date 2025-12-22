@@ -55,7 +55,7 @@ interface Analytics {
 }
 
 const SocialContentManagement: React.FC = () => {
-  const { user, session } = useAuth()
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'analytics'>('pending')
   const [pendingSubmissions, setPendingSubmissions] = useState<SocialSubmission[]>([])
   const [approvedPosts, setApprovedPosts] = useState<SocialPost[]>([])
@@ -166,7 +166,10 @@ const SocialContentManagement: React.FC = () => {
   }
 
   const handleReviewSubmission = async () => {
-    if (!selectedSubmission || !session?.access_token) return
+    if (!selectedSubmission) return
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
 
     setProcessing(true)
     try {
@@ -220,6 +223,7 @@ const SocialContentManagement: React.FC = () => {
   }
 
   const toggleFeaturePost = async (postId: string, currentlyFeatured: boolean) => {
+    const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) return
 
     try {
@@ -245,7 +249,10 @@ const SocialContentManagement: React.FC = () => {
   }
 
   const deletePost = async (postId: string) => {
-    if (!session?.access_token || !confirm('Are you sure you want to delete this post?')) return
+    if (!confirm('Are you sure you want to delete this post?')) return
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
 
     try {
       const response = await fetch(`/api/social/posts/${postId}`, {
