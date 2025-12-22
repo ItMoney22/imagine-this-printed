@@ -2,7 +2,7 @@
 // Imagination Station - Imagination Sheet™ Builder with Editorial Design
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/SupabaseAuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../hooks/useToast';
@@ -104,6 +104,7 @@ const ImaginationStation: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { addToCart } = useCart();
   const toast = useToast();
@@ -302,8 +303,9 @@ const ImaginationStation: React.FC = () => {
   // Store pending image from URL params (to add after sheet is created)
   const [pendingImage, setPendingImage] = useState<{ url: string; name: string } | null>(null);
 
-  // Check for URL parameters on mount - store for later if no sheet exists
+  // Check for URL parameters or navigation state on mount - store for later if no sheet exists
   useEffect(() => {
+    // First check URL params
     const addImageUrl = searchParams.get('addImage');
     const productName = searchParams.get('productName');
 
@@ -311,8 +313,17 @@ const ImaginationStation: React.FC = () => {
       setPendingImage({ url: addImageUrl, name: productName || 'Product Image' });
       // Clear the URL params
       setSearchParams({});
+      return;
     }
-  }, [searchParams, setSearchParams]);
+
+    // Then check navigation state (from CreateDesignModal)
+    const state = location.state as { preloadImage?: string; designConcept?: string } | null;
+    if (state?.preloadImage && !hasProcessedUrlImage.current) {
+      setPendingImage({ url: state.preloadImage, name: state.designConcept || 'Voice Design' });
+      // Clear the navigation state
+      navigate(location.pathname, { replace: true });
+    }
+  }, [searchParams, setSearchParams, location.state, location.pathname, navigate]);
 
   // Handle adding pending image once sheet exists
   useEffect(() => {

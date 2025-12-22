@@ -3,6 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { Link } from 'react-router-dom'
 import axios from 'axios'
+import { CreateDesignModal } from '../components/CreateDesignModal'
 
 interface UserDesign {
   id: string
@@ -62,6 +63,7 @@ export default function UserDesignDashboard() {
   const [selectedDesign, setSelectedDesign] = useState<UserDesign | null>(null)
   const [toolProcessing, setToolProcessing] = useState<string | null>(null)
   const [toolResult, setToolResult] = useState<{ url: string; type: string } | null>(null)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
   // Fetch all data on mount
   useEffect(() => {
@@ -244,12 +246,12 @@ export default function UserDesignDashboard() {
                 <span className="text-sm text-purple-300/70">Balance</span>
                 <p className="text-xl font-bold text-amber-400">{wallet.itc_balance} ITC</p>
               </div>
-              <Link
-                to="/create-design"
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
                 className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 transition-all hover:scale-105"
               >
                 + Create New
-              </Link>
+              </button>
             </div>
           </div>
 
@@ -702,6 +704,21 @@ export default function UserDesignDashboard() {
           </div>
         </div>
       )}
+
+      {/* Create Design Modal */}
+      <CreateDesignModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        itcBalance={wallet.itc_balance}
+        onDesignCreated={(designId, imageUrl) => {
+          setIsCreateModalOpen(false)
+          // Refresh designs list
+          fetchData()
+        }}
+        onBalanceChange={(newBalance) => {
+          setWallet(prev => ({ ...prev, itc_balance: newBalance }))
+        }}
+      />
     </div>
   )
 }
