@@ -354,49 +354,40 @@ async function createGrungeTexture(width: number, height: number): Promise<Buffe
 
 /**
  * Build DTF-aware prompt with shirt color and print style rules
- * IMPORTANT: DTF rules come FIRST so the AI model prioritizes them
+ * PRIORITY: User's design request comes FIRST, then DTF technical requirements
  */
 export function buildDTFPrompt(
   userPrompt: string,
   shirtColor: 'black' | 'white' | 'grey' | 'color',
   printStyle: 'clean' | 'halftone' | 'grunge'
 ): string {
-  // Critical DTF requirements - MUST come first - DESIGN ONLY, NO SHIRT
-  const criticalDTF = `CRITICAL REQUIREMENTS:
-1. Generate ONLY the graphic design artwork - DO NOT include any t-shirt, clothing, garment, or mockup
-2. The design MUST have a fully TRANSPARENT background - NO solid backgrounds of any color
-3. Create an ISOLATED graphic that floats on transparency - just the art, nothing else
-4. DO NOT show the design on a shirt, hoodie, or any product - ONLY the standalone artwork`
+  // USER'S DESIGN REQUEST COMES FIRST - this is what they actually want
+  // The AI should focus on creating EXACTLY what the user described
+  const userRequest = `CREATE THIS DESIGN: ${userPrompt}
 
-  // Shirt color specific rules - these affect the design colors
+IMPORTANT: Generate EXACTLY what was requested above. If they said "dragon" create a DRAGON. If they said "realistic" make it PHOTOREALISTIC. Follow their description precisely.`
+
+  // DTF output format requirements - keep these minimal to not override user intent
+  const outputFormat = `OUTPUT FORMAT:
+- Isolated artwork on TRANSPARENT background (PNG with alpha)
+- NO t-shirt, clothing, or mockup - just the design itself
+- Centered composition, print-ready quality`
+
+  // Shirt color specific rules - only affect colors, not the subject matter
   let colorRules = ''
   if (shirtColor === 'black') {
-    colorRules = `COLOR RULES (for black fabric): ABSOLUTELY NO BLACK in the design. No dark grays, no shadows that appear black. Use ONLY bright, vibrant, saturated colors (reds, oranges, yellows, cyans, magentas, greens, whites). Make colors POP and glow against dark backgrounds.`
+    colorRules = `COLOR ADJUSTMENT: Avoid pure black in the design (it won't show on black fabric). Use bright, vibrant colors instead of dark tones.`
   } else if (shirtColor === 'white') {
-    colorRules = `COLOR RULES (for white fabric): Avoid pure white areas in the design. Use colors with good contrast. Dark outlines help define shapes.`
+    colorRules = `COLOR ADJUSTMENT: Avoid pure white areas. Use colors with good contrast.`
   } else if (shirtColor === 'grey') {
-    colorRules = `COLOR RULES (for grey fabric): Use bold saturated colors with strong contrast. Avoid medium grey tones.`
-  } else {
-    colorRules = `COLOR RULES: Use high contrast, bold saturated colors.`
+    colorRules = `COLOR ADJUSTMENT: Use bold saturated colors. Avoid medium grey tones.`
   }
 
-  // Print style rules
-  let styleRules = ''
-  if (printStyle === 'halftone') {
-    styleRules = `STYLE: Vintage screen-print look with halftone dots, comic-book shading, slightly distressed texture.`
-  } else if (printStyle === 'grunge') {
-    styleRules = `STYLE: Distressed grunge aesthetic with rough edges, cracked-ink texture, worn vintage look.`
-  } else {
-    styleRules = `STYLE: Clean, crisp edges, solid colors, vector-style clarity, professional print-ready.`
-  }
+  // Combine - USER REQUEST FIRST, then technical requirements
+  const parts = [userRequest, outputFormat]
+  if (colorRules) parts.push(colorRules)
 
-  // Technical DTF requirements
-  const technicalDTF = `TECHNICAL: Centered composition, bold clean shapes, limited color palette, no tiny intricate details, sharp defined edges, high resolution PNG with alpha transparency.`
-
-  // Combine all parts - DTF rules FIRST, then user prompt, then technical
-  const finalPrompt = [criticalDTF, colorRules, styleRules, `DESIGN SUBJECT: ${userPrompt}`, technicalDTF]
-    .filter(Boolean)
-    .join('\n\n')
+  const finalPrompt = parts.join('\n\n')
 
   console.log('[dtf] 📝 Built DTF-aware prompt:', finalPrompt.substring(0, 300) + '...')
 
