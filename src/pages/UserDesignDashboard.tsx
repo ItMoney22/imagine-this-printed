@@ -3,6 +3,22 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { Link } from 'react-router-dom'
 import axios from 'axios'
+import {
+  Palette,
+  FileText,
+  Wand2,
+  DollarSign,
+  Eye,
+  CheckCircle2,
+  ShoppingCart,
+  ZoomIn,
+  Scissors,
+  Trash2,
+  Image as ImageIcon,
+  Download,
+  X,
+  Plus
+} from 'lucide-react'
 import { CreateDesignModal } from '../components/CreateDesignModal'
 
 interface UserDesign {
@@ -234,45 +250,72 @@ export default function UserDesignDashboard() {
   return (
     <div className="min-h-screen bg-bg">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/30 border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-purple-900/50 to-pink-900/30 backdrop-blur-3xl" />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay" />
+
+        <div className="relative max-w-7xl mx-auto px-4 py-12">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
-              <h1 className="text-3xl font-display font-bold text-white">My Designs</h1>
-              <p className="text-purple-200/70 mt-1">Manage your creations and earn royalties</p>
+              <h1 className="text-4xl font-display font-bold text-white mb-2 ml-1">My Designs</h1>
+              <p className="text-purple-200/80 text-lg font-light ml-1">Manage your creations and earn royalties</p>
             </div>
             <div className="flex items-center gap-4">
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/10">
-                <span className="text-sm text-purple-300/70">Balance</span>
-                <p className="text-xl font-bold text-amber-400">{wallet.itc_balance} ITC</p>
+              <div className="glass px-6 py-3 rounded-2xl border border-white/10">
+                <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">Balance</span>
+                <p className="text-2xl font-bold text-amber-400 font-display">{wallet.itc_balance} ITC</p>
               </div>
               <button
                 onClick={() => setIsCreateModalOpen(true)}
-                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 transition-all hover:scale-105"
+                className="btn-primary group"
               >
-                + Create New
+                <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+                Create New
               </button>
             </div>
           </div>
 
           {/* Stats Row */}
           {stats && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <p className="text-sm text-purple-300/70">Total Designs</p>
-                <p className="text-2xl font-bold text-white">{stats.totalDesigns ?? 0}</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+              <div className="glass-dark p-5 rounded-2xl border border-white/5 hover:border-purple-500/30 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-purple-500/20 rounded-lg text-purple-400">
+                    <Palette className="w-5 h-5" />
+                  </div>
+                  <p className="text-sm text-purple-200/60 font-medium">Total Designs</p>
+                </div>
+                <p className="text-3xl font-bold text-white font-display ml-1">{stats.totalDesigns ?? 0}</p>
               </div>
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <p className="text-sm text-purple-300/70">Total Sales</p>
-                <p className="text-2xl font-bold text-emerald-400">{stats.totalSales ?? 0}</p>
+
+              <div className="glass-dark p-5 rounded-2xl border border-white/5 hover:border-emerald-500/30 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400">
+                    <ShoppingCart className="w-5 h-5" />
+                  </div>
+                  <p className="text-sm text-emerald-200/60 font-medium">Total Sales</p>
+                </div>
+                <p className="text-3xl font-bold text-white font-display ml-1">{stats.totalSales ?? 0}</p>
               </div>
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <p className="text-sm text-purple-300/70">Royalties Earned</p>
-                <p className="text-2xl font-bold text-amber-400">${(stats.totalRoyalties ?? 0).toFixed(2)}</p>
+
+              <div className="glass-dark p-5 rounded-2xl border border-white/5 hover:border-amber-500/30 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-amber-500/20 rounded-lg text-amber-400">
+                    <DollarSign className="w-5 h-5" />
+                  </div>
+                  <p className="text-sm text-amber-200/60 font-medium">Royalties Earned</p>
+                </div>
+                <p className="text-3xl font-bold text-amber-400 font-display ml-1">${(stats.totalRoyalties ?? 0).toFixed(2)}</p>
               </div>
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <p className="text-sm text-purple-300/70">Pending Approval</p>
-                <p className="text-2xl font-bold text-orange-400">{stats.designsByStatus?.pending ?? 0}</p>
+
+              <div className="glass-dark p-5 rounded-2xl border border-white/5 hover:border-orange-500/30 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-orange-500/20 rounded-lg text-orange-400">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <p className="text-sm text-orange-200/60 font-medium">Pending Approval</p>
+                </div>
+                <p className="text-3xl font-bold text-white font-display ml-1">{stats.designsByStatus?.pending ?? 0}</p>
               </div>
             </div>
           )}
@@ -280,24 +323,23 @@ export default function UserDesignDashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="flex gap-2 border-b border-white/10 mb-6">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="flex gap-2 border-b border-white/10 mb-8 overflow-x-auto pb-1">
           {[
-            { key: 'designs', label: 'My Designs', icon: '🎨' },
-            { key: 'drafts', label: 'Drafts', icon: '📝' },
-            { key: 'tools', label: 'AI Tools', icon: '🪄' },
-            { key: 'earnings', label: 'Earnings', icon: '💰' },
+            { key: 'designs', label: 'My Designs', icon: Palette },
+            { key: 'drafts', label: 'Drafts', icon: FileText },
+            { key: 'tools', label: 'AI Tools', icon: Wand2 },
+            { key: 'earnings', label: 'Earnings', icon: DollarSign },
           ].map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key as Tab)}
-              className={`px-4 py-3 font-medium transition-all border-b-2 -mb-[2px] ${
-                activeTab === tab.key
-                  ? 'text-purple-400 border-purple-400'
-                  : 'text-muted border-transparent hover:text-white'
-              }`}
+              className={`flex items-center gap-2 px-6 py-4 font-medium transition-all border-b-2 -mb-[2px] whitespace-nowrap ${activeTab === tab.key
+                ? 'text-purple-400 border-purple-400 bg-purple-500/5'
+                : 'text-muted border-transparent hover:text-white hover:bg-white/5'
+                }`}
             >
-              <span className="mr-2">{tab.icon}</span>
+              <tab.icon className={`w-4 h-4 ${activeTab === tab.key ? 'text-purple-400' : 'text-muted'}`} />
               {tab.label}
             </button>
           ))}
@@ -307,13 +349,15 @@ export default function UserDesignDashboard() {
         {activeTab === 'designs' && (
           <div className="space-y-6">
             {designs.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="text-6xl mb-4">🎨</div>
+              <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/10 border-dashed">
+                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Palette className="w-10 h-10 text-white/20" />
+                </div>
                 <h3 className="text-xl font-semibold text-white mb-2">No designs yet</h3>
-                <p className="text-muted mb-6">Create your first design with Mr. Imagine!</p>
+                <p className="text-muted mb-8 max-w-sm mx-auto">Create your first design with Mr. Imagine and start earning royalties!</p>
                 <button
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl"
+                  className="btn-primary"
                 >
                   Start Creating
                 </button>
@@ -323,41 +367,52 @@ export default function UserDesignDashboard() {
                 {designs.map(design => (
                   <div
                     key={design.id}
-                    className="bg-card border border-white/10 rounded-2xl overflow-hidden hover:border-purple-500/50 transition-all group cursor-pointer"
+                    className="card-editorial group cursor-pointer"
                     onClick={() => setSelectedDesign(design)}
                   >
-                    <div className="aspect-square bg-white/5 relative">
+                    <div className="aspect-square bg-white/5 relative overflow-hidden">
                       {design.images?.[0] ? (
-                        <img
-                          src={design.images[0]}
-                          alt={design.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
+                        <div className="img-zoom w-full h-full">
+                          <img
+                            src={design.images[0]}
+                            alt={design.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-4xl">
-                          🎨
+                        <div className="w-full h-full flex items-center justify-center text-white/20">
+                          <ImageIcon className="w-12 h-12" />
                         </div>
                       )}
+
+                      {/* Overlay on hover */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button className="p-2 bg-white rounded-full text-purple-600 transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
+                          <Eye className="w-5 h-5" />
+                        </button>
+                      </div>
+
                       {/* Status badge */}
-                      <div className={`absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-medium ${
-                        design.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' :
-                        design.status === 'pending_approval' ? 'bg-orange-500/20 text-orange-400' :
-                        'bg-gray-500/20 text-gray-400'
-                      }`}>
+                      <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold shadow-lg backdrop-blur-md ${design.status === 'approved' ? 'bg-emerald-500/90 text-white' :
+                        design.status === 'pending_approval' ? 'bg-orange-500/90 text-white' :
+                          'bg-gray-500/90 text-white'
+                        }`}>
                         {design.status === 'approved' ? 'Live' :
-                         design.status === 'pending_approval' ? 'Pending' :
-                         design.status}
+                          design.status === 'pending_approval' ? 'Pending' :
+                            design.status}
                       </div>
                     </div>
-                    <div className="p-4">
-                      <h3 className="font-semibold text-white truncate">{design.name}</h3>
-                      <div className="flex items-center justify-between mt-2">
+
+                    <div className="p-5">
+                      <h3 className="font-bold text-white truncate text-lg">{design.name}</h3>
+                      <div className="flex items-center justify-between mt-3">
                         <span className="text-sm text-muted">
                           {new Date(design.created_at).toLocaleDateString()}
                         </span>
-                        <span className="text-sm text-purple-300 flex items-center gap-1">
-                          <span>👁️</span> {design.view_count || 0}
-                        </span>
+                        <div className="flex items-center gap-1.5 text-sm font-medium px-2 py-1 bg-white/5 rounded-lg border border-white/5">
+                          <Eye className="w-3.5 h-3.5 text-purple-400" />
+                          <span className="text-purple-100">{design.view_count || 0}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -370,8 +425,10 @@ export default function UserDesignDashboard() {
         {activeTab === 'drafts' && (
           <div className="space-y-4">
             {sessions.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="text-6xl mb-4">📝</div>
+              <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/10 border-dashed">
+                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <FileText className="w-10 h-10 text-white/20" />
+                </div>
                 <h3 className="text-xl font-semibold text-white mb-2">No drafts</h3>
                 <p className="text-muted">Your in-progress designs will appear here</p>
               </div>
@@ -379,34 +436,38 @@ export default function UserDesignDashboard() {
               sessions.map(session => (
                 <div
                   key={session.id}
-                  className="bg-card border border-white/10 rounded-xl p-4 flex items-center gap-4"
+                  className="glass-dark p-4 rounded-xl flex items-center gap-4 group hover:border-white/20 transition-all"
                 >
-                  <div className="w-16 h-16 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <div className="w-20 h-20 bg-white/5 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden border border-white/10">
                     {session.selected_image_url ? (
                       <img
                         src={session.selected_image_url}
                         alt="Draft"
-                        className="w-full h-full object-cover rounded-lg"
+                        className="w-full h-full object-cover"
                       />
                     ) : (
-                      <span className="text-2xl">📝</span>
+                      <FileText className="w-8 h-8 text-white/20" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-white truncate">
+                    <p className="font-medium text-white text-lg truncate mb-1">
                       {session.prompt || 'Untitled Draft'}
                     </p>
-                    <p className="text-sm text-muted">
-                      Step: {session.step} • {session.style || 'No style'} • {session.color || 'No color'}
-                    </p>
-                    <p className="text-xs text-purple-300/50 mt-1">
+                    <div className="flex items-center gap-3 text-sm text-muted">
+                      <span className="px-2 py-0.5 bg-white/5 rounded text-xs uppercase tracking-wider">Step: {session.step}</span>
+                      <span>•</span>
+                      <span>{session.style || 'No style'}</span>
+                      <span>•</span>
+                      <span>{session.color || 'No color'}</span>
+                    </div>
+                    <p className="text-xs text-purple-300/50 mt-2">
                       Last edited: {new Date(session.updated_at).toLocaleDateString()}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => handleResumeSession(session)}
-                      className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500 transition-colors"
+                      className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500 transition-colors shadow-lg shadow-purple-900/20"
                     >
                       Resume
                     </button>
@@ -414,7 +475,7 @@ export default function UserDesignDashboard() {
                       onClick={() => handleDeleteSession(session.id)}
                       className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                     >
-                      🗑️
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -425,54 +486,56 @@ export default function UserDesignDashboard() {
 
         {activeTab === 'tools' && (
           <div className="space-y-6">
-            <div className="bg-gradient-to-r from-purple-900/30 to-pink-900/20 border border-purple-500/20 rounded-2xl p-6">
-              <h3 className="text-xl font-semibold text-white mb-2">AI Image Tools</h3>
-              <p className="text-purple-200/70 mb-6">
+            <div className="glass p-8 rounded-3xl border border-white/10 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-12 bg-purple-500/10 blur-[100px] rounded-full" />
+
+              <h3 className="text-2xl font-bold text-white mb-2 relative z-10">AI Image Tools</h3>
+              <p className="text-purple-200/70 mb-8 max-w-2xl relative z-10">
                 Enhance your designs with powerful AI tools. Select a design below or paste an image URL.
               </p>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 gap-6 relative z-10">
                 {/* Upscale Tool */}
-                <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center text-2xl">
-                      🔍
+                <div className="glass-dark p-6 rounded-2xl border border-white/5 hover:border-blue-500/30 transition-all group">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
+                      <ZoomIn className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h4 className="font-semibold text-white">4x Upscale</h4>
-                      <p className="text-sm text-amber-400">{UPSCALE_COST} ITC</p>
+                      <h4 className="font-bold text-white">4x Upscale</h4>
+                      <p className="text-sm text-blue-300 font-medium">{UPSCALE_COST} ITC</p>
                     </div>
                   </div>
-                  <p className="text-sm text-muted mb-4">
+                  <p className="text-sm text-muted mb-6 leading-relaxed">
                     Increase image resolution by 4x using AI. Perfect for print-quality output.
                   </p>
                   <button
-                    onClick={() => selectedDesign && handleUpscale(selectedDesign.images[0])}
+                    onClick={() => selectedDesign && handleUpscale(selectedDesign.images?.[0])}
                     disabled={!selectedDesign || toolProcessing === 'upscale'}
-                    className="w-full py-2 bg-blue-600 text-white font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors"
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-900/20"
                   >
                     {toolProcessing === 'upscale' ? 'Processing...' : 'Upscale Selected'}
                   </button>
                 </div>
 
                 {/* Background Removal */}
-                <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl flex items-center justify-center text-2xl">
-                      ✂️
+                <div className="glass-dark p-6 rounded-2xl border border-white/5 hover:border-pink-500/30 transition-all group">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-pink-500/20 group-hover:scale-110 transition-transform">
+                      <Scissors className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h4 className="font-semibold text-white">Remove Background</h4>
-                      <p className="text-sm text-amber-400">{BG_REMOVE_COST} ITC</p>
+                      <h4 className="font-bold text-white">Remove Background</h4>
+                      <p className="text-sm text-pink-300 font-medium">{BG_REMOVE_COST} ITC</p>
                     </div>
                   </div>
-                  <p className="text-sm text-muted mb-4">
+                  <p className="text-sm text-muted mb-6 leading-relaxed">
                     Remove backgrounds instantly. Great for creating transparent PNGs.
                   </p>
                   <button
-                    onClick={() => selectedDesign && handleBgRemove(selectedDesign.images[0])}
+                    onClick={() => selectedDesign && handleBgRemove(selectedDesign.images?.[0])}
                     disabled={!selectedDesign || toolProcessing === 'bg-remove'}
-                    className="w-full py-2 bg-pink-600 text-white font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pink-500 transition-colors"
+                    className="w-full py-3 bg-pink-600 hover:bg-pink-500 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-pink-900/20"
                   >
                     {toolProcessing === 'bg-remove' ? 'Processing...' : 'Remove BG Selected'}
                   </button>
@@ -481,50 +544,60 @@ export default function UserDesignDashboard() {
 
               {/* Selected Design Preview */}
               {selectedDesign && (
-                <div className="mt-6 p-4 bg-white/5 rounded-xl border border-white/10">
-                  <p className="text-sm text-purple-300 mb-2">Selected: {selectedDesign.name}</p>
-                  <div className="flex items-start gap-4">
+                <div className="mt-8 p-4 glass-dark rounded-xl border border-white/10 flex items-center gap-6 animate-fade-in relative z-10">
+                  <div className="relative">
                     <img
-                      src={selectedDesign.images[0]}
+                      src={selectedDesign.images?.[0]}
                       alt={selectedDesign.name}
-                      className="w-24 h-24 object-cover rounded-lg"
+                      className="w-24 h-24 object-cover rounded-lg border border-white/10"
                     />
-                    <div className="flex-1">
-                      <p className="text-sm text-muted">Click a design from "My Designs" tab to select it for processing</p>
-                    </div>
                     <button
                       onClick={() => setSelectedDesign(null)}
-                      className="text-sm text-red-400 hover:text-red-300"
+                      className="absolute -top-2 -right-2 p-1 bg-red-500 rounded-full text-white hover:bg-red-600 shadow-lg"
                     >
-                      Clear
+                      <X className="w-3 h-3" />
                     </button>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Selected Design</p>
+                    <p className="text-lg font-semibold text-white">{selectedDesign.name}</p>
+                    <p className="text-sm text-muted mt-1">Ready to apply AI tools</p>
                   </div>
                 </div>
               )}
 
               {/* Tool Result */}
               {toolResult && (
-                <div className="mt-6 p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/30">
-                  <p className="text-sm text-emerald-400 mb-2">
-                    {toolResult.type === 'upscale' ? 'Upscaled Image Ready!' : 'Background Removed!'}
-                  </p>
-                  <div className="flex items-center gap-4">
-                    <img
-                      src={toolResult.url}
-                      alt="Result"
-                      className="w-32 h-32 object-cover rounded-lg"
-                    />
-                    <div className="flex flex-col gap-2">
+                <div className="mt-8 p-6 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 relative z-10 animate-fade-in">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-emerald-500/20 rounded-lg">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <p className="font-bold text-emerald-400">
+                      {toolResult.type === 'upscale' ? 'Upscaled Image Ready!' : 'Background Removed!'}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-6">
+                    <div className="w-full sm:w-48 aspect-square bg-black/20 rounded-xl overflow-hidden border border-white/5">
+                      <img
+                        src={toolResult.url}
+                        alt="Result"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex-1 flex flex-col justify-center gap-3">
                       <a
                         href={toolResult.url}
                         download
-                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-500"
+                        className="btn-primary w-full sm:w-auto"
                       >
-                        Download
+                        <Download className="w-4 h-4" />
+                        Download Result
                       </a>
                       <button
                         onClick={() => setToolResult(null)}
-                        className="px-4 py-2 border border-white/10 text-white text-sm rounded-lg hover:bg-white/5"
+                        className="px-6 py-3 border border-white/10 text-white font-medium rounded-xl hover:bg-white/5 transition-colors w-full sm:w-auto"
                       >
                         Done
                       </button>
@@ -536,14 +609,17 @@ export default function UserDesignDashboard() {
 
             {/* Design selector for tools */}
             {!selectedDesign && designs.length > 0 && (
-              <div>
-                <h4 className="font-medium text-white mb-3">Select a design to process:</h4>
+              <div className="mt-8">
+                <h4 className="font-medium text-white mb-4 flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-purple-400" />
+                  Select a design to process:
+                </h4>
                 <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
                   {designs.slice(0, 16).map(design => (
                     <button
                       key={design.id}
                       onClick={() => setSelectedDesign(design)}
-                      className="aspect-square bg-white/5 rounded-lg overflow-hidden hover:ring-2 hover:ring-purple-500 transition-all"
+                      className="aspect-square bg-white/5 rounded-xl overflow-hidden hover:ring-2 hover:ring-purple-500 transition-all border border-white/5 hover:scale-105"
                     >
                       {design.images?.[0] ? (
                         <img
@@ -552,7 +628,9 @@ export default function UserDesignDashboard() {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-2xl">🎨</div>
+                        <div className="w-full h-full flex items-center justify-center text-white/20">
+                          <ImageIcon className="w-6 h-6" />
+                        </div>
                       )}
                     </button>
                   ))}
@@ -563,74 +641,86 @@ export default function UserDesignDashboard() {
         )}
 
         {activeTab === 'earnings' && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-emerald-900/30 to-teal-900/20 border border-emerald-500/20 rounded-2xl p-6">
-              <h3 className="text-xl font-semibold text-white mb-2">Creator Royalties</h3>
-              <p className="text-emerald-200/70 mb-6">
-                Earn 10% ITC on every sale of your designs. Royalties are credited automatically when orders complete.
-              </p>
+          <div className="space-y-8">
+            <div className="glass p-8 rounded-3xl border border-white/10 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-32 bg-emerald-500/5 blur-[100px] rounded-full" />
 
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="bg-white/5 rounded-xl p-4">
-                  <p className="text-sm text-emerald-300/70">Total Earned</p>
-                  <p className="text-3xl font-bold text-emerald-400">${(stats?.totalRoyalties ?? 0).toFixed(2)}</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-4">
-                  <p className="text-sm text-emerald-300/70">Products Sold</p>
-                  <p className="text-3xl font-bold text-white">{stats?.totalSales || 0}</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-4">
-                  <p className="text-sm text-emerald-300/70">Active Designs</p>
-                  <p className="text-3xl font-bold text-white">{stats?.designsByStatus?.approved ?? 0}</p>
+              <div className="relative z-10">
+                <h3 className="text-2xl font-bold text-white mb-2">Creator Royalties</h3>
+                <p className="text-emerald-200/70 mb-8 max-w-2xl">
+                  Earn 10% ITC on every sale of your designs. Royalties are credited automatically when orders complete.
+                </p>
+
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div className="glass-dark p-6 rounded-2xl border border-white/5">
+                    <p className="text-sm text-emerald-300/70 font-medium mb-1">Total Earned</p>
+                    <p className="text-4xl font-bold text-emerald-400 font-display">${(stats?.totalRoyalties ?? 0).toFixed(2)}</p>
+                  </div>
+                  <div className="glass-dark p-6 rounded-2xl border border-white/5">
+                    <p className="text-sm text-emerald-300/70 font-medium mb-1">Products Sold</p>
+                    <p className="text-4xl font-bold text-white font-display">{stats?.totalSales || 0}</p>
+                  </div>
+                  <div className="glass-dark p-6 rounded-2xl border border-white/5">
+                    <p className="text-sm text-emerald-300/70 font-medium mb-1">Active Designs</p>
+                    <p className="text-4xl font-bold text-white font-display">{stats?.designsByStatus?.approved ?? 0}</p>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* How it works */}
-            <div className="bg-card border border-white/10 rounded-2xl p-6">
-              <h4 className="font-semibold text-white mb-4">How Royalties Work</h4>
-              <div className="grid md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                    <span className="text-2xl">🎨</span>
+            <div className="glass-dark p-8 rounded-3xl border border-white/5">
+              <h4 className="font-semibold text-white mb-8 text-lg">How Royalties Work</h4>
+              <div className="grid md:grid-cols-4 gap-8 relative">
+                {/* Connecting Line (Desktop) */}
+                <div className="hidden md:block absolute top-6 left-1/2 -translate-x-1/2 w-3/4 h-0.5 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+                <div className="text-center relative z-10 group">
+                  <div className="w-14 h-14 bg-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 ring-1 ring-purple-500/30 group-hover:scale-110 transition-transform shadow-lg shadow-purple-500/20">
+                    <Palette className="w-6 h-6 text-purple-400" />
                   </div>
-                  <p className="text-sm text-white font-medium">Create</p>
-                  <p className="text-xs text-muted">Design with Mr. Imagine</p>
+                  <p className="text-white font-bold mb-1">Create</p>
+                  <p className="text-sm text-muted">Design with Mr. Imagine</p>
                 </div>
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                    <span className="text-2xl">✅</span>
+
+                <div className="text-center relative z-10 group">
+                  <div className="w-14 h-14 bg-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 ring-1 ring-blue-500/30 group-hover:scale-110 transition-transform shadow-lg shadow-blue-500/20">
+                    <CheckCircle2 className="w-6 h-6 text-blue-400" />
                   </div>
-                  <p className="text-sm text-white font-medium">Approved</p>
-                  <p className="text-xs text-muted">Goes live on marketplace</p>
+                  <p className="text-white font-bold mb-1">Approved</p>
+                  <p className="text-sm text-muted">Goes live on marketplace</p>
                 </div>
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                    <span className="text-2xl">🛒</span>
+
+                <div className="text-center relative z-10 group">
+                  <div className="w-14 h-14 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 ring-1 ring-emerald-500/30 group-hover:scale-110 transition-transform shadow-lg shadow-emerald-500/20">
+                    <ShoppingCart className="w-6 h-6 text-emerald-400" />
                   </div>
-                  <p className="text-sm text-white font-medium">Someone Buys</p>
-                  <p className="text-xs text-muted">Customer purchases your design</p>
+                  <p className="text-white font-bold mb-1">Someone Buys</p>
+                  <p className="text-sm text-muted">Customer purchases your design</p>
                 </div>
-                <div className="text-center">
-                  <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mx-auto mb-2">
-                    <span className="text-2xl">💰</span>
+
+                <div className="text-center relative z-10 group">
+                  <div className="w-14 h-14 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 ring-1 ring-amber-500/30 group-hover:scale-110 transition-transform shadow-lg shadow-amber-500/20">
+                    <DollarSign className="w-6 h-6 text-amber-400" />
                   </div>
-                  <p className="text-sm text-white font-medium">You Earn 10%</p>
-                  <p className="text-xs text-muted">ITC credited to wallet</p>
+                  <p className="text-white font-bold mb-1">You Earn 10%</p>
+                  <p className="text-sm text-muted">ITC credited to wallet</p>
                 </div>
               </div>
             </div>
 
             {/* Payout info */}
-            <div className="bg-card border border-white/10 rounded-2xl p-6">
-              <h4 className="font-semibold text-white mb-4">Cash Out Your ITC</h4>
-              <p className="text-muted mb-4">
-                Once you have at least 5,000 ITC ($50), you can request a payout via PayPal or Venmo.
-                A 5% processing fee applies.
-              </p>
+            <div className="glass-dark p-8 rounded-3xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div>
+                <h4 className="font-semibold text-white mb-2 text-lg">Cash Out Your ITC</h4>
+                <p className="text-muted max-w-xl">
+                  Once you have at least 5,000 ITC ($50), you can request a payout via PayPal or Venmo.
+                  A 5% processing fee applies.
+                </p>
+              </div>
               <Link
                 to="/wallet"
-                className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium rounded-lg"
+                className="btn-primary bg-gradient-to-r from-amber-600 to-orange-600 shadow-amber-900/20 whitespace-nowrap"
               >
                 Go to Wallet
               </Link>
@@ -646,10 +736,17 @@ export default function UserDesignDashboard() {
           onClick={() => setSelectedDesign(null)}
         >
           <div
-            className="bg-card border border-white/10 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            className="glass-dark border border-white/10 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative"
             onClick={e => e.stopPropagation()}
           >
-            <div className="aspect-video bg-white/5 relative">
+            <button
+              onClick={() => setSelectedDesign(null)}
+              className="absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white backdrop-blur-md transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="aspect-video bg-black/40 relative flex items-center justify-center">
               {selectedDesign.images?.[0] ? (
                 <img
                   src={selectedDesign.images[0]}
@@ -657,45 +754,52 @@ export default function UserDesignDashboard() {
                   className="w-full h-full object-contain"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-6xl">🎨</div>
+                <div className="text-white/20">
+                  <ImageIcon className="w-20 h-20" />
+                </div>
               )}
             </div>
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-white">{selectedDesign.name}</h2>
-              <p className="text-muted mt-2">{selectedDesign.description}</p>
 
-              <div className="flex items-center gap-4 mt-4 text-sm">
-                <span className={`px-3 py-1 rounded-full ${
-                  selectedDesign.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' :
-                  selectedDesign.status === 'pending_approval' ? 'bg-orange-500/20 text-orange-400' :
-                  'bg-gray-500/20 text-gray-400'
-                }`}>
+            <div className="p-8">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <h2 className="text-3xl font-bold text-white font-display mb-1">{selectedDesign.name}</h2>
+                <div className={`px-3 py-1 rounded-full text-xs font-bold border ${selectedDesign.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                    selectedDesign.status === 'pending_approval' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                      'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                  }`}>
                   {selectedDesign.status === 'approved' ? 'Live on Marketplace' :
-                   selectedDesign.status === 'pending_approval' ? 'Pending Review' :
-                   selectedDesign.status}
-                </span>
-                <span className="text-purple-300">👁️ {selectedDesign.view_count || 0} views</span>
+                    selectedDesign.status === 'pending_approval' ? 'Pending Review' :
+                      selectedDesign.status}
+                </div>
+              </div>
+
+              <p className="text-lg text-purple-100/80 mb-6">{selectedDesign.description}</p>
+
+              <div className="flex items-center gap-2 mb-8 text-sm text-purple-300 bg-purple-500/5 px-4 py-2 rounded-lg border border-purple-500/10 w-fit">
+                <Eye className="w-4 h-4" />
+                <span>{selectedDesign.view_count || 0} views</span>
               </div>
 
               {selectedDesign.metadata?.original_prompt && (
-                <div className="mt-4 p-3 bg-white/5 rounded-lg">
-                  <p className="text-xs text-purple-300 mb-1">Original Prompt</p>
-                  <p className="text-sm text-white">{selectedDesign.metadata.original_prompt}</p>
+                <div className="mb-8 p-4 bg-black/20 rounded-xl border border-white/5">
+                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Original Prompt</p>
+                  <p className="text-sm text-white/90 italic leading-relaxed">"{selectedDesign.metadata.original_prompt}"</p>
                 </div>
               )}
 
-              <div className="flex gap-3 mt-6">
+              <div className="flex gap-4">
                 <button
                   onClick={() => {
                     setActiveTab('tools')
                   }}
-                  className="flex-1 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-medium rounded-lg"
+                  className="flex-1 btn-primary"
                 >
+                  <Wand2 className="w-4 h-4" />
                   Use AI Tools
                 </button>
                 <button
                   onClick={() => setSelectedDesign(null)}
-                  className="px-6 py-2 border border-white/10 text-white rounded-lg hover:bg-white/5"
+                  className="px-8 py-3 border border-white/10 text-white font-medium rounded-xl hover:bg-white/5 transition-colors"
                 >
                   Close
                 </button>
