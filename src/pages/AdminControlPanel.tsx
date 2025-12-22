@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/api'
 import type { PlatformSettings, AdminEarningsOverview } from '../types'
 
 const AdminControlPanel: React.FC = () => {
@@ -14,12 +14,7 @@ const AdminControlPanel: React.FC = () => {
 
   const loadPlatformSettings = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
-
-      const response = await fetch('/api/admin/control-panel/settings', {
-        headers: { 'Authorization': `Bearer ${session.access_token}` }
-      })
+      const response = await apiFetch('/api/admin/control-panel/settings')
 
       if (response.ok) {
         const { settings: data } = await response.json()
@@ -42,12 +37,7 @@ const AdminControlPanel: React.FC = () => {
 
   const loadEarningsOverview = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
-
-      const response = await fetch('/api/admin/control-panel/earnings', {
-        headers: { 'Authorization': `Bearer ${session.access_token}` }
-      })
+      const response = await apiFetch('/api/admin/control-panel/earnings')
 
       if (response.ok) {
         const { earnings } = await response.json()
@@ -77,17 +67,8 @@ const AdminControlPanel: React.FC = () => {
 
     setIsSaving(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        throw new Error('Not authenticated')
-      }
-
-      const response = await fetch('/api/admin/control-panel/settings', {
+      const response = await apiFetch('/api/admin/control-panel/settings', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
         body: JSON.stringify({
           platformFeePercentage: settings.platformFeePercentage,
           stripeFeePercentage: settings.stripeFeePercentage,

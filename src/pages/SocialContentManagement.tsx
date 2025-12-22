@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/api'
 
 interface SocialSubmission {
   id: string
@@ -115,12 +116,7 @@ const SocialContentManagement: React.FC = () => {
 
   const fetchAnalytics = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
-
-      const response = await fetch('/api/social/analytics', {
-        headers: { 'Authorization': `Bearer ${session.access_token}` }
-      })
+      const response = await apiFetch('/api/social/analytics')
 
       if (response.ok) {
         const { analytics: data } = await response.json()

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/api'
 import { shippoAPI } from '../utils/shippo'
 import type { Order, ShippingAddress } from '../types'
 
@@ -59,13 +60,8 @@ const OrderManagement: React.FC = () => {
     setIsLoading(true)
     try {
       // Use backend API to fetch orders (bypasses RLS issues)
-      const { data: { session } } = await supabase.auth.getSession()
-
-      const response = await fetch('/api/orders', {
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`
-        }
-      })
+      // apiFetch handles API_BASE and auth token automatically
+      const response = await apiFetch('/api/orders')
 
       if (!response.ok) {
         console.error('Error fetching orders:', response.statusText)

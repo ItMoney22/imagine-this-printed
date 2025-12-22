@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/api'
 import type { MarketingCampaign, Product } from '../types'
 
 const MarketingTools: React.FC = () => {
@@ -78,11 +79,8 @@ const MarketingTools: React.FC = () => {
 
     try {
       // Call backend API for real GPT content generation
-      const response = await fetch('/api/marketing/generate-content', {
+      const response = await apiFetch('/api/marketing/generate-content', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           productName: selectedProduct.name,
           productDescription: selectedProduct.description,
