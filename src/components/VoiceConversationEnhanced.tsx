@@ -235,11 +235,8 @@ export const VoiceConversationEnhanced = ({
             console.log('[VoiceConversation] 🎤 Sending audio to voice-chat API...')
 
             // Use the full voice-chat endpoint for conversational flow
-            const response = await api.post('/api/ai/voice-chat', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
-            })
+            // Note: Don't set Content-Type for FormData - browser sets it automatically with boundary
+            const response = await api.post('/api/ai/voice-chat', formData)
             const data = response.data as VoiceChatResponse
 
             console.log('[VoiceConversation] ✅ Voice chat response:', {
