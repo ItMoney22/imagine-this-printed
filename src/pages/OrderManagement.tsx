@@ -60,15 +60,9 @@ const OrderManagement: React.FC = () => {
     setIsLoading(true)
     try {
       // Use backend API to fetch orders (bypasses RLS issues)
-      // apiFetch handles API_BASE and auth token automatically
-      const response = await apiFetch('/api/orders')
-
-      if (!response.ok) {
-        console.error('Error fetching orders:', response.statusText)
-        return
-      }
-
-      const { orders: data } = await response.json()
+      // apiFetch handles API_BASE, auth token, and returns parsed JSON directly
+      const result = await apiFetch('/api/orders')
+      const data = result?.orders
 
       if (!data) {
         console.error('No orders data returned')

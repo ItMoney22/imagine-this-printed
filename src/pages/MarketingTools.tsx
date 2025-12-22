@@ -79,7 +79,8 @@ const MarketingTools: React.FC = () => {
 
     try {
       // Call backend API for real GPT content generation
-      const response = await apiFetch('/api/marketing/generate-content', {
+      // apiFetch returns parsed JSON directly (throws on error)
+      const result = await apiFetch('/api/marketing/generate-content', {
         method: 'POST',
         body: JSON.stringify({
           productName: selectedProduct.name,
@@ -91,15 +92,10 @@ const MarketingTools: React.FC = () => {
         })
       })
 
-      if (!response.ok) {
-        throw new Error('Failed to generate content')
-      }
-
-      const { content } = await response.json()
       setContentGeneration(prev => ({
         ...prev,
         isGenerating: false,
-        generatedContent: content
+        generatedContent: result?.content
       }))
     } catch (err) {
       console.error('Content generation error:', err)

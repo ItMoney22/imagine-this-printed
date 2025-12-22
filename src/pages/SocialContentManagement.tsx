@@ -116,11 +116,10 @@ const SocialContentManagement: React.FC = () => {
 
   const fetchAnalytics = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/social/analytics')
-
-      if (response.ok) {
-        const { analytics: data } = await response.json()
-        setAnalytics(data)
+      // apiFetch returns parsed JSON directly (throws on error)
+      const result = await apiFetch('/api/social/analytics')
+      if (result?.analytics) {
+        setAnalytics(result.analytics)
       }
     } catch (err: any) {
       console.error('[social] Error fetching analytics:', err)

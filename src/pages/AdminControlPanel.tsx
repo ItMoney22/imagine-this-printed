@@ -14,10 +14,10 @@ const AdminControlPanel: React.FC = () => {
 
   const loadPlatformSettings = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/admin/control-panel/settings')
-
-      if (response.ok) {
-        const { settings: data } = await response.json()
+      // apiFetch returns parsed JSON directly (throws on error)
+      const result = await apiFetch('/api/admin/control-panel/settings')
+      const data = result?.settings
+      if (data) {
         setSettings({
           id: 'platform_settings',
           platformFeePercentage: data.platformFeePercentage,
@@ -37,11 +37,10 @@ const AdminControlPanel: React.FC = () => {
 
   const loadEarningsOverview = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/admin/control-panel/earnings')
-
-      if (response.ok) {
-        const { earnings } = await response.json()
-        setEarningsOverview(earnings)
+      // apiFetch returns parsed JSON directly (throws on error)
+      const result = await apiFetch('/api/admin/control-panel/earnings')
+      if (result?.earnings) {
+        setEarningsOverview(result.earnings)
       }
     } catch (err) {
       console.error('[control-panel] Error loading earnings:', err)
@@ -67,7 +66,8 @@ const AdminControlPanel: React.FC = () => {
 
     setIsSaving(true)
     try {
-      const response = await apiFetch('/api/admin/control-panel/settings', {
+      // apiFetch returns parsed JSON directly (throws on error)
+      const result = await apiFetch('/api/admin/control-panel/settings', {
         method: 'PUT',
         body: JSON.stringify({
           platformFeePercentage: settings.platformFeePercentage,
@@ -79,17 +79,14 @@ const AdminControlPanel: React.FC = () => {
         })
       })
 
-      if (!response.ok) {
-        const { error: errMsg } = await response.json()
-        throw new Error(errMsg || 'Failed to save settings')
+      const updated = result?.settings
+      if (updated) {
+        setSettings(prev => prev ? {
+          ...prev,
+          ...updated,
+          lastUpdated: updated.lastUpdated || new Date().toISOString()
+        } : null)
       }
-
-      const { settings: updated } = await response.json()
-      setSettings(prev => prev ? {
-        ...prev,
-        ...updated,
-        lastUpdated: updated.lastUpdated || new Date().toISOString()
-      } : null)
 
       alert('Settings saved successfully!')
     } catch (err: any) {
