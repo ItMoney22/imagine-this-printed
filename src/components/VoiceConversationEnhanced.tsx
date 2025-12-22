@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import axios from 'axios'
+import api from '../lib/api'
 import { supabase } from '../lib/supabase'
 
 interface GeneratedDesign {
@@ -235,12 +235,12 @@ export const VoiceConversationEnhanced = ({
             console.log('[VoiceConversation] 🎤 Sending audio to voice-chat API...')
 
             // Use the full voice-chat endpoint for conversational flow
-            const { data } = await axios.post<VoiceChatResponse>('/api/ai/voice-chat', formData, {
+            const response = await api.post('/api/ai/voice-chat', formData, {
                 headers: {
-                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'multipart/form-data'
                 }
             })
+            const data = response.data as VoiceChatResponse
 
             console.log('[VoiceConversation] ✅ Voice chat response:', {
                 userSaid: data.user_said,
@@ -298,11 +298,9 @@ export const VoiceConversationEnhanced = ({
 
             console.log('[VoiceConversation] 🎨 Generating 3 design options...')
 
-            const { data } = await axios.post('/api/ai/voice-chat/generate-designs', {
+            const { data } = await api.post('/api/ai/voice-chat/generate-designs', {
                 designConcept: concept,
                 shirtColor: 'black', // Default, will be selected later
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
             })
 
             console.log('[VoiceConversation] ✅ Designs generated:', data.designs?.length)
@@ -335,10 +333,8 @@ export const VoiceConversationEnhanced = ({
 
             if (!token) throw new Error('Authentication required')
 
-            await axios.post('/api/ai/voice-chat/select-design', {
+            await api.post('/api/ai/voice-chat/select-design', {
                 designIndex: index
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
             })
 
             console.log('[VoiceConversation] ✅ Design selected:', index)
@@ -362,9 +358,7 @@ export const VoiceConversationEnhanced = ({
             const token = session?.access_token
 
             if (token) {
-                await axios.post('/api/ai/voice-chat/reset', {}, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+                await api.post('/api/ai/voice-chat/reset', {})
             }
 
             setTranscript('')
@@ -412,10 +406,7 @@ export const VoiceConversationEnhanced = ({
 
             console.log('[VoiceConversation] 🎤 Requesting Mr. Imagine voice synthesis...')
 
-            const { data } = await axios.post('/api/ai/voice/synthesize',
-                { text },
-                { headers: { Authorization: `Bearer ${token}` } }
-            )
+            const { data } = await api.post('/api/ai/voice/synthesize', { text })
 
             console.log('[VoiceConversation] ✅ Voice response received:', data.audioUrl?.substring(0, 50) + '...')
 
