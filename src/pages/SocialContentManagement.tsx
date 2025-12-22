@@ -115,11 +115,11 @@ const SocialContentManagement: React.FC = () => {
 
   const fetchAnalytics = useCallback(async () => {
     try {
-      const token = session?.access_token
-      if (!token) return
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
 
       const response = await fetch('/api/social/analytics', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
       })
 
       if (response.ok) {
@@ -129,7 +129,7 @@ const SocialContentManagement: React.FC = () => {
     } catch (err: any) {
       console.error('[social] Error fetching analytics:', err)
     }
-  }, [session])
+  }, [])
 
   useEffect(() => {
     if (user && (user.role === 'admin' || user.role === 'founder' || user.role === 'manager')) {
