@@ -46,10 +46,10 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-// POST /api/stripe/checkout-payment-intent - Create payment intent for product checkout
+// POST /api/stripe/checkout-payment-intent - Create or update payment intent for product checkout
 router.post('/checkout-payment-intent', async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, discount, userId, shippingCost, tax } = req.body
+    const { amount, currency, items, shipping, couponCode, discount, userId, shippingCost, tax, existingPaymentIntentId, existingOrderId } = req.body
 
     // Validate amount (in cents)
     if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents
@@ -64,6 +64,65 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
     // Calculate subtotal from items
     const subtotal = items?.reduce((sum: number, item: any) =>
       sum + (item.product?.price || 0) * (item.quantity || 1), 0) || 0
+
+    // If we have an existing payment intent and order, update them instead of creating new
+    if (existingPaymentIntentId && existingOrderId) {
+      try {
+        // Update the existing payment intent amount
+        const updatedPaymentIntent = await stripe.paymentIntents.update(existingPaymentIntentId, {
+          amount, // Amount in cents
+          metadata: {
+            couponCode: couponCode || '',
+            discount: discount?.toString() || '0',
+            shippingCost: shippingCost?.toString() || '0'
+          }
+        })
+
+        // Update the existing order
+        await supabase
+          .from('orders')
+          .update({
+            subtotal: subtotal,
+            tax_amount: tax || 0,
+            shipping_amount: shippingCost || 0,
+            discount_amount: discount || 0,
+            total: amount / 100,
+            discount_codes: couponCode ? [couponCode] : [],
+            shipping_address: {
+              firstName: shipping?.firstName,
+              lastName: shipping?.lastName,
+              address: shipping?.address,
+              city: shipping?.city,
+              state: shipping?.state,
+              zipCode: shipping?.zipCode,
+              country: shipping?.country || 'US',
+              email: shipping?.email
+            },
+            customer_email: shipping?.email || null,
+            customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingOrderId)
+
+        req.log?.info({
+          paymentIntentId: existingPaymentIntentId,
+          orderId: existingOrderId,
+          amount: amount / 100,
+          shippingCost: shippingCost,
+          discount: discount
+        }, 'Updated existing payment intent and order')
+
+        return res.json({
+          clientSecret: updatedPaymentIntent.client_secret,
+          paymentIntentId: updatedPaymentIntent.id,
+          orderId: existingOrderId,
+          updated: true
+        })
+      } catch (updateError: any) {
+        // If update fails (e.g., payment intent already confirmed), create new
+        req.log?.warn({ err: updateError, existingPaymentIntentId }, 'Failed to update existing payment intent, creating new one')
+      }
+    }
 
     // Generate order number
     const orderNumber = `ITP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
@@ -157,6 +216,7 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
         })) || []),
         couponCode: couponCode || '',
         discount: discount?.toString() || '0',
+        shippingCost: shippingCost?.toString() || '0',
         shippingCity: shipping?.city || '',
         shippingState: shipping?.state || '',
         shippingCountry: shipping?.country || 'US'
@@ -178,6 +238,8 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
       orderId: order.id,
       orderNumber: orderNumber,
       amount: amount / 100,
+      shippingCost: shippingCost,
+      discount: discount,
       itemCount: items?.length || 0
     }, 'Checkout payment intent and order created')
 

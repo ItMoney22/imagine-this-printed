@@ -156,6 +156,7 @@ const Checkout: React.FC = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [clientSecret, setClientSecret] = useState('')
+  const [paymentIntentId, setPaymentIntentId] = useState('')
   const [orderId, setOrderId] = useState('')
   const [shippingCalculation, setShippingCalculation] = useState<ShippingCalculation | null>(null)
   const [loadingShipping, setLoadingShipping] = useState(false)
@@ -295,12 +296,18 @@ const Checkout: React.FC = () => {
           discount: discount,
           userId: user?.id || null,
           shippingCost: shipping,
-          tax: tax
+          tax: tax,
+          // Pass existing payment intent ID to update instead of create new
+          existingPaymentIntentId: paymentIntentId || undefined,
+          existingOrderId: orderId || undefined
         }),
       })
 
       if (data.clientSecret) {
         setClientSecret(data.clientSecret)
+        if (data.paymentIntentId) {
+          setPaymentIntentId(data.paymentIntentId)
+        }
         if (data.orderId) {
           setOrderId(data.orderId)
         }
