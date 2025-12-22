@@ -80,12 +80,12 @@ const AdminSupport: React.FC = () => {
     useEffect(() => {
         const getToken = async () => {
             const { data: { session } } = await supabase.auth.getSession()
-            setAccessToken(accessToken || null)
+            setAccessToken(session?.access_token || null)
         }
         getToken()
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setAccessToken(accessToken || null)
+            setAccessToken(session?.access_token || null)
         })
 
         return () => subscription.unsubscribe()
