@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { founderEarningsService } from '../utils/founder-earnings'
+import { supabase } from '../lib/supabase'
 import type { PlatformSettings, AdminEarningsOverview } from '../types'
 
 const AdminControlPanel: React.FC = () => {
@@ -9,89 +9,111 @@ const AdminControlPanel: React.FC = () => {
   const [earningsOverview, setEarningsOverview] = useState<AdminEarningsOverview | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [selectedTab, setSelectedTab] = useState<'settings' | 'earnings' | 'payouts' | 'analytics'>('settings')
 
-  useEffect(() => {
-    if (user && (user.role === 'admin' || user.role === 'founder')) {
-      loadData()
+  const loadPlatformSettings = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+
+      const response = await fetch('/api/admin/control-panel/settings', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      })
+
+      if (response.ok) {
+        const { settings: data } = await response.json()
+        setSettings({
+          id: 'platform_settings',
+          platformFeePercentage: data.platformFeePercentage,
+          stripeFeePercentage: data.stripeFeePercentage,
+          founderEarningsPercentage: data.founderEarningsPercentage,
+          minimumPayoutAmount: data.minimumPayoutAmount,
+          payoutSchedule: data.payoutSchedule,
+          autoPayoutEnabled: data.autoPayoutEnabled,
+          lastUpdated: data.lastUpdated || new Date().toISOString(),
+          updatedBy: user?.id || 'admin'
+        })
+      }
+    } catch (err) {
+      console.error('[control-panel] Error loading settings:', err)
     }
   }, [user])
 
-  const loadData = async () => {
+  const loadEarningsOverview = useCallback(async () => {
     try {
-      setIsLoading(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
 
-      // Load platform settings and earnings overview
-      const [settingsData, overviewData] = await Promise.all([
-        loadPlatformSettings(),
-        loadEarningsOverview()
-      ])
+      const response = await fetch('/api/admin/control-panel/earnings', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      })
 
-      setSettings(settingsData)
-      setEarningsOverview(overviewData)
-    } catch (error) {
-      console.error('Error loading admin data:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const loadPlatformSettings = async (): Promise<PlatformSettings> => {
-    // Mock settings - in real app, this would fetch from database
-    return {
-      id: 'settings_1',
-      platformFeePercentage: 0.07,
-      stripeFeePercentage: 0.035,
-      founderEarningsPercentage: 0.35,
-      minimumPayoutAmount: 25.00,
-      payoutSchedule: 'weekly',
-      autoPayoutEnabled: true,
-      lastUpdated: new Date().toISOString(),
-      updatedBy: user?.id || 'admin'
-    }
-  }
-
-  const loadEarningsOverview = async (): Promise<AdminEarningsOverview> => {
-    // Mock earnings overview - in real app, this would calculate from database
-    return {
-      totalRevenue: 45780.25,
-      totalPlatformFees: 3204.62,
-      totalVendorPayouts: 38925.75,
-      totalFounderEarnings: 2849.88,
-      pendingPayouts: 5670.00,
-      period: 'Last 30 days',
-      breakdown: {
-        vendorSales: 35680.50,
-        inHouseSales: 10099.75,
-        subscriptionRevenue: 0,
-        otherRevenue: 0
+      if (response.ok) {
+        const { earnings } = await response.json()
+        setEarningsOverview(earnings)
       }
+    } catch (err) {
+      console.error('[control-panel] Error loading earnings:', err)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (user && (user.role === 'admin' || user.role === 'founder')) {
+      setIsLoading(true)
+      setError(null)
+
+      const loadData = async () => {
+        await Promise.all([loadPlatformSettings(), loadEarningsOverview()])
+        setIsLoading(false)
+      }
+
+      loadData()
+    }
+  }, [user, loadPlatformSettings, loadEarningsOverview])
 
   const saveSettings = async () => {
     if (!settings) return
 
+    setIsSaving(true)
     try {
-      setIsSaving(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('Not authenticated')
+      }
 
-      // In real app, this would save to database
-      console.log('Saving platform settings:', settings)
+      const response = await fetch('/api/admin/control-panel/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          platformFeePercentage: settings.platformFeePercentage,
+          stripeFeePercentage: settings.stripeFeePercentage,
+          founderEarningsPercentage: settings.founderEarningsPercentage,
+          minimumPayoutAmount: settings.minimumPayoutAmount,
+          payoutSchedule: settings.payoutSchedule,
+          autoPayoutEnabled: settings.autoPayoutEnabled
+        })
+      })
 
-      // Mock API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      if (!response.ok) {
+        const { error: errMsg } = await response.json()
+        throw new Error(errMsg || 'Failed to save settings')
+      }
 
-      // Update last updated timestamp
+      const { settings: updated } = await response.json()
       setSettings(prev => prev ? {
         ...prev,
-        lastUpdated: new Date().toISOString(),
-        updatedBy: user?.id || 'admin'
+        ...updated,
+        lastUpdated: updated.lastUpdated || new Date().toISOString()
       } : null)
 
       alert('Settings saved successfully!')
-    } catch (error) {
-      console.error('Error saving settings:', error)
-      alert('Failed to save settings. Please try again.')
+    } catch (err: any) {
+      console.error('[control-panel] Error saving settings:', err)
+      alert(err.message || 'Failed to save settings. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -99,36 +121,33 @@ const AdminControlPanel: React.FC = () => {
 
   const updateSetting = (key: keyof PlatformSettings, value: any) => {
     if (!settings) return
-
-    setSettings(prev => prev ? {
-      ...prev,
-      [key]: value
-    } : null)
+    setSettings(prev => prev ? { ...prev, [key]: value } : null)
   }
 
   const processAllPendingPayouts = async () => {
     try {
-      // In real app, this would process all pending payouts
       console.log('Processing all pending payouts...')
-
-      // Mock processing
       await new Promise(resolve => setTimeout(resolve, 2000))
-
       alert('All pending payouts have been processed!')
-      await loadData()
-    } catch (error) {
-      console.error('Error processing payouts:', error)
+      await loadEarningsOverview()
+    } catch (err) {
+      console.error('[control-panel] Error processing payouts:', err)
       alert('Failed to process payouts. Please try again.')
     }
   }
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount)
+  }
+
   if (!user || (user.role !== 'admin' && user.role !== 'founder')) {
     return (
-      <div className="min-h-screen bg-bg text-text pt-24 pb-12 flex items-center justify-center">
-        <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center backdrop-blur-md shadow-[0_0_30px_rgba(239,68,68,0.2)]">
-          <div className="text-5xl mb-4">🚫</div>
-          <h2 className="text-2xl font-bold text-red-400 mb-2">Access Denied</h2>
-          <p className="text-muted">You do not have permission to view this page.</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6">
+          <p className="text-red-800 dark:text-red-200">Access denied. This page is for admins and founders only.</p>
         </div>
       </div>
     )
@@ -136,251 +155,293 @@ const AdminControlPanel: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-bg text-text pt-24 pb-12 flex items-center justify-center">
-        <div className="relative w-24 h-24">
-          <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
-          <div className="absolute inset-0 border-4 border-t-primary rounded-full animate-spin shadow-[0_0_15px_rgba(168,85,247,0.5)]"></div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+          <span className="ml-3 text-muted">Loading control panel...</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text pt-24 pb-12 relative overflow-hidden">
-      {/* Animated Background Elements */}
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[128px] animate-pulse-slow"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-secondary/20 rounded-full blur-[128px] animate-pulse-slow delay-1000"></div>
+    <div className="min-h-screen bg-bg">
+      {/* Gradient Header */}
+      <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">Control Panel</h1>
+              <p className="text-purple-100">Platform settings, fees, and financial management</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {earningsOverview && (
+                <>
+                  <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
+                    <span className="text-purple-100 text-xs uppercase tracking-wider">Revenue</span>
+                    <p className="text-white text-xl font-bold">{formatCurrency(earningsOverview.totalRevenue)}</p>
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
+                    <span className="text-purple-100 text-xs uppercase tracking-wider">Platform Fees</span>
+                    <p className="text-white text-xl font-bold">{formatCurrency(earningsOverview.totalPlatformFees)}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="mb-10">
-          <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary via-purple-400 to-secondary drop-shadow-[0_0_15px_rgba(168,85,247,0.5)] mb-3">
-            Admin Control Panel
-          </h1>
-          <p className="text-muted text-lg">Manage platform settings, payouts, and earnings</p>
-        </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
+            <p className="text-red-800 dark:text-red-200">{error}</p>
+          </div>
+        )}
 
-        {/* Tabs */}
-        <div className="bg-card/30 backdrop-blur-md border border-white/10 rounded-2xl p-2 mb-8 flex flex-wrap gap-2">
-          {[
-            { id: 'settings', label: 'Platform Settings', icon: '⚙️' },
-            { id: 'earnings', label: 'Earnings Overview', icon: '💰' },
-            { id: 'payouts', label: 'Payout Management', icon: '💳' },
-            { id: 'analytics', label: 'Analytics', icon: '📊' }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setSelectedTab(tab.id as any)}
-              className={`flex-1 min-w-[150px] py-3 px-4 rounded-xl font-bold transition-all duration-300 flex items-center justify-center space-x-2 ${selectedTab === tab.id
-                  ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-lg shadow-primary/25'
-                  : 'bg-transparent text-muted hover:bg-white/5 hover:text-text'
+        {/* Stats Cards */}
+        {earningsOverview && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+              <div className="flex items-center">
+                <div className="p-3 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl shadow-lg shadow-green-500/25">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-muted">Total Revenue</p>
+                  <p className="text-2xl font-bold text-text">{formatCurrency(earningsOverview.totalRevenue)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+              <div className="flex items-center">
+                <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl shadow-lg shadow-purple-500/25">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-muted">Platform Fees</p>
+                  <p className="text-2xl font-bold text-text">{formatCurrency(earningsOverview.totalPlatformFees)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+              <div className="flex items-center">
+                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg shadow-blue-500/25">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-muted">Vendor Payouts</p>
+                  <p className="text-2xl font-bold text-text">{formatCurrency(earningsOverview.totalVendorPayouts)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
+              <div className="flex items-center">
+                <div className="p-3 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl shadow-lg shadow-amber-500/25">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-muted">Founder Earnings</p>
+                  <p className="text-2xl font-bold text-text">{formatCurrency(earningsOverview.totalFounderEarnings)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pill-style Tab Navigation */}
+        <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-2 mb-6">
+          <nav className="flex space-x-2 overflow-x-auto">
+            {[
+              { id: 'settings', label: 'Platform Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+              { id: 'earnings', label: 'Earnings Overview', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+              { id: 'payouts', label: 'Payout Management', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z' },
+              { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setSelectedTab(tab.id as any)}
+                className={`flex items-center px-4 py-2.5 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
+                  selectedTab === tab.id
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
+                    : 'text-muted hover:text-text hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
-            >
-              <span className="text-xl">{tab.icon}</span>
-              <span>{tab.label}</span>
-            </button>
-          ))}
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
+                </svg>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
         </div>
 
         {/* Platform Settings Tab */}
         {selectedTab === 'settings' && settings && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="bg-card/30 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-xl">
-              <div className="border-b border-white/10 pb-6 mb-6">
-                <h3 className="text-2xl font-bold text-text flex items-center">
-                  <span className="bg-primary/20 p-2 rounded-lg mr-3 text-primary">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                    </svg>
-                  </span>
-                  Fee Structure
-                </h3>
-                <p className="text-muted mt-2 ml-14">Configure platform and processing fees</p>
+          <div className="space-y-6">
+            {/* Fee Configuration Card */}
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 overflow-hidden">
+              <div className="px-6 py-4 border-b border-purple-500/10">
+                <h3 className="text-lg font-semibold text-text">Fee Configuration</h3>
+                <p className="text-sm text-muted mt-1">Configure platform and processing fees</p>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-bg/40 rounded-2xl p-6 border border-white/5 hover:border-primary/30 transition-colors">
-                  <label className="block text-sm font-bold text-text mb-3 uppercase tracking-wider">
-                    Platform Fee Percentage
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.001"
-                      value={settings.platformFeePercentage}
-                      onChange={(e) => updateSetting('platformFeePercentage', parseFloat(e.target.value))}
-                      className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all pr-16 font-mono text-lg"
-                    />
-                    <span className="absolute right-4 top-3.5 text-primary font-bold">
-                      {(settings.platformFeePercentage * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted mt-3 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Fee charged to vendors on each sale
-                  </p>
-                </div>
-
-                <div className="bg-bg/40 rounded-2xl p-6 border border-white/5 hover:border-primary/30 transition-colors">
-                  <label className="block text-sm font-bold text-text mb-3 uppercase tracking-wider">
-                    Stripe Fee Percentage
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.001"
-                      value={settings.stripeFeePercentage}
-                      onChange={(e) => updateSetting('stripeFeePercentage', parseFloat(e.target.value))}
-                      className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all pr-16 font-mono text-lg"
-                    />
-                    <span className="absolute right-4 top-3.5 text-primary font-bold">
-                      {(settings.stripeFeePercentage * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted mt-3 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Payment processing fee
-                  </p>
-                </div>
-
-                <div className="bg-bg/40 rounded-2xl p-6 border border-white/5 hover:border-primary/30 transition-colors">
-                  <label className="block text-sm font-bold text-text mb-3 uppercase tracking-wider">
-                    Founder Earnings Percentage
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={settings.founderEarningsPercentage}
-                      onChange={(e) => updateSetting('founderEarningsPercentage', parseFloat(e.target.value))}
-                      className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all pr-16 font-mono text-lg"
-                    />
-                    <span className="absolute right-4 top-3.5 text-primary font-bold">
-                      {(settings.founderEarningsPercentage * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted mt-3 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Founder's share of profit from internal products
-                  </p>
-                </div>
-
-                <div className="bg-bg/40 rounded-2xl p-6 border border-white/5 hover:border-primary/30 transition-colors">
-                  <label className="block text-sm font-bold text-text mb-3 uppercase tracking-wider">
-                    Minimum Payout Amount
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-3.5 text-muted">$</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="1000"
-                      step="0.01"
-                      value={settings.minimumPayoutAmount}
-                      onChange={(e) => updateSetting('minimumPayoutAmount', parseFloat(e.target.value))}
-                      className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all pl-8 font-mono text-lg"
-                    />
-                  </div>
-                  <p className="text-sm text-muted mt-3 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Minimum amount before payouts are processed
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-card/30 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-xl">
-              <div className="border-b border-white/10 pb-6 mb-6">
-                <h3 className="text-2xl font-bold text-text flex items-center">
-                  <span className="bg-secondary/20 p-2 rounded-lg mr-3 text-secondary">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                    </svg>
-                  </span>
-                  Payout Settings
-                </h3>
-                <p className="text-muted mt-2 ml-14">Configure automatic payout schedule</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-bg/40 rounded-2xl p-6 border border-white/5 hover:border-secondary/30 transition-colors">
-                  <label className="block text-sm font-bold text-text mb-3 uppercase tracking-wider">
-                    Payout Schedule
-                  </label>
-                  <select
-                    value={settings.payoutSchedule}
-                    onChange={(e) => updateSetting('payoutSchedule', e.target.value)}
-                    className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-secondary transition-all appearance-none"
-                  >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                  <p className="text-sm text-muted mt-3 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    How often automatic payouts are processed
-                  </p>
-                </div>
-
-                <div className="bg-bg/40 rounded-2xl p-6 border border-white/5 hover:border-secondary/30 transition-colors flex flex-col justify-center">
-                  <label className="flex items-center cursor-pointer group">
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-2">Platform Fee (%)</label>
                     <div className="relative">
                       <input
-                        type="checkbox"
-                        checked={settings.autoPayoutEnabled}
-                        onChange={(e) => updateSetting('autoPayoutEnabled', e.target.checked)}
-                        className="sr-only"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.001"
+                        value={settings.platformFeePercentage}
+                        onChange={(e) => updateSetting('platformFeePercentage', parseFloat(e.target.value))}
+                        className="w-full bg-bg border border-purple-500/20 rounded-xl px-4 py-3 text-text focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-16"
                       />
-                      <div className={`block w-14 h-8 rounded-full transition-colors duration-300 ${settings.autoPayoutEnabled ? 'bg-secondary' : 'bg-white/10'}`}></div>
-                      <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform duration-300 ${settings.autoPayoutEnabled ? 'transform translate-x-6' : ''}`}></div>
+                      <span className="absolute right-4 top-3 text-purple-500 font-medium">
+                        {(settings.platformFeePercentage * 100).toFixed(1)}%
+                      </span>
                     </div>
-                    <span className="ml-4 text-lg font-bold text-text group-hover:text-secondary transition-colors">
-                      Enable Automatic Payouts
-                    </span>
-                  </label>
-                  <p className="text-sm text-muted mt-3 ml-[4.5rem]">
-                    Automatically process payouts on schedule
-                  </p>
+                    <p className="text-xs text-muted mt-2">Fee charged to vendors on each sale</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-2">Stripe Fee (%)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.001"
+                        value={settings.stripeFeePercentage}
+                        onChange={(e) => updateSetting('stripeFeePercentage', parseFloat(e.target.value))}
+                        className="w-full bg-bg border border-purple-500/20 rounded-xl px-4 py-3 text-text focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-16"
+                      />
+                      <span className="absolute right-4 top-3 text-purple-500 font-medium">
+                        {(settings.stripeFeePercentage * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted mt-2">Payment processing fee</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-2">Founder Earnings (%)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={settings.founderEarningsPercentage}
+                        onChange={(e) => updateSetting('founderEarningsPercentage', parseFloat(e.target.value))}
+                        className="w-full bg-bg border border-purple-500/20 rounded-xl px-4 py-3 text-text focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-16"
+                      />
+                      <span className="absolute right-4 top-3 text-purple-500 font-medium">
+                        {(settings.founderEarningsPercentage * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted mt-2">Founder's share of platform fees</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-2">Minimum Payout ($)</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-3 text-muted">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1000"
+                        step="0.01"
+                        value={settings.minimumPayoutAmount}
+                        onChange={(e) => updateSetting('minimumPayoutAmount', parseFloat(e.target.value))}
+                        className="w-full bg-bg border border-purple-500/20 rounded-xl px-4 py-3 text-text focus:ring-2 focus:ring-purple-500 focus:border-transparent pl-8"
+                      />
+                    </div>
+                    <p className="text-xs text-muted mt-2">Minimum amount for vendor payout</p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-between items-center pt-4">
-              <p className="text-sm text-muted bg-white/5 px-4 py-2 rounded-lg border border-white/5">
-                Last updated: <span className="text-text font-mono">{new Date(settings.lastUpdated).toLocaleString()}</span>
+            {/* Payout Settings Card */}
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 overflow-hidden">
+              <div className="px-6 py-4 border-b border-purple-500/10">
+                <h3 className="text-lg font-semibold text-text">Payout Settings</h3>
+                <p className="text-sm text-muted mt-1">Configure automatic payout schedule</p>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-muted mb-2">Payout Schedule</label>
+                    <select
+                      value={settings.payoutSchedule}
+                      onChange={(e) => updateSetting('payoutSchedule', e.target.value)}
+                      className="w-full bg-bg border border-purple-500/20 rounded-xl px-4 py-3 text-text focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                    <p className="text-xs text-muted mt-2">How often payouts are processed</p>
+                  </div>
+
+                  <div className="flex items-center">
+                    <label className="flex items-center cursor-pointer">
+                      <div className="relative">
+                        <input
+                          type="checkbox"
+                          checked={settings.autoPayoutEnabled}
+                          onChange={(e) => updateSetting('autoPayoutEnabled', e.target.checked)}
+                          className="sr-only"
+                        />
+                        <div className={`block w-14 h-8 rounded-full transition-colors ${settings.autoPayoutEnabled ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                        <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${settings.autoPayoutEnabled ? 'transform translate-x-6' : ''}`}></div>
+                      </div>
+                      <span className="ml-4 text-text font-medium">Enable Automatic Payouts</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-muted">
+                Last updated: <span className="font-medium text-text">{new Date(settings.lastUpdated).toLocaleString()}</span>
               </p>
               <button
                 onClick={saveSettings}
                 disabled={isSaving}
-                className="bg-gradient-to-r from-primary to-secondary hover:from-primary/80 hover:to-secondary/80 text-white font-bold px-8 py-4 rounded-xl transition-all shadow-lg hover:shadow-primary/50 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-6 py-3 rounded-xl shadow-lg shadow-purple-500/25 flex items-center font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSaving ? (
-                  <span className="flex items-center space-x-2">
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <>
+                    <svg className="animate-spin h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span>Saving...</span>
-                  </span>
+                    Saving...
+                  </>
                 ) : (
-                  'Save Settings'
+                  <>
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Save Settings
+                  </>
                 )}
               </button>
             </div>
@@ -389,157 +450,83 @@ const AdminControlPanel: React.FC = () => {
 
         {/* Earnings Overview Tab */}
         {selectedTab === 'earnings' && earningsOverview && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Key Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-card/30 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-lg hover:shadow-green-500/20 transition-all group">
-                <div className="flex items-center mb-4">
-                  <div className="p-3 rounded-xl bg-green-500/20 text-green-400 group-hover:scale-110 transition-transform">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                    </svg>
-                  </div>
-                  <div className="ml-auto text-xs font-bold text-green-400 bg-green-500/10 px-2 py-1 rounded-lg border border-green-500/20">
-                    REVENUE
-                  </div>
-                </div>
-                <p className="text-3xl font-bold text-text mb-1">
-                  {founderEarningsService.formatCurrency(earningsOverview.totalRevenue)}
-                </p>
-                <p className="text-sm text-muted">{earningsOverview.period}</p>
+          <div className="space-y-6">
+            {/* Revenue Breakdown Card */}
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 overflow-hidden">
+              <div className="px-6 py-4 border-b border-purple-500/10">
+                <h3 className="text-lg font-semibold text-text">Revenue Breakdown</h3>
+                <p className="text-sm text-muted mt-1">Detailed breakdown of revenue sources</p>
               </div>
-
-              <div className="bg-card/30 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-lg hover:shadow-blue-500/20 transition-all group">
-                <div className="flex items-center mb-4">
-                  <div className="p-3 rounded-xl bg-blue-500/20 text-blue-400 group-hover:scale-110 transition-transform">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <div className="ml-auto text-xs font-bold text-blue-400 bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/20">
-                    FEES
-                  </div>
-                </div>
-                <p className="text-3xl font-bold text-text mb-1">
-                  {founderEarningsService.formatCurrency(earningsOverview.totalPlatformFees)}
-                </p>
-                <p className="text-sm text-muted">
-                  {((earningsOverview.totalPlatformFees / earningsOverview.totalRevenue) * 100).toFixed(1)}% of revenue
-                </p>
-              </div>
-
-              <div className="bg-card/30 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-lg hover:shadow-purple-500/20 transition-all group">
-                <div className="flex items-center mb-4">
-                  <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 group-hover:scale-110 transition-transform">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  </div>
-                  <div className="ml-auto text-xs font-bold text-purple-400 bg-purple-500/10 px-2 py-1 rounded-lg border border-purple-500/20">
-                    PAYOUTS
-                  </div>
-                </div>
-                <p className="text-3xl font-bold text-text mb-1">
-                  {founderEarningsService.formatCurrency(earningsOverview.totalVendorPayouts)}
-                </p>
-                <p className="text-sm text-muted">
-                  {((earningsOverview.totalVendorPayouts / earningsOverview.totalRevenue) * 100).toFixed(1)}% of revenue
-                </p>
-              </div>
-
-              <div className="bg-card/30 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-lg hover:shadow-yellow-500/20 transition-all group">
-                <div className="flex items-center mb-4">
-                  <div className="p-3 rounded-xl bg-yellow-500/20 text-yellow-400 group-hover:scale-110 transition-transform">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                  </div>
-                  <div className="ml-auto text-xs font-bold text-yellow-400 bg-yellow-500/10 px-2 py-1 rounded-lg border border-yellow-500/20">
-                    EARNINGS
-                  </div>
-                </div>
-                <p className="text-3xl font-bold text-text mb-1">
-                  {founderEarningsService.formatCurrency(earningsOverview.totalFounderEarnings)}
-                </p>
-                <p className="text-sm text-muted">Internal products only</p>
-              </div>
-            </div>
-
-            {/* Revenue Breakdown */}
-            <div className="bg-card/30 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-xl">
-              <div className="border-b border-white/10 pb-6 mb-6">
-                <h3 className="text-2xl font-bold text-text">Revenue Breakdown</h3>
-              </div>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-6 bg-blue-500/10 rounded-2xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
                   <div className="flex items-center">
-                    <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mr-4">
-                      <span className="text-2xl">👥</span>
+                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-800 flex items-center justify-center mr-4">
+                      <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
                     </div>
                     <div>
-                      <p className="font-bold text-lg text-text">Vendor Sales</p>
+                      <p className="font-medium text-text">Vendor Sales</p>
                       <p className="text-sm text-muted">Third-party vendor products</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-xl text-text">
-                      {founderEarningsService.formatCurrency(earningsOverview.breakdown.vendorSales)}
-                    </p>
-                    <p className="text-sm text-blue-400 font-bold">
-                      {((earningsOverview.breakdown.vendorSales / earningsOverview.totalRevenue) * 100).toFixed(1)}%
+                    <p className="font-bold text-lg text-text">{formatCurrency(earningsOverview.breakdown.vendorSales)}</p>
+                    <p className="text-sm text-blue-600 dark:text-blue-400">
+                      {earningsOverview.totalRevenue > 0 ? ((earningsOverview.breakdown.vendorSales / earningsOverview.totalRevenue) * 100).toFixed(1) : 0}%
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-6 bg-green-500/10 rounded-2xl border border-green-500/20 hover:bg-green-500/20 transition-colors">
+                <div className="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
                   <div className="flex items-center">
-                    <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mr-4">
-                      <span className="text-2xl">🏠</span>
+                    <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-800 flex items-center justify-center mr-4">
+                      <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                      </svg>
                     </div>
                     <div>
-                      <p className="font-bold text-lg text-text">In-House Sales</p>
+                      <p className="font-medium text-text">In-House Sales</p>
                       <p className="text-sm text-muted">Platform-owned products</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-xl text-text">
-                      {founderEarningsService.formatCurrency(earningsOverview.breakdown.inHouseSales)}
-                    </p>
-                    <p className="text-sm text-green-400 font-bold">
-                      {((earningsOverview.breakdown.inHouseSales / earningsOverview.totalRevenue) * 100).toFixed(1)}%
+                    <p className="font-bold text-lg text-text">{formatCurrency(earningsOverview.breakdown.inHouseSales)}</p>
+                    <p className="text-sm text-green-600 dark:text-green-400">
+                      {earningsOverview.totalRevenue > 0 ? ((earningsOverview.breakdown.inHouseSales / earningsOverview.totalRevenue) * 100).toFixed(1) : 0}%
                     </p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Pending Actions */}
-            <div className="bg-card/30 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-xl">
-              <div className="border-b border-white/10 pb-6 mb-6">
-                <h3 className="text-2xl font-bold text-text">Pending Actions</h3>
+            {/* Pending Payouts Card */}
+            <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 overflow-hidden">
+              <div className="px-6 py-4 border-b border-purple-500/10">
+                <h3 className="text-lg font-semibold text-text">Pending Actions</h3>
               </div>
-              <div className="flex items-center justify-between p-6 bg-yellow-500/10 rounded-2xl border border-yellow-500/20">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center mr-4 animate-pulse">
-                    <span className="text-2xl">⚠️</span>
+              <div className="p-6">
+                <div className="flex items-center justify-between p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-800 flex items-center justify-center mr-4 animate-pulse">
+                      <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-medium text-text">Pending Payouts</p>
+                      <p className="text-sm text-muted">Vendor payouts awaiting processing</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-bold text-lg text-text">Pending Payouts</p>
-                    <p className="text-sm text-muted">
-                      Vendor payouts awaiting processing
-                    </p>
+                  <div className="flex items-center gap-4">
+                    <p className="font-bold text-xl text-text">{formatCurrency(earningsOverview.pendingPayouts)}</p>
+                    <button
+                      onClick={processAllPendingPayouts}
+                      className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white px-4 py-2 rounded-xl shadow-lg shadow-amber-500/25 font-medium"
+                    >
+                      Process All
+                    </button>
                   </div>
-                </div>
-                <div className="flex items-center space-x-6">
-                  <p className="font-mono font-bold text-2xl text-text">
-                    {founderEarningsService.formatCurrency(earningsOverview.pendingPayouts)}
-                  </p>
-                  <button
-                    onClick={processAllPendingPayouts}
-                    className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold px-6 py-3 rounded-xl shadow-lg hover:shadow-yellow-500/50 transition-all transform hover:scale-105"
-                  >
-                    Process All
-                  </button>
                 </div>
               </div>
             </div>
@@ -548,25 +535,26 @@ const AdminControlPanel: React.FC = () => {
 
         {/* Payout Management Tab */}
         {selectedTab === 'payouts' && (
-          <div className="bg-card/30 backdrop-blur-md rounded-3xl p-10 border border-white/10 shadow-xl text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-4xl">🚧</span>
+          <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-10 text-center">
+            <div className="w-20 h-20 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
             </div>
-            <h3 className="text-2xl font-bold text-text mb-4">Payout Management</h3>
-            <p className="text-muted max-w-md mx-auto mb-8">
+            <h3 className="text-xl font-bold text-text mb-2">Payout Management</h3>
+            <p className="text-muted max-w-md mx-auto mb-6">
               Advanced payout management features are currently under development.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-lg mx-auto text-left">
               {[
                 'View all pending vendor payouts',
                 'Process individual or bulk payouts',
                 'Payout history and status tracking',
-                'Failed payout resolution',
-                'Payout schedule management'
+                'Failed payout resolution'
               ].map((item, i) => (
-                <div key={i} className="flex items-center p-4 bg-white/5 rounded-xl border border-white/5">
-                  <div className="w-2 h-2 rounded-full bg-primary mr-3"></div>
-                  <span className="text-muted">{item}</span>
+                <div key={i} className="flex items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div className="w-2 h-2 rounded-full bg-purple-500 mr-3"></div>
+                  <span className="text-sm text-muted">{item}</span>
                 </div>
               ))}
             </div>
@@ -575,26 +563,26 @@ const AdminControlPanel: React.FC = () => {
 
         {/* Analytics Tab */}
         {selectedTab === 'analytics' && (
-          <div className="bg-card/30 backdrop-blur-md rounded-3xl p-10 border border-white/10 shadow-xl text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-4xl">📈</span>
+          <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-10 text-center">
+            <div className="w-20 h-20 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
             </div>
-            <h3 className="text-2xl font-bold text-text mb-4">Platform Analytics</h3>
-            <p className="text-muted max-w-md mx-auto mb-8">
+            <h3 className="text-xl font-bold text-text mb-2">Platform Analytics</h3>
+            <p className="text-muted max-w-md mx-auto mb-6">
               Comprehensive analytics dashboard is coming soon.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-lg mx-auto text-left">
               {[
                 'Revenue trends and forecasting',
                 'Fee optimization analysis',
                 'Vendor performance metrics',
-                'Product category insights',
-                'Customer behavior analytics',
                 'Financial reporting and exports'
               ].map((item, i) => (
-                <div key={i} className="flex items-center p-4 bg-white/5 rounded-xl border border-white/5">
-                  <div className="w-2 h-2 rounded-full bg-secondary mr-3"></div>
-                  <span className="text-muted">{item}</span>
+                <div key={i} className="flex items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div className="w-2 h-2 rounded-full bg-pink-500 mr-3"></div>
+                  <span className="text-sm text-muted">{item}</span>
                 </div>
               ))}
             </div>
