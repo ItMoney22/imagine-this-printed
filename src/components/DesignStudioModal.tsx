@@ -4,6 +4,7 @@ import { Stage, Layer, Image as KonvaImage, Text, Transformer, Rect } from 'reac
 import useImage from 'use-image'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { replicateAPI } from '../utils/replicate'
 import { gptAssistant } from '../utils/gpt-assistant'
 import { supabase } from '../lib/supabase'
@@ -100,6 +101,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
 
   const { addToCart } = useCart()
   const { user } = useAuth()
+  const toast = useToast()
 
   // Load ITC balance
   useEffect(() => {
@@ -467,7 +469,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
       canvasSnapshot
     })
 
-    alert('Design added to cart!')
+    toast.success('Added to cart', 'Your custom design is ready!')
     handleClose()
   }
 

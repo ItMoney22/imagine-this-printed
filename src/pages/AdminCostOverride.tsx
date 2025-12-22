@@ -101,7 +101,7 @@ const AdminCostOverride: React.FC = () => {
 
   if (!user || (user.role !== 'admin' && user.role !== 'founder')) {
     return (
-      <div className="min-h-screen bg-bg text-text pt-24 pb-12 flex items-center justify-center">
+      <div className="min-h-screen bg-bg text-text py-8 flex items-center justify-center">
         <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center backdrop-blur-md shadow-[0_0_30px_rgba(239,68,68,0.2)]">
           <div className="text-5xl mb-4">🚫</div>
           <h2 className="text-2xl font-bold text-red-400 mb-2">Access Denied</h2>
@@ -113,7 +113,7 @@ const AdminCostOverride: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-bg text-text pt-24 pb-12 flex items-center justify-center">
+      <div className="min-h-screen bg-bg text-text py-8 flex items-center justify-center">
         <div className="relative w-24 h-24">
           <div className="absolute inset-0 border-4 border-white/10 rounded-full"></div>
           <div className="absolute inset-0 border-4 border-t-primary rounded-full animate-spin shadow-[0_0_15px_rgba(168,85,247,0.5)]"></div>
@@ -123,7 +123,7 @@ const AdminCostOverride: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text pt-24 pb-12 relative overflow-hidden">
+    <div className="min-h-screen bg-bg text-text py-8 relative overflow-hidden">
       {/* Animated Background Elements */}
       <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[128px] animate-pulse-slow"></div>

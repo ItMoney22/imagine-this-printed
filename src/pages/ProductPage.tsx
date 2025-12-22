@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Sparkles, ShoppingCart, Zap } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
@@ -13,6 +14,7 @@ const ProductPage: React.FC = () => {
   const navigate = useNavigate()
   const { addToCart } = useCart()
   const { user } = useAuth()
+  const toast = useToast()
   const [quantity, setQuantity] = useState(1)
   const [selectedImage, setSelectedImage] = useState(0)
   const [product, setProduct] = useState<Product | null>(null)
@@ -122,26 +124,26 @@ const ProductPage: React.FC = () => {
 
   const handleAddToCart = () => {
     if (product?.sizes?.length && !selectedSize) {
-      alert('Please select a size')
+      toast.warning('Selection required', 'Please select a size')
       return
     }
     if (product?.colors?.length && !selectedColor) {
-      alert('Please select a color')
+      toast.warning('Selection required', 'Please select a color')
       return
     }
     if (product) {
       addToCart(product, quantity, selectedSize, selectedColor)
-      alert('Product added to cart!')
+      toast.success('Added to cart', product.name)
     }
   }
 
   const handleBuyNow = () => {
     if (product?.sizes?.length && !selectedSize) {
-      alert('Please select a size')
+      toast.warning('Selection required', 'Please select a size')
       return
     }
     if (product?.colors?.length && !selectedColor) {
-      alert('Please select a color')
+      toast.warning('Selection required', 'Please select a color')
       return
     }
     if (product) {

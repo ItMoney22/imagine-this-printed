@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useCart } from '../context/CartContext'
+import { useToast } from '../hooks/useToast'
 import ProductRecommendations from '../components/ProductRecommendations'
 import type { WholesaleVendor, WholesaleProduct, Product } from '../types'
 
@@ -52,7 +53,8 @@ const VendorStorefront: React.FC = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { addToCart } = useCart()
-  
+  const toast = useToast()
+
   const [vendor, setVendor] = useState<WholesaleVendor | null>(null)
   const [storefrontConfig, setStorefrontConfig] = useState<VendorStorefrontConfig | null>(null)
   const [products, setProducts] = useState<WholesaleProduct[]>([])
@@ -351,7 +353,7 @@ const VendorStorefront: React.FC = () => {
     }
     
     addToCart(cartProduct, product.minimumOrderQuantity)
-    alert('Product added to cart!')
+    toast.success('Added to cart', product.name)
   }
 
   if (isLoading) {

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import type { ThreeDModel, VendorProduct } from '../types'
 import ThreeDPrintRequestModal from '../components/ThreeDPrintRequestModal'
 
 const ModelGallery: React.FC = () => {
   const { user } = useAuth()
+  const toast = useToast()
   const [models, setModels] = useState<(ThreeDModel | VendorProduct)[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -90,29 +92,29 @@ const ModelGallery: React.FC = () => {
 
   const handleVote = (modelId: string) => {
     if (!user) {
-      alert('Please sign in to vote')
+      toast.warning('Sign in required', 'Please sign in to vote')
       return
     }
     // Mock vote logic
-    alert('Vote cast!')
+    toast.success('Vote cast!', 'Thank you for voting')
   }
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    alert('Community upload submitted!')
+    toast.success('Upload submitted', 'Community upload submitted!')
     setShowUploadModal(false)
   }
 
   const handleBuyPhysical = (product: VendorProduct) => {
-    alert(`Added "${product.title}" (Physical Print) to cart - $${product.price} + $${product.shippingCost} shipping`)
+    toast.success('Added to cart', `${product.title} (Physical Print) - $${product.price}`)
   }
 
   const handleBuyDigital = (product: VendorProduct) => {
-    alert(`Added "${product.title}" (STL Download) to cart - $${product.digitalPrice}`)
+    toast.success('Added to cart', `${product.title} (STL Download) - $${product.digitalPrice}`)
   }
 
   const handleContactVendor = (vendorId: string) => {
-    alert(`Opening chat with vendor ${vendorId}...`)
+    toast.info('Opening chat', `Connecting with vendor...`)
     // In real app, navigate to /messages/new?recipient={vendorId}
   }
 

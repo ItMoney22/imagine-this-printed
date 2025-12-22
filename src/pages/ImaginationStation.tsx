@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/SupabaseAuthContext';
 import { useCart } from '../context/CartContext';
+import { useToast } from '../hooks/useToast';
 import { imaginationApi, apiFetch } from '../lib/api';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
@@ -105,6 +106,7 @@ const ImaginationStation: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addToCart } = useCart();
+  const toast = useToast();
 
   // Wallet state - fetch lazily since it's not loaded with user for performance
   const [walletBalance, setWalletBalance] = useState<number>(0);
@@ -1010,11 +1012,11 @@ const ImaginationStation: React.FC = () => {
       );
 
       // Show success message and navigate
-      alert(`Imagination Sheet™ added to cart! Price: $${price.toFixed(2)}`);
+      toast.success('Added to cart', `Imagination Sheet™ • $${price.toFixed(2)}`);
       navigate('/cart');
     } catch (error) {
       console.error('Failed to add to cart:', error);
-      alert('Failed to add sheet to cart. Please try again.');
+      toast.error('Failed to add to cart', 'Please try again');
     } finally {
       setIsProcessing(false);
     }

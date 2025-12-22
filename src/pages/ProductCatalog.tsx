@@ -140,7 +140,7 @@ const ProductCatalog: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pt-20">
+    <div className="min-h-screen bg-slate-50">
       {/* Header Section */}
       <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">

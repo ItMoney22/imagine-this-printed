@@ -8,7 +8,7 @@ const AdminAIProductBuilder: React.FC = () => {
   // Check if user is admin or manager
   if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
     return (
-      <div className="min-h-screen bg-bg text-text pt-24 px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-bg text-text py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-8 backdrop-blur-sm">
             <div className="flex items-center space-x-3 text-red-400">
@@ -26,7 +26,7 @@ const AdminAIProductBuilder: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text pt-24 pb-12">
+    <div className="min-h-screen bg-bg text-text py-8">
       {/* Background Elements */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[128px] opacity-50 mix-blend-screen animate-pulse-slow" />

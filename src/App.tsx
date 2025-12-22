@@ -2,18 +2,19 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
 import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
+import { ToastProvider } from './context/ToastContext'
+import { SidebarProvider, useSidebar } from './context/SidebarContext'
 import ErrorBoundary from './components/ErrorBoundary'
 // import './utils/debug' // Auto-run debug utilities
 // import './utils/connectivity-test' // Additional connectivity tests
 // import './utils/env-check' // Environment diagnostic
-import Navbar from './components/Navbar'
-import { Header } from './components/Header'
+import { Sidebar, MobileMenuButton } from './components/Sidebar'
 import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 // import ChatBotWidget from './components/ChatBotWidget' // Replaced with Mr. Imagine
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
-import FloatingCart from './components/FloatingCart'
+import { ToastContainer } from './components/ToastContainer'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -62,25 +63,29 @@ import { ImaginationErrorBoundary } from './components/imagination'
 import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
 
-// Routes that should hide the main header/footer for full-screen experience
-const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success']
+// Routes that should hide the sidebar for full-screen experience
+const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk']
 
-// Layout component that conditionally shows header/footer
+// Layout component that conditionally shows sidebar
 function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
+  const { isCollapsed } = useSidebar()
   const isFullScreen = FULL_SCREEN_ROUTES.some(route => location.pathname.startsWith(route))
 
   return (
-    <div className="min-h-screen bg-bg text-text">
-      {!isFullScreen && <Header />}
-      {children}
-      {!isFullScreen && (
-        <>
-          <MrImagineChatWidget />
-          <FloatingCart />
-          <Footer />
-        </>
-      )}
+    <div className="min-h-screen bg-bg text-text flex">
+      {!isFullScreen && <Sidebar />}
+      {!isFullScreen && <MobileMenuButton />}
+      <main
+        className={`flex-1 min-h-screen transition-all duration-300 ${
+          !isFullScreen ? (isCollapsed ? 'lg:ml-16' : 'lg:ml-60') : ''
+        }`}
+      >
+        {children}
+        {!isFullScreen && <Footer />}
+      </main>
+      {!isFullScreen && <MrImagineChatWidget />}
+      <ToastContainer />
     </div>
   )
 }
@@ -91,8 +96,10 @@ function App() {
       <SupabaseAuthProvider>
         <CartProvider>
           <KioskAuthProvider>
-            <Router>
-              <AppLayout>
+            <ToastProvider>
+              <SidebarProvider>
+                <Router>
+                  <AppLayout>
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/login" element={<Login />} />
@@ -190,9 +197,11 @@ function App() {
 
                   {/* Debug Route */}
                   <Route path="/debug/images" element={<ImageDebug />} />
-                </Routes>
-              </AppLayout>
-            </Router>
+                  </Routes>
+                  </AppLayout>
+                </Router>
+              </SidebarProvider>
+            </ToastProvider>
           </KioskAuthProvider>
         </CartProvider>
       </SupabaseAuthProvider>

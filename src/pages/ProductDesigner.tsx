@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Stage, Layer, Image as KonvaImage, Text, Transformer, Rect } from 'react-konva'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { replicateAPI } from '../utils/replicate'
 import { gptAssistant } from '../utils/gpt-assistant'
 import { supabase } from '../lib/supabase'
@@ -61,6 +62,7 @@ const ProductDesigner: React.FC = () => {
 
   const { addToCart } = useCart()
   const { user } = useAuth()
+  const toast = useToast()
 
   // Auth guard - redirect to login if not authenticated
   useEffect(() => {
@@ -204,7 +206,7 @@ const ProductDesigner: React.FC = () => {
   const addToCartWithDesign = async () => {
     try {
       if (elements.length === 0) {
-        alert('Please add some design elements before adding to cart')
+        toast.warning('Design required', 'Please add some design elements before adding to cart')
         return
       }
 
@@ -226,7 +228,7 @@ const ProductDesigner: React.FC = () => {
             finalMockupUrl = realisticMockupUrl
           } catch (error) {
             console.error('[ProductDesigner] Failed to generate mockup for cart:', error)
-            alert('Failed to generate preview. Adding to cart without realistic mockup.')
+            toast.warning('Preview unavailable', 'Adding to cart without realistic mockup')
           } finally {
             setIsGeneratingMockup(false)
           }
@@ -264,7 +266,7 @@ const ProductDesigner: React.FC = () => {
         canvasSnapshot
       })
 
-      alert('Design added to cart!')
+      toast.success('Added to cart', 'Your custom design is ready!')
 
       const goToCart = window.confirm('Go to cart now?')
       if (goToCart) {
@@ -273,14 +275,14 @@ const ProductDesigner: React.FC = () => {
 
     } catch (error: any) {
       console.error('[ProductDesigner] Error adding to cart:', error)
-      alert('Failed to add to cart: ' + error.message)
+      toast.error('Failed to add to cart', error.message)
     }
   }
 
   const handleSaveDesign = async () => {
     try {
       if (elements.length === 0) {
-        alert('Please add some design elements before saving')
+        toast.warning('Design required', 'Please add some design elements before saving')
         return
       }
 
@@ -301,16 +303,16 @@ const ProductDesigner: React.FC = () => {
         localStorage.setItem(`design-snapshot-${designData.timestamp}`, snapshot)
       }
 
-      alert('Design saved successfully! You can load it later from your saved designs.')
+      toast.success('Design saved', 'You can load it later from your saved designs')
     } catch (error: any) {
       console.error('[ProductDesigner] Error saving design:', error)
-      alert('Failed to save design: ' + error.message)
+      toast.error('Failed to save design', error.message)
     }
   }
 
   const generateAIImage = async () => {
     if (!aiPrompt.trim()) {
-      alert('Please enter a prompt for AI generation')
+      toast.warning('Prompt required', 'Please enter a prompt for AI generation')
       return
     }
 
@@ -345,11 +347,11 @@ const ProductDesigner: React.FC = () => {
 
       setShowAIModal(false)
       setAiPrompt('')
-      alert('AI image generated and added to your design!')
+      toast.success('AI Image generated', 'Added to your design!')
 
     } catch (error) {
       console.error('Error generating AI image:', error)
-      alert('Failed to generate AI image. Please try again.')
+      toast.error('Generation failed', 'Please try again')
     } finally {
       setIsGenerating(false)
     }
@@ -363,7 +365,7 @@ const ProductDesigner: React.FC = () => {
       // Mock successful payment
       setUserBalance(prev => prev + amount)
       setShowPaymentModal(false)
-      alert(`Successfully purchased ${amount} ITC!`)
+      toast.success('Purchase complete', `Successfully purchased ${amount} ITC!`)
     }
   }
 
@@ -378,7 +380,7 @@ const ProductDesigner: React.FC = () => {
       setDesignSuggestions(suggestions)
     } catch (error) {
       console.error('Error getting design suggestions:', error)
-      alert('Failed to get design suggestions. Please try again.')
+      toast.error('Suggestions failed', 'Please try again')
     } finally {
       setIsLoadingSuggestions(false)
     }
@@ -391,7 +393,7 @@ const ProductDesigner: React.FC = () => {
       setDesignAnalysis(analysis)
     } catch (error) {
       console.error('Error analyzing design:', error)
-      alert('Failed to analyze design. Please try again.')
+      toast.error('Analysis failed', 'Please try again')
     } finally {
       setIsAnalyzing(false)
     }
@@ -475,7 +477,7 @@ const ProductDesigner: React.FC = () => {
       setAiStyle('realistic')
     }
 
-    alert(`Applied suggestion: ${suggestion.title}`)
+    toast.info('Suggestion applied', suggestion.title)
   }
 
   const handleGenerateRealistic = async () => {
@@ -540,12 +542,7 @@ const ProductDesigner: React.FC = () => {
       setMockupImageUrl(response.mockupUrl)
 
       // Show success message
-      const message = `Realistic mockup generated successfully!\n\n` +
-        `Cost: ${response.cost} ITC\n` +
-        `New balance: ${response.newBalance} ITC\n\n` +
-        `The mockup is now displayed in the preview panel.`
-
-      alert(message)
+      toast.success('Mockup generated', `Cost: ${response.cost} ITC • New balance: ${response.newBalance} ITC`)
 
     } catch (error: any) {
       console.error('[ProductDesigner] ❌ Error generating mockup:', error)
@@ -556,16 +553,16 @@ const ProductDesigner: React.FC = () => {
       // Check for specific error types
       if (errorMessage.includes('Insufficient ITC balance')) {
         setLoadError('Insufficient ITC balance. Please purchase more tokens from your wallet.')
-        alert('Insufficient ITC balance.\n\nYou need at least 25 ITC tokens to generate a realistic mockup.\nPlease visit your Wallet page to purchase more tokens.')
+        toast.error('Insufficient ITC balance', 'Please visit your Wallet to purchase more tokens')
       } else if (errorMessage.includes('Unauthorized')) {
         setLoadError('Authentication error. Please log in again.')
-        alert('Authentication error. Please log in again.')
+        toast.error('Authentication error', 'Please log in again')
       } else if (errorMessage.includes('Canvas not ready')) {
         setLoadError(errorMessage)
-        alert(errorMessage)
+        toast.error('Canvas not ready', 'Please wait a moment and try again')
       } else {
         setLoadError('Failed to generate realistic mockup: ' + errorMessage)
-        alert('Failed to generate realistic mockup.\n\nError: ' + errorMessage + '\n\nPlease try again in a moment.')
+        toast.error('Generation failed', errorMessage)
       }
 
     } finally {
