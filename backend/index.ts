@@ -39,6 +39,7 @@ import adminCouponsRouter from './routes/admin/coupons.js'
 import adminGiftCardsRouter from './routes/admin/gift-cards.js'
 import couponsRouter from './routes/coupons.js'
 import giftCardsRouter from './routes/gift-cards.js'
+import marketingRouter from './routes/marketing.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -169,6 +170,7 @@ app.use('/api/admin/coupons', adminCouponsRouter)
 app.use('/api/admin/gift-cards', adminGiftCardsRouter)
 app.use('/api/coupons', couponsRouter)
 app.use('/api/gift-cards', giftCardsRouter)
+app.use('/api/marketing', marketingRouter)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

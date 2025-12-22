@@ -132,6 +132,13 @@
   - **product-recommender.ts**: Optimized query to only fetch needed columns, reduced limit from 20 to just enough, replaced slow .sort() shuffle with Fisher-Yates
   - **Database indexes**: Created migration with indexes for products.is_active, products.is_featured, products.category, user_profiles.id, orders.user_id/status/created_at
 - 2025-12-20 **UI** OrderSuccess page Mr. Imagine packing image - Added mr-imagine-packing.png to public folder and updated OrderSuccess.tsx to show Mr. Imagine packing the order instead of generic waving pose. Updated message to "Mr. Imagine is packing it with love!"
+- 2025-12-21 **FEATURE** Marketing Tools full integration - Complete overhaul of MarketingTools.tsx:
+  - **UI Update**: Added gradient header matching CRM page, stats cards with gradient icon backgrounds, pill-style tabs with icons, enhanced campaign cards with status badges
+  - **Supabase Integration**: Connected to products table for real product data, connected to marketing_campaigns table for campaign CRUD
+  - **Campaign Operations**: Create campaign (saves to Supabase), toggle status (pause/resume), loading/error states
+  - **Backend API**: Created backend/routes/marketing.ts with OpenAI GPT-4o-mini integration for AI content generation, includes fallback mock content when API unavailable
+  - **Endpoints**: POST /api/marketing/generate-content (single product), POST /api/marketing/generate-campaign (multi-product campaigns)
+  - Registered marketing routes in backend/index.ts
 
 ## Decisions / notes
 - Focus the implementation on `src/pages/ImaginationStation.tsx` (the Konva-based editor). There are other “imagination” components in the repo (e.g., `src/components/imagination/RightSidebar.tsx`), but they appear to be a different UI path.
