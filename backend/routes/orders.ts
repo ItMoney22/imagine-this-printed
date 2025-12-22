@@ -6,6 +6,84 @@ import { processReferralFirstPurchase } from '../services/referral-service.js'
 
 const router = Router()
 
+// GET /api/orders - Get all orders (admin/manager only)
+router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { status, limit = 100 } = req.query
+
+    let query = supabase
+      .from('orders')
+      .select(`
+        *,
+        order_items (
+          id,
+          product_id,
+          product_name,
+          quantity,
+          price,
+          total,
+          variations,
+          personalization
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .limit(Number(limit))
+
+    if (status && status !== 'all') {
+      query = query.eq('status', status)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('[orders] Error fetching orders:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    return res.json({ orders: data || [] })
+  } catch (error: any) {
+    console.error('[orders] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// GET /api/orders/my - Get current user's orders
+router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { limit = 50 } = req.query
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        order_items (
+          id,
+          product_id,
+          product_name,
+          quantity,
+          price,
+          total,
+          variations,
+          personalization
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(Number(limit))
+
+    if (error) {
+      console.error('[orders/my] Error fetching user orders:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    return res.json({ orders: data || [] })
+  } catch (error: any) {
+    console.error('[orders/my] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 // POST /api/orders/:orderId/complete - Mark order as completed and award rewards
 router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
   try {

@@ -58,26 +58,24 @@ const OrderManagement: React.FC = () => {
   const fetchOrders = async () => {
     setIsLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          order_items (
-            id,
-            product_id,
-            product_name,
-            quantity,
-            price,
-            total,
-            variations,
-            personalization
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(100)
+      // Use backend API to fetch orders (bypasses RLS issues)
+      const { data: { session } } = await supabase.auth.getSession()
 
-      if (error) {
-        console.error('Error fetching orders:', error)
+      const response = await fetch('/api/orders', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      })
+
+      if (!response.ok) {
+        console.error('Error fetching orders:', response.statusText)
+        return
+      }
+
+      const { orders: data } = await response.json()
+
+      if (!data) {
+        console.error('No orders data returned')
         return
       }
 
