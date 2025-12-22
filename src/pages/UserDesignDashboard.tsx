@@ -311,12 +311,12 @@ export default function UserDesignDashboard() {
                 <div className="text-6xl mb-4">🎨</div>
                 <h3 className="text-xl font-semibold text-white mb-2">No designs yet</h3>
                 <p className="text-muted mb-6">Create your first design with Mr. Imagine!</p>
-                <Link
-                  to="/create-design"
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
                   className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl"
                 >
                   Start Creating
-                </Link>
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
