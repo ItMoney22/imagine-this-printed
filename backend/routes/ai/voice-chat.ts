@@ -36,6 +36,7 @@ const upload = multer({ storage: multer.memoryStorage() })
  */
 router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: Response): Promise<any> => {
   const startTime = Date.now()
+  let currentStep = 'init'
 
   try {
     const file = (req as any).file
@@ -56,33 +57,66 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     })
 
     // STEP 1: Upload audio to Supabase Storage
+    currentStep = 'upload'
     const fileExtension = file.mimetype.split('/')[1] || 'webm'
     const filename = `voice-chat-${crypto.randomUUID()}.${fileExtension}`
     const storagePath = `audio/${filename}`
 
     console.log('[voice-chat] 📤 Uploading audio...')
-    const audioUrl = await uploadFromBuffer({
-      bucket: 'products',
-      path: storagePath,
-      buffer: file.buffer,
-      contentType: file.mimetype,
-      isPublic: true,
-    })
+    let audioUrl: string
+    try {
+      audioUrl = await uploadFromBuffer({
+        bucket: 'products',
+        path: storagePath,
+        buffer: file.buffer,
+        contentType: file.mimetype,
+        isPublic: true,
+      })
+    } catch (uploadError: any) {
+      console.error('[voice-chat] ❌ Upload failed:', uploadError)
+      return res.status(500).json({
+        error: 'Audio upload failed',
+        step: currentStep,
+        details: uploadError.message
+      })
+    }
 
     // STEP 2: Transcribe using GPT-4o
+    currentStep = 'transcribe'
     console.log('[voice-chat] 🎧 Transcribing with GPT-4o...')
-    const transcriptionResult = await transcribeAudio({
-      audioUrl,
-      language: 'en',
-      temperature: 0.2,
-    })
+    let transcriptionResult
+    try {
+      transcriptionResult = await transcribeAudio({
+        audioUrl,
+        language: 'en',
+        temperature: 0.2,
+      })
+    } catch (transcribeError: any) {
+      console.error('[voice-chat] ❌ Transcription failed:', transcribeError)
+      return res.status(500).json({
+        error: 'Transcription failed',
+        step: currentStep,
+        details: transcribeError.message
+      })
+    }
 
     const userText = transcriptionResult.text
     console.log('[voice-chat] ✅ Transcription:', userText)
 
     // STEP 3: Generate AI response
+    currentStep = 'ai-response'
     console.log('[voice-chat] 🤖 Generating AI response...')
-    const aiResponse = await generateAssistantResponse(userId, userText)
+    let aiResponse
+    try {
+      aiResponse = await generateAssistantResponse(userId, userText)
+    } catch (aiError: any) {
+      console.error('[voice-chat] ❌ AI response failed:', aiError)
+      return res.status(500).json({
+        error: 'AI response generation failed',
+        step: currentStep,
+        details: aiError.message
+      })
+    }
 
     console.log('[voice-chat] ✅ AI response:', {
       text: aiResponse.text.substring(0, 100) + '...',
@@ -92,12 +126,23 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     })
 
     // STEP 4: Generate voice audio (Mr. Imagine - brand mascot voice)
+    currentStep = 'voice-synthesis'
     console.log('[voice-chat] 🎤 Generating Mr. Imagine voice response...')
-    const voiceUrl = await generateConversationalResponse(aiResponse.text, {
-      voiceId: AVAILABLE_VOICES.MR_IMAGINE,
-      emotion: EMOTIONS.AUTO,
-      speed: 0.95, // Slightly slower for clarity
-    })
+    let voiceUrl: string
+    try {
+      voiceUrl = await generateConversationalResponse(aiResponse.text, {
+        voiceId: AVAILABLE_VOICES.MR_IMAGINE,
+        emotion: EMOTIONS.AUTO,
+        speed: 0.95, // Slightly slower for clarity
+      })
+    } catch (voiceError: any) {
+      console.error('[voice-chat] ❌ Voice synthesis failed:', voiceError)
+      return res.status(500).json({
+        error: 'Voice synthesis failed',
+        step: currentStep,
+        details: voiceError.message
+      })
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
     console.log('[voice-chat] ✅ Complete voice turn in', elapsed, 'seconds')
@@ -124,8 +169,12 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
       collected_data: aiResponse.collectedData || {},
     })
   } catch (error: any) {
-    console.error('[voice-chat] ❌ Error:', error)
-    res.status(500).json({ error: error.message })
+    console.error('[voice-chat] ❌ Error at step', currentStep, ':', error)
+    res.status(500).json({
+      error: error.message || 'Unknown error',
+      step: currentStep,
+      details: error.stack?.split('\n').slice(0, 3).join('\n')
+    })
   }
 })
 
