@@ -11,21 +11,10 @@ router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async
   try {
     const { status, limit = 100 } = req.query
 
+    // First get orders
     let query = supabase
       .from('orders')
-      .select(`
-        *,
-        order_items (
-          id,
-          product_id,
-          product_name,
-          quantity,
-          price,
-          total,
-          variations,
-          personalization
-        )
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(Number(limit))
 
@@ -33,14 +22,55 @@ router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async
       query = query.eq('status', status)
     }
 
-    const { data, error } = await query
+    const { data: orders, error } = await query
 
     if (error) {
       console.error('[orders] Error fetching orders:', error)
       return res.status(500).json({ error: error.message })
     }
 
-    return res.json({ orders: data || [] })
+    // Try to get order items separately (may fail if table has different schema)
+    const orderIds = (orders || []).map(o => o.id)
+    let orderItemsMap: Record<string, any[]> = {}
+
+    if (orderIds.length > 0) {
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds)
+
+      // Group items by order_id
+      for (const item of items || []) {
+        if (!orderItemsMap[item.order_id]) {
+          orderItemsMap[item.order_id] = []
+        }
+        orderItemsMap[item.order_id].push(item)
+      }
+    }
+
+    // Attach items to orders, parse metadata for items if no order_items
+    const ordersWithItems = (orders || []).map(order => {
+      const items = orderItemsMap[order.id] || []
+      // If no items in order_items table, try to get from metadata
+      if (items.length === 0 && order.metadata?.items) {
+        return {
+          ...order,
+          order_items: order.metadata.items.map((item: any) => ({
+            id: item.product?.id || 'unknown',
+            product_id: item.product?.id,
+            product_name: item.product?.name || 'Unknown Product',
+            quantity: item.quantity || 1,
+            price: item.product?.price || 0,
+            total: (item.product?.price || 0) * (item.quantity || 1),
+            variations: { size: item.selectedSize, color: item.selectedColor },
+            personalization: item.customDesign ? { designUrl: item.customDesign } : {}
+          }))
+        }
+      }
+      return { ...order, order_items: items }
+    })
+
+    return res.json({ orders: ordersWithItems })
   } catch (error: any) {
     console.error('[orders] Error:', error)
     return res.status(500).json({ error: error.message })
@@ -53,21 +83,9 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
     const userId = req.user?.sub
     const { limit = 50 } = req.query
 
-    const { data, error } = await supabase
+    const { data: orders, error } = await supabase
       .from('orders')
-      .select(`
-        *,
-        order_items (
-          id,
-          product_id,
-          product_name,
-          quantity,
-          price,
-          total,
-          variations,
-          personalization
-        )
-      `)
+      .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(Number(limit))
@@ -77,7 +95,46 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
       return res.status(500).json({ error: error.message })
     }
 
-    return res.json({ orders: data || [] })
+    // Try to get order items separately
+    const orderIds = (orders || []).map(o => o.id)
+    let orderItemsMap: Record<string, any[]> = {}
+
+    if (orderIds.length > 0) {
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds)
+
+      for (const item of items || []) {
+        if (!orderItemsMap[item.order_id]) {
+          orderItemsMap[item.order_id] = []
+        }
+        orderItemsMap[item.order_id].push(item)
+      }
+    }
+
+    // Attach items to orders, parse metadata for items if no order_items
+    const ordersWithItems = (orders || []).map(order => {
+      const items = orderItemsMap[order.id] || []
+      if (items.length === 0 && order.metadata?.items) {
+        return {
+          ...order,
+          order_items: order.metadata.items.map((item: any) => ({
+            id: item.product?.id || 'unknown',
+            product_id: item.product?.id,
+            product_name: item.product?.name || 'Unknown Product',
+            quantity: item.quantity || 1,
+            price: item.product?.price || 0,
+            total: (item.product?.price || 0) * (item.quantity || 1),
+            variations: { size: item.selectedSize, color: item.selectedColor },
+            personalization: item.customDesign ? { designUrl: item.customDesign } : {}
+          }))
+        }
+      }
+      return { ...order, order_items: items }
+    })
+
+    return res.json({ orders: ordersWithItems })
   } catch (error: any) {
     console.error('[orders/my] Error:', error)
     return res.status(500).json({ error: error.message })
