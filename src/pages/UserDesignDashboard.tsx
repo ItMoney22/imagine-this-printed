@@ -258,19 +258,19 @@ export default function UserDesignDashboard() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
               <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <p className="text-sm text-purple-300/70">Total Designs</p>
-                <p className="text-2xl font-bold text-white">{stats.totalDesigns}</p>
+                <p className="text-2xl font-bold text-white">{stats.totalDesigns ?? 0}</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <p className="text-sm text-purple-300/70">Total Sales</p>
-                <p className="text-2xl font-bold text-emerald-400">{stats.totalSales}</p>
+                <p className="text-2xl font-bold text-emerald-400">{stats.totalSales ?? 0}</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <p className="text-sm text-purple-300/70">Royalties Earned</p>
-                <p className="text-2xl font-bold text-amber-400">${stats.totalRoyalties.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-amber-400">${(stats.totalRoyalties ?? 0).toFixed(2)}</p>
               </div>
               <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <p className="text-sm text-purple-300/70">Pending Approval</p>
-                <p className="text-2xl font-bold text-orange-400">{stats.designsByStatus.pending}</p>
+                <p className="text-2xl font-bold text-orange-400">{stats.designsByStatus?.pending ?? 0}</p>
               </div>
             </div>
           )}
@@ -571,7 +571,7 @@ export default function UserDesignDashboard() {
               <div className="grid md:grid-cols-3 gap-4">
                 <div className="bg-white/5 rounded-xl p-4">
                   <p className="text-sm text-emerald-300/70">Total Earned</p>
-                  <p className="text-3xl font-bold text-emerald-400">${stats?.totalRoyalties.toFixed(2) || '0.00'}</p>
+                  <p className="text-3xl font-bold text-emerald-400">${(stats?.totalRoyalties ?? 0).toFixed(2)}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4">
                   <p className="text-sm text-emerald-300/70">Products Sold</p>
@@ -579,7 +579,7 @@ export default function UserDesignDashboard() {
                 </div>
                 <div className="bg-white/5 rounded-xl p-4">
                   <p className="text-sm text-emerald-300/70">Active Designs</p>
-                  <p className="text-3xl font-bold text-white">{stats?.designsByStatus.approved || 0}</p>
+                  <p className="text-3xl font-bold text-white">{stats?.designsByStatus?.approved ?? 0}</p>
                 </div>
               </div>
             </div>
