@@ -139,6 +139,7 @@
   - **Backend API**: Created backend/routes/marketing.ts with OpenAI GPT-4o-mini integration for AI content generation, includes fallback mock content when API unavailable
   - **Endpoints**: POST /api/marketing/generate-content (single product), POST /api/marketing/generate-campaign (multi-product campaigns)
   - Registered marketing routes in backend/index.ts
+  - **Database**: Created `marketing_campaigns` table via Node.js pg client with pooler connection. Table has: id, name, type, status, target_products, generated_content, budget, start_date, end_date, metrics, settings, created_by, created_at, updated_at. RLS policies for admin/manager access.
 
 ## Decisions / notes
 - Focus the implementation on `src/pages/ImaginationStation.tsx` (the Konva-based editor). There are other “imagination” components in the repo (e.g., `src/components/imagination/RightSidebar.tsx`), but they appear to be a different UI path.
