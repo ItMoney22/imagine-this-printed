@@ -187,11 +187,11 @@ export function Sidebar() {
               onClick={closeMobile}
             />
             <NavItem
-              to="/orders"
+              to="/account/orders"
               icon={<FileText className="w-5 h-5" />}
               label="My Orders"
               isCollapsed={isCollapsed}
-              isActive={isActive('/orders')}
+              isActive={isActive('/account/orders')}
               onClick={closeMobile}
             />
             <NavItem

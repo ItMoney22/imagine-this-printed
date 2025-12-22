@@ -56,6 +56,7 @@ import SocialContentManagement from './pages/SocialContentManagement'
 import UserMediaGallery from './pages/UserMediaGallery'
 // UserProductCreator discontinued - using ImaginationStation instead
 import UserDesignDashboard from './pages/UserDesignDashboard'
+import MyOrders from './pages/MyOrders'
 import { AdminVoiceSettings } from './pages/admin/VoiceSettings'
 import AdminImaginationProducts from './pages/admin/ImaginationProducts'
 import ImaginationStation from './pages/ImaginationStation'
@@ -137,6 +138,7 @@ function App() {
                   <Route path="/account/media" element={<ProtectedRoute><UserMediaGallery /></ProtectedRoute>} />
                   <Route path="/account/designs" element={<ProtectedRoute><UserDesignDashboard /></ProtectedRoute>} />
                   <Route path="/my-designs" element={<ProtectedRoute><UserDesignDashboard /></ProtectedRoute>} />
+                  <Route path="/account/orders" element={<ProtectedRoute><MyOrders /></ProtectedRoute>} />
 
                   {/* Vendor Routes */}
                   <Route path="/vendor/dashboard" element={<VendorDashboard />} />
