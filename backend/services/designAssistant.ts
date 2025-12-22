@@ -105,7 +105,7 @@ export async function generateAssistantResponse(
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages,
-      max_completion_tokens: 200,
+      max_completion_tokens: 80, // Keep responses SHORT - user can't interrupt
       temperature: 0.8,
     })
 
@@ -183,7 +183,7 @@ ALWAYS be:
 - Helpful while having your own personality and opinions
 - Professional about the craft but playful in conversation
 
-Keep responses SHORT (2-3 sentences max). Be conversational and ACTUALLY funny!`
+CRITICAL: Keep responses VERY SHORT - MAX 1-2 sentences! User CANNOT interrupt you, so be BRIEF!`
 
   const stepInstructions = getStepInstructions(state)
 

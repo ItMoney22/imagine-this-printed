@@ -149,6 +149,7 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
       modelName,
       isSynchronous: true,
       url: imageUrl,
+      imageUrl: imageUrl, // Also provide imageUrl for frontend compatibility
       status: 'succeeded',
     }
   }

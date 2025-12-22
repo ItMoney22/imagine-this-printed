@@ -87,8 +87,9 @@ export function CreateDesignModal({
         const { data: { session } } = await supabase.auth.getSession()
         if (!session?.access_token) return
 
-        // Call API to deduct ITC
-        const response = await fetch('/api/wallet/deduct', {
+        // Call API to deduct ITC - use the correct endpoint
+        const apiBase = import.meta.env.VITE_API_BASE || ''
+        const response = await fetch(`${apiBase}/api/wallet/deduct-itc`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -96,7 +97,7 @@ export function CreateDesignModal({
           },
           body: JSON.stringify({
             amount: ITC_COST,
-            description: 'Voice design generation'
+            reason: 'Voice design generation'
           })
         })
 
