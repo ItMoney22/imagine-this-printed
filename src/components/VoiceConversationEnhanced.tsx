@@ -78,6 +78,7 @@ export const VoiceConversationEnhanced = ({
     const [conversationStep, setConversationStep] = useState<string>('greeting')
     const [hasStartedConversation, setHasStartedConversation] = useState(false)  // Track if mic has been used
     const [videoEnded, setVideoEnded] = useState(false) // Track if intro video has finished playing
+    const [videoNeedsInteraction, setVideoNeedsInteraction] = useState(false) // Track if video needs user click to play
     const audioRef = useRef<HTMLAudioElement>(null)
     const videoRef = useRef<HTMLVideoElement>(null)
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -139,6 +140,34 @@ export const VoiceConversationEnhanced = ({
             }, 2000) // Give user time to see the interface
         }
     }, [autoMicOn])
+
+    // Handle video autoplay with sound (browsers block this, so detect and show play button)
+    useEffect(() => {
+        if (showVideoBeforeConversation && videoRef.current && !hasStartedConversation && !videoEnded) {
+            const video = videoRef.current
+            // Try to play with sound
+            video.muted = false
+            const playPromise = video.play()
+
+            if (playPromise !== undefined) {
+                playPromise.catch(() => {
+                    // Autoplay with sound was blocked, show play button
+                    console.log('[VoiceConversation] Video autoplay blocked, needs user interaction')
+                    setVideoNeedsInteraction(true)
+                    video.pause()
+                })
+            }
+        }
+    }, [showVideoBeforeConversation, hasStartedConversation, videoEnded])
+
+    // Handle manual video play
+    const handlePlayVideo = () => {
+        if (videoRef.current) {
+            videoRef.current.muted = false
+            videoRef.current.play()
+            setVideoNeedsInteraction(false)
+        }
+    }
 
     // Audio level visualization
     const updateAudioLevel = () => {
@@ -486,18 +515,31 @@ export const VoiceConversationEnhanced = ({
                 {/* Mr. Imagine Video (before conversation) or Image (after conversation starts or video ends) */}
                 <div className="relative z-10">
                     {showVideoBeforeConversation && !hasStartedConversation && !videoEnded ? (
-                        <video
-                            ref={videoRef}
-                            src="/mr-imagine/design-video.mp4"
-                            autoPlay
-                            muted
-                            playsInline
-                            onEnded={() => setVideoEnded(true)}
-                            className="w-72 h-auto rounded-2xl drop-shadow-2xl transition-transform duration-500"
-                            style={{
-                                filter: 'drop-shadow(0 0 30px rgba(147, 51, 234, 0.4))'
-                            }}
-                        />
+                        <div className="relative">
+                            <video
+                                ref={videoRef}
+                                src="/mr-imagine/design-video.mp4"
+                                playsInline
+                                onEnded={() => setVideoEnded(true)}
+                                className="w-72 h-auto rounded-2xl drop-shadow-2xl transition-transform duration-500"
+                                style={{
+                                    filter: 'drop-shadow(0 0 30px rgba(147, 51, 234, 0.4))'
+                                }}
+                            />
+                            {/* Play button overlay when autoplay is blocked */}
+                            {videoNeedsInteraction && (
+                                <button
+                                    onClick={handlePlayVideo}
+                                    className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-2xl hover:bg-black/30 transition-colors"
+                                >
+                                    <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center shadow-xl">
+                                        <svg className="w-8 h-8 text-purple-600 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M8 5v14l11-7z" />
+                                        </svg>
+                                    </div>
+                                </button>
+                            )}
+                        </div>
                     ) : (
                         <img
                             src={MR_IMAGINE_EXPRESSIONS[currentExpression]}
