@@ -78,7 +78,7 @@ export const VoiceConversationEnhanced = ({
     const [conversationStep, setConversationStep] = useState<string>('greeting')
     const [hasStartedConversation, setHasStartedConversation] = useState(false)  // Track if mic has been used
     const [videoEnded, setVideoEnded] = useState(false) // Track if intro video has finished playing
-    const [videoNeedsInteraction, setVideoNeedsInteraction] = useState(false) // Track if video needs user click to play
+    const [videoNeedsInteraction, setVideoNeedsInteraction] = useState(true) // Video always needs user click to play with sound
     const audioRef = useRef<HTMLAudioElement>(null)
     const videoRef = useRef<HTMLVideoElement>(null)
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -141,26 +141,7 @@ export const VoiceConversationEnhanced = ({
         }
     }, [autoMicOn])
 
-    // Handle video autoplay with sound (browsers block this, so detect and show play button)
-    useEffect(() => {
-        if (showVideoBeforeConversation && videoRef.current && !hasStartedConversation && !videoEnded) {
-            const video = videoRef.current
-            // Try to play with sound
-            video.muted = false
-            const playPromise = video.play()
-
-            if (playPromise !== undefined) {
-                playPromise.catch(() => {
-                    // Autoplay with sound was blocked, show play button
-                    console.log('[VoiceConversation] Video autoplay blocked, needs user interaction')
-                    setVideoNeedsInteraction(true)
-                    video.pause()
-                })
-            }
-        }
-    }, [showVideoBeforeConversation, hasStartedConversation, videoEnded])
-
-    // Handle manual video play
+    // Handle manual video play (browsers block autoplay with sound, so always show play button)
     const handlePlayVideo = () => {
         if (videoRef.current) {
             videoRef.current.muted = false
