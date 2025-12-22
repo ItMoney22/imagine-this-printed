@@ -207,12 +207,11 @@ function getStepInstructions(state: ConversationState): string {
 Example: "Yo! I'm Mr. Imagine - the guy with the best mustache in custom printing! Ready to make something awesome together? What's on your mind?"`
 
     case 'exploring':
-      return `You're in the creative exploration phase! Have a natural conversation about their design vision.
-- Ask follow-up questions to understand what they want
-- If they change their mind, that's totally fine - help them explore!
-- Focus on: theme/subject, style (artistic, minimal, bold, etc.), colors, any text they want
-- Don't rush to garment questions yet - stay focused on the DESIGN itself
-- When you feel you have a clear picture of what they want, start summarizing it back to them`
+      return `You're gathering design info. Keep it QUICK and DIRECT!
+- If they've given you a clear idea (subject + style or colors), immediately offer to create it!
+- Say something like "Love it! Want me to whip up some designs for you?"
+- Don't ask too many questions - 1-2 max before offering to generate
+- Be enthusiastic and ready to CREATE, not interrogate!`
 
     case 'refining':
       return `The user has shared their vision. Help them refine it!
@@ -258,6 +257,28 @@ Ask if they're ready to add it to their cart!`
 }
 
 /**
+ * Check if user message contains a complete design request that can generate immediately
+ */
+function isCompleteDesignRequest(message: string): boolean {
+  const lowerMessage = message.toLowerCase()
+
+  // Check for explicit generation requests
+  const hasGenerateKeyword = lowerMessage.match(/create|make|design|draw|generate|give me|i want|i need|can you make/)
+
+  // Check for enough descriptive content (subject + at least one modifier)
+  const hasSubject = lowerMessage.match(/dragon|skull|flower|rose|heart|cat|dog|wolf|lion|eagle|butterfly|sun|moon|star|tree|mountain|car|guitar|gaming|anime|skull|fire|flames|ocean|beach|city|forest|sports|basketball|football|soccer|music|peace|love|crown|wings|snake|tiger|bear|phoenix|sword|robot|alien|space|planet|graffiti/)
+
+  const hasStyle = lowerMessage.match(/cool|dope|sick|fire|epic|minimal|bold|colorful|black and white|neon|vintage|retro|cartoon|realistic|artistic|abstract|tribal|gothic|cute|scary|funny/)
+
+  const hasColor = lowerMessage.match(/red|blue|green|yellow|purple|orange|pink|black|white|gold|silver|rainbow|neon|pastel/)
+
+  // Direct request + descriptive enough = ready to generate
+  const descriptiveEnough = (hasSubject && (hasStyle || hasColor)) || message.length > 50
+
+  return !!(hasGenerateKeyword && descriptiveEnough)
+}
+
+/**
  * Analyze conversation and update state
  */
 function analyzeAndUpdateState(
@@ -271,6 +292,17 @@ function analyzeAndUpdateState(
   let readyToGenerate = false
   let garmentReady = false
 
+  // FAST PATH: Check if this is a complete, actionable design request
+  // If so, skip the multi-step flow and generate immediately
+  if ((state.step === 'greeting' || state.step === 'exploring') && isCompleteDesignRequest(userMessage)) {
+    console.log('[assistant] 🚀 FAST PATH: Complete design request detected, generating immediately!')
+    state.collectedData.designConcept = userMessage
+    finalizeDesignConcept(state)
+    state.step = 'generating'
+    readyToGenerate = true
+    return { readyToGenerate, garmentReady }
+  }
+
   switch (state.step) {
     case 'greeting':
       // Move to exploring once they describe anything about a design
@@ -278,6 +310,12 @@ function analyzeAndUpdateState(
         state.step = 'exploring'
         // Start building the design concept
         state.collectedData.designConcept = userMessage
+
+        // If the message is descriptive enough, offer to generate
+        if (lowerMessage.length > 30) {
+          // AI should ask if they want to generate
+          state.step = 'confirm_design'
+        }
       }
       break
 
@@ -285,35 +323,35 @@ function analyzeAndUpdateState(
       // Accumulate design information
       updateDesignConcept(state, userMessage)
 
-      // Check if AI is starting to summarize (indicating we might be ready)
-      if (lowerResponse.includes('so you want') ||
+      // More aggressive - if we have a decent description, move to confirm faster
+      if (state.collectedData.designConcept && state.collectedData.designConcept.length > 40) {
+        state.step = 'confirm_design'
+      } else if (lowerResponse.includes('so you want') ||
           lowerResponse.includes('let me make sure') ||
           lowerResponse.includes('sounds like you')) {
-        state.step = 'refining'
+        state.step = 'confirm_design'
       }
       break
 
     case 'refining':
       updateDesignConcept(state, userMessage)
-
-      // Check for confirmation prompts
-      if (lowerResponse.includes('ready to create') ||
-          lowerResponse.includes('shall i generate') ||
-          lowerResponse.includes('want me to create') ||
-          lowerResponse.includes('should i create')) {
-        state.step = 'confirm_design'
-      }
+      // Move to confirm more quickly
+      state.step = 'confirm_design'
       break
 
     case 'confirm_design':
-      // Check for positive confirmation
-      if (lowerMessage.match(/yes|yeah|yep|sure|ok|okay|let's do it|go for it|sounds good|perfect/)) {
+      // Check for positive confirmation - be more permissive
+      if (lowerMessage.match(/yes|yeah|yep|sure|ok|okay|let's|go|do it|sounds good|perfect|please|create|make|generate/)) {
         state.step = 'generating'
         readyToGenerate = true
         // Finalize the design concept
         finalizeDesignConcept(state)
-      } else if (lowerMessage.match(/no|change|different|actually|wait/)) {
+      } else if (lowerMessage.match(/no|change|different|actually|wait|hold/)) {
         state.step = 'refining'
+      } else {
+        // If they add more details, treat it as refinement then confirm
+        updateDesignConcept(state, userMessage)
+        // Stay in confirm but with updated concept
       }
       break
 
