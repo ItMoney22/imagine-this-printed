@@ -354,42 +354,51 @@ async function createGrungeTexture(width: number, height: number): Promise<Buffe
 
 /**
  * Build DTF-aware prompt with shirt color and print style rules
- * PRIORITY: User's design request comes FIRST, then DTF technical requirements
+ * DEFAULT: Hyper-realistic style unless user specifies otherwise
  */
 export function buildDTFPrompt(
   userPrompt: string,
   shirtColor: 'black' | 'white' | 'grey' | 'color',
   printStyle: 'clean' | 'halftone' | 'grunge'
 ): string {
-  // USER'S DESIGN REQUEST COMES FIRST - this is what they actually want
-  // The AI should focus on creating EXACTLY what the user described
-  const userRequest = `CREATE THIS DESIGN: ${userPrompt}
+  // Check if user specified a style preference
+  const lowerPrompt = userPrompt.toLowerCase()
+  const wantsCartoon = lowerPrompt.match(/cartoon|animated|anime|illustration|comic|drawn|stylized|vector|flat|simple|cute|kawaii/)
+  const wantsRealistic = lowerPrompt.match(/realistic|real|photo|hyper|detailed|lifelike|3d|render/)
 
-IMPORTANT: Generate EXACTLY what was requested above. If they said "dragon" create a DRAGON. If they said "realistic" make it PHOTOREALISTIC. Follow their description precisely.`
-
-  // DTF output format requirements - keep these minimal to not override user intent
-  const outputFormat = `OUTPUT FORMAT:
-- Isolated artwork on TRANSPARENT background (PNG with alpha)
-- NO t-shirt, clothing, or mockup - just the design itself
-- Centered composition, print-ready quality`
-
-  // Shirt color specific rules - only affect colors, not the subject matter
-  let colorRules = ''
-  if (shirtColor === 'black') {
-    colorRules = `COLOR ADJUSTMENT: Avoid pure black in the design (it won't show on black fabric). Use bright, vibrant colors instead of dark tones.`
-  } else if (shirtColor === 'white') {
-    colorRules = `COLOR ADJUSTMENT: Avoid pure white areas. Use colors with good contrast.`
-  } else if (shirtColor === 'grey') {
-    colorRules = `COLOR ADJUSTMENT: Use bold saturated colors. Avoid medium grey tones.`
+  // DEFAULT to hyper-realistic unless they asked for cartoon
+  let styleInstruction = ''
+  if (wantsCartoon) {
+    styleInstruction = 'STYLE: Create in a stylized/cartoon illustration style as requested.'
+  } else {
+    // Default: hyper-realistic
+    styleInstruction = 'STYLE: Create in HYPER-REALISTIC style with photorealistic details, dramatic lighting, and professional quality. Make it look like a real photograph or 3D render.'
   }
 
-  // Combine - USER REQUEST FIRST, then technical requirements
-  const parts = [userRequest, outputFormat]
+  // Main prompt - user's request + style
+  const mainPrompt = `CREATE THIS DESIGN: ${userPrompt}
+
+${styleInstruction}
+
+Generate EXACTLY what was described. If they said "dragon" create a DRAGON. If they said "lion" create a LION. Follow their description precisely.`
+
+  // Output format - keep it simple
+  const outputFormat = `OUTPUT: Isolated artwork on TRANSPARENT background. No t-shirt or mockup - just the design. Centered, high resolution.`
+
+  // Color rules based on shirt
+  let colorRules = ''
+  if (shirtColor === 'black') {
+    colorRules = `COLORS: Avoid pure black (won't show on black fabric). Use bright, vibrant colors.`
+  } else if (shirtColor === 'white') {
+    colorRules = `COLORS: Avoid pure white. Use colors with good contrast.`
+  }
+
+  const parts = [mainPrompt, outputFormat]
   if (colorRules) parts.push(colorRules)
 
   const finalPrompt = parts.join('\n\n')
 
-  console.log('[dtf] 📝 Built DTF-aware prompt:', finalPrompt.substring(0, 300) + '...')
+  console.log('[dtf] 📝 Built DTF prompt:', finalPrompt.substring(0, 300) + '...')
 
   return finalPrompt
 }

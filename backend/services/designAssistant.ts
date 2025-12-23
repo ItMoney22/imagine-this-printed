@@ -183,79 +183,58 @@ Remember: Focus on helping them describe their DESIGN vision. Don't ask about sh
 function getStepInstructions(state: ConversationState): string {
   switch (state.step) {
     case 'greeting':
-      return `You just met the user! Welcome them warmly and ask what kind of design they're dreaming about today.
-Example: "Yo! I'm Mr. Imagine - the guy with the best mustache in custom printing! Ready to make something awesome together? What's on your mind?"`
+      return `Welcome the user briefly! Ask what they want to create.
+Example: "Hey! I'm Mr. Imagine. What design can I create for you today?"`
 
     case 'exploring':
-      return `You're gathering design info. Keep it QUICK and DIRECT!
-- If they've given you a clear idea (subject + style or colors), immediately offer to create it!
-- Say something like "Love it! Want me to whip up some designs for you?"
-- Don't ask too many questions - 1-2 max before offering to generate
-- Be enthusiastic and ready to CREATE, not interrogate!`
-
     case 'refining':
-      return `The user has shared their vision. Help them refine it!
-- Repeat back what you've understood
-- Ask clarifying questions if needed
-- Make sure you understand: What's the main subject? What style? What colors? Any text?
-- When ready, offer to summarize the final design concept`
-
     case 'confirm_design':
-      return `Summarize the design concept and ask for confirmation BEFORE generating.
-- Give a clear, detailed summary of what you'll create
-- Ask "Should I create 3 design options based on this?" or similar
-- If they say yes, indicate you're ready to generate
-- If they want changes, go back to refining`
+      // These steps shouldn't happen anymore - we generate immediately
+      return `The user described something. Say you're creating it NOW!
+Example: "Love it! Creating your design right now..."`
+
+    case 'generating':
+      return `You're creating their design! Tell them it's happening.
+Example: "Creating your design now! This is gonna be awesome!"`
 
     case 'select_design':
-      return `The designs have been generated! Help the user choose their favorite.
-- The designs are displayed in the UI
-- Ask which one they like best (1, 2, or 3)
-- Be excited about their choice!`
+      return `Design is ready! Ask them what they think.
+Example: "Here it is! What do you think?"`
 
     case 'garment_options':
-      return `NOW it's time to ask about the garment! The design is chosen, now we customize the product.
-Ask ONE question at a time about:
-1. Product type: t-shirt, hoodie, or tank top?
-2. Shirt color: black, white, or gray? (remind them colors affect how the design looks)
-3. Placement: center chest, left pocket area, or back?
-
-Be helpful explaining how shirt color affects the design visibility.`
+      return `Design is chosen. Ask about shirt color (black, white, or gray).`
 
     case 'final_confirm':
-      return `Everything is set! Give a final summary:
-- The design they chose
-- The product type, color, and placement
-Ask if they're ready to add it to their cart!`
+      return `Everything set! Ask if they're ready to continue.`
 
     case 'complete':
-      return `Celebrate! They're done. Congratulate them on their awesome custom design!`
+      return `Done! Congratulate them briefly.`
 
     default:
-      return `Continue the natural conversation about their design vision.`
+      return `Help them describe what they want to create.`
   }
 }
 
 /**
- * Check if user message contains a complete design request that can generate immediately
+ * Check if user message describes something we can generate
+ * SIMPLE RULE: If they describe ANY visual subject, generate it immediately!
  */
-function isCompleteDesignRequest(message: string): boolean {
+function isDesignRequest(message: string): boolean {
   const lowerMessage = message.toLowerCase()
 
-  // Check for explicit generation requests
-  const hasGenerateKeyword = lowerMessage.match(/create|make|design|draw|generate|give me|i want|i need|can you make/)
+  // Skip if it's just a greeting or question
+  if (lowerMessage.match(/^(hi|hey|hello|what|how|can you|do you|help)/)) {
+    return false
+  }
 
-  // Check for enough descriptive content (subject + at least one modifier)
-  const hasSubject = lowerMessage.match(/dragon|skull|flower|rose|heart|cat|dog|wolf|lion|eagle|butterfly|sun|moon|star|tree|mountain|car|guitar|gaming|anime|skull|fire|flames|ocean|beach|city|forest|sports|basketball|football|soccer|music|peace|love|crown|wings|snake|tiger|bear|phoenix|sword|robot|alien|space|planet|graffiti/)
+  // If they describe ANY subject/thing, that's a design request
+  // Don't require keywords like "create" or "make" - just a subject is enough
+  const hasSubject = lowerMessage.match(/dragon|skull|flower|rose|heart|cat|dog|wolf|lion|eagle|butterfly|sun|moon|star|tree|mountain|car|guitar|gaming|anime|fire|flames|ocean|beach|city|forest|sports|basketball|football|soccer|music|peace|love|crown|wings|snake|tiger|bear|phoenix|sword|robot|alien|space|planet|graffiti|monster|demon|angel|warrior|samurai|ninja|knight|princess|unicorn|horse|bird|fish|shark|whale|dolphin|turtle|frog|spider|scorpion|bat|owl|raven|crow|wolf|fox|deer|elk|moose|gorilla|monkey|panda|koala|elephant|giraffe|zebra|leopard|cheetah|panther|jaguar|rhino|hippo|crocodile|dinosaur|t-rex|raptor|skull|skeleton|zombie|vampire|werewolf|ghost|witch|wizard|mage|sorcerer|demon|devil|satan|jesus|god|buddha|hindu|cross|pentagram|yin|yang|mandala|geometric|tribal|celtic|norse|viking|aztec|mayan|egyptian|pharaoh|pyramid|eye|third eye|illuminati|mason|occult|mystic|magic|crystal|gem|diamond|ruby|emerald|sapphire|gold|silver|bronze|copper|iron|steel|chrome|metal|wood|stone|marble|granite|concrete|brick|glass|water|ocean|wave|rain|storm|lightning|thunder|cloud|sky|sunset|sunrise|moon|sun|star|galaxy|nebula|cosmos|universe|black hole|wormhole|portal|dimension|matrix|cyber|digital|glitch|vaporwave|synthwave|retrowave|outrun|neon|chrome|holographic|iridescent|rainbow|gradient|splash|splatter|drip|melt|morph|transform|evolve|mutate|hybrid|fusion|mix|blend|combine|merge|split|shatter|explode|implode|burst|bloom|grow|decay|rot|rust|corrode|erode|weather|age|vintage|retro|classic|modern|futuristic|sci-fi|fantasy|horror|dark|light|bright|dim|glow|shine|sparkle|glitter|shimmer|flash|pulse|beat|rhythm|music|sound|noise|silence|chaos|order|balance|harmony|discord|conflict|war|peace|love|hate|fear|courage|hope|despair|joy|sorrow|anger|calm|wild|tame|fierce|gentle|strong|weak|fast|slow|hot|cold|warm|cool|wet|dry|smooth|rough|soft|hard|sharp|dull|loud|quiet|big|small|tall|short|wide|narrow|deep|shallow|thick|thin|heavy|light|dark|bright|old|new|young|ancient|modern|future|past|present|eternal|temporary|infinite|finite|real|fake|true|false|good|evil|sacred|profane|holy|unholy|divine|demonic|celestial|infernal|heavenly|hellish|paradise|purgatory|limbo|void|abyss|chasm|pit|hole|tunnel|cave|cavern|grotto|den|lair|nest|hive|colony|swarm|horde|army|legion|battalion|squad|team|crew|gang|tribe|clan|family|dynasty|empire|kingdom|realm|domain|territory|land|country|nation|state|city|town|village|hamlet|settlement|camp|base|fort|castle|palace|mansion|house|home|building|tower|skyscraper|monument|statue|sculpture|art|painting|drawing|sketch|illustration|design|pattern|texture|fabric|cloth|silk|cotton|wool|leather|fur|skin|scale|feather|shell|bone|tooth|claw|horn|antler|tusk|fang|venom|poison|toxin|acid|blood|gore|guts|brain|heart|soul|spirit|ghost|phantom|specter|wraith|shade|shadow|darkness|light|glow|aura|energy|power|force|strength|might|vigor|vitality|life|death|birth|rebirth|resurrection|reincarnation|transformation|metamorphosis|evolution|mutation|adaptation|survival|extinction|apocalypse|armageddon|ragnarok|doomsday|end|beginning|origin|source|root|seed|sprout|bud|bloom|flower|fruit|harvest|feast|famine|plague|pestilence|disease|cure|heal|wound|scar|mark|brand|tattoo|piercing|jewelry|accessory|clothing|armor|weapon|tool|instrument|machine|robot|android|cyborg|mech|vehicle|ship|plane|rocket|satellite|station|base|colony|city|world|planet|moon|asteroid|comet|meteor|star|sun|nova|supernova|quasar|pulsar|magnetar|black|white|grey|gray|red|orange|yellow|green|blue|indigo|violet|purple|pink|magenta|cyan|teal|turquoise|aqua|navy|maroon|crimson|scarlet|vermillion|coral|salmon|peach|apricot|tan|beige|cream|ivory|pearl|opal|jade|emerald|sapphire|ruby|amethyst|topaz|citrine|garnet|onyx|obsidian|jet|ebony|mahogany|walnut|oak|pine|cedar|birch|maple|cherry|apple|pear|plum|grape|berry|melon|banana|mango|papaya|coconut|pineapple|kiwi|fig|date|olive|avocado|tomato|pepper|chili|spice|herb|mint|basil|oregano|thyme|rosemary|sage|lavender|jasmine|rose|lily|lotus|orchid|tulip|daisy|sunflower|dandelion|clover|shamrock|ivy|vine|fern|moss|lichen|fungus|mushroom|toadstool/)
 
-  const hasStyle = lowerMessage.match(/cool|dope|sick|fire|epic|minimal|bold|colorful|black and white|neon|vintage|retro|cartoon|realistic|artistic|abstract|tribal|gothic|cute|scary|funny/)
+  // Also generate if they give us enough descriptive text (>15 chars that isn't a question)
+  const isDescriptive = message.length > 15 && !message.includes('?')
 
-  const hasColor = lowerMessage.match(/red|blue|green|yellow|purple|orange|pink|black|white|gold|silver|rainbow|neon|pastel/)
-
-  // Direct request + descriptive enough = ready to generate
-  const descriptiveEnough = (hasSubject && (hasStyle || hasColor)) || message.length > 50
-
-  return !!(hasGenerateKeyword && descriptiveEnough)
+  return !!(hasSubject || isDescriptive)
 }
 
 /**
@@ -272,10 +251,10 @@ function analyzeAndUpdateState(
   let readyToGenerate = false
   let garmentReady = false
 
-  // FAST PATH: Check if this is a complete, actionable design request
-  // If so, skip the multi-step flow and generate immediately
-  if ((state.step === 'greeting' || state.step === 'exploring') && isCompleteDesignRequest(userMessage)) {
-    console.log('[assistant] 🚀 FAST PATH: Complete design request detected, generating immediately!')
+  // IMMEDIATE GENERATION: If user describes something, generate it right away!
+  // No back-and-forth questions - just create what they asked for
+  if ((state.step === 'greeting' || state.step === 'exploring') && isDesignRequest(userMessage)) {
+    console.log('[assistant] 🚀 IMMEDIATE GENERATION: Design request detected, creating now!')
     state.collectedData.designConcept = userMessage
     finalizeDesignConcept(state)
     state.step = 'generating'
