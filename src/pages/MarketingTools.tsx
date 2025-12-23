@@ -38,11 +38,12 @@ const MarketingTools: React.FC = () => {
       setError(null)
 
       try {
-        // Fetch real products
+        // Fetch real products (active products available for marketing)
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select('*')
-          .eq('approved', true)
+          .eq('status', 'active')
+          .eq('is_active', true)
           .order('created_at', { ascending: false })
 
         if (productsError) throw productsError
