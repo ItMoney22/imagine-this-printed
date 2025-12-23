@@ -566,9 +566,7 @@ export const sendOrderConfirmationEmail = async (
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <!-- Mr. Imagine Header -->
         <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 16px 16px 0 0; padding: 25px; text-align: center;">
-          <div style="width: 70px; height: 70px; background: white; border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <span style="font-size: 35px;">🎨</span>
-          </div>
+          <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-waist-up-happy.png" alt="Mr. Imagine" style="width: 100px; height: auto; margin: 0 auto 12px; display: block;" />
           <h1 style="color: white; margin: 0; font-size: 22px;">Order Confirmed! 🎉</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0; font-size: 13px;">From your friend, Mr. Imagine</p>
         </div>
@@ -753,56 +751,95 @@ export const sendOrderDeliveredEmail = async (
 // ===============================
 
 /**
- * Send welcome email to new users
+ * Send welcome email to new users - Uses AI-powered Mr. Imagine personalization
  */
 export const sendWelcomeEmail = async (
   email: string,
   username: string
 ): Promise<boolean> => {
+  // Try AI-powered email first
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'welcome',
+        customerEmail: email,
+        customerName: username,
+        username: username
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI welcome email failed, using fallback:', error)
+    }
+  }
+
+  // Fallback to static template with Mr. Imagine branding
   return sendEmail({
     to: email,
     subject: `🎨 Welcome to Imagine This Printed, ${username}!`,
     htmlContent: `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #7c3aed; margin: 0;">Welcome to the Family! 🎨</h1>
+        <!-- Header with Mr. Imagine -->
+        <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 16px 16px 0 0; padding: 30px; text-align: center;">
+          <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-waist-up-happy.png" alt="Mr. Imagine" style="width: 120px; height: auto; margin: 0 auto 15px; display: block;" />
+          <h1 style="color: white; margin: 0; font-size: 24px; font-weight: bold;">Mr. Imagine</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0; font-size: 14px;">Your Creative Companion</p>
         </div>
 
-        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
-          <h2 style="color: #374151; margin: 0 0 10px 0;">Hey ${username}!</h2>
-          <p style="color: #6b7280; font-size: 16px; margin: 0;">
-            We're so excited to have you join our creative community.
+        <div style="background: white; padding: 30px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+          <p style="color: #7c3aed; font-size: 18px; font-weight: 600; margin: 0 0 20px;">
+            Welcome to the family, ${username}! 🎉
           </p>
-        </div>
 
-        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
-          <h3 style="color: #374151; margin-top: 0;">Here's what you can do:</h3>
-          <ul style="color: #6b7280; font-size: 15px; line-height: 2;">
-            <li>🛒 <strong>Shop</strong> - Browse thousands of unique designs</li>
-            <li>🎨 <strong>Create</strong> - Design your own custom products</li>
-            <li>💰 <strong>Earn</strong> - Submit designs and earn 10% royalties</li>
-            <li>🎁 <strong>Points</strong> - Earn points on every purchase</li>
-          </ul>
-        </div>
-
-        <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px; text-align: center;">
-          <p style="color: #7c3aed; font-size: 18px; font-weight: bold; margin: 0 0 5px 0;">🎉 Welcome Gift!</p>
-          <p style="color: #6b7280; font-size: 14px; margin: 0;">
-            Use code <strong style="color: #7c3aed;">WELCOME10</strong> for 10% off your first order!
+          <p style="color: #374151; font-size: 15px; line-height: 1.7;">
+            I'm Mr. Imagine, your creative companion here at Imagine This Printed!
+            We're so excited to have you join our community of creative souls.
           </p>
+
+          <div style="background: #f9fafb; border-radius: 12px; padding: 20px; margin: 20px 0;">
+            <h3 style="color: #374151; margin: 0 0 15px 0;">Here's what you can do:</h3>
+            <ul style="color: #6b7280; font-size: 15px; line-height: 2; margin: 0; padding-left: 20px;">
+              <li>🛒 <strong>Shop</strong> - Browse thousands of unique designs</li>
+              <li>🎨 <strong>Create</strong> - Design your own custom products</li>
+              <li>💰 <strong>Earn</strong> - Submit designs and earn 10% royalties</li>
+              <li>🎁 <strong>Points</strong> - Earn points on every purchase</li>
+            </ul>
+          </div>
+
+          <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 12px; padding: 20px; margin: 20px 0; text-align: center;">
+            <p style="color: #7c3aed; font-size: 18px; font-weight: bold; margin: 0 0 5px 0;">🎁 Welcome Gift!</p>
+            <p style="color: #6b7280; font-size: 14px; margin: 0;">
+              Use code <strong style="color: #7c3aed;">WELCOME10</strong> for 10% off your first order!
+            </p>
+          </div>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${FRONTEND_URL}/catalog" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+              Start Exploring
+            </a>
+          </div>
+
+          <!-- Closing with Mr. Imagine signature -->
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 25px; margin-top: 25px;">
+            <p style="color: #6b7280; font-size: 15px; line-height: 1.6; margin: 0;">
+              Can't wait to see what you create! If you have any questions, just reply to this email or chat with me on our website.
+            </p>
+            <div style="margin-top: 20px;">
+              <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-head-happy.png" alt="Mr. Imagine" style="width: 50px; height: 50px; border-radius: 50%; vertical-align: middle; margin-right: 12px;" />
+              <span style="color: #7c3aed; font-weight: 600; font-size: 16px;">Mr. Imagine</span>
+              <span style="color: #9ca3af; font-size: 12px; margin-left: 5px;">Your Creative Companion</span>
+            </div>
+          </div>
         </div>
 
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${FRONTEND_URL}/catalog" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            Start Exploring
-          </a>
-        </div>
-
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
-          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
-            Questions? Just reply to this email or use our chat widget!<br>
-            - The Imagine This Printed Team
-          </p>
+        <!-- Footer -->
+        <div style="text-align: center; padding: 20px; color: #9ca3af; font-size: 12px;">
+          <a href="${FRONTEND_URL}" style="color: #7c3aed; text-decoration: none;">Imagine This Printed</a>
         </div>
       </div>
     `
