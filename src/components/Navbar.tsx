@@ -8,6 +8,7 @@ const Navbar: React.FC = () => {
   const { state } = useCart()
   const { user, signOut } = useAuth()
   const [showAccountMenu, setShowAccountMenu] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
 
   // DEBUG: Log user role on component mount and when user changes
@@ -55,6 +56,10 @@ const Navbar: React.FC = () => {
 
   const closeAccountMenu = () => {
     setShowAccountMenu(false)
+  }
+
+  const closeMobileMenu = () => {
+    setShowMobileMenu(false)
   }
 
   return (
@@ -390,18 +395,116 @@ const Navbar: React.FC = () => {
             )}
           </div>
 
-          <div className="md:hidden flex items-center">
+          {/* Mobile menu button + cart */}
+          <div className="md:hidden flex items-center gap-2">
+            {/* Mobile Cart */}
+            <Link to="/cart" className="relative text-gray-300 hover:text-white p-2" onClick={closeMobileMenu}>
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              {state.items.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-purple-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {state.items.reduce((sum, item) => sum + item.quantity, 0)}
+                </span>
+              )}
+            </Link>
+
+            {/* Hamburger button */}
             <button
               type="button"
-              className="bg-gray-100 p-2 rounded-md text-gray-700 hover:text-purple-600 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-purple-500"
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className="bg-white/10 p-2 rounded-md text-gray-300 hover:text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-purple-500"
             >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              {showMobileMenu ? (
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              )}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Mobile Menu Dropdown */}
+      {showMobileMenu && (
+        <div className="md:hidden bg-[#0f0a29] border-t border-white/10">
+          <div className="px-4 py-3 space-y-1">
+            {/* Main Navigation */}
+            <Link to="/" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+              Home
+            </Link>
+            <Link to="/catalog" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+              Products
+            </Link>
+            <Link to="/imagination-station" onClick={closeMobileMenu} className="flex items-center gap-2 px-3 py-2 text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md text-base font-medium">
+              <Sparkles className="w-4 h-4" />
+              Imagination Station
+            </Link>
+            <Link to="/models" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+              3D Models
+            </Link>
+            <Link to="/community" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+              Community
+            </Link>
+
+            {user && (
+              <>
+                <div className="border-t border-white/10 my-2 pt-2">
+                  <Link to="/my-designs" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+                    My Designs
+                  </Link>
+                  <Link to="/wallet" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+                    Wallet
+                  </Link>
+                  <Link to="/account/profile" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+                    My Profile
+                  </Link>
+                  <Link to="/account/messages" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+                    Messages
+                  </Link>
+                </div>
+
+                {/* Role-specific links */}
+                {(user.role === 'admin' || user.role === 'manager') && (
+                  <div className="border-t border-white/10 my-2 pt-2">
+                    <p className="px-3 py-1 text-xs text-purple-400 uppercase tracking-wider">Admin</p>
+                    <Link to="/admin/dashboard" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+                      Dashboard
+                    </Link>
+                    <Link to="/admin/orders" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+                      Orders
+                    </Link>
+                  </div>
+                )}
+
+                <div className="border-t border-white/10 my-2 pt-2">
+                  <button
+                    onClick={() => { handleSignOut(); closeMobileMenu(); }}
+                    className="block w-full text-left px-3 py-2 text-red-400 hover:text-red-300 hover:bg-white/10 rounded-md text-base font-medium"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </>
+            )}
+
+            {!user && (
+              <div className="border-t border-white/10 my-2 pt-2 flex gap-2">
+                <Link to="/login" onClick={closeMobileMenu} className="flex-1 text-center px-3 py-2 text-gray-300 hover:text-white border border-white/20 rounded-md text-base font-medium">
+                  Sign In
+                </Link>
+                <Link to="/signup" onClick={closeMobileMenu} className="flex-1 text-center px-3 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-md text-base font-medium">
+                  Sign Up
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </nav>
   )
 }

@@ -194,32 +194,32 @@ export function CreateDesignModal({
         onClick={onClose}
       />
 
-      {/* Modal Content */}
-      <div className="relative w-full max-w-4xl max-h-[90vh] mx-4 bg-gradient-to-br from-slate-900 via-purple-950 to-slate-900 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+      {/* Modal Content - Full screen on mobile */}
+      <div className="relative w-full max-w-4xl max-h-[100vh] sm:max-h-[90vh] mx-0 sm:mx-4 bg-gradient-to-br from-slate-900 via-purple-950 to-slate-900 sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-              <Wand2 className="w-5 h-5 text-white" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+              <Wand2 className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">Create Your Design</h2>
-              <p className="text-sm text-purple-300/70">Talk with Mr. Imagine to bring your vision to life</p>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-xl font-bold text-white truncate">Create Your Design</h2>
+              <p className="text-xs sm:text-sm text-purple-300/70 hidden sm:block">Talk with Mr. Imagine to bring your vision to life</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+            className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"
           >
-            <X className="w-6 h-6 text-white/70" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6 text-white/70" />
           </button>
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           {insufficientBalance ? (
             // Insufficient balance state
-            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] text-center px-4">
               <div className="w-20 h-20 rounded-full bg-amber-500/20 flex items-center justify-center mb-6">
                 <Coins className="w-10 h-10 text-amber-400" />
               </div>
@@ -262,27 +262,27 @@ export function CreateDesignModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/10 bg-black/20">
-          <div className="flex items-center justify-between">
+        {/* Footer - Stacks vertically on mobile */}
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-white/10 bg-black/20">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             {/* ITC Balance Display */}
-            <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl">
-              <Coins className="w-4 h-4 text-amber-400" />
-              <span className="text-sm text-purple-300/70">
-                <span className="font-semibold text-amber-400">{ITC_COST} ITC</span> per design
+            <div className="flex items-center justify-center sm:justify-start gap-2 px-3 py-2 bg-white/5 rounded-xl text-xs sm:text-sm">
+              <Coins className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span className="text-purple-300/70">
+                <span className="font-semibold text-amber-400">{ITC_COST} ITC</span>/design
               </span>
-              <span className="text-purple-300/40 mx-2">•</span>
-              <span className="text-sm text-purple-300/70">
-                Balance: <span className="font-semibold text-white">{currentBalance} ITC</span>
+              <span className="text-purple-300/40">|</span>
+              <span className="text-purple-300/70">
+                Bal: <span className="font-semibold text-white">{currentBalance}</span>
               </span>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-3">
+            {/* Action Buttons - Full width on mobile */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
               {hasGeneratedOnce && (
                 <button
                   onClick={handleRegenerate}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-white/20 text-white/70 rounded-xl hover:bg-white/10 transition-colors"
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 border border-white/20 text-white/70 rounded-xl hover:bg-white/10 transition-colors text-sm"
                 >
                   <RefreshCw className="w-4 h-4" />
                   Regenerate
@@ -294,17 +294,17 @@ export function CreateDesignModal({
                   <button
                     onClick={handleSaveAsDraft}
                     disabled={isSaving}
-                    className="flex items-center gap-2 px-4 py-2.5 border border-purple-400/30 text-purple-300 rounded-xl hover:bg-purple-500/20 transition-colors disabled:opacity-50"
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 border border-purple-400/30 text-purple-300 rounded-xl hover:bg-purple-500/20 transition-colors disabled:opacity-50 text-sm"
                   >
                     <Save className="w-4 h-4" />
-                    {isSaving ? 'Saving...' : 'Save as Draft'}
+                    {isSaving ? 'Saving...' : 'Save Draft'}
                   </button>
 
                   <button
                     onClick={handleEditInImaginationStation}
-                    className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all"
+                    className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all text-sm"
                   >
-                    Edit in Imagination Station
+                    <span className="hidden sm:inline">Edit in</span> Imagination Station
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </>

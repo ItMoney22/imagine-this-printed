@@ -459,9 +459,9 @@ export const VoiceConversationEnhanced = ({
     }
 
     return (
-        <div className={`relative flex flex-col items-center ${className}`}>
+        <div className={`relative flex flex-col items-center px-2 sm:px-0 ${className}`}>
             {/* Mr. Imagine Character - Theatrical Presentation */}
-            <div className="relative mb-8">
+            <div className="relative mb-4 sm:mb-8">
                 {/* Ambient glow behind character */}
                 <div
                     className={`absolute inset-0 rounded-full blur-3xl transition-all duration-700 ${isSpeaking
@@ -496,7 +496,7 @@ export const VoiceConversationEnhanced = ({
                                 src="/mr-imagine/design-video.mp4"
                                 playsInline
                                 onEnded={() => setVideoEnded(true)}
-                                className="w-72 h-auto rounded-2xl drop-shadow-2xl transition-transform duration-500"
+                                className="w-48 sm:w-72 h-auto rounded-2xl drop-shadow-2xl transition-transform duration-500"
                                 style={{
                                     filter: 'drop-shadow(0 0 30px rgba(147, 51, 234, 0.4))'
                                 }}
@@ -507,8 +507,8 @@ export const VoiceConversationEnhanced = ({
                                     onClick={handlePlayVideo}
                                     className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-2xl hover:bg-black/30 transition-colors"
                                 >
-                                    <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center shadow-xl">
-                                        <svg className="w-8 h-8 text-purple-600 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-white/90 flex items-center justify-center shadow-xl">
+                                        <svg className="w-6 h-6 sm:w-8 sm:h-8 text-purple-600 ml-1" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M8 5v14l11-7z" />
                                         </svg>
                                     </div>
@@ -519,7 +519,7 @@ export const VoiceConversationEnhanced = ({
                         <img
                             src={MR_IMAGINE_EXPRESSIONS[currentExpression]}
                             alt="Mr. Imagine"
-                            className={`w-64 h-auto drop-shadow-2xl transition-transform duration-500 ${isSpeaking ? 'animate-subtle-bob' :
+                            className={`w-40 sm:w-64 h-auto drop-shadow-2xl transition-transform duration-500 ${isSpeaking ? 'animate-subtle-bob' :
                                 isListening ? 'scale-105' :
                                     'hover:scale-105'
                                 }`}
@@ -546,25 +546,25 @@ export const VoiceConversationEnhanced = ({
             </div>
 
             {/* Status Message */}
-            <div className="text-center mb-6 min-h-[60px]">
-                <p className={`font-serif text-2xl transition-all duration-300 ${isListening ? 'text-purple-600' :
+            <div className="text-center mb-4 sm:mb-6 min-h-[50px] sm:min-h-[60px] px-4">
+                <p className={`font-serif text-lg sm:text-2xl transition-all duration-300 ${isListening ? 'text-purple-600' :
                     isProcessing ? 'text-blue-600' :
                         isGeneratingDesigns ? 'text-pink-600' :
                             isSpeaking ? 'text-purple-700' :
                                 'text-gray-700'
                     }`}>
                     {isListening ? "I'm all ears..." :
-                        isProcessing ? "Let me think about that..." :
-                            isGeneratingDesigns ? "Creating your designs..." :
+                        isProcessing ? "Let me think..." :
+                            isGeneratingDesigns ? "Creating design..." :
                                 isSpeaking ? "Here's what I think..." :
                                     conversationStep === 'select_design' ? "Pick your favorite!" :
-                                        "Tap the mic to talk with me!"}
+                                        "Tap the mic to talk!"}
                 </p>
                 {isListening && (
-                    <p className="text-sm text-gray-500 mt-1 animate-pulse">Tap again when you're done</p>
+                    <p className="text-xs sm:text-sm text-gray-500 mt-1 animate-pulse">Tap again when done</p>
                 )}
                 {isGeneratingDesigns && (
-                    <p className="text-sm text-gray-500 mt-1 animate-pulse">Creating your design with Flux AI...</p>
+                    <p className="text-xs sm:text-sm text-gray-500 mt-1 animate-pulse">Creating with Flux AI...</p>
                 )}
             </div>
 
@@ -581,21 +581,21 @@ export const VoiceConversationEnhanced = ({
                     : 'bg-purple-500/20 blur-lg opacity-0 group-hover:opacity-100 scale-125'
                     }`} />
 
-                {/* Button circle */}
-                <div className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${isListening
+                {/* Button circle - smaller on mobile */}
+                <div className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all duration-300 ${isListening
                     ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-2xl shadow-purple-500/50 scale-110'
                     : isProcessing
                         ? 'bg-gradient-to-br from-blue-400 to-purple-500 shadow-lg'
                         : 'bg-white shadow-xl border-2 border-purple-100 group-hover:border-purple-300 group-hover:shadow-2xl group-hover:shadow-purple-200/50'
                     }`}>
                     {isListening ? (
-                        <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
                             <rect x="6" y="6" width="12" height="12" rx="2" />
                         </svg>
                     ) : isProcessing ? (
-                        <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                        <div className="w-6 h-6 sm:w-8 sm:h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
                     ) : (
-                        <svg className="w-10 h-10 text-purple-500 group-hover:text-purple-600 transition-colors" fill="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-8 h-8 sm:w-10 sm:h-10 text-purple-500 group-hover:text-purple-600 transition-colors" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
                             <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
                         </svg>
@@ -630,33 +630,33 @@ export const VoiceConversationEnhanced = ({
 
             {/* Transcript display */}
             {transcript && !isListening && !isProcessing && (
-                <div className="mt-6 w-full max-w-md animate-fade-in">
-                    <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4">
+                <div className="mt-4 sm:mt-6 w-full max-w-md animate-fade-in">
+                    <div className="bg-purple-50 border border-purple-100 rounded-xl sm:rounded-2xl p-3 sm:p-4">
                         <p className="text-xs text-purple-500 font-medium uppercase tracking-wider mb-1">You said:</p>
-                        <p className="text-gray-800 text-lg leading-relaxed">{transcript}</p>
+                        <p className="text-gray-800 text-sm sm:text-lg leading-relaxed">{transcript}</p>
                     </div>
                 </div>
             )}
 
             {/* AI Response display */}
             {aiResponse && !isListening && !isProcessing && (
-                <div className="mt-4 w-full max-w-md animate-fade-in">
-                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4">
+                <div className="mt-3 sm:mt-4 w-full max-w-md animate-fade-in">
+                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-xl sm:rounded-2xl p-3 sm:p-4">
                         <p className="text-xs text-purple-600 font-medium uppercase tracking-wider mb-1">Mr. Imagine:</p>
-                        <p className="text-gray-800 text-base leading-relaxed">{aiResponse}</p>
+                        <p className="text-gray-800 text-sm sm:text-base leading-relaxed">{aiResponse}</p>
                     </div>
                 </div>
             )}
 
             {/* Generated Design - Single Design Display */}
             {generatedDesigns.length > 0 && conversationStep === 'select_design' && (
-                <div className="mt-8 w-full max-w-md animate-fade-in">
-                    <h3 className="text-center font-serif text-xl text-gray-800 mb-4">Your Design</h3>
+                <div className="mt-6 sm:mt-8 w-full max-w-md animate-fade-in">
+                    <h3 className="text-center font-serif text-lg sm:text-xl text-gray-800 mb-3 sm:mb-4">Your Design</h3>
 
                     {/* Single Design Display */}
                     {generatedDesigns[0] && (
-                        <div className="flex justify-center mb-6">
-                            <div className="relative bg-white rounded-2xl overflow-hidden shadow-xl w-64 h-64">
+                        <div className="flex justify-center mb-4 sm:mb-6">
+                            <div className="relative bg-white rounded-xl sm:rounded-2xl overflow-hidden shadow-xl w-48 h-48 sm:w-64 sm:h-64">
                                 {generatedDesigns[0].status === 'succeeded' && generatedDesigns[0].imageUrl ? (
                                     <img
                                         src={generatedDesigns[0].imageUrl}
@@ -681,14 +681,14 @@ export const VoiceConversationEnhanced = ({
 
                     {/* Quick Select Options */}
                     {generatedDesigns[0]?.status === 'succeeded' && (
-                        <div className="space-y-5">
+                        <div className="space-y-4 sm:space-y-5">
                             {/* Shirt Color Selection */}
                             <div>
-                                <p className="text-sm text-gray-600 text-center mb-2">Shirt Color</p>
-                                <div className="flex justify-center gap-3">
+                                <p className="text-xs sm:text-sm text-gray-600 text-center mb-2">Shirt Color</p>
+                                <div className="flex justify-center gap-2 sm:gap-3">
                                     <button
                                         onClick={() => setSelectedShirtColor('black')}
-                                        className={`w-12 h-12 rounded-full bg-black border-4 transition-all shadow-md ${
+                                        className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black border-3 sm:border-4 transition-all shadow-md ${
                                             selectedShirtColor === 'black'
                                                 ? 'border-purple-500 ring-2 ring-purple-300 scale-110'
                                                 : 'border-gray-300 hover:border-purple-400'
@@ -697,7 +697,7 @@ export const VoiceConversationEnhanced = ({
                                     />
                                     <button
                                         onClick={() => setSelectedShirtColor('white')}
-                                        className={`w-12 h-12 rounded-full bg-white border-4 transition-all shadow-md ${
+                                        className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white border-3 sm:border-4 transition-all shadow-md ${
                                             selectedShirtColor === 'white'
                                                 ? 'border-purple-500 ring-2 ring-purple-300 scale-110'
                                                 : 'border-gray-300 hover:border-purple-400'
@@ -706,7 +706,7 @@ export const VoiceConversationEnhanced = ({
                                     />
                                     <button
                                         onClick={() => setSelectedShirtColor('gray')}
-                                        className={`w-12 h-12 rounded-full bg-gray-400 border-4 transition-all shadow-md ${
+                                        className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gray-400 border-3 sm:border-4 transition-all shadow-md ${
                                             selectedShirtColor === 'gray'
                                                 ? 'border-purple-500 ring-2 ring-purple-300 scale-110'
                                                 : 'border-gray-300 hover:border-purple-400'
@@ -718,11 +718,11 @@ export const VoiceConversationEnhanced = ({
 
                             {/* Print Style Selection */}
                             <div>
-                                <p className="text-sm text-gray-600 text-center mb-2">Print Style</p>
-                                <div className="flex justify-center gap-2">
+                                <p className="text-xs sm:text-sm text-gray-600 text-center mb-2">Print Style</p>
+                                <div className="flex justify-center gap-1.5 sm:gap-2">
                                     <button
                                         onClick={() => setSelectedPrintStyle('clean')}
-                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                        className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
                                             selectedPrintStyle === 'clean'
                                                 ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
                                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -732,7 +732,7 @@ export const VoiceConversationEnhanced = ({
                                     </button>
                                     <button
                                         onClick={() => setSelectedPrintStyle('halftone')}
-                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                        className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
                                             selectedPrintStyle === 'halftone'
                                                 ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
                                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -742,7 +742,7 @@ export const VoiceConversationEnhanced = ({
                                     </button>
                                     <button
                                         onClick={() => setSelectedPrintStyle('grunge')}
-                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                        className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
                                             selectedPrintStyle === 'grunge'
                                                 ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
                                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -754,10 +754,10 @@ export const VoiceConversationEnhanced = ({
                             </div>
 
                             {/* Continue Button */}
-                            <div className="flex justify-center pt-2">
+                            <div className="flex justify-center pt-1 sm:pt-2">
                                 <button
                                     onClick={() => handleDesignSelect(0)}
-                                    className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all"
+                                    className="px-6 sm:px-8 py-2.5 sm:py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all text-sm sm:text-base"
                                 >
                                     Use This Design
                                 </button>
