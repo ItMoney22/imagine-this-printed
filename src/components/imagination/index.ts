@@ -21,6 +21,7 @@ export { default as SheetCanvas } from './SheetCanvas'
 export { default as ImageCompareModal } from './ImageCompareModal'
 export { default as MrImagineModal } from './MrImagineModal'
 export { default as ReimagineItModal } from './ReimagineItModal'
+export { default as ITPEnhanceModal } from './ITPEnhanceModal'
 
 // Error Boundary
 export { default as ImaginationErrorBoundary } from './ImaginationErrorBoundary'

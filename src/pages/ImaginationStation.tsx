@@ -18,7 +18,7 @@ import type {
   LayerType,
   Product,
 } from '../types';
-import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal } from '../components/imagination';
+import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal } from '../components/imagination';
 import type { Layer as SimpleLayer } from '../types';
 import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../utils/dpi-calculator';
 import {
@@ -151,6 +151,7 @@ const ImaginationStation: React.FC = () => {
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [showMrImagineModal, setShowMrImagineModal] = useState(false);
   const [showReimagineItModal, setShowReimagineItModal] = useState(false);
+  const [showITPEnhanceModal, setShowITPEnhanceModal] = useState(false);
   const [reimagineItLayerId, setReimagineItLayerId] = useState<string | null>(null);
 
   // Canvas features state
@@ -360,6 +361,10 @@ const ImaginationStation: React.FC = () => {
         // Calculate DPI for the layer size in inches
         const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches, heightInches);
 
+        // Center the image on the sheet
+        const centerX = (sheet.sheet_width - widthInches) / 2;
+        const centerY = (sheet.sheet_height - heightInches) / 2;
+
         // Create new layer
         const newLayer: ImaginationLayer = {
           id: `layer-${Date.now()}`,
@@ -367,8 +372,8 @@ const ImaginationStation: React.FC = () => {
           layer_type: 'image' as LayerType,
           source_url: addImageUrl,
           processed_url: null,
-          position_x: 1,
-          position_y: 1,
+          position_x: Math.max(0, centerX),
+          position_y: Math.max(0, centerY),
           width: widthInches,
           height: heightInches,
           rotation: 0,
@@ -390,6 +395,21 @@ const ImaginationStation: React.FC = () => {
         setLayers(prev => [...prev, newLayer]);
         setSelectedLayerIds([newLayer.id]);
         setSaveStatus('unsaved');
+
+        // Auto-zoom to fit image plus margin (if this is the first layer)
+        if (layers.length === 0) {
+          const containerWidth = canvasRef.current?.offsetWidth || 800;
+          const containerHeight = canvasRef.current?.offsetHeight || 600;
+          const imagePixelWidth = widthInches * PIXELS_PER_INCH;
+          const imagePixelHeight = heightInches * PIXELS_PER_INCH;
+          const margin = 100;
+
+          const zoomToFitWidth = (containerWidth - margin * 2) / imagePixelWidth;
+          const zoomToFitHeight = (containerHeight - margin * 2) / imagePixelHeight;
+          const idealZoom = Math.min(zoomToFitWidth, zoomToFitHeight, 1);
+
+          setZoom(Math.max(0.25, Math.min(idealZoom, 2)));
+        }
       };
       img.onerror = () => {
         console.error('Failed to load product image:', addImageUrl);
@@ -536,14 +556,18 @@ const ImaginationStation: React.FC = () => {
             // Calculate DPI for the layer size in inches
             const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches, heightInches);
 
+            // Center the image on the sheet
+            const centerX = (sheet.sheet_width - widthInches) / 2;
+            const centerY = (sheet.sheet_height - heightInches) / 2;
+
             const newLayer: ImaginationLayer = {
               id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               sheet_id: sheet.id,
               layer_type: 'image' as LayerType,
               source_url: event.target?.result as string,
               processed_url: null,
-              position_x: 1,
-              position_y: 1,
+              position_x: Math.max(0, centerX),
+              position_y: Math.max(0, centerY),
               width: widthInches,
               height: heightInches,
               rotation: 0,
@@ -564,6 +588,22 @@ const ImaginationStation: React.FC = () => {
             setLayers(prev => [...prev, newLayer]);
             setSelectedLayerIds([newLayer.id]);
             setSaveStatus('unsaved');
+
+            // Auto-zoom to fit image plus margin (if this is the first layer)
+            if (layers.length === 0) {
+              // Calculate zoom to fit image with some margin
+              const containerWidth = canvasRef.current?.offsetWidth || 800;
+              const containerHeight = canvasRef.current?.offsetHeight || 600;
+              const imagePixelWidth = widthInches * PIXELS_PER_INCH;
+              const imagePixelHeight = heightInches * PIXELS_PER_INCH;
+              const margin = 100; // pixels of margin around the image
+
+              const zoomToFitWidth = (containerWidth - margin * 2) / imagePixelWidth;
+              const zoomToFitHeight = (containerHeight - margin * 2) / imagePixelHeight;
+              const idealZoom = Math.min(zoomToFitWidth, zoomToFitHeight, 1); // Don't zoom in more than 100%
+
+              setZoom(Math.max(0.25, Math.min(idealZoom, 2))); // Clamp between 0.25 and 2
+            }
           };
           img.src = event.target?.result as string;
         };
@@ -2142,11 +2182,8 @@ const ImaginationStation: React.FC = () => {
               <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">AI Tools</h3>
               <div className="space-y-2">
                 <button
-                  onClick={() => setActivePanel('ai')}
-                  className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 ${activePanel === 'ai'
-                    ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                    : 'bg-stone-50 text-stone-700 hover:bg-purple-50 border border-transparent'
-                    }`}
+                  onClick={() => setShowMrImagineModal(true)}
+                  className="w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 bg-stone-50 text-stone-700 hover:bg-purple-50 border border-transparent hover:border-purple-200"
                 >
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                     <Sparkles className="w-4 h-4 text-white" />
@@ -2160,11 +2197,8 @@ const ImaginationStation: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={() => setActivePanel('tools')}
-                  className={`w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 ${activePanel === 'tools'
-                    ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                    : 'bg-stone-50 text-stone-700 hover:bg-amber-50 border border-transparent'
-                    }`}
+                  onClick={() => setShowITPEnhanceModal(true)}
+                  className="w-full px-4 py-3 rounded-xl text-left transition-all flex items-center gap-3 bg-stone-50 text-stone-700 hover:bg-amber-50 border border-transparent hover:border-amber-200"
                 >
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
                     <Wand2 className="w-4 h-4 text-white" />
@@ -3410,6 +3444,29 @@ const ImaginationStation: React.FC = () => {
           onKeepOriginal={handleReimagineItKeepOriginal}
         />
       )}
+
+      {/* ITP Enhance Modal - Image enhancement tools */}
+      <ITPEnhanceModal
+        isOpen={showITPEnhanceModal}
+        onClose={() => setShowITPEnhanceModal(false)}
+        selectedLayer={selectedLayers.length > 0 ? selectedLayers[0] : null}
+        itcBalance={itcBalance}
+        getFreeTrial={getFreeTrial}
+        getFeaturePrice={getFeaturePrice}
+        onRemoveBackground={handleRemoveBackground}
+        onUpscale={handleUpscale}
+        onEnhance={handleEnhance}
+        onReimagine={() => {
+          const selectedImageLayer = selectedLayers.find(l => l.layer_type === 'image' || l.layer_type === 'ai_generated');
+          if (selectedImageLayer) {
+            openReimagineIt(selectedImageLayer.id);
+          }
+        }}
+        isRemovingBg={isRemovingBg}
+        isUpscaling={isUpscaling}
+        isEnhancing={isEnhancing}
+        isProcessing={isProcessing}
+      />
     </div>
   );
 };

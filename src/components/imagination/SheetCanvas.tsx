@@ -579,13 +579,25 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
     }
   }, [zoom, setZoom, panOffset, constrainPan]);
 
-  // Middle mouse button or Space+drag for panning
+  // Panning: Left click on empty space, middle mouse button, or Alt+drag
   const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    // Middle mouse button (button 1) or Space key held
+    // Middle mouse button (button 1) or Alt key held - always pan
     if (e.evt.button === 1 || (e.evt.button === 0 && e.evt.altKey)) {
       e.evt.preventDefault();
       setIsPanning(true);
       setLastPointerPosition({ x: e.evt.clientX, y: e.evt.clientY });
+      return;
+    }
+
+    // Left click on empty canvas background - pan (grab tool behavior)
+    if (e.evt.button === 0) {
+      const target = e.target;
+      const isBackground = target === e.target.getStage() || target.name() === 'sheet-background';
+      if (isBackground) {
+        e.evt.preventDefault();
+        setIsPanning(true);
+        setLastPointerPosition({ x: e.evt.clientX, y: e.evt.clientY });
+      }
     }
   }, []);
 
@@ -607,23 +619,41 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
   // Touch support for mobile panning
   const handleTouchStart = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
     if (e.evt.touches.length === 2) {
-      // Two-finger touch for panning
+      // Two-finger touch for panning (anywhere)
       const touch1 = e.evt.touches[0];
       const touch2 = e.evt.touches[1];
       const centerX = (touch1.clientX + touch2.clientX) / 2;
       const centerY = (touch1.clientY + touch2.clientY) / 2;
       setLastPointerPosition({ x: centerX, y: centerY });
       setIsPanning(true);
+    } else if (e.evt.touches.length === 1) {
+      // Single finger on background - pan (grab tool behavior)
+      const target = e.target;
+      const isBackground = target === e.target.getStage() || target.name() === 'sheet-background';
+      if (isBackground) {
+        const touch = e.evt.touches[0];
+        setLastPointerPosition({ x: touch.clientX, y: touch.clientY });
+        setIsPanning(true);
+      }
     }
   }, []);
 
   const handleTouchMove = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
-    if (!isPanning || e.evt.touches.length !== 2) return;
+    if (!isPanning) return;
 
-    const touch1 = e.evt.touches[0];
-    const touch2 = e.evt.touches[1];
-    const centerX = (touch1.clientX + touch2.clientX) / 2;
-    const centerY = (touch1.clientY + touch2.clientY) / 2;
+    let centerX: number, centerY: number;
+
+    if (e.evt.touches.length === 2) {
+      const touch1 = e.evt.touches[0];
+      const touch2 = e.evt.touches[1];
+      centerX = (touch1.clientX + touch2.clientX) / 2;
+      centerY = (touch1.clientY + touch2.clientY) / 2;
+    } else if (e.evt.touches.length === 1) {
+      centerX = e.evt.touches[0].clientX;
+      centerY = e.evt.touches[0].clientY;
+    } else {
+      return;
+    }
 
     const dx = centerX - lastPointerPosition.x;
     const dy = centerY - lastPointerPosition.y;
@@ -696,11 +726,9 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
       {/* Pan navigation hint - shows when sheet is larger than viewport */}
       {needsPan && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 bg-black/70 text-white text-xs rounded-full pointer-events-none flex items-center gap-2">
-          <span>Scroll to pan</span>
+          <span>Click & drag to pan</span>
           <span className="text-white/60">|</span>
           <span>Ctrl+Scroll to zoom</span>
-          <span className="text-white/60">|</span>
-          <span>Alt+Drag to pan</span>
         </div>
       )}
 
@@ -732,7 +760,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ cursor: isPanning ? 'grabbing' : 'default' }}
+        style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
       >
         {/* Background Layer */}
         <Layer>

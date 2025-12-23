@@ -145,4 +145,13 @@
 - Focus the implementation on `src/pages/ImaginationStation.tsx` (the Konva-based editor). There are other “imagination” components in the repo (e.g., `src/components/imagination/RightSidebar.tsx`), but they appear to be a different UI path.
 
 ## Follow-ups
-- Confirm whether “Mystery Imagine” should replace/rename “Mr. Imagine” in the UI or be a separate tool entrypoint.
+- Confirm whether "Mystery Imagine" should replace/rename "Mr. Imagine" in the UI or be a separate tool entrypoint.
+
+## Work Log (continued)
+- 2025-12-23 **FIX** Imagination Station editor improvements:
+  - **Image positioning**: Uploaded images now centered on sheet instead of position (1,1). Auto-zoom to fit image with margin on first layer upload.
+  - **AI Tools button**: Changed to open MrImagineModal lightbox instead of switching panels.
+  - **ITP Enhance button**: Created new ITPEnhanceModal.tsx lightbox with all enhancement tools (Remove BG, Upscale, Enhance, Reimagine It), updated button to open modal instead of panel.
+  - **Canvas grab/pan tool**: Click and drag on empty canvas now pans (grab tool behavior). Single-finger touch on mobile also pans. Cursor shows grab/grabbing icons. Updated hint text.
+  - Files created: `src/components/imagination/ITPEnhanceModal.tsx`
+  - Files modified: `src/pages/ImaginationStation.tsx`, `src/components/imagination/index.ts`, `src/components/imagination/SheetCanvas.tsx`
