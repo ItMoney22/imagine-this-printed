@@ -7,8 +7,12 @@ interface BrevoEmailOptions {
 
 const BREVO_API_KEY = process.env.BREVO_API_KEY
 const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com'
-const BREVO_SENDER_NAME = process.env.BREVO_SENDER_NAME || 'Imagine This Printed'
+// Mr. Imagine is the sender for all customer-facing emails
+const BREVO_SENDER_NAME = 'Mr. Imagine from Imagine This Printed'
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
+
+// Flag to enable/disable AI personalization (can be toggled via env)
+const AI_EMAIL_ENABLED = process.env.AI_EMAIL_ENABLED !== 'false'
 
 export const sendEmail = async (options: BrevoEmailOptions): Promise<boolean> => {
   if (!BREVO_API_KEY) {
@@ -488,7 +492,7 @@ export const sendPayoutEmail = async (
 }
 
 // ===============================
-// ORDER STATUS EMAILS
+// ORDER STATUS EMAILS (AI-Powered with Mr. Imagine personality)
 // ===============================
 
 interface OrderItem {
@@ -497,15 +501,56 @@ interface OrderItem {
   price: number
 }
 
+// Try to import AI email service (may fail if not available)
+let generateAIEmail: any = null
+try {
+  // Dynamic import to avoid breaking if AI service has issues
+  import('../services/emailAI.js').then(module => {
+    generateAIEmail = module.generateAIEmail
+    console.log('[Email] AI email service loaded successfully')
+  }).catch(err => {
+    console.log('[Email] AI email service not available, using fallback templates')
+  })
+} catch {
+  console.log('[Email] AI email service not available')
+}
+
 /**
  * Send order confirmation email to customer
+ * Uses AI personalization when available, with Mr. Imagine personality
  */
 export const sendOrderConfirmationEmail = async (
   email: string,
   orderId: string,
   items: OrderItem[],
-  total: number
+  total: number,
+  customerName?: string
 ): Promise<boolean> => {
+  // Try AI-powered email first
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'order_confirmation',
+        customerEmail: email,
+        customerName: customerName || 'Creative Friend',
+        orderNumber: orderId,
+        items,
+        total
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI generation failed, using fallback:', error)
+      // Fall through to static template
+    }
+  }
+
+  // Fallback to static template with Mr. Imagine branding
   const itemsHtml = items.map(item => `
     <tr>
       <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${item.name}</td>
@@ -516,21 +561,34 @@ export const sendOrderConfirmationEmail = async (
 
   return sendEmail({
     to: email,
-    subject: `🎉 Order Confirmed - ${orderId}`,
+    subject: `🎉 Order Confirmed - ${orderId.slice(0, 8).toUpperCase()}`,
     htmlContent: `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #7c3aed; margin: 0;">Order Confirmed! 🎉</h1>
+        <!-- Mr. Imagine Header -->
+        <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 16px 16px 0 0; padding: 25px; text-align: center;">
+          <div style="width: 70px; height: 70px; background: white; border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <span style="font-size: 35px;">🎨</span>
+          </div>
+          <h1 style="color: white; margin: 0; font-size: 22px;">Order Confirmed! 🎉</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0; font-size: 13px;">From your friend, Mr. Imagine</p>
         </div>
 
-        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
-          <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">Order Number</p>
-          <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
-        </div>
+        <div style="background: white; padding: 25px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+          <p style="color: #7c3aed; font-size: 16px; font-weight: 600; margin: 0 0 15px;">
+            Hey there, creative soul! 👋
+          </p>
 
-        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
-          <h3 style="color: #374151; margin-top: 0;">Order Summary</h3>
-          <table style="width: 100%; border-collapse: collapse;">
+          <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+            Your order just made my day! We're already getting excited to bring your vision to life.
+            Here's what you've got cooking:
+          </p>
+
+          <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 12px; padding: 15px; margin-bottom: 20px; text-align: center;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px; text-transform: uppercase; letter-spacing: 1px;">Order Number</p>
+            <p style="color: #7c3aed; font-size: 22px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
             <thead>
               <tr style="background: #f9fafb;">
                 <th style="padding: 12px; text-align: left; font-weight: 600; color: #374151;">Item</th>
@@ -548,28 +606,34 @@ export const sendOrderConfirmationEmail = async (
               </tr>
             </tfoot>
           </table>
+
+          <div style="background: #f9fafb; border-radius: 12px; padding: 15px; margin-bottom: 20px;">
+            <h4 style="color: #374151; margin: 0 0 10px 0;">What's happening next?</h4>
+            <ul style="color: #6b7280; font-size: 14px; line-height: 1.8; margin: 0; padding-left: 20px;">
+              <li>We're prepping your order for printing (the fun part!)</li>
+              <li>You'll get an email the moment it ships</li>
+              <li>Track it anytime - I'll keep you posted!</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);">
+              Track My Order
+            </a>
+          </div>
+
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px;">
+            <p style="color: #6b7280; font-size: 14px; margin: 0;">
+              Questions? Just reply to this email - I'm always here to help!
+            </p>
+            <p style="color: #7c3aed; font-weight: 600; margin: 12px 0 0; font-size: 15px;">
+              — Mr. Imagine 🎨
+            </p>
+          </div>
         </div>
 
-        <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
-          <h4 style="color: #374151; margin: 0 0 10px 0;">What's Next?</h4>
-          <ul style="color: #6b7280; font-size: 14px; line-height: 1.8; margin: 0; padding-left: 20px;">
-            <li>We're preparing your order for printing</li>
-            <li>You'll receive an email when it ships</li>
-            <li>Track your order anytime in your account</li>
-          </ul>
-        </div>
-
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            View Order Status
-          </a>
-        </div>
-
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
-          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
-            Thank you for your order!<br>
-            - The Imagine This Printed Team
-          </p>
+        <div style="text-align: center; padding: 15px; color: #9ca3af; font-size: 11px;">
+          <a href="${FRONTEND_URL}" style="color: #7c3aed; text-decoration: none;">Imagine This Printed</a>
         </div>
       </div>
     `

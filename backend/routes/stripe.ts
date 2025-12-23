@@ -221,7 +221,7 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
         shippingState: shipping?.state || '',
         shippingCountry: shipping?.country || 'US'
       },
-      receipt_email: shipping?.email || undefined,
+      // Note: We don't set receipt_email - we send our own branded Mr. Imagine emails via Brevo
       automatic_payment_methods: {
         enabled: true
       }
@@ -324,7 +324,7 @@ router.post('/create-payment-intent', requireAuth, async (req: Request, res: Res
         bonusPercent: (packageDetails.bonusPercent || 0).toString(),
         ...metadata
       },
-      receipt_email: profile.email,
+      // Note: We don't set receipt_email - we send our own branded Mr. Imagine emails via Brevo
       automatic_payment_methods: {
         enabled: true,
         allow_redirects: 'never'

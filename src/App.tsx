@@ -41,6 +41,7 @@ import VendorMessages from './pages/VendorMessages'
 import VendorPayouts from './pages/VendorPayouts'
 import FounderEarningsPage from './pages/FounderEarnings'
 import AdminControlPanel from './pages/AdminControlPanel'
+import AdminEmailTemplates from './pages/AdminEmailTemplates'
 import AdminPanel from './pages/AdminPanel'
 import WholesalePortal from './pages/WholesalePortal'
 import VendorStorefront from './pages/VendorStorefront'
@@ -165,6 +166,7 @@ function App() {
                   <Route path="/admin/ai/products/create" element={<AdminAIProductBuilder />} />
                   <Route path="/admin/voice-settings" element={<AdminVoiceSettings />} />
                   <Route path="/admin/imagination-products" element={<AdminImaginationProducts />} />
+                  <Route path="/admin/email-templates" element={<AdminEmailTemplates />} />
 
                   {/* Imagination Station Routes */}
                   <Route
