@@ -259,9 +259,7 @@ function buildMrImagineEmail(options: {
       <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
         <!-- Header with Mr. Imagine -->
         <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 16px 16px 0 0; padding: 30px; text-align: center;">
-          <div style="width: 80px; height: 80px; background: white; border-radius: 50%; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <span style="font-size: 40px;">🎨</span>
-          </div>
+          <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-waist-up-happy.png" alt="Mr. Imagine" style="width: 120px; height: auto; margin: 0 auto 15px; display: block; filter: drop-shadow(0 4px 15px rgba(0,0,0,0.3));" />
           <h1 style="color: white; margin: 0; font-size: 24px; font-weight: bold;">Mr. Imagine</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0; font-size: 14px;">Your Creative Companion</p>
         </div>
@@ -301,9 +299,13 @@ function buildMrImagineEmail(options: {
             <p style="color: #6b7280; font-size: 15px; line-height: 1.6; margin: 0;">
               ${options.closing}
             </p>
-            <p style="color: #7c3aed; font-weight: 600; margin: 15px 0 0; font-size: 16px;">
-              — Mr. Imagine 🎨
-            </p>
+            <div style="display: flex; align-items: center; margin-top: 20px;">
+              <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-head-happy.png" alt="Mr. Imagine" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 12px;" />
+              <div>
+                <p style="color: #7c3aed; font-weight: 600; margin: 0; font-size: 16px;">Mr. Imagine</p>
+                <p style="color: #9ca3af; font-size: 12px; margin: 2px 0 0;">Your Creative Companion</p>
+              </div>
+            </div>
           </div>
         </div>
 
