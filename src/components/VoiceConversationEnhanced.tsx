@@ -77,6 +77,8 @@ export const VoiceConversationEnhanced = ({
     const [designConcept, setDesignConcept] = useState<string | null>(null)
     const [conversationStep, setConversationStep] = useState<string>('greeting')
     const [hasStartedConversation, setHasStartedConversation] = useState(false)  // Track if mic has been used
+    const [selectedShirtColor, setSelectedShirtColor] = useState<'black' | 'white' | 'gray'>('black')
+    const [selectedPrintStyle, setSelectedPrintStyle] = useState<'clean' | 'halftone' | 'grunge'>('clean')
     const [videoEnded, setVideoEnded] = useState(false) // Track if intro video has finished playing
     const [videoNeedsInteraction, setVideoNeedsInteraction] = useState(true) // Video always needs user click to play with sound
     const audioRef = useRef<HTMLAudioElement>(null)
@@ -331,10 +333,12 @@ export const VoiceConversationEnhanced = ({
             if (!token) throw new Error('Authentication required')
 
             await api.post('/api/ai/voice-chat/select-design', {
-                designIndex: index
+                designIndex: index,
+                shirtColor: selectedShirtColor,
+                printStyle: selectedPrintStyle
             })
 
-            console.log('[VoiceConversation] ✅ Design selected:', index)
+            console.log('[VoiceConversation] ✅ Design selected:', index, 'Color:', selectedShirtColor, 'Style:', selectedPrintStyle)
 
             // Notify parent
             if (onDesignSelected) {
@@ -346,7 +350,7 @@ export const VoiceConversationEnhanced = ({
         } catch (err: any) {
             console.error('[VoiceConversation] ❌ Design selection error:', err)
         }
-    }, [onDesignSelected])
+    }, [onDesignSelected, selectedShirtColor, selectedPrintStyle])
 
     // Reset conversation
     const resetConversation = useCallback(async () => {
@@ -364,6 +368,8 @@ export const VoiceConversationEnhanced = ({
             setSelectedDesignIndex(null)
             setDesignConcept(null)
             setConversationStep('greeting')
+            setSelectedShirtColor('black')
+            setSelectedPrintStyle('clean')
             setError(null)
 
             console.log('[VoiceConversation] 🔄 Conversation reset')
@@ -558,7 +564,7 @@ export const VoiceConversationEnhanced = ({
                     <p className="text-sm text-gray-500 mt-1 animate-pulse">Tap again when you're done</p>
                 )}
                 {isGeneratingDesigns && (
-                    <p className="text-sm text-gray-500 mt-1 animate-pulse">Generating 3 unique designs from AI models...</p>
+                    <p className="text-sm text-gray-500 mt-1 animate-pulse">Creating your design with Flux AI...</p>
                 )}
             </div>
 
@@ -642,79 +648,142 @@ export const VoiceConversationEnhanced = ({
                 </div>
             )}
 
-            {/* Generated Designs Grid */}
+            {/* Generated Design - Single Design Display */}
             {generatedDesigns.length > 0 && conversationStep === 'select_design' && (
-                <div className="mt-8 w-full max-w-2xl animate-fade-in">
-                    <h3 className="text-center font-serif text-xl text-gray-800 mb-4">Choose Your Design</h3>
-                    <div className="grid grid-cols-3 gap-4">
-                        {generatedDesigns.map((design, index) => (
-                            <button
-                                key={design.modelId}
-                                onClick={() => handleDesignSelect(index)}
-                                className={`group relative bg-white rounded-2xl overflow-hidden shadow-lg transition-all ${selectedDesignIndex === index
-                                    ? 'ring-4 ring-purple-500 shadow-xl shadow-purple-500/30 scale-[1.02]'
-                                    : 'hover:shadow-xl hover:scale-[1.01]'
-                                    }`}
-                            >
-                                {design.status === 'succeeded' && design.imageUrl ? (
+                <div className="mt-8 w-full max-w-md animate-fade-in">
+                    <h3 className="text-center font-serif text-xl text-gray-800 mb-4">Your Design</h3>
+
+                    {/* Single Design Display */}
+                    {generatedDesigns[0] && (
+                        <div className="flex justify-center mb-6">
+                            <div className="relative bg-white rounded-2xl overflow-hidden shadow-xl w-64 h-64">
+                                {generatedDesigns[0].status === 'succeeded' && generatedDesigns[0].imageUrl ? (
                                     <img
-                                        src={design.imageUrl}
-                                        alt={`Design from ${design.modelName}`}
-                                        className="w-full aspect-square object-cover"
+                                        src={generatedDesigns[0].imageUrl}
+                                        alt="Your design"
+                                        className="w-full h-full object-cover"
                                     />
-                                ) : design.status === 'pending' ? (
-                                    <div className="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                                ) : generatedDesigns[0].status === 'pending' ? (
+                                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
                                         <div className="w-8 h-8 border-4 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
                                     </div>
                                 ) : (
-                                    <div className="w-full aspect-square bg-red-50 flex items-center justify-center">
-                                        <span className="text-red-400 text-sm">Failed</span>
+                                    <div className="w-full h-full bg-red-50 flex items-center justify-center">
+                                        <span className="text-red-400 text-sm">Generation failed</span>
                                     </div>
                                 )}
-
-                                {/* Model name badge */}
                                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-                                    <p className="text-white text-xs font-medium truncate">{design.modelName}</p>
+                                    <p className="text-white text-xs font-medium">Flux 1.1 Pro Ultra</p>
                                 </div>
+                            </div>
+                        </div>
+                    )}
 
-                                {/* Selected checkmark */}
-                                {selectedDesignIndex === index && (
-                                    <div className="absolute top-2 right-2 w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center shadow-lg">
-                                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    </div>
-                                )}
-                            </button>
-                        ))}
-                    </div>
+                    {/* Quick Select Options */}
+                    {generatedDesigns[0]?.status === 'succeeded' && (
+                        <div className="space-y-5">
+                            {/* Shirt Color Selection */}
+                            <div>
+                                <p className="text-sm text-gray-600 text-center mb-2">Shirt Color</p>
+                                <div className="flex justify-center gap-3">
+                                    <button
+                                        onClick={() => setSelectedShirtColor('black')}
+                                        className={`w-12 h-12 rounded-full bg-black border-4 transition-all shadow-md ${
+                                            selectedShirtColor === 'black'
+                                                ? 'border-purple-500 ring-2 ring-purple-300 scale-110'
+                                                : 'border-gray-300 hover:border-purple-400'
+                                        }`}
+                                        title="Black"
+                                    />
+                                    <button
+                                        onClick={() => setSelectedShirtColor('white')}
+                                        className={`w-12 h-12 rounded-full bg-white border-4 transition-all shadow-md ${
+                                            selectedShirtColor === 'white'
+                                                ? 'border-purple-500 ring-2 ring-purple-300 scale-110'
+                                                : 'border-gray-300 hover:border-purple-400'
+                                        }`}
+                                        title="White"
+                                    />
+                                    <button
+                                        onClick={() => setSelectedShirtColor('gray')}
+                                        className={`w-12 h-12 rounded-full bg-gray-400 border-4 transition-all shadow-md ${
+                                            selectedShirtColor === 'gray'
+                                                ? 'border-purple-500 ring-2 ring-purple-300 scale-110'
+                                                : 'border-gray-300 hover:border-purple-400'
+                                        }`}
+                                        title="Gray"
+                                    />
+                                </div>
+                            </div>
 
-                    {/* Selection hint */}
-                    {selectedDesignIndex === null && (
-                        <p className="text-center text-gray-400 text-sm mt-4 animate-pulse">
-                            👆 Click on a design to select it
-                        </p>
+                            {/* Print Style Selection */}
+                            <div>
+                                <p className="text-sm text-gray-600 text-center mb-2">Print Style</p>
+                                <div className="flex justify-center gap-2">
+                                    <button
+                                        onClick={() => setSelectedPrintStyle('clean')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                            selectedPrintStyle === 'clean'
+                                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
+                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Clean
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedPrintStyle('halftone')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                            selectedPrintStyle === 'halftone'
+                                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
+                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Halftone
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedPrintStyle('grunge')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                            selectedPrintStyle === 'grunge'
+                                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
+                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Grunge
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Continue Button */}
+                            <div className="flex justify-center pt-2">
+                                <button
+                                    onClick={() => handleDesignSelect(0)}
+                                    className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-purple-500/30 transition-all"
+                                >
+                                    Use This Design
+                                </button>
+                            </div>
+                        </div>
                     )}
                 </div>
             )}
 
             {/* Design Generation Progress */}
             {isGeneratingDesigns && (
-                <div className="mt-8 w-full max-w-md animate-fade-in">
+                <div className="mt-8 w-full max-w-xs animate-fade-in">
                     <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-6">
                         <div className="flex items-center justify-center gap-3 mb-4">
                             <div className="w-8 h-8 border-4 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
-                            <span className="text-purple-700 font-medium">Generating designs...</span>
+                            <span className="text-purple-700 font-medium">Creating design...</span>
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
-                            {['Imagen 4', 'Flux Pro', 'Lucid'].map((model, i) => (
-                                <div key={model} className="text-center">
-                                    <div className={`w-full aspect-square bg-purple-100 rounded-lg flex items-center justify-center ${i === 0 ? 'animate-pulse' : ''}`}>
-                                        <span className="text-2xl">{i === 0 ? '🎨' : i === 1 ? '✨' : '🌟'}</span>
-                                    </div>
-                                    <p className="text-xs text-purple-600 mt-1">{model}</p>
+                        <div className="flex justify-center">
+                            <div className="text-center">
+                                <div className="w-32 h-32 bg-purple-100 rounded-lg flex items-center justify-center animate-pulse">
+                                    <svg className="w-12 h-12 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
                                 </div>
-                            ))}
+                                <p className="text-xs text-purple-600 mt-2">Flux 1.1 Pro Ultra</p>
+                            </div>
                         </div>
                     </div>
                 </div>
