@@ -72,89 +72,89 @@ export function Hero() {
         {/* Subtle grain texture */}
         <div className="absolute inset-0 grain pointer-events-none" />
 
-        {/* Video Controls - Purple themed */}
-        <div className="absolute bottom-8 right-8 z-20 flex items-center gap-3">
+        {/* Video Controls - Purple themed - Mobile responsive */}
+        <div className="absolute bottom-4 right-4 sm:bottom-8 sm:right-8 z-20 flex items-center gap-2 sm:gap-3">
           <button
             onClick={togglePlay}
-            className="p-3 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-300/30 text-white hover:bg-purple-500/30 transition-all duration-300"
+            className="p-2 sm:p-3 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-300/30 text-white hover:bg-purple-500/30 transition-all duration-300"
             aria-label={isPlaying ? 'Pause video' : 'Play video'}
           >
-            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+            {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}
           </button>
           <button
             onClick={toggleMute}
-            className="p-3 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-300/30 text-white hover:bg-purple-500/30 transition-all duration-300"
+            className="p-2 sm:p-3 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-300/30 text-white hover:bg-purple-500/30 transition-all duration-300"
             aria-label={isMuted ? 'Unmute video' : 'Mute video'}
           >
-            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            {isMuted ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
           </button>
         </div>
 
         {/* Hero Content - With Mr. Imagine integration */}
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="max-w-6xl mx-auto px-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+        <div className="absolute inset-0 flex items-center justify-center z-10 px-4 sm:px-0">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
               {/* Left: Text Content */}
               <div className="text-center lg:text-left">
                 {/* Badge - Purple themed */}
-                <div className="animate-fade-up mb-6">
-                  <span className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-400/30 text-purple-100 text-sm font-medium tracking-wide">
-                    <Sparkles className="w-4 h-4 text-purple-300" />
+                <div className="animate-fade-up mb-4 sm:mb-6">
+                  <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-400/30 text-purple-100 text-xs sm:text-sm font-medium tracking-wide">
+                    <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-purple-300" />
                     AI-Powered Custom Printing
                   </span>
                 </div>
 
-                {/* Main Headline - Purple gradient accent */}
-                <h1 className="animate-fade-up-delay-1 font-display text-5xl sm:text-6xl lg:text-7xl text-white leading-none tracking-tight mb-6">
+                {/* Main Headline - Purple gradient accent - Smaller on mobile */}
+                <h1 className="animate-fade-up-delay-1 font-display text-3xl sm:text-5xl md:text-6xl lg:text-7xl text-white leading-tight sm:leading-none tracking-tight mb-4 sm:mb-6">
                   <span className="block">Imagine It.</span>
-                  <span className="block mt-2">
+                  <span className="block mt-1 sm:mt-2">
                     <em className="italic bg-gradient-to-r from-purple-300 via-pink-300 to-blue-300 bg-clip-text text-transparent">Print</em> It.
                   </span>
                 </h1>
 
                 {/* Subheadline */}
-                <p className="animate-fade-up-delay-2 max-w-xl text-lg text-purple-100/80 font-light leading-relaxed mb-8">
+                <p className="animate-fade-up-delay-2 max-w-xl mx-auto lg:mx-0 text-sm sm:text-base md:text-lg text-purple-100/80 font-light leading-relaxed mb-6 sm:mb-8">
                   Transform your creative vision into premium custom products.
                   From AI-generated designs to professional DTF transfers —
                   we bring your imagination to life.
                 </p>
 
-                {/* CTA Buttons - Purple themed */}
-                <div className="animate-fade-up-delay-3 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+                {/* CTA Buttons - Purple themed - Stack on mobile */}
+                <div className="animate-fade-up-delay-3 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4">
                   <Link
                     to="/create-design"
-                    className="group flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold rounded-full hover:from-purple-600 hover:to-purple-700 transition-all duration-300 shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 hover:-translate-y-1"
+                    className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold rounded-full hover:from-purple-600 hover:to-purple-700 transition-all duration-300 shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 hover:-translate-y-1 text-sm sm:text-base"
                   >
-                    <Sparkles className="w-5 h-5" />
+                    <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
                     Talk to Mr. Imagine
-                    <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+                    <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:translate-x-1" />
                   </Link>
 
                   <Link
                     to="/catalog"
-                    className="group flex items-center gap-3 px-8 py-4 bg-white/10 backdrop-blur-sm border-2 border-white/30 text-white font-semibold rounded-full hover:bg-white/20 hover:border-white/50 transition-all duration-300"
+                    className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-white/10 backdrop-blur-sm border-2 border-white/30 text-white font-semibold rounded-full hover:bg-white/20 hover:border-white/50 transition-all duration-300 text-sm sm:text-base"
                   >
                     Browse Products
-                    <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+                    <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:translate-x-1" />
                   </Link>
                 </div>
 
-                {/* Trust Indicators */}
-                <div className="animate-fade-up-delay-4 mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-6 text-purple-200/60 text-sm">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                {/* Trust Indicators - Smaller on mobile */}
+                <div className="animate-fade-up-delay-4 mt-6 sm:mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-3 sm:gap-6 text-purple-200/60 text-xs sm:text-sm">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                     <span>Free Design Tools</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                     <span>Fast Turnaround</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                     <span>Premium Quality</span>
@@ -167,11 +167,11 @@ export function Hero() {
           </div>
         </div>
 
-        {/* Scroll Indicator - Purple themed */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 animate-scroll">
+        {/* Scroll Indicator - Purple themed - Hidden on very small screens */}
+        <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 z-20 animate-scroll hidden sm:block">
           <div className="flex flex-col items-center gap-2 text-purple-300/50">
             <span className="text-xs uppercase tracking-widest">Scroll</span>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
           </div>

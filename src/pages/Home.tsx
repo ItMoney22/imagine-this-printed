@@ -154,33 +154,33 @@ const Home: React.FC = () => {
       <Hero />
 
       {/* How It Works Section */}
-      <section className="py-24 bg-gradient-to-b from-bg to-purple-50/50">
+      <section className="py-12 sm:py-24 bg-gradient-to-b from-bg to-purple-50/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-sm font-medium mb-4">
-              <Sparkles className="w-4 h-4" />
+          <div className="text-center mb-8 sm:mb-16">
+            <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
+              <Sparkles className="w-3 h-3 sm:w-4 sm:h-4" />
               Simple Process
             </span>
-            <h2 className="font-display text-4xl md:text-5xl text-text mb-4">
+            <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text mb-3 sm:mb-4">
               How It <span className="text-gradient">Works</span>
             </h2>
-            <p className="text-muted text-lg max-w-2xl mx-auto">
+            <p className="text-muted text-sm sm:text-lg max-w-2xl mx-auto px-4 sm:px-0">
               From idea to printed product in just three simple steps
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8 lg:gap-12">
             {/* Step 1 */}
             <div className="relative group">
-              <div className="card-editorial p-8 h-full text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200 group-hover:scale-110 transition-transform duration-300">
-                  <Sparkles className="w-8 h-8 text-white" />
+              <div className="card-editorial p-5 sm:p-8 h-full text-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-purple-200 group-hover:scale-110 transition-transform duration-300">
+                  <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                 </div>
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center font-display text-purple-600 text-lg font-bold">
+                <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center font-display text-purple-600 text-base sm:text-lg font-bold">
                   1
                 </div>
-                <h3 className="font-display text-xl text-text mb-3">Imagine Your Design</h3>
-                <p className="text-muted">
+                <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Imagine Your Design</h3>
+                <p className="text-muted text-sm sm:text-base">
                   Describe your vision to our AI or use our design tools to create your perfect design
                 </p>
               </div>
@@ -188,15 +188,15 @@ const Home: React.FC = () => {
 
             {/* Step 2 */}
             <div className="relative group">
-              <div className="card-editorial p-8 h-full text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform duration-300">
-                  <Palette className="w-8 h-8 text-white" />
+              <div className="card-editorial p-5 sm:p-8 h-full text-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform duration-300">
+                  <Palette className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                 </div>
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center font-display text-blue-600 text-lg font-bold">
+                <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center font-display text-blue-600 text-base sm:text-lg font-bold">
                   2
                 </div>
-                <h3 className="font-display text-xl text-text mb-3">Choose Your Product</h3>
-                <p className="text-muted">
+                <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Choose Your Product</h3>
+                <p className="text-muted text-sm sm:text-base">
                   Select from our wide range of premium products — t-shirts, hoodies, mugs, and more
                 </p>
               </div>
@@ -204,15 +204,15 @@ const Home: React.FC = () => {
 
             {/* Step 3 */}
             <div className="relative group">
-              <div className="card-editorial p-8 h-full text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-pink-200 group-hover:scale-110 transition-transform duration-300">
-                  <Heart className="w-8 h-8 text-white" />
+              <div className="card-editorial p-5 sm:p-8 h-full text-center">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-pink-200 group-hover:scale-110 transition-transform duration-300">
+                  <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                 </div>
-                <div className="absolute -top-3 -left-3 w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center font-display text-pink-600 text-lg font-bold">
+                <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-pink-100 rounded-full flex items-center justify-center font-display text-pink-600 text-base sm:text-lg font-bold">
                   3
                 </div>
-                <h3 className="font-display text-xl text-text mb-3">We Print & Ship</h3>
-                <p className="text-muted">
+                <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">We Print & Ship</h3>
+                <p className="text-muted text-sm sm:text-base">
                   Our professional team prints your design with care and ships it directly to you
                 </p>
               </div>
@@ -234,20 +234,20 @@ const Home: React.FC = () => {
       </section>
 
       {/* Featured Products Section */}
-      <section className="py-24 bg-bg">
+      <section className="py-12 sm:py-24 bg-bg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between mb-12">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between mb-6 sm:mb-12">
             <div>
-              <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-sm font-medium mb-4">
-                <Star className="w-4 h-4" />
+              <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
+                <Star className="w-3 h-3 sm:w-4 sm:h-4" />
                 Featured
               </span>
-              <h2 className="font-display text-4xl md:text-5xl text-text">
+              <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text">
                 Popular <span className="text-gradient">Products</span>
               </h2>
             </div>
 
-            <div className="flex items-center gap-4 mt-4 md:mt-0">
+            <div className="flex items-center gap-3 sm:gap-4 mt-4 md:mt-0">
               {/* Navigation Buttons */}
               <div className="flex gap-2">
                 <button
@@ -335,16 +335,16 @@ const Home: React.FC = () => {
       </section>
 
       {/* Mr. Imagine Feature Section */}
-      <section className="py-24 bg-gradient-to-br from-purple-50 via-bg to-blue-50 overflow-hidden">
+      <section className="py-12 sm:py-24 bg-gradient-to-br from-purple-50 via-bg to-blue-50 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 items-center">
             {/* Left: Mr. Imagine Video */}
-            <div className="relative flex justify-center">
-              <div className="relative w-full max-w-sm">
+            <div className="relative flex justify-center order-2 lg:order-1">
+              <div className="relative w-full max-w-[280px] sm:max-w-sm">
                 {/* Glow effect */}
                 <div className="absolute inset-0 bg-gradient-radial from-purple-400/30 via-purple-300/10 to-transparent rounded-full blur-3xl scale-150" />
 
-                <div className="relative rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20 border-4 border-white/50 backdrop-blur-sm">
+                <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20 border-2 sm:border-4 border-white/50 backdrop-blur-sm">
                   <video
                     ref={videoRef}
                     src="/mr-imagine/welcome-video.mp4"
@@ -356,24 +356,24 @@ const Home: React.FC = () => {
                   />
                 </div>
 
-                {/* Floating elements */}
-                <div className="absolute top-10 -left-8 w-16 h-16 bg-gradient-to-br from-purple-400 to-purple-500 rounded-2xl shadow-lg shadow-purple-200 flex items-center justify-center animate-float z-10" style={{ animationDelay: '0.5s' }}>
-                  <Sparkles className="w-8 h-8 text-white" />
+                {/* Floating elements - Hidden on mobile */}
+                <div className="hidden sm:flex absolute top-10 -left-8 w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-purple-400 to-purple-500 rounded-xl sm:rounded-2xl shadow-lg shadow-purple-200 items-center justify-center animate-float z-10" style={{ animationDelay: '0.5s' }}>
+                  <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                 </div>
-                <div className="absolute bottom-20 -right-8 w-14 h-14 bg-gradient-to-br from-blue-400 to-blue-500 rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center animate-float z-10" style={{ animationDelay: '1s' }}>
-                  <Palette className="w-6 h-6 text-white" />
+                <div className="hidden sm:flex absolute bottom-20 -right-8 w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-blue-400 to-blue-500 rounded-lg sm:rounded-xl shadow-lg shadow-blue-200 items-center justify-center animate-float z-10" style={{ animationDelay: '1s' }}>
+                  <Palette className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                 </div>
               </div>
             </div>
 
             {/* Right: Content */}
-            <div>
-              <h2 className="font-display text-4xl md:text-5xl text-text mb-6">
+            <div className="order-1 lg:order-2 text-center lg:text-left">
+              <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text mb-4 sm:mb-6">
                 Say Hello to
                 <br />
                 <span className="text-gradient">Mr. Imagine</span>
               </h2>
-              <p className="text-muted text-lg mb-8 leading-relaxed">
+              <p className="text-muted text-sm sm:text-lg mb-6 sm:mb-8 leading-relaxed">
                 Your personal AI design assistant is here to help bring your creative visions to life.
                 Just describe what you want, and Mr. Imagine will generate stunning designs in seconds.
               </p>

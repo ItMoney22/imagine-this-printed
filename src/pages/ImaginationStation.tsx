@@ -1606,33 +1606,33 @@ const ImaginationStation: React.FC = () => {
         </div>
 
         {/* Main content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-6 py-12">
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
           {/* Hero Section with Mr. Imagine */}
-          <div className="text-center mb-16 relative">
+          <div className="text-center mb-8 sm:mb-16 relative">
             {/* Mr. Imagine Hero */}
-            <div className="relative inline-block mb-8">
-              <div className="absolute -inset-8 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 rounded-full blur-2xl opacity-40 animate-pulse"></div>
+            <div className="relative inline-block mb-4 sm:mb-8">
+              <div className="absolute -inset-4 sm:-inset-8 bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500 rounded-full blur-2xl opacity-40 animate-pulse"></div>
               <img
                 src="/mr-imagine/mr-imagine-waving.png"
                 alt="Mr. Imagine"
-                className="relative w-40 h-40 md:w-52 md:h-52 object-contain drop-shadow-2xl animate-bounce"
+                className="relative w-24 h-24 sm:w-40 sm:h-40 md:w-52 md:h-52 object-contain drop-shadow-2xl animate-bounce"
                 style={{ animationDuration: '3s' }}
               />
               {/* Magic sparkles around Mr. Imagine */}
-              <Sparkles className="absolute -top-2 -right-2 w-8 h-8 text-yellow-400 animate-spin" style={{ animationDuration: '4s' }} />
-              <Sparkles className="absolute -bottom-2 -left-2 w-6 h-6 text-cyan-400 animate-spin" style={{ animationDuration: '3s', animationDirection: 'reverse' }} />
+              <Sparkles className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 w-5 h-5 sm:w-8 sm:h-8 text-yellow-400 animate-spin" style={{ animationDuration: '4s' }} />
+              <Sparkles className="absolute -bottom-1 -left-1 sm:-bottom-2 sm:-left-2 w-4 h-4 sm:w-6 sm:h-6 text-cyan-400 animate-spin" style={{ animationDuration: '3s', animationDirection: 'reverse' }} />
             </div>
 
             {/* Title with gradient */}
-            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full text-white/90 text-sm font-medium mb-6 shadow-xl">
-              <Wand2 className="w-4 h-4 text-cyan-400" />
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full text-white/90 text-xs sm:text-sm font-medium mb-4 sm:mb-6 shadow-xl">
+              <Wand2 className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-400" />
               <span className="bg-gradient-to-r from-cyan-400 to-fuchsia-400 bg-clip-text text-transparent font-semibold">
                 AI-Powered Design Studio
               </span>
-              <Sparkles className="w-4 h-4 text-fuchsia-400" />
+              <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-fuchsia-400" />
             </div>
 
-            <h1 className="text-5xl md:text-7xl font-black mb-6 tracking-tight">
+            <h1 className="text-3xl sm:text-5xl md:text-7xl font-black mb-4 sm:mb-6 tracking-tight">
               <span className="bg-gradient-to-r from-white via-cyan-200 to-white bg-clip-text text-transparent drop-shadow-lg">
                 Imagination
               </span>
@@ -1642,20 +1642,20 @@ const ImaginationStation: React.FC = () => {
               </span>
             </h1>
 
-            <p className="text-lg md:text-xl text-white/70 max-w-2xl mx-auto leading-relaxed font-light">
+            <p className="text-sm sm:text-lg md:text-xl text-white/70 max-w-2xl mx-auto leading-relaxed font-light px-4 sm:px-0">
               Create <span className="text-cyan-400 font-medium">professional gang sheets</span> for DTF, UV DTF, and sublimation
-              with <span className="text-fuchsia-400 font-medium">Mr. Imagine's AI magic</span> ✨
+              with <span className="text-fuchsia-400 font-medium">Mr. Imagine's AI magic</span>
             </p>
 
-            {/* Feature pills */}
-            <div className="flex flex-wrap justify-center gap-3 mt-8">
+            {/* Feature pills - Horizontal scroll on mobile */}
+            <div className="flex flex-wrap justify-center gap-2 sm:gap-3 mt-4 sm:mt-8 px-2 sm:px-0">
               {['AI Image Generation', 'Smart Auto-Layout', 'Background Removal', 'HD Upscaling'].map((feature, i) => (
                 <div
                   key={feature}
-                  className="px-4 py-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full text-white/80 text-sm flex items-center gap-2"
+                  className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full text-white/80 text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2"
                   style={{ animationDelay: `${i * 0.1}s` }}
                 >
-                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />
                   {feature}
                 </div>
               ))}
@@ -1663,7 +1663,7 @@ const ImaginationStation: React.FC = () => {
           </div>
 
           {/* Sheet Type Cards - Glassmorphism Style */}
-          {presets && <div className="grid md:grid-cols-3 gap-6 mb-16">
+          {presets && <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-16">
             {(Object.entries(presets) as [PrintType, any][]).map(([type, preset], index) => {
               const gradients = {
                 dtf: 'from-violet-500 to-purple-600',
@@ -1684,19 +1684,19 @@ const ImaginationStation: React.FC = () => {
               return (
                 <div
                   key={type}
-                  className={`relative group bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 transition-all duration-500 hover:bg-white/10 hover:border-white/20 hover:shadow-2xl hover:-translate-y-2 ${glows[type as keyof typeof glows]}`}
+                  className={`relative group bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 transition-all duration-500 hover:bg-white/10 hover:border-white/20 hover:shadow-2xl hover:-translate-y-2 ${glows[type as keyof typeof glows]}`}
                   style={{ animationDelay: `${index * 0.15}s` }}
                 >
                   {/* Glow effect on hover */}
-                  <div className={`absolute -inset-px bg-gradient-to-r ${gradients[type as keyof typeof gradients]} rounded-3xl opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500`}></div>
+                  <div className={`absolute -inset-px bg-gradient-to-r ${gradients[type as keyof typeof gradients]} rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500`}></div>
 
                   <div className="relative">
                     {/* Icon with gradient background */}
-                    <div className={`w-16 h-16 bg-gradient-to-br ${iconBgs[type as keyof typeof iconBgs]} rounded-2xl flex items-center justify-center text-3xl mb-5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                    <div className={`w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br ${iconBgs[type as keyof typeof iconBgs]} rounded-xl sm:rounded-2xl flex items-center justify-center text-2xl sm:text-3xl mb-3 sm:mb-5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
                       {preset.icon}
                     </div>
 
-                    <h3 className="text-2xl font-bold text-white mb-2 group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-white/80 group-hover:bg-clip-text transition-all">
+                    <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2 group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-white/80 group-hover:bg-clip-text transition-all">
                       {preset.name}
                     </h3>
                     <p className="text-white/60 text-sm mb-2">{preset.description}</p>
@@ -1906,21 +1906,21 @@ const ImaginationStation: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col bg-[#F5F5F5] overflow-hidden">
-      {/* Top Bar */}
-      <header className="h-12 bg-white border-b border-stone-200 flex items-center justify-between px-3 shrink-0 shadow-sm">
-        <div className="flex items-center gap-3">
+      {/* Top Bar - Mobile Responsive */}
+      <header className="h-12 sm:h-12 bg-white border-b border-stone-200 flex items-center justify-between px-2 sm:px-3 shrink-0 shadow-sm">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           {/* Logo / Home */}
           <Link
             to="/"
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             title="Back to Home"
           >
-            <img src="/itp-logo-v3.png" alt="ITP" className="h-7 w-auto" />
+            <img src="/itp-logo-v3.png" alt="ITP" className="h-6 sm:h-7 w-auto" />
           </Link>
-          <div className="w-px h-5 bg-stone-200"></div>
+          <div className="hidden sm:block w-px h-5 bg-stone-200"></div>
 
-          {/* Quick Nav */}
-          <div className="flex items-center gap-1">
+          {/* Quick Nav - Hidden on mobile */}
+          <div className="hidden sm:flex items-center gap-1">
             <Link
               to="/catalog"
               className="p-1.5 text-stone-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -1936,109 +1936,134 @@ const ImaginationStation: React.FC = () => {
               <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
             </Link>
           </div>
-          <div className="w-px h-5 bg-stone-200"></div>
+          <div className="hidden sm:block w-px h-5 bg-stone-200"></div>
 
-          {/* Sheet Info */}
-          <div className="flex items-center gap-2">
-            <span className={`text-lg`}>{preset?.icon}</span>
+          {/* Sheet Info - Truncated on mobile */}
+          <div className="flex items-center gap-1 sm:gap-2">
+            <span className="text-base sm:text-lg">{preset?.icon}</span>
             <input
               type="text"
               value={sheet.name}
               onChange={(e) => setSheet({ ...sheet, name: e.target.value })}
-              className="bg-transparent text-stone-800 font-medium text-sm border-none focus:outline-none focus:ring-0 max-w-[200px]"
+              className="bg-transparent text-stone-800 font-medium text-xs sm:text-sm border-none focus:outline-none focus:ring-0 max-w-[80px] sm:max-w-[200px]"
             />
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* Mobile: Toggle Left Panel */}
+          <button
+            onClick={() => setLeftSidebarVisible(!leftSidebarVisible)}
+            className="md:hidden p-1.5 rounded-lg transition-colors text-stone-500 hover:text-purple-600 hover:bg-purple-50"
+            title="Tools Panel"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+
           {/* Undo/Redo Buttons */}
-          <div className="flex items-center gap-1 bg-stone-100 rounded-lg p-1">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-stone-100 rounded-lg p-0.5 sm:p-1">
             <button
               onClick={handleUndo}
               disabled={historyIndex <= 0}
-              className="p-1.5 rounded-md hover:bg-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1 sm:p-1.5 rounded-md hover:bg-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Undo (Ctrl+Z)"
             >
-              <Undo2 className="w-4 h-4 text-stone-600" />
+              <Undo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-stone-600" />
             </button>
             <button
               onClick={handleRedo}
               disabled={historyIndex >= layerHistory.length - 1}
-              className="p-1.5 rounded-md hover:bg-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1 sm:p-1.5 rounded-md hover:bg-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Redo (Ctrl+Shift+Z)"
             >
-              <Redo2 className="w-4 h-4 text-stone-600" />
+              <Redo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-stone-600" />
             </button>
           </div>
-          <div className="w-px h-5 bg-stone-200"></div>
+          <div className="hidden sm:block w-px h-5 bg-stone-200"></div>
 
           {/* Save Status + Button */}
-          <div className="flex items-center gap-1.5">
-            {saveStatus === 'saved' && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
-            {saveStatus === 'saving' && <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
-            {saveStatus === 'unsaved' && <Clock className="w-3.5 h-3.5 text-amber-500" />}
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            {saveStatus === 'saved' && <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" />}
+            {saveStatus === 'saving' && <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500 animate-spin" />}
+            {saveStatus === 'unsaved' && <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />}
             <button
               onClick={saveSheet}
               disabled={saveStatus === 'saved'}
-              className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              className="px-2 sm:px-3 py-1 sm:py-1.5 bg-purple-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
             >
-              <Save className="w-3.5 h-3.5" />
-              Save
+              <Save className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+              <span className="hidden sm:inline">Save</span>
             </button>
           </div>
 
+          {/* Projects button - Hidden on mobile */}
           <button
             onClick={() => setShowProjectsModal(true)}
-            className="px-3 py-1.5 bg-white text-stone-700 border border-stone-200 rounded-lg text-sm font-medium hover:bg-stone-50 transition-colors flex items-center gap-1.5"
+            className="hidden sm:flex px-3 py-1.5 bg-white text-stone-700 border border-stone-200 rounded-lg text-sm font-medium hover:bg-stone-50 transition-colors items-center gap-1.5"
             title="My Projects"
           >
             <Layers className="w-3.5 h-3.5" />
             Projects
           </button>
 
-          {/* ITC Balance */}
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-50 rounded-lg border border-purple-100">
+          {/* ITC Balance - Compact on mobile */}
+          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-purple-50 rounded-lg border border-purple-100">
             <img src="/itc-coin.png" alt="ITC" className="w-3.5 h-3.5 object-contain" />
             <span className="font-bold text-purple-700 text-sm">{itcBalance}</span>
             <span className="text-purple-500 text-xs">ITC</span>
           </div>
 
-          {/* Profile */}
+          {/* Profile - Hidden on mobile */}
           <Link
             to="/account/profile"
-            className="w-7 h-7 flex items-center justify-center text-stone-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+            className="hidden sm:flex w-7 h-7 items-center justify-center text-stone-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
             title="Profile"
           >
             <User className="w-4 h-4" />
           </Link>
 
+          {/* Mobile: Toggle Right Panel */}
+          <button
+            onClick={() => setRightSidebarVisible(!rightSidebarVisible)}
+            className="md:hidden p-1.5 rounded-lg transition-colors text-stone-500 hover:text-purple-600 hover:bg-purple-50"
+            title="Layers Panel"
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
+
           {/* Export Settings */}
           <button
             onClick={() => setActivePanel('export')}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${activePanel === 'export'
+            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg transition-colors ${activePanel === 'export'
               ? 'text-purple-600 bg-purple-100'
               : 'text-stone-500 hover:text-purple-600 hover:bg-purple-50'
               }`}
             title="Export & Settings"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Tools */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Left Sidebar - Tools - Overlay on mobile */}
         {leftSidebarVisible && (
-          <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0 relative">
-            {/* Hide button */}
-            <button
+          <>
+            {/* Mobile backdrop */}
+            <div
+              className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setLeftSidebarVisible(false)}
-              className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
-              title="Hide panel"
-            >
-              <PanelLeft className="w-4 h-4" />
-            </button>
+            />
+            <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0 absolute md:relative z-40 h-full md:h-auto shadow-xl md:shadow-none">
+              {/* Hide button */}
+              <button
+                onClick={() => setLeftSidebarVisible(false)}
+                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
+                title="Hide panel"
+              >
+                <PanelLeft className="w-4 h-4" />
+              </button>
             {/* Sheet Configuration (Admins Only) */}
             {presets && presets[sheet.print_type as PrintType] && user?.role === 'admin' && (
               <div className="p-4 border-b border-stone-100">
@@ -2253,13 +2278,14 @@ const ImaginationStation: React.FC = () => {
               )}
             </div>
           </aside>
+          </>
         )}
 
-        {/* Show Left Sidebar Button */}
+        {/* Show Left Sidebar Button - Hidden on mobile (use header toggle) */}
         {!leftSidebarVisible && (
           <button
             onClick={() => setLeftSidebarVisible(true)}
-            className="w-8 bg-white border-r border-stone-200 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
+            className="hidden md:flex w-8 bg-white border-r border-stone-200 items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
             title="Show left panel"
           >
             <PanelRight className="w-4 h-4" />
@@ -2341,11 +2367,11 @@ const ImaginationStation: React.FC = () => {
         </div>
 
         {/* Right Sidebar - Context Panel */}
-        {/* Show Right Sidebar Button */}
+        {/* Show Right Sidebar Button - Hidden on mobile (use header toggle) */}
         {!rightSidebarVisible && (
           <button
             onClick={() => setRightSidebarVisible(true)}
-            className="w-8 bg-white border-l border-stone-200 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
+            className="hidden md:flex w-8 bg-white border-l border-stone-200 items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
             title="Show right panel"
           >
             <PanelLeft className="w-4 h-4" />
@@ -2353,15 +2379,21 @@ const ImaginationStation: React.FC = () => {
         )}
 
         {rightSidebarVisible && (
-          <aside className="w-80 bg-white border-l border-stone-200 flex flex-col shrink-0 relative">
-            {/* Hide button */}
-            <button
+          <>
+            {/* Mobile backdrop */}
+            <div
+              className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setRightSidebarVisible(false)}
-              className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
-              title="Hide panel"
-            >
-              <PanelRight className="w-4 h-4" />
-            </button>
+            />
+            <aside className="w-72 sm:w-80 bg-white border-l border-stone-200 flex flex-col shrink-0 absolute md:relative right-0 z-40 h-full md:h-auto shadow-xl md:shadow-none">
+              {/* Hide button */}
+              <button
+                onClick={() => setRightSidebarVisible(false)}
+                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-stone-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors z-10"
+                title="Hide panel"
+              >
+                <PanelRight className="w-4 h-4" />
+              </button>
             {/* Panel Header */}
             <div className="p-4 border-b border-stone-100">
               <div className="flex gap-1 bg-stone-100 p-1 rounded-lg">
@@ -3145,6 +3177,7 @@ const ImaginationStation: React.FC = () => {
               )}
             </div>
           </aside>
+          </>
         )}
       </div>
 
