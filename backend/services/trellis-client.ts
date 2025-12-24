@@ -1,10 +1,10 @@
 /**
  * 3D Model Generation Client Service
  *
- * Uses Hunyuan3D-2mv on Replicate for multi-view image to 3D model generation.
- * This model accepts front, back, left, and right view images for better quality.
+ * Uses firtoz/trellis on Replicate for multi-view image to 3D model generation.
+ * This model accepts an array of images for multi-view 3D generation.
  *
- * Alternative: firtoz/trellis for single-image generation (faster but lower quality)
+ * For single-image generation, use tencent/hunyuan3d-2 (faster but single view only)
  */
 
 import Replicate from 'replicate'
@@ -13,16 +13,16 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN
 })
 
-// Hunyuan3D-2mv - multi-view 3D generation (better quality with multiple angles)
-const MULTIVIEW_MODEL = 'tencent/hunyuan3d-2mv' as const
+// TRELLIS - multi-view 3D generation (supports images array)
+const TRELLIS_MODEL = 'firtoz/trellis' as const
 
-// TRELLIS - single image 3D generation (fallback, faster)
-const SINGLE_IMAGE_MODEL = 'firtoz/trellis' as const
+// Hunyuan3D-2 - single image 3D generation (higher quality but single view)
+const HUNYUAN_MODEL = 'tencent/hunyuan3d-2' as const
 
 export interface TrellisInput {
   images: string[] // Array of image URLs [front, back, left, right]
   meshFormat?: 'glb' | 'obj' | 'ply' | 'stl'
-  textureResolution?: number // 256, 512 (octree_resolution)
+  textureResolution?: number // 512-2048 (texture_size)
   seed?: number
 }
 
@@ -33,68 +33,53 @@ export interface TrellisOutput {
 }
 
 /**
- * Generate a 3D model from multi-view images using Hunyuan3D-2mv
+ * Generate a 3D model from multi-view images using TRELLIS
  *
  * @param input - Input configuration with image URLs [front, back, left, right]
  * @returns GLB URL and processing metadata
  */
 export async function generate3DModel(input: TrellisInput): Promise<TrellisOutput> {
-  const { images, meshFormat = 'glb', textureResolution = 512, seed } = input
+  const { images, textureResolution = 1024, seed } = input
 
-  // Map images to views: [front, back, left, right]
-  const [frontImage, backImage, leftImage, rightImage] = images
+  // Filter out undefined/null images
+  const validImages = images.filter(img => img && typeof img === 'string')
 
-  // Hunyuan3D-2mv supports octree_resolution of 256, 384, or 512
-  // Clamp to nearest valid value
-  const validResolutions = [256, 384, 512]
-  const octreeResolution = validResolutions.reduce((prev, curr) =>
-    Math.abs(curr - textureResolution) < Math.abs(prev - textureResolution) ? curr : prev
-  )
-
-  console.log('[3d-gen] Starting multi-view 3D generation via Hunyuan3D-2mv:', {
-    imageCount: images.length,
-    hasFront: !!frontImage,
-    hasBack: !!backImage,
-    hasLeft: !!leftImage,
-    hasRight: !!rightImage,
-    meshFormat,
-    requestedResolution: textureResolution,
-    octreeResolution,
+  console.log('[3d-gen] Starting multi-view 3D generation via TRELLIS:', {
+    imageCount: validImages.length,
+    images: validImages.map(img => img.substring(0, 60) + '...'),
+    textureResolution,
     seed: seed || 'random'
   })
 
   const startTime = Date.now()
 
   try {
-    console.log('[3d-gen] Creating Replicate prediction with Hunyuan3D-2mv...')
+    console.log('[3d-gen] Creating Replicate prediction with TRELLIS...')
 
-    // Build input with available views
+    // TRELLIS accepts an images array for multi-view generation
     const modelInput: Record<string, any> = {
-      front_image: frontImage,
-      steps: 30,
-      guidance_scale: 5,
+      images: validImages,
       seed: seed ?? Math.floor(Math.random() * 2147483647),
       randomize_seed: seed === undefined,
-      file_type: meshFormat,
-      octree_resolution: octreeResolution,
-      remove_background: false, // Our images already have clean backgrounds
-      target_face_num: 10000
+      texture_size: textureResolution,
+      mesh_simplify: 0.95,
+      generate_color: true,
+      generate_model: true, // Required to get GLB output
+      generate_normal: false,
+      ss_sampling_steps: 12,
+      slat_sampling_steps: 12,
+      ss_guidance_strength: 7.5,
+      slat_guidance_strength: 3
     }
 
-    // Add optional views if available
-    if (backImage) modelInput.back_image = backImage
-    if (leftImage) modelInput.left_image = leftImage
-    if (rightImage) modelInput.right_image = rightImage
-
-    console.log('[3d-gen] Input views:', {
-      front: frontImage?.substring(0, 60) + '...',
-      back: backImage ? backImage.substring(0, 60) + '...' : 'not provided',
-      left: leftImage ? leftImage.substring(0, 60) + '...' : 'not provided',
-      right: rightImage ? rightImage.substring(0, 60) + '...' : 'not provided'
+    console.log('[3d-gen] TRELLIS input:', {
+      imageCount: validImages.length,
+      texture_size: textureResolution,
+      generate_model: true
     })
 
     let prediction = await replicate.predictions.create({
-      model: MULTIVIEW_MODEL,
+      model: TRELLIS_MODEL,
       input: modelInput
     })
 
@@ -121,11 +106,11 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
 
     let glbUrl = ''
 
-    // Hunyuan3D-2mv output format - typically returns the mesh file URL directly
-    if (typeof output === 'string') {
+    // TRELLIS output format - model_file contains the GLB URL
+    if (output?.model_file) {
+      glbUrl = output.model_file
+    } else if (typeof output === 'string' && output.includes('.glb')) {
       glbUrl = output
-    } else if (output?.mesh || output?.model || output?.glb) {
-      glbUrl = output.mesh || output.model || output.glb
     } else if (Array.isArray(output)) {
       // Find the mesh file in the array
       const meshFile = output.find((item: any) =>
@@ -180,18 +165,23 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
 }
 
 /**
- * Generate 3D model from a single image using TRELLIS (faster, single-view)
+ * Generate 3D model from a single image using Hunyuan3D-2 (higher quality single-view)
  */
 export async function generate3DFromSingleImage(
   imageUrl: string,
   options?: Omit<TrellisInput, 'images'>
 ): Promise<TrellisOutput> {
-  const { meshFormat = 'glb', textureResolution = 1024, seed } = options || {}
+  const { textureResolution = 512, seed } = options || {}
 
-  console.log('[3d-gen] Starting single-image 3D generation via TRELLIS:', {
+  // Hunyuan3D-2 supports octree_resolution of 256, 384, or 512
+  const validResolutions = [256, 384, 512]
+  const octreeResolution = validResolutions.reduce((prev, curr) =>
+    Math.abs(curr - textureResolution) < Math.abs(prev - textureResolution) ? curr : prev
+  )
+
+  console.log('[3d-gen] Starting single-image 3D generation via Hunyuan3D-2:', {
     imageUrl: imageUrl.substring(0, 80) + '...',
-    meshFormat,
-    textureResolution,
+    octreeResolution,
     seed: seed || 'random'
   })
 
@@ -199,47 +189,45 @@ export async function generate3DFromSingleImage(
 
   try {
     let prediction = await replicate.predictions.create({
-      model: SINGLE_IMAGE_MODEL,
+      model: HUNYUAN_MODEL,
       input: {
         image: imageUrl,
-        seed: seed ?? Math.floor(Math.random() * 2147483647),
-        texture_size: textureResolution,
-        mesh_simplify: 0.95,
-        generate_color: true,
-        generate_model: true,
-        randomize_seed: seed === undefined,
-        generate_normal: true,
-        ss_sampling_steps: 12,
-        slat_sampling_steps: 12,
-        ss_guidance_strength: 7.5,
-        slat_guidance_strength: 3
+        steps: 50,
+        guidance_scale: 5.5,
+        seed: seed ?? 1234,
+        octree_resolution: octreeResolution,
+        remove_background: true
       }
     })
 
-    console.log('[3d-gen] TRELLIS prediction created:', prediction.id)
+    console.log('[3d-gen] Hunyuan3D-2 prediction created:', prediction.id)
     prediction = await replicate.wait(prediction)
 
     const processingTime = (Date.now() - startTime) / 1000
-    console.log('[3d-gen] TRELLIS completed in', processingTime.toFixed(2), 'seconds')
+    console.log('[3d-gen] Hunyuan3D-2 completed in', processingTime.toFixed(2), 'seconds')
 
     if (prediction.status === 'failed') {
-      throw new Error(`TRELLIS failed: ${prediction.error || 'Unknown error'}`)
+      throw new Error(`Hunyuan3D-2 failed: ${prediction.error || 'Unknown error'}`)
     }
 
     const output = prediction.output as any
-    let glbUrl = output?.model_file || ''
+    console.log('[3d-gen] Hunyuan3D-2 output:', JSON.stringify(output).substring(0, 300))
 
-    if (!glbUrl && typeof output === 'string' && output.includes('.glb')) {
+    // Hunyuan3D-2 returns the mesh URL directly or in output.mesh
+    let glbUrl = ''
+    if (typeof output === 'string') {
       glbUrl = output
+    } else if (output?.mesh) {
+      glbUrl = output.mesh
     }
 
     if (!glbUrl) {
-      throw new Error('No GLB URL in TRELLIS response')
+      throw new Error('No GLB URL in Hunyuan3D-2 response')
     }
 
     return { glbUrl, processingTime, raw: output }
   } catch (error: any) {
-    throw new Error(`TRELLIS 3D generation failed: ${error.message}`)
+    throw new Error(`Hunyuan3D-2 3D generation failed: ${error.message}`)
   }
 }
 
@@ -248,8 +236,8 @@ export async function generate3DFromSingleImage(
  */
 export async function checkTrellisHealth(): Promise<boolean> {
   try {
-    const model = await replicate.models.get('tencent', 'hunyuan3d-2mv')
-    console.log('[3d-gen] Health check passed - Hunyuan3D-2mv available:', model.name)
+    const model = await replicate.models.get('firtoz', 'trellis')
+    console.log('[3d-gen] Health check passed - TRELLIS available:', model.name)
     return true
   } catch (error: any) {
     console.error('[3d-gen] Health check failed:', error.message)

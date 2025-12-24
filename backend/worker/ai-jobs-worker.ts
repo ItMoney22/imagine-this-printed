@@ -1379,11 +1379,11 @@ async function process3DModelTrellis(job: any) {
       angle_images.right
     ]
 
-    // Call Hunyuan3D-2mv for multi-view 3D generation
+    // Call TRELLIS for multi-view 3D generation
     const { glbUrl, processingTime } = await generate3DModel({
       images,
       meshFormat: 'glb',
-      textureResolution: 512 // Hunyuan3D-2mv supports 256, 384, 512
+      textureResolution: 1024 // TRELLIS supports 512-2048
     })
 
     console.log('[worker] ✅ TRELLIS GLB generated in', processingTime.toFixed(2), 'seconds')
