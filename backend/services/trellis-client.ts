@@ -57,9 +57,13 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
   try {
     console.log('[3d-gen] Creating Replicate prediction with TRELLIS...')
 
-    // TRELLIS accepts an images array for multi-view generation
+    // Use only the first (front/concept) image for cleaner 3D generation
+    // Multi-view can cause inconsistency issues with TRELLIS
+    const primaryImage = validImages[0]
+
+    // TRELLIS with higher sampling steps for better quality
     const modelInput: Record<string, any> = {
-      images: validImages,
+      images: [primaryImage], // Single image produces cleaner results
       seed: seed ?? Math.floor(Math.random() * 2147483647),
       randomize_seed: seed === undefined,
       texture_size: textureResolution,
@@ -67,16 +71,18 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
       generate_color: true,
       generate_model: true, // Required to get GLB output
       generate_normal: false,
-      ss_sampling_steps: 12,
-      slat_sampling_steps: 12,
+      ss_sampling_steps: 20, // Increased from 12 for better quality
+      slat_sampling_steps: 20, // Increased from 12 for better quality
       ss_guidance_strength: 7.5,
       slat_guidance_strength: 3
     }
 
     console.log('[3d-gen] TRELLIS input:', {
-      imageCount: validImages.length,
+      imageCount: 1,
+      primaryImage: primaryImage.substring(0, 60) + '...',
       texture_size: textureResolution,
-      generate_model: true
+      ss_sampling_steps: 20,
+      slat_sampling_steps: 20
     })
 
     let prediction = await replicate.predictions.create({
