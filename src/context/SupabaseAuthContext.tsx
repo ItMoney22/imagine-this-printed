@@ -45,6 +45,43 @@ export const useAuth = () => {
   return context
 }
 
+// Helper function to perform profile fetch with retry
+const fetchProfileWithRetry = async (userId: string, maxRetries = 3): Promise<{ data: any; error: any }> => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await Promise.race([
+        supabase
+          .from('user_profiles')
+          .select('id, email, role, username, display_name, first_name, last_name, email_verified')
+          .eq('id', userId)
+          .single(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Profile timeout')), 15000)
+        )
+      ])
+
+      // If we got data or a definitive error (not timeout), return it
+      if (result.data || (result.error && result.error.code !== 'PGRST116')) {
+        return result
+      }
+
+      // Profile not found yet (might be a race condition with trigger)
+      if (attempt < maxRetries) {
+        console.log(`[AuthContext] ⏳ Profile not found, retry ${attempt}/${maxRetries} in 1s...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    } catch (error: any) {
+      if (attempt < maxRetries) {
+        console.log(`[AuthContext] ⏳ Attempt ${attempt} failed: ${error.message}, retrying...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      } else {
+        return { data: null, error }
+      }
+    }
+  }
+  return { data: null, error: new Error('Max retries reached') }
+}
+
 // Fast profile fetch with caching - eliminates redundant queries
 const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null> => {
   const userId = supabaseUser.id
@@ -65,18 +102,9 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
   try {
     console.log('[AuthContext] 🔍 Fetching profile for:', userId)
 
-    // Optimized query - only fetch needed columns, 5s timeout
+    // Use retry logic for more resilient profile fetching
     const startTime = Date.now()
-    const { data: profile, error } = await Promise.race([
-      supabase
-        .from('user_profiles')
-        .select('id, email, role, username, display_name, first_name, last_name, email_verified')
-        .eq('id', userId)
-        .single(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Profile timeout')), 5000)
-      )
-    ])
+    const { data: profile, error } = await fetchProfileWithRetry(userId)
     const elapsed = Date.now() - startTime
     console.log(`[AuthContext] 📊 Profile query took ${elapsed}ms`)
 
