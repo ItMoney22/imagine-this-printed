@@ -49,7 +49,7 @@ function checkRateLimit(userId: string): boolean {
 // POST /api/stripe/checkout-payment-intent - Create or update payment intent for product checkout
 router.post('/checkout-payment-intent', async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, discount, userId, shippingCost, tax, existingPaymentIntentId, existingOrderId } = req.body
+    const { amount, currency, items, shipping, couponCode, discount, userId, shippingCost, tax, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId } = req.body
 
     // Validate amount (in cents)
     if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents
@@ -164,7 +164,9 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
             price: i.product?.price,
             quantity: i.quantity,
             image: i.product?.images?.[0]
-          }))
+          })),
+          itc_credit_amount: itcCreditAmount || 0,
+          itc_credit_usd: itcCreditUSD || 0
         }
       })
       .select()
@@ -209,6 +211,7 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
       metadata: {
         orderId: order.id,
         orderNumber: orderNumber,
+        userId: userId || '',
         items: JSON.stringify(items?.map((i: any) => ({
           id: i.product?.id,
           name: i.product?.name,
@@ -219,7 +222,9 @@ router.post('/checkout-payment-intent', async (req: Request, res: Response): Pro
         shippingCost: shippingCost?.toString() || '0',
         shippingCity: shipping?.city || '',
         shippingState: shipping?.state || '',
-        shippingCountry: shipping?.country || 'US'
+        shippingCountry: shipping?.country || 'US',
+        itcCreditAmount: itcCreditAmount?.toString() || '0',
+        itcCreditUSD: itcCreditUSD?.toString() || '0'
       },
       // Note: We don't set receipt_email - we send our own branded Mr. Imagine emails via Brevo
       automatic_payment_methods: {
@@ -455,7 +460,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent, req: Re
 
 // Handle checkout order payment (from checkout page)
 async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, req: Request) {
-  const { orderId, orderNumber } = paymentIntent.metadata
+  const { orderId, orderNumber, userId, itcCreditAmount, itcCreditUSD } = paymentIntent.metadata
 
   if (!orderId) {
     req.log?.error({ metadata: paymentIntent.metadata }, 'Missing orderId in checkout order metadata')
@@ -465,8 +470,65 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   req.log?.info({
     orderId,
     orderNumber,
-    amount: paymentIntent.amount
+    amount: paymentIntent.amount,
+    itcCreditAmount,
+    itcCreditUSD
   }, 'Processing checkout order payment')
+
+  // Process ITC credit deduction if applicable
+  const itcAmount = parseFloat(itcCreditAmount || '0')
+  if (itcAmount > 0 && userId) {
+    try {
+      // Get current wallet balance
+      const { data: wallet, error: walletError } = await supabase
+        .from('user_wallets')
+        .select('itc_balance')
+        .eq('user_id', userId)
+        .single()
+
+      if (walletError || !wallet) {
+        req.log?.error({ err: walletError, userId }, 'Failed to fetch wallet for ITC deduction')
+      } else {
+        const currentBalance = parseFloat(wallet.itc_balance || '0')
+        const newBalance = Math.max(0, currentBalance - itcAmount)
+
+        // Deduct ITC from wallet
+        const { error: updateError } = await supabase
+          .from('user_wallets')
+          .update({
+            itc_balance: newBalance,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId)
+
+        if (updateError) {
+          req.log?.error({ err: updateError, userId }, 'Failed to deduct ITC from wallet')
+        } else {
+          // Record the transaction
+          await supabase
+            .from('itc_transactions')
+            .insert({
+              user_id: userId,
+              amount: -itcAmount, // Negative for deduction
+              reason: `Store credit applied to order ${orderNumber}`,
+              reference: orderId,
+              usd_value: parseFloat(itcCreditUSD || '0'),
+              created_at: new Date().toISOString()
+            })
+
+          req.log?.info({
+            userId,
+            itcDeducted: itcAmount,
+            newBalance,
+            orderId
+          }, 'ITC store credit deducted successfully')
+        }
+      }
+    } catch (itcError: any) {
+      req.log?.error({ err: itcError, userId, itcAmount }, 'Error processing ITC credit deduction')
+      // Don't throw - order payment succeeded, ITC issue is secondary
+    }
+  }
 
   // Update order status to paid/processing
   const { error: orderUpdateError } = await supabase

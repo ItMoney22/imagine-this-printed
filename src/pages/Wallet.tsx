@@ -396,9 +396,9 @@ const Wallet: React.FC = () => {
             <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 p-6">
               <h3 className="text-lg font-display font-bold text-slate-900 mb-3">What is ITC?</h3>
               <p className="text-slate-600 mb-4">
-                ITC (Imagine This Coin) is the currency of ImagineThisPrinted. Use it to:
+                ITC (Imagine This Coin) is your store credit at ImagineThisPrinted. Think of it like a gift card balance that you can use across the site! 1 ITC = $0.01 USD
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white rounded-xl p-4 border border-purple-100">
                   <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
                     <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -406,7 +406,7 @@ const Wallet: React.FC = () => {
                     </svg>
                   </div>
                   <h4 className="font-semibold text-slate-900 mb-1">AI Design Generation</h4>
-                  <p className="text-sm text-slate-500">Create unique designs with AI</p>
+                  <p className="text-sm text-slate-500">Use ITC to generate unique designs with our AI-powered design tools like Mr. Imagine and the Imagination Station</p>
                 </div>
                 <div className="bg-white rounded-xl p-4 border border-purple-100">
                   <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
@@ -414,18 +414,14 @@ const Wallet: React.FC = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
                   </div>
-                  <h4 className="font-semibold text-slate-900 mb-1">Store Credit</h4>
-                  <p className="text-sm text-slate-500">Apply to purchases</p>
+                  <h4 className="font-semibold text-slate-900 mb-1">Pay for Products</h4>
+                  <p className="text-sm text-slate-500">Apply your ITC balance at checkout to reduce or fully cover the cost of your custom printed products</p>
                 </div>
-                <div className="bg-white rounded-xl p-4 border border-purple-100">
-                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center mb-3">
-                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  </div>
-                  <h4 className="font-semibold text-slate-900 mb-1">Cash Out</h4>
-                  <p className="text-sm text-slate-500">Convert to real money</p>
-                </div>
+              </div>
+              <div className="mt-4 p-3 bg-white/50 rounded-lg border border-purple-100/50">
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-purple-600">How to get ITC:</span> Purchase ITC packages below, redeem gift cards, or earn ITC through referrals and promotions!
+                </p>
               </div>
             </div>
 

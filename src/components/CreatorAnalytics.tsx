@@ -306,7 +306,7 @@ export const CreatorAnalytics = () => {
             <h3 className="font-semibold text-gray-800">Earn 10% on Every Sale</h3>
             <p className="text-sm text-gray-600 mt-1">
               Every time someone purchases a product with your design, you automatically earn 10% of the sale in ITC credits.
-              Cash out anytime once you reach $50!
+              Use your ITC to pay for products or generate more AI designs!
             </p>
           </div>
         </div>

@@ -52,7 +52,7 @@ export function Create3DModelForm({
 
   // Load pricing on mount
   useState(() => {
-    api.get('/3d-models/pricing')
+    api.get('/api/3d-models/pricing')
       .then(res => {
         if (res.data?.costs) {
           setPricing(res.data.costs)
@@ -80,7 +80,7 @@ export function Create3DModelForm({
     setError(null)
 
     try {
-      const response = await api.post('/3d-models/create', {
+      const response = await api.post('/api/3d-models/create', {
         prompt: prompt.trim(),
         style
       })

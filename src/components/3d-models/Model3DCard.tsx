@@ -90,7 +90,7 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
   const handleApprove = async () => {
     setIsApproving(true)
     try {
-      await api.post(`/3d-models/${model.id}/approve`)
+      await api.post(`/api/3d-models/${model.id}/approve`)
       onRefresh()
     } catch (err) {
       console.error('Failed to approve:', err)
@@ -102,7 +102,7 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
   const handleGenerate3D = async () => {
     setIsGenerating3D(true)
     try {
-      await api.post(`/3d-models/${model.id}/generate-3d`)
+      await api.post(`/api/3d-models/${model.id}/generate-3d`)
       onRefresh()
     } catch (err) {
       console.error('Failed to start 3D generation:', err)
@@ -115,7 +115,7 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
     if (!confirm('Delete this 3D model? This cannot be undone.')) return
     setIsDeleting(true)
     try {
-      await api.delete(`/3d-models/${model.id}`)
+      await api.delete(`/api/3d-models/${model.id}`)
       onRefresh()
     } catch (err) {
       console.error('Failed to delete:', err)

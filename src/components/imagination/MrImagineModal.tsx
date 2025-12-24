@@ -43,7 +43,7 @@ const DTF_STYLES = [
     key: 'realistic',
     label: 'Realistic',
     description: 'Photorealistic details and textures',
-    prompt_suffix: 'photorealistic, high detail, professional quality'
+    prompt_suffix: 'HYPER-REALISTIC photographic style, real photography quality, dramatic studio lighting, sharp ultra-detailed textures, professional 3D render quality, lifelike realistic depth and shadows, NOT cartoon NOT illustrated NOT flat'
   },
   {
     key: 'cartoon',

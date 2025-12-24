@@ -80,7 +80,7 @@ export function Model3DDetailModal({
   const handleApprove = async () => {
     setIsApproving(true)
     try {
-      await api.post(`/3d-models/${model.id}/approve`)
+      await api.post(`/api/3d-models/${model.id}/approve`)
       onRefresh()
     } catch (err) {
       console.error('Failed to approve:', err)
@@ -92,7 +92,7 @@ export function Model3DDetailModal({
   const handleGenerate3D = async () => {
     setIsGenerating3D(true)
     try {
-      await api.post(`/3d-models/${model.id}/generate-3d`)
+      await api.post(`/api/3d-models/${model.id}/generate-3d`)
       onRefresh()
     } catch (err) {
       console.error('Failed to start 3D generation:', err)
@@ -104,7 +104,7 @@ export function Model3DDetailModal({
   const handleOrder = async () => {
     setIsOrdering(true)
     try {
-      const response = await api.post(`/3d-models/${model.id}/order`, {
+      const response = await api.post(`/api/3d-models/${model.id}/order`, {
         material: selectedMaterial,
         color: selectedColor,
         size: selectedSize
@@ -127,7 +127,7 @@ export function Model3DDetailModal({
 
   const handleDownload = async (format: 'glb' | 'stl') => {
     try {
-      const response = await api.get(`/3d-models/${model.id}/download/${format}`)
+      const response = await api.get(`/api/3d-models/${model.id}/download/${format}`)
       if (response.data?.downloadUrl) {
         window.open(response.data.downloadUrl, '_blank')
       }

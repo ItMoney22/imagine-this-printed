@@ -155,7 +155,7 @@ export default function UserDesignDashboard() {
   const fetch3DModels = useCallback(async () => {
     setLoading3D(true)
     try {
-      const response = await api.get('/3d-models/list')
+      const response = await api.get('/api/3d-models/list')
       if (response.data?.models) {
         setModels3D(response.data.models)
       }

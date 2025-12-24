@@ -55,7 +55,9 @@
       "WebFetch(domain:replicate.com)",
       "WebFetch(domain:ai.google.dev)",
       "Bash(timeout:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(cat:*)",
+      "Bash(del \"e:\\\\Projects for MetaSphere\\\\imagine-this-printed\\\\src\\\\types\\\\model-viewer.d.ts\")"
     ],
     "deny": [],
     "ask": []

@@ -153,7 +153,7 @@ const US_STATES = [
 
 const Checkout: React.FC = () => {
   const { state, clearCart, appliedCoupon, discount, finalTotal, applyCoupon, removeCoupon, couponLoading } = useCart()
-  const { user } = useAuth()
+  const { user, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [clientSecret, setClientSecret] = useState('')
   const [paymentIntentId, setPaymentIntentId] = useState('')
@@ -164,6 +164,10 @@ const Checkout: React.FC = () => {
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [couponCode, setCouponCode] = useState('')
   const [couponError, setCouponError] = useState<string | null>(null)
+  // ITC Store Credit state
+  const [itcCreditAmount, setItcCreditAmount] = useState<number>(0)
+  const [applyingITCCredit, setApplyingITCCredit] = useState(false)
+  const [itcCreditError, setItcCreditError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -210,8 +214,14 @@ const Checkout: React.FC = () => {
   const baseShipping = shippingCalculation?.selectedRate?.amount || 0
   const shipping = appliedCoupon?.freeShipping ? 0 : baseShipping
   const tax = usdTotal * 0.08 // Only apply tax to USD items
-  const totalUSD = usdTotal + shipping + tax
+  // ITC credit converts to USD at rate of 1 ITC = $0.01
+  const itcCreditUSD = itcCreditAmount * 0.01
+  const totalUSD = Math.max(0, usdTotal + shipping + tax - itcCreditUSD)
   const totalITC = itcTotal
+
+  // Calculate max ITC that can be applied (user's balance, capped at order total in ITC)
+  const userItcBalance = user?.wallet?.itcBalance || 0
+  const maxItcCredit = Math.min(userItcBalance, Math.floor((usdTotal + shipping + tax) / 0.01))
 
   useEffect(() => {
     if (state.items.length > 0) {
@@ -223,7 +233,7 @@ const Checkout: React.FC = () => {
     if (state.items.length > 0 && shippingCalculation && requiresUSDPayment) {
       createPaymentIntent()
     }
-  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment, discount])
+  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment, discount, itcCreditAmount])
 
   const calculateShipping = async () => {
     if (!formData.address || !formData.city || !formData.state || !formData.zipCode) {
@@ -279,10 +289,15 @@ const Checkout: React.FC = () => {
 
   const createPaymentIntent = async () => {
     try {
+      // totalUSD already has itcCreditUSD deducted
       const discountedTotal = Math.max(0, totalUSD - discount)
       // Stripe minimum is 50 cents
       if (discountedTotal < 0.50) {
         console.log('Order total too low for Stripe payment')
+        // If ITC covers the whole order, we can skip Stripe
+        if (itcCreditAmount > 0 && discountedTotal === 0) {
+          setClientSecret('') // Clear any existing payment intent
+        }
         return
       }
       const data = await apiFetch('/api/stripe/checkout-payment-intent', {
@@ -297,6 +312,8 @@ const Checkout: React.FC = () => {
           userId: user?.id || null,
           shippingCost: shipping,
           tax: tax,
+          itcCreditAmount: itcCreditAmount,
+          itcCreditUSD: itcCreditUSD,
           // Pass existing payment intent ID to update instead of create new
           existingPaymentIntentId: paymentIntentId || undefined,
           existingOrderId: orderId || undefined
@@ -700,6 +717,66 @@ const Checkout: React.FC = () => {
               )}
             </div>
 
+            {/* ITC Store Credit Section */}
+            {user && userItcBalance > 0 && requiresUSDPayment && (
+              <div className="border-t pt-4 mb-4">
+                <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+                  <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
+                  Apply ITC as Store Credit
+                </label>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-purple-700">Your ITC Balance:</span>
+                    <span className="font-semibold text-purple-700">{userItcBalance.toFixed(2)} ITC</span>
+                  </div>
+                  <p className="text-xs text-purple-600 mt-1">1 ITC = $0.01 USD</p>
+                </div>
+
+                {itcCreditAmount > 0 ? (
+                  <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2">
+                      <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
+                      <span className="font-medium text-green-700">{itcCreditAmount.toFixed(2)} ITC applied</span>
+                      <span className="text-green-600 text-sm">(-${itcCreditUSD.toFixed(2)})</span>
+                    </div>
+                    <button
+                      onClick={() => setItcCreditAmount(0)}
+                      className="text-green-600 hover:text-green-800"
+                      title="Remove ITC credit"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxItcCredit}
+                        step="1"
+                        placeholder={`Max: ${maxItcCredit.toFixed(0)} ITC`}
+                        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        onChange={(e) => {
+                          const value = Math.min(Math.max(0, parseFloat(e.target.value) || 0), maxItcCredit)
+                          setItcCreditAmount(value)
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => setItcCreditAmount(maxItcCredit)}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700"
+                    >
+                      Use Max
+                    </button>
+                  </div>
+                )}
+                {itcCreditError && (
+                  <p className="text-red-500 text-sm mt-1">{itcCreditError}</p>
+                )}
+              </div>
+            )}
+
             <div className="border-t pt-4 space-y-2">
               {requiresUSDPayment && (
                 <>
@@ -725,13 +802,22 @@ const Checkout: React.FC = () => {
                       <span>-${discount.toFixed(2)}</span>
                     </div>
                   )}
+                  {itcCreditAmount > 0 && (
+                    <div className="flex justify-between text-purple-600">
+                      <span className="flex items-center gap-1">
+                        <img src="/itc-coin.png" alt="ITC" className="w-3 h-3 object-contain" />
+                        ITC Credit ({itcCreditAmount.toFixed(0)} ITC)
+                      </span>
+                      <span>-${itcCreditUSD.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span>Tax</span>
                     <span>${tax.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between font-semibold">
                     <span>USD Total</span>
-                    <span>${(totalUSD - discount).toFixed(2)}</span>
+                    <span>${Math.max(0, totalUSD - discount).toFixed(2)}</span>
                   </div>
                 </>
               )}

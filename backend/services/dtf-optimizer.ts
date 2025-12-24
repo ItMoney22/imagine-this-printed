@@ -380,7 +380,7 @@ export function buildDTFPrompt(
 
 ${styleInstruction}
 
-Generate EXACTLY what was described. If they said "dragon" create a DRAGON. If they said "lion" create a LION. Follow their description precisely.`
+Generate EXACTLY what the user described above. Follow their description precisely without adding or changing elements.`
 
   // Output format - keep it simple
   const outputFormat = `OUTPUT: Isolated artwork on TRANSPARENT background. No t-shirt or mockup - just the design. Centered, high resolution.`
