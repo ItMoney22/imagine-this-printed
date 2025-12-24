@@ -1098,46 +1098,57 @@ async function process3DModelConcept(job: any) {
     console.log('[worker] 📝 Concept prompt:', conceptPrompt.substring(0, 100) + '...')
 
     // Generate with NanoBanana (google/nano-banana on Replicate)
-    const output = await replicate.run('google/nano-banana' as `${string}/${string}`, {
+    // Use predictions.create with wait to ensure we get the result
+    console.log('[worker] 🚀 Creating NanoBanana prediction...')
+
+    let prediction = await replicate.predictions.create({
+      model: 'google/nano-banana',
       input: {
         prompt: conceptPrompt,
         aspect_ratio: '1:1',
-        output_format: 'png',
-        safety_tolerance: 2,
-        prompt_upsampling: true
+        output_format: 'png'
       }
     })
 
-    // Extract URL from output - handle various Replicate output formats
-    let imageUrl: string
-    console.log('[worker] 🔍 NanoBanana raw output type:', typeof output)
-    console.log('[worker] 🔍 NanoBanana raw output:', JSON.stringify(output).substring(0, 500))
+    console.log('[worker] ⏳ Prediction created:', prediction.id, 'status:', prediction.status)
 
-    if (Array.isArray(output)) {
-      imageUrl = output[0] as string
-    } else if (typeof output === 'string') {
+    // Wait for the prediction to complete
+    prediction = await replicate.wait(prediction)
+
+    console.log('[worker] ✅ Prediction completed:', prediction.id, 'status:', prediction.status)
+    console.log('[worker] 🔍 NanoBanana output:', JSON.stringify(prediction.output).substring(0, 500))
+
+    if (prediction.status === 'failed') {
+      throw new Error(`NanoBanana prediction failed: ${prediction.error || 'Unknown error'}`)
+    }
+
+    if (prediction.status === 'canceled') {
+      throw new Error('NanoBanana prediction was canceled')
+    }
+
+    // Extract URL from output
+    let imageUrl: string
+    const output = prediction.output
+
+    if (typeof output === 'string') {
       imageUrl = output
+    } else if (Array.isArray(output) && output.length > 0) {
+      imageUrl = output[0] as string
     } else if (output && typeof output === 'object') {
-      // Handle object response - could have various keys
+      // Handle object response
       const obj = output as Record<string, any>
-      if (obj.url) {
-        imageUrl = obj.url
-      } else if (obj.output) {
-        imageUrl = Array.isArray(obj.output) ? obj.output[0] : obj.output
-      } else if (obj.image) {
-        imageUrl = obj.image
-      } else {
-        // Try to find any URL-like value
+      imageUrl = obj.url || obj.image || obj.output
+      if (!imageUrl) {
         const values = Object.values(obj)
         const urlValue = values.find(v => typeof v === 'string' && v.startsWith('http'))
-        if (urlValue) {
-          imageUrl = urlValue as string
-        } else {
-          throw new Error(`Unexpected output format from NanoBanana: ${JSON.stringify(output).substring(0, 200)}`)
-        }
+        imageUrl = urlValue as string
       }
     } else {
-      throw new Error(`Unexpected output format from NanoBanana: ${typeof output}`)
+      throw new Error(`Unexpected output format from NanoBanana: ${JSON.stringify(output).substring(0, 200)}`)
+    }
+
+    if (!imageUrl) {
+      throw new Error(`No image URL in NanoBanana output: ${JSON.stringify(output).substring(0, 200)}`)
     }
 
     console.log('[worker] 📸 Concept image generated:', imageUrl.substring(0, 80) + '...')
