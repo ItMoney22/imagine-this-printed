@@ -60,20 +60,45 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     console.log('[trellis] Primary image:', primaryImage.substring(0, 80) + '...')
     console.log('[trellis] Additional images count:', additionalImages.length)
 
-    // Import handle_file equivalent for the gradio client
+    // Download images and convert to Blobs for the Gradio client
     const { handle_file } = await import('@gradio/client')
 
+    // Helper to download image as Blob
+    async function downloadAsBlob(url: string): Promise<Blob> {
+      console.log('[trellis] Downloading image:', url.substring(0, 60) + '...')
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`Failed to download image: ${response.status}`)
+      }
+      return await response.blob()
+    }
+
+    // Download all images
+    console.log('[trellis] Downloading images for TRELLIS...')
+    const primaryBlob = await downloadAsBlob(primaryImage)
+    const additionalBlobs = await Promise.all(additionalImages.map(downloadAsBlob))
+    console.log('[trellis] All images downloaded')
+
+    // TRELLIS parameters - using only the essential ones
+    const predictionParams = {
+      image: primaryBlob,
+      multiimages: additionalBlobs,
+      seed: seed ?? Math.floor(Math.random() * 2147483647),
+      ss_guidance_strength: 7.5,
+      ss_sampling_steps: 12,
+      slat_guidance_strength: 3,
+      slat_sampling_steps: 12,
+      multiimage_algo: 'stochastic'
+    }
+
+    console.log('[trellis] Submitting to TRELLIS with params:', {
+      hasImage: !!predictionParams.image,
+      multiimagesCount: predictionParams.multiimages.length,
+      seed: predictionParams.seed
+    })
+
     const result = await Promise.race([
-      client.predict('/image_to_3d', {
-        image: handle_file(primaryImage),
-        multiimages: additionalImages.map(url => handle_file(url)),
-        seed: seed ?? Math.floor(Math.random() * 2147483647),
-        ss_guidance_strength: 7.5,
-        ss_sampling_steps: 12,
-        slat_guidance_strength: 3,
-        slat_sampling_steps: 12,
-        multiimage_algo: 'stochastic'
-      }),
+      client.predict('/image_to_3d', predictionParams),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('TRELLIS timeout')), TRELLIS_TIMEOUT_MS)
       )
@@ -115,9 +140,13 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     }
   } catch (error: any) {
     const elapsed = (Date.now() - startTime) / 1000
-    console.error('[trellis] Generation failed after', elapsed.toFixed(2), 'seconds:', {
+    console.error('[trellis] Generation failed after', elapsed.toFixed(2), 'seconds')
+    console.error('[trellis] Error details:', {
       message: error.message,
-      name: error.name
+      name: error.name,
+      stack: error.stack?.substring(0, 500),
+      cause: error.cause,
+      full: JSON.stringify(error, Object.getOwnPropertyNames(error)).substring(0, 1000)
     })
     throw new Error(`TRELLIS 3D generation failed: ${error.message}`)
   }
