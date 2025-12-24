@@ -1108,14 +1108,36 @@ async function process3DModelConcept(job: any) {
       }
     })
 
-    // Extract URL from output
+    // Extract URL from output - handle various Replicate output formats
     let imageUrl: string
+    console.log('[worker] 🔍 NanoBanana raw output type:', typeof output)
+    console.log('[worker] 🔍 NanoBanana raw output:', JSON.stringify(output).substring(0, 500))
+
     if (Array.isArray(output)) {
       imageUrl = output[0] as string
     } else if (typeof output === 'string') {
       imageUrl = output
+    } else if (output && typeof output === 'object') {
+      // Handle object response - could have various keys
+      const obj = output as Record<string, any>
+      if (obj.url) {
+        imageUrl = obj.url
+      } else if (obj.output) {
+        imageUrl = Array.isArray(obj.output) ? obj.output[0] : obj.output
+      } else if (obj.image) {
+        imageUrl = obj.image
+      } else {
+        // Try to find any URL-like value
+        const values = Object.values(obj)
+        const urlValue = values.find(v => typeof v === 'string' && v.startsWith('http'))
+        if (urlValue) {
+          imageUrl = urlValue as string
+        } else {
+          throw new Error(`Unexpected output format from NanoBanana: ${JSON.stringify(output).substring(0, 200)}`)
+        }
+      }
     } else {
-      throw new Error('Unexpected output format from NanoBanana')
+      throw new Error(`Unexpected output format from NanoBanana: ${typeof output}`)
     }
 
     console.log('[worker] 📸 Concept image generated:', imageUrl.substring(0, 80) + '...')
