@@ -1243,26 +1243,50 @@ async function process3DModelAngles(job: any) {
       const anglePrompt = buildAnglePrompt(style as Style3D, angle as any)
       console.log(`[worker] 📝 ${angle} prompt:`, anglePrompt.substring(0, 80) + '...')
 
-      // Generate with NanoBanana image-to-image
-      const output = await replicate.run('google/nano-banana' as `${string}/${string}`, {
+      // Generate with NanoBanana image-to-image using predictions API
+      let prediction = await replicate.predictions.create({
+        model: 'google/nano-banana',
         input: {
           prompt: anglePrompt,
           image_input: [concept_image_url],
           aspect_ratio: '1:1',
-          output_format: 'png',
-          safety_tolerance: 2,
-          prompt_upsampling: true
+          output_format: 'png'
         }
       })
 
-      // Extract URL
+      console.log(`[worker] ⏳ ${angle} prediction created:`, prediction.id)
+
+      // Wait for completion
+      prediction = await replicate.wait(prediction)
+
+      console.log(`[worker] ✅ ${angle} prediction completed:`, prediction.status)
+
+      if (prediction.status === 'failed') {
+        throw new Error(`${angle} view generation failed: ${prediction.error || 'Unknown error'}`)
+      }
+
+      // Extract URL from output
       let imageUrl: string
-      if (Array.isArray(output)) {
-        imageUrl = output[0] as string
-      } else if (typeof output === 'string') {
+      const output = prediction.output
+
+      if (typeof output === 'string') {
         imageUrl = output
+      } else if (Array.isArray(output) && output.length > 0) {
+        imageUrl = output[0] as string
+      } else if (output && typeof output === 'object') {
+        const obj = output as Record<string, any>
+        imageUrl = obj.url || obj.image || obj.output
+        if (!imageUrl) {
+          const values = Object.values(obj)
+          const urlValue = values.find(v => typeof v === 'string' && v.startsWith('http'))
+          imageUrl = urlValue as string
+        }
       } else {
-        throw new Error(`Unexpected output format for ${angle} view`)
+        throw new Error(`Unexpected output format for ${angle} view: ${JSON.stringify(output).substring(0, 100)}`)
+      }
+
+      if (!imageUrl) {
+        throw new Error(`No image URL for ${angle} view: ${JSON.stringify(output).substring(0, 100)}`)
       }
 
       // Upload to GCS
