@@ -21,9 +21,14 @@ import {
   Sparkles,
   ArrowRight,
   Clock,
-  TrendingUp
+  TrendingUp,
+  Box,
+  Loader2
 } from 'lucide-react'
 import { CreateDesignModal } from '../components/CreateDesignModal'
+import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
+import type { User3DModel } from '../types'
+import api from '../lib/api'
 
 interface UserDesign {
   id: string
@@ -66,7 +71,7 @@ interface CreatorStats {
   }
 }
 
-type Tab = 'designs' | 'drafts' | 'tools' | 'earnings'
+type Tab = 'designs' | 'drafts' | '3d-models' | 'tools' | 'earnings'
 
 // ITC costs for tools
 const UPSCALE_COST = 15
@@ -84,6 +89,11 @@ export default function UserDesignDashboard() {
   const [toolProcessing, setToolProcessing] = useState<string | null>(null)
   const [toolResult, setToolResult] = useState<{ url: string; type: string } | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+
+  // 3D Models state
+  const [models3D, setModels3D] = useState<User3DModel[]>([])
+  const [loading3D, setLoading3D] = useState(false)
+  const [selectedModel3D, setSelectedModel3D] = useState<User3DModel | null>(null)
 
   // Fetch all data on mount
   useEffect(() => {
@@ -140,6 +150,46 @@ export default function UserDesignDashboard() {
       setLoading(false)
     }
   }
+
+  // Fetch 3D models
+  const fetch3DModels = useCallback(async () => {
+    setLoading3D(true)
+    try {
+      const response = await api.get('/3d-models/list')
+      if (response.data?.models) {
+        setModels3D(response.data.models)
+      }
+    } catch (error) {
+      console.error('[Dashboard] Error fetching 3D models:', error)
+    } finally {
+      setLoading3D(false)
+    }
+  }, [])
+
+  // Fetch 3D models when tab is active
+  useEffect(() => {
+    if (activeTab === '3d-models' && user) {
+      fetch3DModels()
+    }
+  }, [activeTab, user, fetch3DModels])
+
+  // Auto-refresh 3D models while processing
+  useEffect(() => {
+    if (activeTab !== '3d-models') return
+
+    const hasProcessing = models3D.some(m =>
+      ['queued', 'generating_concept', 'generating_angles', 'generating_3d'].includes(m.status)
+    )
+
+    if (hasProcessing) {
+      const interval = setInterval(fetch3DModels, 5000) // Poll every 5 seconds
+      return () => clearInterval(interval)
+    }
+  }, [activeTab, models3D, fetch3DModels])
+
+  const handleModel3DCreated = useCallback((modelId: string) => {
+    fetch3DModels()
+  }, [fetch3DModels])
 
   // Handle upscale image
   const handleUpscale = useCallback(async (imageUrl: string) => {
@@ -353,6 +403,7 @@ export default function UserDesignDashboard() {
             {[
               { key: 'designs', label: 'My Designs', icon: Palette },
               { key: 'drafts', label: 'Drafts', icon: FileText },
+              { key: '3d-models', label: '3D Models', icon: Box },
               { key: 'tools', label: 'AI Tools', icon: Wand2 },
               { key: 'earnings', label: 'Earnings', icon: DollarSign },
             ].map(tab => (
@@ -511,6 +562,62 @@ export default function UserDesignDashboard() {
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {/* 3D Models Tab */}
+          {activeTab === '3d-models' && (
+            <div className="space-y-6">
+              <div className="grid lg:grid-cols-3 gap-6">
+                {/* Create Form */}
+                <div className="lg:col-span-1">
+                  <Create3DModelForm
+                    itcBalance={wallet.itc_balance}
+                    onModelCreated={handleModel3DCreated}
+                    onBalanceChange={(newBalance) => setWallet(prev => ({ ...prev, itc_balance: newBalance }))}
+                  />
+                </div>
+
+                {/* Models Grid */}
+                <div className="lg:col-span-2">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-display font-bold text-text">
+                      Your 3D Models
+                    </h3>
+                    {loading3D && (
+                      <div className="flex items-center gap-2 text-muted text-sm">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Refreshing...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {models3D.length === 0 && !loading3D ? (
+                    <div className="text-center py-16 card-editorial border-2 border-dashed border-purple-200 rounded-xl">
+                      <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Box className="w-8 h-8 text-purple-400" />
+                      </div>
+                      <h4 className="text-lg font-display font-semibold text-text mb-2">
+                        No 3D models yet
+                      </h4>
+                      <p className="text-muted max-w-xs mx-auto">
+                        Create your first custom 3D figurine using the form on the left!
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      {models3D.map(model => (
+                        <Model3DCard
+                          key={model.id}
+                          model={model}
+                          onView={(m) => setSelectedModel3D(m)}
+                          onRefresh={fetch3DModels}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -751,18 +858,18 @@ export default function UserDesignDashboard() {
                 </div>
               </div>
 
-              {/* Payout info */}
-              <div className="card-editorial p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-amber-100">
+              {/* ITC Usage info */}
+              <div className="card-editorial p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-purple-100">
                 <div>
-                  <h4 className="font-display font-semibold text-text mb-2 text-lg">Cash Out Your ITC</h4>
+                  <h4 className="font-display font-semibold text-text mb-2 text-lg">Use Your ITC</h4>
                   <p className="text-muted max-w-xl">
-                    Once you have at least 5,000 ITC ($50), you can request a payout via PayPal or Venmo.
-                    A 5% processing fee applies.
+                    Your earned ITC can be used to pay for products at checkout or to generate more AI designs.
+                    Check your balance and transaction history in your wallet!
                   </p>
                 </div>
                 <Link
                   to="/wallet"
-                  className="btn-primary bg-gradient-to-r from-amber-500 to-orange-500 shadow-amber-200 whitespace-nowrap"
+                  className="btn-primary bg-gradient-to-r from-purple-500 to-pink-500 shadow-purple-200 whitespace-nowrap"
                 >
                   Go to Wallet
                   <ArrowRight className="w-4 h-4" />
@@ -867,6 +974,16 @@ export default function UserDesignDashboard() {
           setWallet(prev => ({ ...prev, itc_balance: newBalance }))
         }}
       />
+
+      {/* 3D Model Detail Modal */}
+      {selectedModel3D && (
+        <Model3DDetailModal
+          model={selectedModel3D}
+          isOpen={!!selectedModel3D}
+          onClose={() => setSelectedModel3D(null)}
+          onRefresh={fetch3DModels}
+        />
+      )}
     </div>
   )
 }

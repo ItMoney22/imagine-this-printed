@@ -4,6 +4,13 @@ import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
 import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mockup.js'
+import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, type Style3D } from '../services/nano-banana-3d.js'
+import { generate3DModel } from '../services/trellis-client.js'
+import { convertGlbToStl } from '../services/glb-to-stl.js'
+import Replicate from 'replicate'
+
+// Initialize Replicate client for NanoBanana
+const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
 
 const POLL_INTERVAL = 5000 // 5 seconds
 
@@ -958,6 +965,446 @@ async function startJob(job: any) {
       .eq('id', job.id)
 
     console.log('[worker] ✅ Image upscale started:', prediction.id)
+  } else if (job.type === '3d_model_concept') {
+    // Generate 3D figurine concept image using NanoBanana
+    await process3DModelConcept(job)
+  } else if (job.type === '3d_model_angles') {
+    // Generate 4 angle views for 3D model
+    await process3DModelAngles(job)
+  } else if (job.type === '3d_model_trellis') {
+    // Convert images to 3D model using TRELLIS
+    await process3DModelTrellis(job)
+  }
+}
+
+// ITC costs for 3D model generation (with fallbacks)
+const ITC_3D_COSTS = {
+  concept: 20,
+  angles: 30,
+  convert: 50
+}
+
+/**
+ * Deduct ITC from user's wallet
+ */
+async function deductItc(userId: string, amount: number, description: string): Promise<boolean> {
+  try {
+    // Get current balance
+    const { data: wallet, error: fetchError } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (fetchError || !wallet || wallet.itc_balance < amount) {
+      console.error('[worker] ❌ Insufficient ITC balance for', description)
+      return false
+    }
+
+    // Deduct ITC
+    const { error: updateError } = await supabase
+      .from('user_wallets')
+      .update({
+        itc_balance: wallet.itc_balance - amount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+
+    if (updateError) {
+      console.error('[worker] ❌ Failed to deduct ITC:', updateError)
+      return false
+    }
+
+    // Log transaction
+    await supabase.from('itc_transactions').insert({
+      user_id: userId,
+      amount: -amount,
+      balance_after: wallet.itc_balance - amount,
+      type: 'debit',
+      description: `3D Model: ${description}`,
+      reference_type: '3d_model',
+      created_at: new Date().toISOString()
+    })
+
+    console.log('[worker] 💰 Deducted', amount, 'ITC for', description)
+    return true
+  } catch (error: any) {
+    console.error('[worker] ❌ ITC deduction error:', error.message)
+    return false
+  }
+}
+
+/**
+ * Refund ITC to user's wallet on failure
+ */
+async function refundItc(userId: string, amount: number, description: string): Promise<void> {
+  try {
+    const { data: wallet } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (!wallet) return
+
+    await supabase
+      .from('user_wallets')
+      .update({
+        itc_balance: wallet.itc_balance + amount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+
+    await supabase.from('itc_transactions').insert({
+      user_id: userId,
+      amount: amount,
+      balance_after: wallet.itc_balance + amount,
+      type: 'credit',
+      description: `Refund: ${description}`,
+      reference_type: '3d_model_refund',
+      created_at: new Date().toISOString()
+    })
+
+    console.log('[worker] 💸 Refunded', amount, 'ITC for', description)
+  } catch (error: any) {
+    console.error('[worker] ❌ ITC refund error:', error.message)
+  }
+}
+
+/**
+ * Process 3D model concept generation job
+ */
+async function process3DModelConcept(job: any) {
+  const { model_id, user_id, prompt, style } = job.input
+  console.log('[worker] 🎨 Starting 3D concept generation for model:', model_id)
+
+  try {
+    // Deduct ITC
+    const deducted = await deductItc(user_id, ITC_3D_COSTS.concept, 'Concept generation')
+    if (!deducted) {
+      throw new Error('Insufficient ITC balance')
+    }
+
+    // Update model status
+    await supabase
+      .from('user_3d_models')
+      .update({ status: 'generating_concept', updated_at: new Date().toISOString() })
+      .eq('id', model_id)
+
+    await updateJobProgress(job.id, '🎨 Generating 3D figurine concept with NanoBanana...', 1, 2)
+
+    // Build prompt for NanoBanana
+    const conceptPrompt = buildConceptPrompt(prompt, style as Style3D)
+    console.log('[worker] 📝 Concept prompt:', conceptPrompt.substring(0, 100) + '...')
+
+    // Generate with NanoBanana (google/nano-banana on Replicate)
+    const output = await replicate.run('google/nano-banana' as `${string}/${string}`, {
+      input: {
+        prompt: conceptPrompt,
+        aspect_ratio: '1:1',
+        output_format: 'png',
+        safety_tolerance: 2,
+        prompt_upsampling: true
+      }
+    })
+
+    // Extract URL from output
+    let imageUrl: string
+    if (Array.isArray(output)) {
+      imageUrl = output[0] as string
+    } else if (typeof output === 'string') {
+      imageUrl = output
+    } else {
+      throw new Error('Unexpected output format from NanoBanana')
+    }
+
+    console.log('[worker] 📸 Concept image generated:', imageUrl.substring(0, 80) + '...')
+
+    await updateJobProgress(job.id, '📤 Uploading concept image...', 2, 2)
+
+    // Upload to GCS
+    const gcsPath = `3d-models/${model_id}/concept.png`
+    const { publicUrl } = await uploadImageFromUrl(imageUrl, gcsPath)
+
+    console.log('[worker] ✅ Concept uploaded to GCS:', publicUrl)
+
+    // Update model with concept image
+    await supabase
+      .from('user_3d_models')
+      .update({
+        concept_image_url: publicUrl,
+        status: 'awaiting_approval',
+        itc_charged: ITC_3D_COSTS.concept,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', model_id)
+
+    // Mark job as succeeded
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'succeeded',
+        output: { concept_url: publicUrl },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+
+    console.log('[worker] ✅ 3D concept job completed:', model_id)
+  } catch (error: any) {
+    console.error('[worker] ❌ 3D concept generation failed:', error.message)
+
+    // Refund ITC on failure
+    await refundItc(user_id, ITC_3D_COSTS.concept, 'Concept generation failed')
+
+    // Update model status
+    await supabase
+      .from('user_3d_models')
+      .update({
+        status: 'failed',
+        error_message: error.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', model_id)
+
+    // Mark job as failed
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: error.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+  }
+}
+
+/**
+ * Process 3D model angle views generation job
+ */
+async function process3DModelAngles(job: any) {
+  const { model_id, user_id, style, concept_image_url } = job.input
+  console.log('[worker] 🔄 Starting 3D angle generation for model:', model_id)
+
+  try {
+    // Deduct ITC
+    const deducted = await deductItc(user_id, ITC_3D_COSTS.angles, 'Multi-view generation')
+    if (!deducted) {
+      throw new Error('Insufficient ITC balance')
+    }
+
+    // Get current model to access itc_charged
+    const { data: model } = await supabase
+      .from('user_3d_models')
+      .select('itc_charged')
+      .eq('id', model_id)
+      .single()
+
+    const angles = getAngleOrder() // ['front', 'back', 'left', 'right']
+    const angleImages: Record<string, string> = {}
+
+    for (let i = 0; i < angles.length; i++) {
+      const angle = angles[i]
+      await updateJobProgress(job.id, `🎨 Generating ${angle} view (${i + 1}/${angles.length})...`, i + 1, angles.length + 1)
+
+      // Build angle prompt
+      const anglePrompt = buildAnglePrompt(style as Style3D, angle as any)
+      console.log(`[worker] 📝 ${angle} prompt:`, anglePrompt.substring(0, 80) + '...')
+
+      // Generate with NanoBanana image-to-image
+      const output = await replicate.run('google/nano-banana' as `${string}/${string}`, {
+        input: {
+          prompt: anglePrompt,
+          image_input: [concept_image_url],
+          aspect_ratio: '1:1',
+          output_format: 'png',
+          safety_tolerance: 2,
+          prompt_upsampling: true
+        }
+      })
+
+      // Extract URL
+      let imageUrl: string
+      if (Array.isArray(output)) {
+        imageUrl = output[0] as string
+      } else if (typeof output === 'string') {
+        imageUrl = output
+      } else {
+        throw new Error(`Unexpected output format for ${angle} view`)
+      }
+
+      // Upload to GCS
+      const gcsPath = `3d-models/${model_id}/${angle}.png`
+      const { publicUrl } = await uploadImageFromUrl(imageUrl, gcsPath)
+
+      angleImages[angle] = publicUrl
+      console.log(`[worker] ✅ ${angle} view uploaded:`, publicUrl.substring(0, 60) + '...')
+    }
+
+    await updateJobProgress(job.id, '✅ All angle views generated', angles.length + 1, angles.length + 1)
+
+    // Update model with angle images
+    await supabase
+      .from('user_3d_models')
+      .update({
+        angle_images: angleImages,
+        itc_charged: (model?.itc_charged || 0) + ITC_3D_COSTS.angles,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', model_id)
+
+    // Mark job as succeeded
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'succeeded',
+        output: { angle_images: angleImages },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+
+    console.log('[worker] ✅ 3D angles job completed:', model_id)
+  } catch (error: any) {
+    console.error('[worker] ❌ 3D angle generation failed:', error.message)
+
+    // Refund ITC on failure
+    await refundItc(user_id, ITC_3D_COSTS.angles, 'Angle generation failed')
+
+    // Update model status
+    await supabase
+      .from('user_3d_models')
+      .update({
+        status: 'failed',
+        error_message: error.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', model_id)
+
+    // Mark job as failed
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: error.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+  }
+}
+
+/**
+ * Process 3D model TRELLIS conversion job
+ */
+async function process3DModelTrellis(job: any) {
+  const { model_id, user_id, angle_images } = job.input
+  console.log('[worker] 🎲 Starting TRELLIS 3D conversion for model:', model_id)
+
+  try {
+    // Deduct ITC
+    const deducted = await deductItc(user_id, ITC_3D_COSTS.convert, '3D conversion')
+    if (!deducted) {
+      throw new Error('Insufficient ITC balance')
+    }
+
+    // Get current model to access itc_charged
+    const { data: model } = await supabase
+      .from('user_3d_models')
+      .select('itc_charged')
+      .eq('id', model_id)
+      .single()
+
+    await updateJobProgress(job.id, '🎲 Converting images to 3D model with TRELLIS...', 1, 3)
+
+    // Prepare images for TRELLIS (order: front, back, left, right)
+    const images = [
+      angle_images.front,
+      angle_images.back,
+      angle_images.left,
+      angle_images.right
+    ]
+
+    // Call TRELLIS
+    const { glbUrl, processingTime } = await generate3DModel({
+      images,
+      meshFormat: 'glb',
+      textureResolution: 1024
+    })
+
+    console.log('[worker] ✅ TRELLIS GLB generated in', processingTime.toFixed(2), 'seconds')
+
+    await updateJobProgress(job.id, '📤 Uploading GLB and converting to STL...', 2, 3)
+
+    // Upload GLB to GCS
+    const glbPath = `3d-models/${model_id}/model.glb`
+    const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(glbUrl, glbPath)
+
+    console.log('[worker] ✅ GLB uploaded:', glbPublicUrl.substring(0, 60) + '...')
+
+    // Convert GLB to STL
+    await updateJobProgress(job.id, '🔧 Converting GLB to STL for 3D printing...', 3, 3)
+
+    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl)
+
+    console.log('[worker] ✅ STL converted:', triangleCount, 'triangles')
+
+    // Upload STL to GCS
+    const stlPath = `3d-models/${model_id}/model.stl`
+    const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+
+    console.log('[worker] ✅ STL uploaded:', stlPublicUrl.substring(0, 60) + '...')
+
+    // Update model with 3D files
+    await supabase
+      .from('user_3d_models')
+      .update({
+        glb_url: glbPublicUrl,
+        stl_url: stlPublicUrl,
+        status: 'ready',
+        itc_charged: (model?.itc_charged || 0) + ITC_3D_COSTS.convert,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', model_id)
+
+    // Mark job as succeeded
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'succeeded',
+        output: {
+          glb_url: glbPublicUrl,
+          stl_url: stlPublicUrl,
+          processing_time: processingTime,
+          triangle_count: triangleCount
+        },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+
+    console.log('[worker] ✅ 3D TRELLIS job completed:', model_id)
+  } catch (error: any) {
+    console.error('[worker] ❌ TRELLIS conversion failed:', error.message)
+
+    // Refund ITC on failure
+    await refundItc(user_id, ITC_3D_COSTS.convert, '3D conversion failed')
+
+    // Update model status
+    await supabase
+      .from('user_3d_models')
+      .update({
+        status: 'failed',
+        error_message: error.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', model_id)
+
+    // Mark job as failed
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: error.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
   }
 }
 

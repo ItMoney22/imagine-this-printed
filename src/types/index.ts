@@ -1520,3 +1520,70 @@ export interface AdminNotification {
 }
 
 // Note: AppliedCoupon is defined above near line 1390
+
+// ============================================
+// 3D Model Generation Types
+// ============================================
+
+export type Model3DStyle = 'realistic' | 'cartoon' | 'low_poly' | 'anime';
+
+export type Model3DStatus =
+  | 'queued'
+  | 'generating_concept'
+  | 'awaiting_approval'
+  | 'generating_angles'
+  | 'generating_3d'
+  | 'ready'
+  | 'failed';
+
+export interface User3DModel {
+  id: string;
+  user_id: string;
+  prompt: string;
+  style: Model3DStyle;
+  status: Model3DStatus;
+  concept_image_url: string | null;
+  angle_images: {
+    front?: string;
+    back?: string;
+    left?: string;
+    right?: string;
+  };
+  glb_url: string | null;
+  stl_url: string | null;
+  itc_charged: number;
+  error_message: string | null;
+  idempotency_key?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Model3DPricing {
+  concept: number;
+  angles: number;
+  convert: number;
+  total: number;
+}
+
+export interface Model3DStyleInfo {
+  key: Model3DStyle;
+  name: string;
+  descriptor: string;
+}
+
+export interface Create3DModelRequest {
+  prompt: string;
+  style?: Model3DStyle;
+}
+
+export interface Create3DModelResponse {
+  ok: boolean;
+  model: User3DModel;
+  costs: Model3DPricing;
+}
+
+export interface Order3DPrintOptions {
+  material: 'pla' | 'abs' | 'petg' | 'resin';
+  color: string;
+  size: 'small' | 'medium' | 'large' | 'xlarge';
+}
