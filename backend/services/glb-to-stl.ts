@@ -8,6 +8,26 @@
  * which requires proper setup for server-side rendering.
  */
 
+// Polyfill browser globals for three.js in Node.js environment
+// @ts-ignore
+if (typeof globalThis.self === 'undefined') {
+  // @ts-ignore
+  globalThis.self = globalThis
+}
+// @ts-ignore
+if (typeof globalThis.window === 'undefined') {
+  // @ts-ignore
+  globalThis.window = globalThis
+}
+// @ts-ignore
+if (typeof globalThis.document === 'undefined') {
+  // @ts-ignore
+  globalThis.document = {
+    createElement: () => ({ style: {} }),
+    createElementNS: () => ({ style: {} }),
+  }
+}
+
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
