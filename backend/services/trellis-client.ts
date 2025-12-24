@@ -39,10 +39,17 @@ export interface TrellisOutput {
  * @returns GLB URL and processing metadata
  */
 export async function generate3DModel(input: TrellisInput): Promise<TrellisOutput> {
-  const { images, meshFormat = 'glb', textureResolution = 256, seed } = input
+  const { images, meshFormat = 'glb', textureResolution = 512, seed } = input
 
   // Map images to views: [front, back, left, right]
   const [frontImage, backImage, leftImage, rightImage] = images
+
+  // Hunyuan3D-2mv supports octree_resolution of 256, 384, or 512
+  // Clamp to nearest valid value
+  const validResolutions = [256, 384, 512]
+  const octreeResolution = validResolutions.reduce((prev, curr) =>
+    Math.abs(curr - textureResolution) < Math.abs(prev - textureResolution) ? curr : prev
+  )
 
   console.log('[3d-gen] Starting multi-view 3D generation via Hunyuan3D-2mv:', {
     imageCount: images.length,
@@ -51,7 +58,8 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     hasLeft: !!leftImage,
     hasRight: !!rightImage,
     meshFormat,
-    textureResolution,
+    requestedResolution: textureResolution,
+    octreeResolution,
     seed: seed || 'random'
   })
 
@@ -68,7 +76,7 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
       seed: seed ?? Math.floor(Math.random() * 2147483647),
       randomize_seed: seed === undefined,
       file_type: meshFormat,
-      octree_resolution: textureResolution,
+      octree_resolution: octreeResolution,
       remove_background: false, // Our images already have clean backgrounds
       target_face_num: 10000
     }
