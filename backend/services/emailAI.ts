@@ -64,6 +64,7 @@ interface GeneratedEmail {
   htmlContent: string
   textContent: string
   aiGenerated: boolean
+  context?: EmailContext // For logging after send
 }
 
 /**
@@ -157,14 +158,14 @@ Make it personal, creative, and memorable. This should feel like it came from a 
       ctaUrl: getCtaUrl(context.templateKey, context)
     })
 
-    // Log the email
-    await logEmail(context.templateKey, context.customerEmail, parsed.subject, true, context)
+    // Note: Email logging is now done after sending (with messageId) in email.ts
 
     return {
       subject: parsed.subject,
       htmlContent,
       textContent: stripHtml(htmlContent),
-      aiGenerated: true
+      aiGenerated: true,
+      context // Return context for logging after send
     }
 
   } catch (error) {
@@ -428,7 +429,8 @@ function generateFallbackEmail(context: EmailContext): GeneratedEmail {
     subject: fallback.subject,
     htmlContent,
     textContent: stripHtml(htmlContent),
-    aiGenerated: false
+    aiGenerated: false,
+    context // For logging after send
   }
 }
 
@@ -444,14 +446,15 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Log email to database
+ * Log email to database with optional Brevo message ID for tracking
  */
-async function logEmail(
+export async function logEmail(
   templateKey: string,
   recipientEmail: string,
   subject: string,
   aiUsed: boolean,
-  context: EmailContext
+  context: EmailContext,
+  messageId?: string
 ): Promise<void> {
   try {
     await supabase.from('email_logs').insert({
@@ -459,6 +462,8 @@ async function logEmail(
       recipient_email: recipientEmail,
       subject_sent: subject,
       ai_personalization_used: aiUsed,
+      message_id: messageId,
+      status: messageId ? 'sent' : 'pending',
       order_id: context.orderNumber ? undefined : undefined, // Could map order_number to id
       metadata: {
         items: context.items,
@@ -466,6 +471,7 @@ async function logEmail(
         product_name: context.productName
       }
     })
+    console.log('[EmailAI] Email logged with messageId:', messageId)
   } catch (error) {
     console.error('[EmailAI] Failed to log email:', error)
     // Don't throw - logging failure shouldn't break email sending

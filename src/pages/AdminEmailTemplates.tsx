@@ -15,7 +15,10 @@ import {
   RefreshCw,
   BarChart3,
   Clock,
-  Wand2
+  Wand2,
+  MousePointer,
+  AlertTriangle,
+  TrendingUp
 } from 'lucide-react'
 
 interface EmailTemplate {
@@ -45,12 +48,35 @@ interface EmailLog {
   ai_personalization_used: boolean
   status: string
   sent_at: string
+  opened_at?: string
+  clicked_at?: string
+  bounced_at?: string
+  open_count?: number
+  click_count?: number
 }
 
 interface EmailStats {
   totalSent: number
   aiGenerated: number
-  byTemplate: Record<string, number>
+  tracking: {
+    opened: number
+    clicked: number
+    bounced: number
+    spam: number
+    totalOpens: number
+    totalClicks: number
+    openRate: number
+    clickRate: number
+    bounceRate: number
+  }
+  byTemplate: Record<string, {
+    sent: number
+    opened: number
+    clicked: number
+    bounced: number
+    openRate: number
+    clickRate: number
+  }>
 }
 
 const AdminEmailTemplates: React.FC = () => {
@@ -233,14 +259,18 @@ const AdminEmailTemplates: React.FC = () => {
             </div>
 
             {stats && (
-              <div className="flex gap-4">
-                <div className="card-editorial p-4 text-center">
-                  <p className="text-2xl font-bold text-purple-600">{stats.totalSent}</p>
-                  <p className="text-xs text-muted">Emails Sent</p>
+              <div className="flex flex-wrap gap-3">
+                <div className="card-editorial p-3 text-center min-w-[80px]">
+                  <p className="text-xl font-bold text-purple-600">{stats.totalSent}</p>
+                  <p className="text-xs text-muted">Sent</p>
                 </div>
-                <div className="card-editorial p-4 text-center">
-                  <p className="text-2xl font-bold text-emerald-600">{stats.aiGenerated}</p>
-                  <p className="text-xs text-muted">AI Personalized</p>
+                <div className="card-editorial p-3 text-center min-w-[80px]">
+                  <p className="text-xl font-bold text-emerald-600">{stats.tracking?.openRate || 0}%</p>
+                  <p className="text-xs text-muted">Open Rate</p>
+                </div>
+                <div className="card-editorial p-3 text-center min-w-[80px]">
+                  <p className="text-xl font-bold text-blue-600">{stats.tracking?.clickRate || 0}%</p>
+                  <p className="text-xs text-muted">Click Rate</p>
                 </div>
               </div>
             )}
@@ -532,6 +562,25 @@ const AdminEmailTemplates: React.FC = () => {
                           {log.ai_personalization_used ? 'AI Generated' : 'Static'}
                         </span>
                         <span className="text-sm font-medium text-text">{log.template_key}</span>
+                        {/* Tracking badges */}
+                        {log.opened_at && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                            <Eye className="w-3 h-3" />
+                            Opened {log.open_count && log.open_count > 1 ? `(${log.open_count}x)` : ''}
+                          </span>
+                        )}
+                        {log.clicked_at && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 flex items-center gap-1">
+                            <MousePointer className="w-3 h-3" />
+                            Clicked {log.click_count && log.click_count > 1 ? `(${log.click_count}x)` : ''}
+                          </span>
+                        )}
+                        {log.bounced_at && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            Bounced
+                          </span>
+                        )}
                       </div>
                       <span className="text-xs text-muted">
                         {new Date(log.sent_at).toLocaleString()}
@@ -547,50 +596,150 @@ const AdminEmailTemplates: React.FC = () => {
         )}
 
         {activeTab === 'stats' && stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="card-editorial p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                  <Mail className="w-6 h-6 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold text-text">{stats.totalSent}</p>
-                  <p className="text-sm text-muted">Total Emails Sent</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="card-editorial p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-                  <Sparkles className="w-6 h-6 text-emerald-600" />
-                </div>
-                <div>
-                  <p className="text-3xl font-bold text-text">{stats.aiGenerated}</p>
-                  <p className="text-sm text-muted">AI Personalized</p>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-emerald-500 h-2 rounded-full"
-                  style={{ width: `${stats.totalSent > 0 ? (stats.aiGenerated / stats.totalSent) * 100 : 0}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted mt-2">
-                {stats.totalSent > 0 ? Math.round((stats.aiGenerated / stats.totalSent) * 100) : 0}% of emails
-              </p>
-            </div>
-
-            <div className="card-editorial p-6">
-              <h3 className="font-semibold text-text mb-4">By Template</h3>
-              <div className="space-y-3">
-                {Object.entries(stats.byTemplate).map(([key, count]) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-sm text-muted">{key.replace(/_/g, ' ')}</span>
-                    <span className="font-medium text-text">{count}</span>
+          <div className="space-y-6">
+            {/* Main Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="card-editorial p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <Mail className="w-5 h-5 text-purple-600" />
                   </div>
-                ))}
+                  <p className="text-2xl font-bold text-text">{stats.totalSent}</p>
+                </div>
+                <p className="text-sm text-muted">Total Sent</p>
               </div>
+
+              <div className="card-editorial p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                    <Eye className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <p className="text-2xl font-bold text-text">{stats.tracking?.openRate || 0}%</p>
+                </div>
+                <p className="text-sm text-muted">Open Rate ({stats.tracking?.opened || 0} opened)</p>
+              </div>
+
+              <div className="card-editorial p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <MousePointer className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <p className="text-2xl font-bold text-text">{stats.tracking?.clickRate || 0}%</p>
+                </div>
+                <p className="text-sm text-muted">Click Rate ({stats.tracking?.clicked || 0} clicked)</p>
+              </div>
+
+              <div className="card-editorial p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <p className="text-2xl font-bold text-text">{stats.tracking?.bounceRate || 0}%</p>
+                </div>
+                <p className="text-sm text-muted">Bounce Rate ({stats.tracking?.bounced || 0} bounced)</p>
+              </div>
+            </div>
+
+            {/* AI & Engagement Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="card-editorial p-6">
+                <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-600" />
+                  AI Personalization
+                </h3>
+                <div className="flex items-center gap-4 mb-4">
+                  <div>
+                    <p className="text-3xl font-bold text-purple-600">{stats.aiGenerated}</p>
+                    <p className="text-sm text-muted">AI Generated Emails</p>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full"
+                    style={{ width: `${stats.totalSent > 0 ? (stats.aiGenerated / stats.totalSent) * 100 : 0}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted mt-2">
+                  {stats.totalSent > 0 ? Math.round((stats.aiGenerated / stats.totalSent) * 100) : 0}% of all emails use AI personalization
+                </p>
+              </div>
+
+              <div className="card-editorial p-6">
+                <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-emerald-600" />
+                  Total Engagement
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-emerald-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-emerald-600">{stats.tracking?.totalOpens || 0}</p>
+                    <p className="text-xs text-muted">Total Opens</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-blue-600">{stats.tracking?.totalClicks || 0}</p>
+                    <p className="text-xs text-muted">Total Clicks</p>
+                  </div>
+                </div>
+                {stats.tracking?.spam !== undefined && stats.tracking.spam > 0 && (
+                  <div className="mt-4 p-3 bg-red-50 rounded-lg">
+                    <p className="text-sm text-red-700 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      {stats.tracking.spam} marked as spam
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* By Template Breakdown */}
+            <div className="card-editorial p-6">
+              <h3 className="font-semibold text-text mb-4">Performance by Template</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted">Template</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-muted">Sent</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-muted">Opened</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-muted">Clicked</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-muted">Open Rate</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-muted">Click Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(stats.byTemplate).map(([key, data]) => (
+                      <tr key={key} className="border-b border-gray-50 hover:bg-purple-50/30">
+                        <td className="py-3 px-4">
+                          <span className="text-sm font-medium text-text">{key.replace(/_/g, ' ')}</span>
+                        </td>
+                        <td className="py-3 px-4 text-center text-sm text-text">{data.sent}</td>
+                        <td className="py-3 px-4 text-center text-sm text-emerald-600">{data.opened}</td>
+                        <td className="py-3 px-4 text-center text-sm text-blue-600">{data.clicked}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            data.openRate >= 30 ? 'bg-emerald-100 text-emerald-700' :
+                            data.openRate >= 15 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {data.openRate}%
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            data.clickRate >= 10 ? 'bg-blue-100 text-blue-700' :
+                            data.clickRate >= 5 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {data.clickRate}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {Object.keys(stats.byTemplate).length === 0 && (
+                <p className="text-center text-muted py-8">No email data yet. Stats will appear after emails are sent.</p>
+              )}
             </div>
           </div>
         )}

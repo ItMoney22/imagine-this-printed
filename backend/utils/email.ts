@@ -5,6 +5,11 @@ interface BrevoEmailOptions {
   textContent?: string
 }
 
+interface SendEmailResult {
+  success: boolean
+  messageId?: string
+}
+
 const BREVO_API_KEY = process.env.BREVO_API_KEY
 const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com'
 // Mr. Imagine is the sender for all customer-facing emails
@@ -14,13 +19,27 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com
 // Flag to enable/disable AI personalization (can be toggled via env)
 const AI_EMAIL_ENABLED = process.env.AI_EMAIL_ENABLED !== 'false'
 
+/**
+ * Send email via Brevo API
+ * Returns success boolean for backward compatibility
+ * Use sendEmailWithTracking for full response including messageId
+ */
 export const sendEmail = async (options: BrevoEmailOptions): Promise<boolean> => {
+  const result = await sendEmailWithTracking(options)
+  return result.success
+}
+
+/**
+ * Send email via Brevo API with full tracking response
+ * Returns messageId for webhook tracking
+ */
+export const sendEmailWithTracking = async (options: BrevoEmailOptions): Promise<SendEmailResult> => {
   if (!BREVO_API_KEY) {
     console.error('[Email] BREVO_API_KEY is not set')
     // Log the email instead for development
     console.log('[Email] Would send to:', options.to)
     console.log('[Email] Subject:', options.subject)
-    return true
+    return { success: true }
   }
 
   try {
@@ -51,14 +70,17 @@ export const sendEmail = async (options: BrevoEmailOptions): Promise<boolean> =>
     if (!response.ok) {
       const errorData = await response.json()
       console.error('[Email] Brevo API error:', errorData)
-      return false
+      return { success: false }
     }
 
-    console.log('[Email] ✅ Email sent successfully to:', options.to)
-    return true
+    const data = await response.json() as { messageId?: string }
+    const messageId = data.messageId
+
+    console.log('[Email] ✅ Email sent successfully to:', options.to, 'messageId:', messageId)
+    return { success: true, messageId }
   } catch (error) {
     console.error('[Email] ❌ Email sending failed:', error)
-    return false
+    return { success: false }
   }
 }
 

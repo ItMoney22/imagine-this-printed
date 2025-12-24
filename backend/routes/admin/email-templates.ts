@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import { supabase } from '../../lib/supabase.js'
-import { generateAIEmail, previewAIEmail } from '../../services/emailAI.js'
-import { sendEmail } from '../../utils/email.js'
+import { generateAIEmail, previewAIEmail, logEmail } from '../../services/emailAI.js'
+import { sendEmailWithTracking } from '../../utils/email.js'
 
 const router = Router()
 
@@ -156,20 +156,25 @@ router.post('/:key/send-test', async (req: Request, res: Response): Promise<any>
     // Generate the email
     const email = await previewAIEmail(key, sampleData || {})
 
-    // Send it
-    const success = await sendEmail({
+    // Send it with tracking
+    const result = await sendEmailWithTracking({
       to: testEmail,
       subject: `[TEST] ${email.subject}`,
       htmlContent: email.htmlContent,
       textContent: email.textContent
     })
 
-    if (!success) {
+    if (!result.success) {
       return res.status(500).json({ error: 'Failed to send test email' })
     }
 
-    req.log?.info({ templateKey: key, testEmail }, 'Test email sent')
-    return res.json({ message: `Test email sent to ${testEmail}` })
+    // Log the email with messageId for tracking
+    if (email.context) {
+      await logEmail(key, testEmail, email.subject, email.aiGenerated, email.context, result.messageId)
+    }
+
+    req.log?.info({ templateKey: key, testEmail, messageId: result.messageId }, 'Test email sent')
+    return res.json({ message: `Test email sent to ${testEmail}`, messageId: result.messageId })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error sending test email')
     return res.status(500).json({ error: error.message })
@@ -210,29 +215,81 @@ router.get('/logs/recent', async (req: Request, res: Response): Promise<any> => 
 
 /**
  * GET /api/admin/email-templates/stats
- * Get email statistics
+ * Get email statistics including Brevo tracking data
  */
 router.get('/stats/overview', async (req: Request, res: Response): Promise<any> => {
   try {
-    // Get counts by template
-    const { data: templateStats, error: templateError } = await supabase
+    // Get all email logs with tracking data
+    const { data: emailLogs, error: logsError } = await supabase
       .from('email_logs')
-      .select('template_key, ai_personalization_used')
+      .select('template_key, ai_personalization_used, status, opened_at, clicked_at, bounced_at, spam_reported_at, open_count, click_count')
 
-    if (templateError) {
+    if (logsError) {
       return res.status(500).json({ error: 'Failed to fetch stats' })
     }
 
     // Calculate stats
-    const stats = {
-      totalSent: templateStats?.length || 0,
-      aiGenerated: templateStats?.filter(l => l.ai_personalization_used).length || 0,
-      byTemplate: {} as Record<string, number>
-    }
+    const totalSent = emailLogs?.length || 0
+    const opened = emailLogs?.filter(l => l.opened_at).length || 0
+    const clicked = emailLogs?.filter(l => l.clicked_at).length || 0
+    const bounced = emailLogs?.filter(l => l.bounced_at).length || 0
+    const spam = emailLogs?.filter(l => l.spam_reported_at).length || 0
+    const aiGenerated = emailLogs?.filter(l => l.ai_personalization_used).length || 0
 
-    templateStats?.forEach(log => {
-      stats.byTemplate[log.template_key] = (stats.byTemplate[log.template_key] || 0) + 1
+    // Calculate totals for opens/clicks (including repeat opens/clicks)
+    const totalOpens = emailLogs?.reduce((sum, l) => sum + (l.open_count || 0), 0) || 0
+    const totalClicks = emailLogs?.reduce((sum, l) => sum + (l.click_count || 0), 0) || 0
+
+    // Calculate by template with tracking stats
+    const byTemplate: Record<string, {
+      sent: number
+      opened: number
+      clicked: number
+      bounced: number
+      openRate: number
+      clickRate: number
+    }> = {}
+
+    emailLogs?.forEach(log => {
+      if (!byTemplate[log.template_key]) {
+        byTemplate[log.template_key] = {
+          sent: 0,
+          opened: 0,
+          clicked: 0,
+          bounced: 0,
+          openRate: 0,
+          clickRate: 0
+        }
+      }
+      byTemplate[log.template_key].sent++
+      if (log.opened_at) byTemplate[log.template_key].opened++
+      if (log.clicked_at) byTemplate[log.template_key].clicked++
+      if (log.bounced_at) byTemplate[log.template_key].bounced++
     })
+
+    // Calculate rates
+    Object.keys(byTemplate).forEach(key => {
+      const t = byTemplate[key]
+      t.openRate = t.sent > 0 ? Math.round((t.opened / t.sent) * 100) : 0
+      t.clickRate = t.opened > 0 ? Math.round((t.clicked / t.opened) * 100) : 0
+    })
+
+    const stats = {
+      totalSent,
+      aiGenerated,
+      tracking: {
+        opened,
+        clicked,
+        bounced,
+        spam,
+        totalOpens,
+        totalClicks,
+        openRate: totalSent > 0 ? Math.round((opened / totalSent) * 100) : 0,
+        clickRate: opened > 0 ? Math.round((clicked / opened) * 100) : 0,
+        bounceRate: totalSent > 0 ? Math.round((bounced / totalSent) * 100) : 0
+      },
+      byTemplate
+    }
 
     return res.json({ stats })
   } catch (error: any) {

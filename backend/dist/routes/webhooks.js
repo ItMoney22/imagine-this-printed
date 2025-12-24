@@ -1,8 +1,93 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
+import { supabase } from '../lib/supabase.js';
 const router = Router();
 const prisma = new PrismaClient();
+router.post('/brevo', async (req, res) => {
+    try {
+        const event = req.body;
+        console.log('[Brevo Webhook] Received event:', event.event, 'for messageId:', event['message-id']);
+        if (!event['message-id']) {
+            console.warn('[Brevo Webhook] No message-id in event');
+            return res.status(200).json({ received: true });
+        }
+        const messageId = event['message-id'];
+        const eventTime = new Date(event.ts_event ? event.ts_event * 1000 : event.date);
+        const { data: emailLog, error: findError } = await supabase
+            .from('email_logs')
+            .select('id, open_count, click_count, clicked_links')
+            .eq('message_id', messageId)
+            .single();
+        if (findError || !emailLog) {
+            console.warn('[Brevo Webhook] Email log not found for messageId:', messageId);
+            return res.status(200).json({ received: true });
+        }
+        const update = {};
+        switch (event.event) {
+            case 'delivered':
+                update.status = 'delivered';
+                break;
+            case 'opened':
+                update.open_count = (emailLog.open_count || 0) + 1;
+                if (!emailLog.open_count || emailLog.open_count === 0) {
+                    update.opened_at = eventTime.toISOString();
+                }
+                break;
+            case 'click':
+                update.click_count = (emailLog.click_count || 0) + 1;
+                if (!emailLog.click_count || emailLog.click_count === 0) {
+                    update.clicked_at = eventTime.toISOString();
+                }
+                const currentLinks = emailLog.clicked_links || [];
+                if (event.link) {
+                    currentLinks.push({
+                        url: event.link,
+                        clicked_at: eventTime.toISOString()
+                    });
+                    update.clicked_links = currentLinks;
+                }
+                break;
+            case 'hard_bounce':
+            case 'soft_bounce':
+                update.status = 'bounced';
+                update.bounced_at = eventTime.toISOString();
+                update.error_message = `${event.event}: Email could not be delivered`;
+                break;
+            case 'spam':
+                update.status = 'spam';
+                update.spam_reported_at = eventTime.toISOString();
+                break;
+            case 'unsubscribe':
+                update.unsubscribed_at = eventTime.toISOString();
+                break;
+            case 'blocked':
+            case 'invalid':
+                update.status = 'failed';
+                update.error_message = `${event.event}: Email blocked or invalid`;
+                break;
+            default:
+                console.log('[Brevo Webhook] Unhandled event type:', event.event);
+        }
+        if (Object.keys(update).length > 0) {
+            const { error: updateError } = await supabase
+                .from('email_logs')
+                .update(update)
+                .eq('id', emailLog.id);
+            if (updateError) {
+                console.error('[Brevo Webhook] Failed to update email log:', updateError);
+            }
+            else {
+                console.log('[Brevo Webhook] Updated email log:', emailLog.id, 'with:', Object.keys(update));
+            }
+        }
+        return res.status(200).json({ received: true });
+    }
+    catch (error) {
+        console.error('[Brevo Webhook] Processing error:', error);
+        return res.status(200).json({ received: true, error: error.message });
+    }
+});
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
     apiVersion: '2025-02-24.acacia'
 });

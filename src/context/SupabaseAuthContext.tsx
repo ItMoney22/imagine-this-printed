@@ -32,6 +32,7 @@ interface AuthContextType {
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
   validateReferralCode: (code: string) => Promise<{ isValid: boolean; error?: string }>
+  refreshProfile: () => Promise<void> // Force refresh user profile from database
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -189,6 +190,11 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   useEffect(() => {
     console.log('[AuthContext] 🚀 Initializing...')
+
+    // IMPORTANT: Clear cache on page load/refresh to ensure fresh roles
+    // This fixes the issue where role changes in DB don't reflect until cache expires
+    profileCache.clear()
+    console.log('[AuthContext] 🧹 Cache cleared on init for fresh role fetch')
 
     // Fast initial session check
     supabase.auth.getSession().then(({ data: { session }, error }) => {
@@ -410,6 +416,29 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   }
 
+  // Force refresh user profile from database (clears cache)
+  const refreshProfile = useCallback(async (): Promise<void> => {
+    console.log('[AuthContext] 🔄 Force refreshing profile...')
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) {
+      console.log('[AuthContext] ⚠️ No session to refresh')
+      return
+    }
+
+    // Clear cache for this user to force fresh fetch
+    profileCache.delete(session.user.id)
+    lastUserIdRef.current = null
+    isProcessingRef.current = false
+
+    // Fetch fresh profile from database
+    const freshProfile = await fetchUserProfile(session.user)
+    if (freshProfile) {
+      console.log('[AuthContext] ✅ Profile refreshed:', freshProfile.username, 'role:', freshProfile.role)
+      setUser(freshProfile)
+    }
+  }, [])
+
   const validateReferralCode = async (code: string): Promise<{ isValid: boolean; error?: string }> => {
     try {
       const { data, error } = await supabase
@@ -455,6 +484,7 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     signOut,
     resetPassword,
     validateReferralCode,
+    refreshProfile,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
