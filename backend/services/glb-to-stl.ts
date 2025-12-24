@@ -6,37 +6,49 @@
  *
  * Note: This service runs in Node.js environment using three.js
  * which requires proper setup for server-side rendering.
+ * We use dynamic imports to ensure polyfills are set up before three.js loads.
  */
-
-// Polyfill browser globals for three.js in Node.js environment
-// @ts-ignore
-if (typeof globalThis.self === 'undefined') {
-  // @ts-ignore
-  globalThis.self = globalThis
-}
-// @ts-ignore
-if (typeof globalThis.window === 'undefined') {
-  // @ts-ignore
-  globalThis.window = globalThis
-}
-// @ts-ignore
-if (typeof globalThis.document === 'undefined') {
-  // @ts-ignore
-  globalThis.document = {
-    createElement: () => ({ style: {} }),
-    createElementNS: () => ({ style: {} }),
-  }
-}
-
-import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 
 export interface ConversionResult {
   stlBuffer: Buffer
   vertexCount: number
   triangleCount: number
   processingTime: number
+}
+
+// Flag to track if polyfills have been set up
+let polyfillsInitialized = false
+
+/**
+ * Setup polyfills for three.js in Node.js environment
+ * Must be called before importing three.js modules
+ */
+function setupThreeJsPolyfills() {
+  if (polyfillsInitialized) return
+
+  // Only polyfill if not already set
+  if (typeof (globalThis as any).self === 'undefined') {
+    (globalThis as any).self = globalThis
+  }
+  if (typeof (globalThis as any).window === 'undefined') {
+    (globalThis as any).window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+      innerWidth: 1024,
+      innerHeight: 768,
+      devicePixelRatio: 1,
+    }
+  }
+  if (typeof (globalThis as any).document === 'undefined') {
+    (globalThis as any).document = {
+      createElement: () => ({ style: {}, addEventListener: () => {} }),
+      createElementNS: () => ({ style: {}, setAttribute: () => {} }),
+      documentElement: { style: {} },
+    }
+  }
+
+  polyfillsInitialized = true
 }
 
 /**
@@ -46,6 +58,14 @@ export interface ConversionResult {
  * @returns Buffer containing binary STL data
  */
 export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult> {
+  // Setup browser polyfills BEFORE importing three.js
+  setupThreeJsPolyfills()
+
+  // Dynamic imports to ensure polyfills are in place first
+  const THREE = await import('three')
+  const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')
+  const { STLExporter } = await import('three/examples/jsm/exporters/STLExporter.js')
+
   console.log('[glb-to-stl] Starting conversion from:', glbUrl.substring(0, 100) + '...')
   const startTime = Date.now()
 
@@ -75,10 +95,10 @@ export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult>
 
     // Merge all meshes into a single geometry for STL export
     const scene = gltf.scene
-    const geometries: THREE.BufferGeometry[] = []
+    const geometries: any[] = []
     let totalVertices = 0
 
-    scene.traverse((child: THREE.Object3D) => {
+    scene.traverse((child: any) => {
       if (child instanceof THREE.Mesh) {
         // Clone and apply world transform
         const geometry = child.geometry.clone()
@@ -95,31 +115,30 @@ export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult>
     console.log('[glb-to-stl] Found', geometries.length, 'meshes with', totalVertices, 'total vertices')
 
     // Create a merged mesh for export
-    // If multiple geometries, merge them
-    let finalMesh: THREE.Mesh
+    let finalMesh: any
 
     if (geometries.length === 1) {
       finalMesh = new THREE.Mesh(geometries[0])
     } else {
-      // Merge geometries using BufferGeometryUtils pattern
-      const mergedGeometry = mergeBufferGeometries(geometries)
+      // Merge geometries
+      const mergedGeometry = mergeBufferGeometries(geometries, THREE)
       finalMesh = new THREE.Mesh(mergedGeometry)
     }
 
     // Export to STL
     const exporter = new STLExporter()
-    const stlString = exporter.parse(finalMesh, { binary: true })
+    const stlResult = exporter.parse(finalMesh, { binary: true })
 
     // Convert to Buffer
     let stlBuffer: Buffer
-    if (stlString instanceof ArrayBuffer) {
-      stlBuffer = Buffer.from(stlString)
-    } else if (typeof stlString === 'string') {
-      stlBuffer = Buffer.from(stlString)
-    } else if (stlString instanceof DataView) {
-      stlBuffer = Buffer.from(stlString.buffer, stlString.byteOffset, stlString.byteLength)
+    if (stlResult instanceof ArrayBuffer) {
+      stlBuffer = Buffer.from(stlResult)
+    } else if (typeof stlResult === 'string') {
+      stlBuffer = Buffer.from(stlResult)
+    } else if (stlResult instanceof DataView) {
+      stlBuffer = Buffer.from(stlResult.buffer, stlResult.byteOffset, stlResult.byteLength)
     } else {
-      stlBuffer = Buffer.from(stlString as ArrayBuffer)
+      stlBuffer = Buffer.from(stlResult as ArrayBuffer)
     }
 
     const processingTime = (Date.now() - startTime) / 1000
@@ -146,7 +165,7 @@ export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult>
 /**
  * Simple buffer geometry merge utility
  */
-function mergeBufferGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
+function mergeBufferGeometries(geometries: any[], THREE: any): any {
   // Calculate total attribute lengths
   let totalPositions = 0
   let totalNormals = 0
