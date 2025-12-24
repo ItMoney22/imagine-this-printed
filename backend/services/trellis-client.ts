@@ -51,14 +51,28 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
 
     console.log('[trellis] Connected to TRELLIS Space')
 
-    // TRELLIS accepts images via the /image_to_3d endpoint
-    // The Space has multiple modes - we use multi-image mode for best results
+    // TRELLIS API expects:
+    // - image: primary image (the first/front view)
+    // - multiimages: array of additional images for multi-view mode
+    const primaryImage = images[0]
+    const additionalImages = images.slice(1)
+
+    console.log('[trellis] Primary image:', primaryImage.substring(0, 80) + '...')
+    console.log('[trellis] Additional images count:', additionalImages.length)
+
+    // Import handle_file equivalent for the gradio client
+    const { handle_file } = await import('@gradio/client')
+
     const result = await Promise.race([
       client.predict('/image_to_3d', {
-        images: images,
-        output_format: meshFormat,
-        texture_resolution: textureResolution,
-        seed: seed ?? Math.floor(Math.random() * 2147483647)
+        image: handle_file(primaryImage),
+        multiimages: additionalImages.map(url => handle_file(url)),
+        seed: seed ?? Math.floor(Math.random() * 2147483647),
+        ss_guidance_strength: 7.5,
+        ss_sampling_steps: 12,
+        slat_guidance_strength: 3,
+        slat_sampling_steps: 12,
+        multiimage_algo: 'stochastic'
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('TRELLIS timeout')), TRELLIS_TIMEOUT_MS)
