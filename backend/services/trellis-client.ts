@@ -14,10 +14,11 @@ const replicate = new Replicate({
 })
 
 // TRELLIS - multi-view 3D generation (supports images array)
-const TRELLIS_MODEL = 'firtoz/trellis' as const
+// Using version hash for predictions.create API
+const TRELLIS_VERSION = 'firtoz/trellis:e8f6c45206993f297372f5436b90350817bd9b4a0d52d2a76df50c1c8afa2b3c' as const
 
 // Hunyuan3D-2 - single image 3D generation (higher quality but single view)
-const HUNYUAN_MODEL = 'tencent/hunyuan3d-2' as const
+const HUNYUAN_VERSION = 'tencent/hunyuan3d-2:b1b9449a1277e10402781c5d41eb30c0a0683504fb23fab591ca9dfc2aabe1cb' as const
 
 export interface TrellisInput {
   images: string[] // Array of image URLs [front, back, left, right]
@@ -79,7 +80,7 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     })
 
     let prediction = await replicate.predictions.create({
-      model: TRELLIS_MODEL,
+      version: TRELLIS_VERSION,
       input: modelInput
     })
 
@@ -189,7 +190,7 @@ export async function generate3DFromSingleImage(
 
   try {
     let prediction = await replicate.predictions.create({
-      model: HUNYUAN_MODEL,
+      version: HUNYUAN_VERSION,
       input: {
         image: imageUrl,
         steps: 50,
