@@ -7,7 +7,9 @@ import {
   ShoppingCart,
   X,
   Zap,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Palette,
+  Lock
 } from 'lucide-react'
 import type { User3DModel } from '../../types'
 import { Model3DViewer, Model3DFallbackViewer } from './Model3DViewer'
@@ -22,30 +24,17 @@ interface Model3DDetailModalProps {
   onRefresh: () => void
 }
 
-const PRINT_SIZES = [
-  { key: 'small', label: 'Small (3")', price: 15 },
-  { key: 'medium', label: 'Medium (5")', price: 25 },
-  { key: 'large', label: 'Large (8")', price: 45 },
-  { key: 'xlarge', label: 'X-Large (12")', price: 75 }
-]
+// Simplified pricing - PLA grey only
+const PRINT_PRICING = {
+  base_price: 25,
+  paint_kit_addon: 15
+}
 
-const MATERIALS = [
-  { key: 'pla', label: 'PLA', multiplier: 1.0, description: 'Standard, eco-friendly' },
-  { key: 'abs', label: 'ABS', multiplier: 1.2, description: 'Durable, heat-resistant' },
-  { key: 'petg', label: 'PETG', multiplier: 1.3, description: 'Strong, flexible' },
-  { key: 'resin', label: 'Resin', multiplier: 1.8, description: 'High detail, smooth' }
-]
-
-const COLORS = [
-  { key: 'white', label: 'White', hex: '#FFFFFF' },
-  { key: 'black', label: 'Black', hex: '#1a1a1a' },
-  { key: 'gray', label: 'Gray', hex: '#6B7280' },
-  { key: 'red', label: 'Red', hex: '#EF4444' },
-  { key: 'blue', label: 'Blue', hex: '#3B82F6' },
-  { key: 'green', label: 'Green', hex: '#22C55E' },
-  { key: 'gold', label: 'Gold', hex: '#F59E0B' },
-  { key: 'purple', label: 'Purple', hex: '#8B5CF6' }
-]
+// Download license pricing (ITC)
+const DOWNLOAD_PRICING = {
+  personal: 200,
+  commercial: 500
+}
 
 export function Model3DDetailModal({
   model,
@@ -55,15 +44,14 @@ export function Model3DDetailModal({
 }: Model3DDetailModalProps) {
   const { addToCart } = useCart()
 
-  const [activeTab, setActiveTab] = useState<'preview' | 'order'>('preview')
+  const [activeTab, setActiveTab] = useState<'preview' | 'order' | 'download'>('preview')
   const [isApproving, setIsApproving] = useState(false)
   const [isGenerating3D, setIsGenerating3D] = useState(false)
   const [isOrdering, setIsOrdering] = useState(false)
+  const [isPurchasingLicense, setIsPurchasingLicense] = useState(false)
 
-  // Order options
-  const [selectedSize, setSelectedSize] = useState('medium')
-  const [selectedMaterial, setSelectedMaterial] = useState('pla')
-  const [selectedColor, setSelectedColor] = useState('white')
+  // Order options - simplified to paint kit addon only
+  const [includePaintKit, setIncludePaintKit] = useState(false)
 
   if (!isOpen) return null
 
@@ -72,10 +60,14 @@ export function Model3DDetailModal({
   const isReady = model.status === 'ready'
   const canGenerate3D = hasAllAngles && !['generating_3d', 'ready'].includes(model.status)
 
-  // Calculate price
-  const sizePrice = PRINT_SIZES.find(s => s.key === selectedSize)?.price || 25
-  const materialMultiplier = MATERIALS.find(m => m.key === selectedMaterial)?.multiplier || 1.0
-  const totalPrice = Math.round(sizePrice * materialMultiplier * 100) / 100
+  // Check purchased licenses
+  const purchasedLicenses = (model as any).purchased_licenses || []
+  const hasPersonalLicense = purchasedLicenses.includes('personal')
+  const hasCommercialLicense = purchasedLicenses.includes('commercial')
+  const hasAnyLicense = hasPersonalLicense || hasCommercialLicense
+
+  // Calculate price - simplified
+  const totalPrice = PRINT_PRICING.base_price + (includePaintKit ? PRINT_PRICING.paint_kit_addon : 0)
 
   const handleApprove = async () => {
     setIsApproving(true)
@@ -105,9 +97,7 @@ export function Model3DDetailModal({
     setIsOrdering(true)
     try {
       const response = await api.post(`/api/3d-models/${model.id}/order`, {
-        material: selectedMaterial,
-        color: selectedColor,
-        size: selectedSize
+        include_paint_kit: includePaintKit
       })
 
       if (response.data?.ok && response.data?.product) {
@@ -125,14 +115,42 @@ export function Model3DDetailModal({
     }
   }
 
+  const handlePurchaseLicense = async (licenseType: 'personal' | 'commercial') => {
+    setIsPurchasingLicense(true)
+    try {
+      const response = await api.post(`/api/3d-models/${model.id}/purchase-download`, {
+        license_type: licenseType
+      })
+
+      if (response.data?.ok) {
+        onRefresh() // Refresh to get updated licenses
+      }
+    } catch (err: any) {
+      console.error('Failed to purchase license:', err)
+      if (err.response?.status === 402) {
+        alert('Insufficient ITC balance')
+      }
+    } finally {
+      setIsPurchasingLicense(false)
+    }
+  }
+
   const handleDownload = async (format: 'glb' | 'stl') => {
+    if (!hasAnyLicense) {
+      setActiveTab('download')
+      return
+    }
+
     try {
       const response = await api.get(`/api/3d-models/${model.id}/download/${format}`)
       if (response.data?.downloadUrl) {
         window.open(response.data.downloadUrl, '_blank')
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to get download URL:', err)
+      if (err.response?.status === 402) {
+        setActiveTab('download')
+      }
     }
   }
 
@@ -193,6 +211,18 @@ export function Model3DDetailModal({
                 }`}
               >
                 Order Print
+              </button>
+              <button
+                onClick={() => setActiveTab('download')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+                  activeTab === 'download'
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : 'text-muted hover:text-text'
+                }`}
+              >
+                <Download className="w-4 h-4" />
+                Download Files
+                {hasAnyLicense && <CheckCircle className="w-3 h-3 text-green-400" />}
               </button>
             </div>
           )}
@@ -264,7 +294,7 @@ export function Model3DDetailModal({
             </div>
           )}
 
-          {/* Order Tab */}
+          {/* Order Tab - Simplified PLA Grey + Paint Kit */}
           {activeTab === 'order' && isReady && (
             <div className="grid md:grid-cols-2 gap-6">
               {/* Preview */}
@@ -280,76 +310,191 @@ export function Model3DDetailModal({
 
               {/* Order Options */}
               <div className="space-y-4">
-                {/* Size */}
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">Size</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PRINT_SIZES.map(size => (
-                      <button
-                        key={size.key}
-                        onClick={() => setSelectedSize(size.key)}
-                        className={`p-3 rounded-lg border text-left transition-all ${
-                          selectedSize === size.key
-                            ? 'border-purple-500 bg-purple-500/10'
-                            : 'border-border hover:border-purple-400/50'
-                        }`}
-                      >
-                        <span className="block font-medium text-text">{size.label}</span>
-                        <span className="text-sm text-muted">${size.price}</span>
-                      </button>
-                    ))}
+                {/* Material & Color Info */}
+                <div className="p-4 rounded-xl bg-bg border border-border">
+                  <h4 className="font-medium text-text mb-2">Print Details</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted">Material</span>
+                      <span className="text-text font-medium">PLA</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted">Color</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full bg-gray-400 border border-border" />
+                        <span className="text-text font-medium">Grey</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted">Base Price</span>
+                      <span className="text-text font-medium">${PRINT_PRICING.base_price}</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Material */}
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">Material</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {MATERIALS.map(material => (
-                      <button
-                        key={material.key}
-                        onClick={() => setSelectedMaterial(material.key)}
-                        className={`p-3 rounded-lg border text-left transition-all ${
-                          selectedMaterial === material.key
-                            ? 'border-purple-500 bg-purple-500/10'
-                            : 'border-border hover:border-purple-400/50'
-                        }`}
-                      >
-                        <span className="block font-medium text-text">{material.label}</span>
-                        <span className="text-xs text-muted">{material.description}</span>
-                      </button>
-                    ))}
+                {/* Paint Kit Addon */}
+                <button
+                  onClick={() => setIncludePaintKit(!includePaintKit)}
+                  className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+                    includePaintKit
+                      ? 'border-purple-500 bg-purple-500/10'
+                      : 'border-border hover:border-purple-400/50 bg-bg'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      includePaintKit ? 'bg-purple-500 text-white' : 'bg-border'
+                    }`}>
+                      {includePaintKit && <CheckCircle className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <Palette className="w-5 h-5 text-purple-400" />
+                        <span className="font-medium text-text">Add Paint Kit</span>
+                        <span className="text-sm font-bold text-purple-400">+${PRINT_PRICING.paint_kit_addon}</span>
+                      </div>
+                      <p className="text-sm text-muted mt-1">
+                        Includes acrylic paints, brushes, and instructions - fun for the whole family!
+                      </p>
+                    </div>
                   </div>
-                </div>
+                </button>
 
-                {/* Color */}
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">Color</label>
-                  <div className="flex flex-wrap gap-2">
-                    {COLORS.map(color => (
-                      <button
-                        key={color.key}
-                        onClick={() => setSelectedColor(color.key)}
-                        className={`w-8 h-8 rounded-full border-2 transition-all ${
-                          selectedColor === color.key
-                            ? 'border-purple-500 ring-2 ring-purple-500/30'
-                            : 'border-transparent hover:border-purple-400/50'
-                        }`}
-                        style={{ backgroundColor: color.hex }}
-                        title={color.label}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Price */}
+                {/* Price Summary */}
                 <div className="p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20">
-                  <div className="flex items-center justify-between">
-                    <span className="text-text font-medium">Total</span>
-                    <span className="text-2xl font-bold text-purple-400">
-                      ${totalPrice.toFixed(2)}
-                    </span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted">Grey PLA Print</span>
+                      <span className="text-text">${PRINT_PRICING.base_price}</span>
+                    </div>
+                    {includePaintKit && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted">Paint Kit</span>
+                        <span className="text-text">+${PRINT_PRICING.paint_kit_addon}</span>
+                      </div>
+                    )}
+                    <div className="border-t border-border pt-2 flex items-center justify-between">
+                      <span className="text-text font-medium">Total</span>
+                      <span className="text-2xl font-bold text-purple-400">
+                        ${totalPrice.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Download Tab - License Purchase */}
+          {activeTab === 'download' && isReady && (
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Preview */}
+              <div className="aspect-square rounded-xl overflow-hidden bg-bg">
+                {model.glb_url && (
+                  <Model3DViewer
+                    glbUrl={model.glb_url}
+                    alt={model.prompt}
+                    className="w-full h-full"
+                  />
+                )}
+              </div>
+
+              {/* License Options */}
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                  <div className="flex items-start gap-3">
+                    <Lock className="w-5 h-5 text-amber-400 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-text">Download License Required</h4>
+                      <p className="text-sm text-muted mt-1">
+                        Purchase a license to download your 3D model files (GLB/STL). All designs include a watermark.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Personal License */}
+                <div className={`p-4 rounded-xl border-2 transition-all ${
+                  hasPersonalLicense
+                    ? 'border-green-500 bg-green-500/10'
+                    : 'border-border bg-bg'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-text">Personal Use</span>
+                      {hasPersonalLicense && <CheckCircle className="w-4 h-4 text-green-400" />}
+                    </div>
+                    <span className="text-lg font-bold text-blue-400">{DOWNLOAD_PRICING.personal} ITC</span>
+                  </div>
+                  <p className="text-sm text-muted mb-3">
+                    Print for yourself, gifts, or personal projects. Not for resale.
+                  </p>
+                  {hasPersonalLicense ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDownload('glb')}
+                        className="flex-1 px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-medium transition-all"
+                      >
+                        Download GLB
+                      </button>
+                      <button
+                        onClick={() => handleDownload('stl')}
+                        className="flex-1 px-4 py-2 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-400 font-medium transition-all"
+                      >
+                        Download STL
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handlePurchaseLicense('personal')}
+                      disabled={isPurchasingLicense}
+                      className="w-full px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition-all disabled:opacity-50"
+                    >
+                      {isPurchasingLicense ? 'Processing...' : 'Purchase Personal License'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Commercial License */}
+                <div className={`p-4 rounded-xl border-2 transition-all ${
+                  hasCommercialLicense
+                    ? 'border-green-500 bg-green-500/10'
+                    : 'border-border bg-bg'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-text">Commercial Use</span>
+                      {hasCommercialLicense && <CheckCircle className="w-4 h-4 text-green-400" />}
+                    </div>
+                    <span className="text-lg font-bold text-purple-400">{DOWNLOAD_PRICING.commercial} ITC</span>
+                  </div>
+                  <p className="text-sm text-muted mb-3">
+                    Sell prints, use in products, or for business purposes.
+                  </p>
+                  {hasCommercialLicense ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDownload('glb')}
+                        className="flex-1 px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-medium transition-all"
+                      >
+                        Download GLB
+                      </button>
+                      <button
+                        onClick={() => handleDownload('stl')}
+                        className="flex-1 px-4 py-2 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-400 font-medium transition-all"
+                      >
+                        Download STL
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handlePurchaseLicense('commercial')}
+                      disabled={isPurchasingLicense}
+                      className="w-full px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-medium transition-all disabled:opacity-50"
+                    >
+                      {isPurchasingLicense ? 'Processing...' : 'Purchase Commercial License'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -398,38 +543,42 @@ export function Model3DDetailModal({
             </button>
           )}
 
-          {isReady && (
+          {isReady && activeTab === 'order' && (
+            <button
+              onClick={handleOrder}
+              disabled={isOrdering}
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium flex items-center gap-2 transition-all"
+            >
+              {isOrdering ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Adding...</span>
+                </>
+              ) : (
+                <>
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>Add to Cart - ${totalPrice.toFixed(2)}</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {isReady && activeTab === 'preview' && (
             <>
               <button
-                onClick={() => handleDownload('glb')}
+                onClick={() => setActiveTab('download')}
                 className="px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-medium flex items-center gap-2 transition-all"
               >
                 <Download className="w-4 h-4" />
-                <span>GLB</span>
+                <span>Download Files</span>
+                {!hasAnyLicense && <Lock className="w-3 h-3" />}
               </button>
               <button
-                onClick={() => handleDownload('stl')}
-                className="px-4 py-2 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-400 font-medium flex items-center gap-2 transition-all"
-              >
-                <Download className="w-4 h-4" />
-                <span>STL</span>
-              </button>
-              <button
-                onClick={handleOrder}
-                disabled={isOrdering}
+                onClick={() => setActiveTab('order')}
                 className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium flex items-center gap-2 transition-all"
               >
-                {isOrdering ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Adding...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCart className="w-4 h-4" />
-                    <span>Add to Cart - ${totalPrice.toFixed(2)}</span>
-                  </>
-                )}
+                <ShoppingCart className="w-4 h-4" />
+                <span>Order Print</span>
               </button>
             </>
           )}

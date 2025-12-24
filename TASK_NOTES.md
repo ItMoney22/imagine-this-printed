@@ -155,3 +155,10 @@
   - **Canvas grab/pan tool**: Click and drag on empty canvas now pans (grab tool behavior). Single-finger touch on mobile also pans. Cursor shows grab/grabbing icons. Updated hint text.
   - Files created: `src/components/imagination/ITPEnhanceModal.tsx`
   - Files modified: `src/pages/ImaginationStation.tsx`, `src/components/imagination/index.ts`, `src/components/imagination/SheetCanvas.tsx`
+- 2025-12-24 **FEATURE** 3D Model business logic updates:
+  - **Download licensing**: Added ITC-based download licenses (200 personal, 500 commercial). Created `purchased_licenses` column in database.
+  - **Print ordering simplified**: PLA grey only with optional paint kit addon ($25 base + $15 paint kit). Removed multiple material/color/size options.
+  - **Watermarking**: All generated 3D model images (concept + 4 angles) now include watermark to prevent theft.
+  - **Frontend update**: Model3DDetailModal now has 3 tabs (Preview, Order Print, Download Files) with license purchase flow.
+  - Files created: `backend/services/watermark.ts`, `supabase/migrations/20251224_3d_models_licenses.sql`
+  - Files modified: `backend/routes/3d-models.ts`, `backend/worker/ai-jobs-worker.ts`, `src/components/3d-models/Model3DDetailModal.tsx`

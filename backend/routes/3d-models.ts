@@ -20,7 +20,15 @@ const supabase = createClient(
 const ITC_COSTS = {
   concept: 20,
   angles: 30,
-  convert: 50
+  convert: 50,
+  download_personal: 200,   // Personal use download
+  download_commercial: 500  // Commercial use download
+}
+
+// Print pricing - simplified to PLA grey only
+const PRINT_PRICING = {
+  base_price: 25,       // Grey PLA print
+  paint_kit_addon: 15   // Paint kit add-on for family fun projects
 }
 
 // Middleware to extract user from auth header
@@ -200,7 +208,7 @@ router.get('/list', requireAuth, async (req: Request, res: Response): Promise<an
 
 /**
  * GET /api/3d-models/pricing
- * Get current ITC pricing for 3D generation
+ * Get current ITC and print pricing for 3D generation
  */
 router.get('/pricing', async (req: Request, res: Response) => {
   await loadPricing()
@@ -211,7 +219,15 @@ router.get('/pricing', async (req: Request, res: Response) => {
       concept: ITC_COSTS.concept,
       angles: ITC_COSTS.angles,
       convert: ITC_COSTS.convert,
-      total: ITC_COSTS.concept + ITC_COSTS.angles + ITC_COSTS.convert
+      total: ITC_COSTS.concept + ITC_COSTS.angles + ITC_COSTS.convert,
+      download_personal: ITC_COSTS.download_personal,
+      download_commercial: ITC_COSTS.download_commercial
+    },
+    print: {
+      base_price: PRINT_PRICING.base_price,
+      paint_kit_addon: PRINT_PRICING.paint_kit_addon,
+      material: 'PLA',
+      color: 'Grey'
     },
     styles: Object.entries(STYLES).map(([key, value]) => ({
       key,
@@ -405,8 +421,104 @@ router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response)
 })
 
 /**
+ * POST /api/3d-models/:id/purchase-download
+ * Purchase download rights for GLB/STL file with ITC
+ * license_type: 'personal' (200 ITC) or 'commercial' (500 ITC)
+ */
+router.post('/:id/purchase-download', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const user = (req as any).user
+    const { id } = req.params
+    const { license_type = 'personal' } = req.body
+
+    if (!['personal', 'commercial'].includes(license_type)) {
+      return res.status(400).json({
+        error: 'Invalid license type',
+        validTypes: ['personal', 'commercial']
+      })
+    }
+
+    const { data: model, error } = await supabase
+      .from('user_3d_models')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single()
+
+    if (error || !model) {
+      return res.status(404).json({ error: 'Model not found' })
+    }
+
+    if (model.status !== 'ready') {
+      return res.status(400).json({
+        error: 'Model not ready for download',
+        currentStatus: model.status
+      })
+    }
+
+    // Check if already purchased this license type
+    const purchasedLicenses = model.purchased_licenses || []
+    if (purchasedLicenses.includes(license_type)) {
+      return res.status(400).json({
+        error: `Already purchased ${license_type} license`,
+        canDownload: true
+      })
+    }
+
+    // Calculate cost
+    const cost = license_type === 'commercial'
+      ? ITC_COSTS.download_commercial
+      : ITC_COSTS.download_personal
+
+    // Check ITC balance
+    const { data: wallet } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!wallet || wallet.itc_balance < cost) {
+      return res.status(402).json({
+        error: 'Insufficient ITC balance',
+        required: cost,
+        current: wallet?.itc_balance || 0
+      })
+    }
+
+    // Deduct ITC
+    await supabase.rpc('deduct_itc', {
+      p_user_id: user.id,
+      p_amount: cost,
+      p_reason: `3D model ${license_type} download license`
+    })
+
+    // Update model with purchased license
+    const newLicenses = [...purchasedLicenses, license_type]
+    await supabase
+      .from('user_3d_models')
+      .update({
+        purchased_licenses: newLicenses,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+
+    console.log('[3d-models] License purchased:', license_type, 'for model:', id, 'cost:', cost, 'ITC')
+
+    res.json({
+      ok: true,
+      license_type,
+      cost,
+      message: `${license_type} license purchased successfully`
+    })
+  } catch (error: any) {
+    console.error('[3d-models] Purchase download error:', error.message)
+    res.status(500).json({ error: 'Failed to purchase download' })
+  }
+})
+
+/**
  * GET /api/3d-models/:id/download/:format
- * Get download URL for GLB or STL file
+ * Get download URL for GLB or STL file (requires purchased license)
  */
 router.get('/:id/download/:format', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -438,6 +550,19 @@ router.get('/:id/download/:format', requireAuth, async (req: Request, res: Respo
       })
     }
 
+    // Check if user has purchased a license
+    const purchasedLicenses = model.purchased_licenses || []
+    if (purchasedLicenses.length === 0) {
+      return res.status(402).json({
+        error: 'Download license required',
+        message: 'Purchase a personal (200 ITC) or commercial (500 ITC) license to download',
+        pricing: {
+          personal: ITC_COSTS.download_personal,
+          commercial: ITC_COSTS.download_commercial
+        }
+      })
+    }
+
     const url = format === 'glb' ? model.glb_url : model.stl_url
 
     if (!url) {
@@ -450,7 +575,8 @@ router.get('/:id/download/:format', requireAuth, async (req: Request, res: Respo
       ok: true,
       format,
       downloadUrl: url,
-      filename: `figurine-${id.slice(0, 8)}.${format}`
+      filename: `figurine-${id.slice(0, 8)}.${format}`,
+      license: purchasedLicenses.includes('commercial') ? 'commercial' : 'personal'
     })
   } catch (error: any) {
     console.error('[3d-models] Download error:', error.message)
@@ -461,12 +587,13 @@ router.get('/:id/download/:format', requireAuth, async (req: Request, res: Respo
 /**
  * POST /api/3d-models/:id/order
  * Create cart-compatible product for 3D print ordering
+ * Simplified options: PLA grey only, optional paint kit addon
  */
 router.post('/:id/order', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const user = (req as any).user
     const { id } = req.params
-    const { material = 'pla', color = 'white', size = 'medium' } = req.body
+    const { include_paint_kit = false } = req.body
 
     const { data: model, error } = await supabase
       .from('user_3d_models')
@@ -486,30 +613,37 @@ router.post('/:id/order', requireAuth, async (req: Request, res: Response): Prom
       })
     }
 
-    // Calculate price based on size and material
-    const basePrice = calculatePrintPrice(size, material)
+    // Calculate price: base PLA grey print + optional paint kit
+    const basePrice = PRINT_PRICING.base_price
+    const paintKitPrice = include_paint_kit ? PRINT_PRICING.paint_kit_addon : 0
+    const totalPrice = basePrice + paintKitPrice
+
+    // Build description
+    const description = include_paint_kit
+      ? `3D printed figurine in grey PLA with paint kit - a fun family project!`
+      : `3D printed figurine in grey PLA, ${model.style} style`
 
     // Return cart-compatible product structure
     const product = {
       id: `3d-print-${model.id}`,
       name: `Custom 3D Figurine: ${model.prompt.substring(0, 40)}${model.prompt.length > 40 ? '...' : ''}`,
-      description: `3D printed figurine in ${model.style} style, ${size} size, ${material.toUpperCase()} material, ${color} color`,
+      description,
       category: '3d-prints',
-      price: basePrice,
+      price: totalPrice,
       images: [model.concept_image_url].filter(Boolean),
       metadata: {
         model_id: model.id,
         stl_url: model.stl_url,
         glb_url: model.glb_url,
-        material,
-        color,
-        size,
+        material: 'pla',
+        color: 'grey',
+        include_paint_kit,
         style: model.style,
         prompt: model.prompt
       }
     }
 
-    console.log('[3d-models] Order product created for model:', id)
+    console.log('[3d-models] Order product created for model:', id, 'paint kit:', include_paint_kit, 'price:', totalPrice)
 
     res.json({ ok: true, product })
   } catch (error: any) {
@@ -565,29 +699,5 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response): Promise<
     res.status(500).json({ error: 'Failed to delete model' })
   }
 })
-
-/**
- * Calculate print price based on size and material
- */
-function calculatePrintPrice(size: string, material: string): number {
-  const basePrices: Record<string, number> = {
-    small: 15,
-    medium: 25,
-    large: 45,
-    xlarge: 75
-  }
-
-  const materialMultipliers: Record<string, number> = {
-    pla: 1.0,
-    abs: 1.2,
-    petg: 1.3,
-    resin: 1.8
-  }
-
-  const basePrice = basePrices[size] || basePrices.medium
-  const multiplier = materialMultipliers[material] || 1.0
-
-  return Math.round(basePrice * multiplier * 100) / 100
-}
 
 export default router

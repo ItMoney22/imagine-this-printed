@@ -7,6 +7,7 @@ import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mo
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
+import { addWatermark } from '../services/watermark.js'
 import Replicate from 'replicate'
 
 // Initialize Replicate client for NanoBanana
@@ -1153,13 +1154,18 @@ async function process3DModelConcept(job: any) {
 
     console.log('[worker] 📸 Concept image generated:', imageUrl.substring(0, 80) + '...')
 
-    await updateJobProgress(job.id, '📤 Uploading concept image...', 2, 2)
+    await updateJobProgress(job.id, '🔒 Adding watermark to concept image...', 2, 3)
 
-    // Upload to GCS
+    // Add watermark to protect the image
+    const watermarkedBuffer = await addWatermark(imageUrl)
+
+    await updateJobProgress(job.id, '📤 Uploading concept image...', 3, 3)
+
+    // Upload watermarked image to GCS
     const gcsPath = `3d-models/${model_id}/concept.png`
-    const { publicUrl } = await uploadImageFromUrl(imageUrl, gcsPath)
+    const { publicUrl } = await uploadImageFromBuffer(watermarkedBuffer, gcsPath, 'image/png')
 
-    console.log('[worker] ✅ Concept uploaded to GCS:', publicUrl)
+    console.log('[worker] ✅ Watermarked concept uploaded to GCS:', publicUrl)
 
     // Update model with concept image
     await supabase
@@ -1289,12 +1295,15 @@ async function process3DModelAngles(job: any) {
         throw new Error(`No image URL for ${angle} view: ${JSON.stringify(output).substring(0, 100)}`)
       }
 
-      // Upload to GCS
+      // Add watermark to protect the image
+      const watermarkedBuffer = await addWatermark(imageUrl)
+
+      // Upload watermarked image to GCS
       const gcsPath = `3d-models/${model_id}/${angle}.png`
-      const { publicUrl } = await uploadImageFromUrl(imageUrl, gcsPath)
+      const { publicUrl } = await uploadImageFromBuffer(watermarkedBuffer, gcsPath, 'image/png')
 
       angleImages[angle] = publicUrl
-      console.log(`[worker] ✅ ${angle} view uploaded:`, publicUrl.substring(0, 60) + '...')
+      console.log(`[worker] ✅ ${angle} view (watermarked) uploaded:`, publicUrl.substring(0, 60) + '...')
     }
 
     await updateJobProgress(job.id, '✅ All angle views generated', angles.length + 1, angles.length + 1)
