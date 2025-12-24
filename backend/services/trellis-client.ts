@@ -1,20 +1,25 @@
 /**
  * TRELLIS Client Service
  *
- * Integrates with Hugging Face TRELLIS Space (JeffreyXiang/TRELLIS) via @gradio/client
- * for converting multi-view 2D images into 3D GLB models.
+ * Integrates with TRELLIS on Replicate (firtoz/trellis) for converting
+ * images into 3D GLB models.
  *
  * TRELLIS uses a structured latent representation for scalable 3D generation.
+ *
+ * Note: This uses the Replicate API instead of Hugging Face Space for reliability.
  */
 
-import { Client } from '@gradio/client'
+import Replicate from 'replicate'
 
-// TRELLIS HF Space configuration
-const TRELLIS_SPACE = 'JeffreyXiang/TRELLIS'
-const TRELLIS_TIMEOUT_MS = 300000 // 5 minutes for 3D generation
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN
+})
+
+// TRELLIS model on Replicate
+const TRELLIS_MODEL = 'firtoz/trellis' as const
 
 export interface TrellisInput {
-  images: string[] // Array of image URLs (ideally 4 angle views)
+  images: string[] // Array of image URLs (we'll use the first/front view)
   meshFormat?: 'glb' | 'obj'
   textureResolution?: number // 512, 1024, 2048
   seed?: number
@@ -27,17 +32,20 @@ export interface TrellisOutput {
 }
 
 /**
- * Generate a 3D model from multi-view images using TRELLIS
+ * Generate a 3D model from an image using TRELLIS via Replicate
  *
  * @param input - Input configuration with image URLs
  * @returns GLB URL and processing metadata
  */
 export async function generate3DModel(input: TrellisInput): Promise<TrellisOutput> {
-  const { images, meshFormat = 'glb', textureResolution = 1024, seed } = input
+  const { images, textureResolution = 1024, seed } = input
 
-  console.log('[trellis] Starting 3D generation:', {
+  // Use the front view as the primary image
+  const primaryImage = images[0]
+
+  console.log('[trellis] Starting 3D generation via Replicate:', {
     imageCount: images.length,
-    meshFormat,
+    primaryImage: primaryImage.substring(0, 80) + '...',
     textureResolution,
     seed: seed || 'random'
   })
@@ -45,100 +53,79 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
   const startTime = Date.now()
 
   try {
-    // Connect to TRELLIS Space
-    // Note: @gradio/client uses HF_TOKEN env var automatically
-    const client = await Client.connect(TRELLIS_SPACE)
+    // Create prediction with TRELLIS model on Replicate
+    console.log('[trellis] Creating Replicate prediction...')
 
-    console.log('[trellis] Connected to TRELLIS Space')
-
-    // TRELLIS API expects:
-    // - image: primary image (the first/front view)
-    // - multiimages: array of additional images for multi-view mode
-    const primaryImage = images[0]
-    const additionalImages = images.slice(1)
-
-    console.log('[trellis] Primary image:', primaryImage.substring(0, 80) + '...')
-    console.log('[trellis] Additional images count:', additionalImages.length)
-
-    // Download images and convert to Blobs for the Gradio client
-    const { handle_file } = await import('@gradio/client')
-
-    // Helper to download image as Blob
-    async function downloadAsBlob(url: string): Promise<Blob> {
-      console.log('[trellis] Downloading image:', url.substring(0, 60) + '...')
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error(`Failed to download image: ${response.status}`)
+    let prediction = await replicate.predictions.create({
+      model: TRELLIS_MODEL,
+      input: {
+        image: primaryImage,
+        seed: seed ?? Math.floor(Math.random() * 2147483647),
+        texture_size: textureResolution,
+        mesh_simplify: 0.95,
+        generate_color: true,
+        generate_model: true,
+        randomize_seed: seed === undefined,
+        generate_normal: true,
+        ss_sampling_steps: 12,
+        slat_sampling_steps: 12,
+        ss_guidance_strength: 7.5,
+        slat_guidance_strength: 3
       }
-      return await response.blob()
-    }
-
-    // Download all images
-    console.log('[trellis] Downloading images for TRELLIS...')
-    const primaryBlob = await downloadAsBlob(primaryImage)
-    const additionalBlobs = await Promise.all(additionalImages.map(downloadAsBlob))
-    console.log('[trellis] All images downloaded')
-
-    // Determine if we're using multi-image mode
-    const isMultiImage = additionalBlobs.length > 0
-
-    // TRELLIS parameters
-    // multiimages expects List[Tuple[Image, str]] - array of [image, label] tuples
-    const multiimagesWithLabels = additionalBlobs.map((blob, i) => {
-      const labels = ['back', 'left', 'right']
-      return [blob, labels[i] || `view_${i}`]
     })
 
-    const predictionParams = {
-      image: primaryBlob,
-      multiimages: multiimagesWithLabels,
-      is_multiimage: isMultiImage,
-      seed: seed ?? Math.floor(Math.random() * 2147483647),
-      ss_guidance_strength: 7.5,
-      ss_sampling_steps: 12,
-      slat_guidance_strength: 3,
-      slat_sampling_steps: 12,
-      multiimage_algo: 'stochastic'
-    }
+    console.log('[trellis] Prediction created:', prediction.id, 'status:', prediction.status)
 
-    console.log('[trellis] Submitting to TRELLIS with params:', {
-      hasImage: !!predictionParams.image,
-      multiimagesCount: multiimagesWithLabels.length,
-      isMultiImage,
-      seed: predictionParams.seed
-    })
-
-    const result = await Promise.race([
-      client.predict('/image_to_3d', predictionParams),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('TRELLIS timeout')), TRELLIS_TIMEOUT_MS)
-      )
-    ])
+    // Wait for the prediction to complete
+    prediction = await replicate.wait(prediction)
 
     const processingTime = (Date.now() - startTime) / 1000
-    console.log('[trellis] 3D generation complete in', processingTime.toFixed(2), 'seconds')
+    console.log('[trellis] Prediction completed:', prediction.id, 'status:', prediction.status)
+    console.log('[trellis] Processing time:', processingTime.toFixed(2), 'seconds')
 
-    // Extract GLB URL from result
-    // TRELLIS returns file data in result.data
-    const data = (result as any).data
+    if (prediction.status === 'failed') {
+      throw new Error(`TRELLIS prediction failed: ${prediction.error || 'Unknown error'}`)
+    }
+
+    if (prediction.status === 'canceled') {
+      throw new Error('TRELLIS prediction was canceled')
+    }
+
+    // Extract GLB URL from output
+    const output = prediction.output as any
+    console.log('[trellis] Raw output:', JSON.stringify(output).substring(0, 500))
+
     let glbUrl = ''
 
-    if (Array.isArray(data)) {
-      // Result is typically [glb_file_data, ...metadata]
-      const fileData = data[0]
-      if (typeof fileData === 'string') {
-        glbUrl = fileData
-      } else if (fileData?.url) {
-        glbUrl = fileData.url
-      } else if (fileData?.path) {
-        glbUrl = fileData.path
+    // The output format from firtoz/trellis contains:
+    // - model_file: the GLB file URL
+    // - video: preview video
+    // - color_image, normal_image: rendered views
+    if (output?.model_file) {
+      glbUrl = output.model_file
+    } else if (typeof output === 'string' && output.endsWith('.glb')) {
+      glbUrl = output
+    } else if (Array.isArray(output)) {
+      // Find the GLB file in the array
+      const glbFile = output.find((item: any) =>
+        typeof item === 'string' && item.includes('.glb')
+      )
+      if (glbFile) {
+        glbUrl = glbFile
       }
-    } else if (typeof data === 'object' && data !== null) {
-      glbUrl = data.url || data.path || data.output || ''
+    } else if (output && typeof output === 'object') {
+      // Try to find any GLB URL in the object
+      const values = Object.values(output)
+      const glbValue = values.find((v: any) =>
+        typeof v === 'string' && v.includes('.glb')
+      )
+      if (glbValue) {
+        glbUrl = glbValue as string
+      }
     }
 
     if (!glbUrl) {
-      console.error('[trellis] Could not extract GLB URL from result:', JSON.stringify(data, null, 2))
+      console.error('[trellis] Could not extract GLB URL from output:', JSON.stringify(output, null, 2))
       throw new Error('No GLB URL in TRELLIS response')
     }
 
@@ -147,7 +134,7 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     return {
       glbUrl,
       processingTime,
-      raw: data
+      raw: output
     }
   } catch (error: any) {
     const elapsed = (Date.now() - startTime) / 1000
@@ -155,23 +142,20 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     console.error('[trellis] Error details:', {
       message: error.message,
       name: error.name,
-      stack: error.stack?.substring(0, 500),
-      cause: error.cause,
-      full: JSON.stringify(error, Object.getOwnPropertyNames(error)).substring(0, 1000)
+      stack: error.stack?.substring(0, 500)
     })
     throw new Error(`TRELLIS 3D generation failed: ${error.message}`)
   }
 }
 
 /**
- * Check if TRELLIS Space is available and responsive
+ * Check if TRELLIS is available via Replicate
  */
 export async function checkTrellisHealth(): Promise<boolean> {
   try {
-    const client = await Client.connect(TRELLIS_SPACE)
-
-    // Just check connection - don't run inference
-    console.log('[trellis] Health check passed - Space is accessible')
+    // Just verify the model exists
+    const model = await replicate.models.get('firtoz', 'trellis')
+    console.log('[trellis] Health check passed - Model available:', model.name)
     return true
   } catch (error: any) {
     console.error('[trellis] Health check failed:', error.message)
@@ -180,7 +164,7 @@ export async function checkTrellisHealth(): Promise<boolean> {
 }
 
 /**
- * Alternative: Use single image mode if multi-view not available
+ * Generate 3D model from a single image
  */
 export async function generate3DFromSingleImage(
   imageUrl: string,
