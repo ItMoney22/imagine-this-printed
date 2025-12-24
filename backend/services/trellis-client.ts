@@ -79,10 +79,20 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
     const additionalBlobs = await Promise.all(additionalImages.map(downloadAsBlob))
     console.log('[trellis] All images downloaded')
 
-    // TRELLIS parameters - using only the essential ones
+    // Determine if we're using multi-image mode
+    const isMultiImage = additionalBlobs.length > 0
+
+    // TRELLIS parameters
+    // multiimages expects List[Tuple[Image, str]] - array of [image, label] tuples
+    const multiimagesWithLabels = additionalBlobs.map((blob, i) => {
+      const labels = ['back', 'left', 'right']
+      return [blob, labels[i] || `view_${i}`]
+    })
+
     const predictionParams = {
       image: primaryBlob,
-      multiimages: additionalBlobs,
+      multiimages: multiimagesWithLabels,
+      is_multiimage: isMultiImage,
       seed: seed ?? Math.floor(Math.random() * 2147483647),
       ss_guidance_strength: 7.5,
       ss_sampling_steps: 12,
@@ -93,7 +103,8 @@ export async function generate3DModel(input: TrellisInput): Promise<TrellisOutpu
 
     console.log('[trellis] Submitting to TRELLIS with params:', {
       hasImage: !!predictionParams.image,
-      multiimagesCount: predictionParams.multiimages.length,
+      multiimagesCount: multiimagesWithLabels.length,
+      isMultiImage,
       seed: predictionParams.seed
     })
 
