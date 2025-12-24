@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
 import { supabase } from '../lib/supabase.js';
+import { sendWelcomeEmail } from '../utils/email.js';
 const router = Router();
 const prisma = new PrismaClient();
 router.post('/brevo', async (req, res) => {
@@ -85,6 +86,44 @@ router.post('/brevo', async (req, res) => {
     }
     catch (error) {
         console.error('[Brevo Webhook] Processing error:', error);
+        return res.status(200).json({ received: true, error: error.message });
+    }
+});
+router.post('/supabase-auth', async (req, res) => {
+    try {
+        const webhookSecret = process.env.SUPABASE_WEBHOOK_SECRET;
+        if (webhookSecret) {
+            const receivedSecret = req.headers['x-webhook-secret'];
+            if (receivedSecret !== webhookSecret) {
+                console.warn('[Supabase Webhook] Invalid webhook secret');
+                return res.status(401).json({ error: 'Invalid webhook secret' });
+            }
+        }
+        const payload = req.body;
+        console.log('[Supabase Webhook] Received:', payload.type, 'on', payload.table);
+        if (payload.type === 'INSERT' && payload.table === 'users') {
+            const user = payload.record;
+            const email = user.email;
+            const metadata = user.raw_user_meta_data || {};
+            const username = metadata.username || metadata.display_name || metadata.first_name || email?.split('@')[0] || 'Friend';
+            if (email) {
+                console.log('[Supabase Webhook] New user signup:', email, 'username:', username);
+                try {
+                    await sendWelcomeEmail(email, username);
+                    console.log('[Supabase Webhook] ✅ Welcome email sent to:', email);
+                }
+                catch (emailError) {
+                    console.error('[Supabase Webhook] ❌ Failed to send welcome email:', emailError);
+                }
+            }
+            else {
+                console.warn('[Supabase Webhook] New user has no email:', user.id);
+            }
+        }
+        return res.status(200).json({ received: true });
+    }
+    catch (error) {
+        console.error('[Supabase Webhook] Processing error:', error);
         return res.status(200).json({ received: true, error: error.message });
     }
 });
