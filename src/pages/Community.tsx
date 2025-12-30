@@ -2,9 +2,14 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { socialService } from '../utils/social-service'
 import type { SocialPost, SocialSubmission } from '../types'
+import { CommunityShowcase } from '../components/community'
+import { Sparkles, Share2, Users, Rocket } from 'lucide-react'
+
+type TabType = 'showcase' | 'social'
 
 const Community: React.FC = () => {
   const { user } = useAuth()
+  const [activeTab, setActiveTab] = useState<TabType>('showcase')
   const [posts, setPosts] = useState<SocialPost[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [sortBy, setSortBy] = useState<'recent' | 'votes' | 'featured'>('recent')
@@ -27,8 +32,10 @@ const Community: React.FC = () => {
   ]
 
   useEffect(() => {
-    loadPosts()
-  }, [sortBy, platformFilter, tagFilter])
+    if (activeTab === 'social') {
+      loadPosts()
+    }
+  }, [sortBy, platformFilter, tagFilter, activeTab])
 
   const loadPosts = async () => {
     try {
@@ -163,19 +170,8 @@ const Community: React.FC = () => {
     return num.toString()
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-slate-500">Loading community posts...</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
+    <div className="min-h-screen bg-bg pb-16">
       {/* Header Section */}
       <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
@@ -186,276 +182,336 @@ const Community: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 relative">
           <div className="text-center">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold text-white mb-4">
-              Community Showcase
+              Community
             </h1>
             <p className="text-lg sm:text-xl text-purple-100 mb-8 max-w-2xl mx-auto">
-              See how our customers bring their designs to life! Share your creations and get featured.
+              Discover amazing creations, boost your favorites, and earn ITC rewards!
             </p>
-            <button
-              onClick={() => setShowSubmissionModal(true)}
-              className="inline-flex items-center gap-2 px-8 py-3 bg-white text-purple-700 rounded-xl font-semibold hover:bg-purple-50 transition-colors shadow-lg"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Submit Your Creation
-            </button>
+
+            {/* Tab Buttons */}
+            <div className="inline-flex items-center gap-2 p-1 bg-white/10 rounded-xl backdrop-blur-sm">
+              <button
+                onClick={() => setActiveTab('showcase')}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+                  activeTab === 'showcase'
+                    ? 'bg-white text-purple-700 shadow-lg'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Sparkles className="w-5 h-5" />
+                Creator Showcase
+              </button>
+              <button
+                onClick={() => setActiveTab('social')}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+                  activeTab === 'social'
+                    ? 'bg-white text-purple-700 shadow-lg'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Share2 className="w-5 h-5" />
+                Social Media
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Tab Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filters Card */}
-        <div className="bg-white rounded-2xl shadow-soft border border-slate-100 mb-8 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              {/* Sort By */}
-              <div className="flex-1 sm:max-w-[200px]">
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Sort by</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-                >
-                  <option value="recent">Most Recent</option>
-                  <option value="votes">Top Voted</option>
-                  <option value="featured">Featured</option>
-                </select>
-              </div>
-
-              {/* Platform Filter */}
-              <div className="flex-1 sm:max-w-[200px]">
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Platform</label>
-                <select
-                  value={platformFilter}
-                  onChange={(e) => setPlatformFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-                >
-                  <option value="all">All Platforms</option>
-                  <option value="tiktok">TikTok</option>
-                  <option value="instagram">Instagram</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="twitter">Twitter/X</option>
-                </select>
-              </div>
-
-              {/* Active Filters Count */}
-              <div className="flex items-end">
-                {tagFilter.length > 0 && (
-                  <button
-                    onClick={() => setTagFilter([])}
-                    className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-                  >
-                    Clear {tagFilter.length} filter{tagFilter.length > 1 ? 's' : ''}
-                  </button>
-                )}
+        {activeTab === 'showcase' ? (
+          /* Creator Showcase Tab */
+          <div>
+            {/* Info Banner */}
+            <div className="mb-8 p-4 bg-gradient-to-r from-orange-500/10 to-yellow-500/10 border border-orange-500/20 rounded-xl">
+              <div className="flex items-start gap-3">
+                <Rocket className="w-6 h-6 text-orange-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-text mb-1">Boost & Earn ITC</h3>
+                  <p className="text-sm text-muted">
+                    Vote on your favorite designs for free, or spend ITC to boost them higher!
+                    Creators earn 1 ITC for every boost they receive. The more boosts, the higher they rank!
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Tag Filters */}
-          <div className="px-6 py-4 bg-slate-50/50">
-            <label className="block text-sm font-medium text-slate-700 mb-3">Filter by tags</label>
-            <div className="flex flex-wrap gap-2">
-              {availableTags.map(tag => (
-                <button
-                  key={tag}
-                  onClick={() => toggleTag(tag)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-                    tagFilter.includes(tag)
-                      ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:border-purple-300 hover:text-purple-600'
-                  }`}
-                >
-                  #{tag}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Posts Grid */}
-        {posts.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-12 text-center">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-slate-100 flex items-center justify-center">
-              <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-display font-bold text-slate-900 mb-2">No posts found</h3>
-            <p className="text-slate-500 mb-6">Try adjusting your filters or be the first to submit content!</p>
-            <button
-              onClick={() => setShowSubmissionModal(true)}
-              className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium transition-colors"
-            >
-              Submit Your Creation
-            </button>
+            <CommunityShowcase showLeaderboard={true} />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {posts.map((post, index) => (
-              <div
-                key={post.id}
-                className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden hover:shadow-soft-lg transition-all group"
-                style={{ animationDelay: `${index * 50}ms` }}
+          /* Social Media Tab */
+          <div>
+            {/* Submit Button */}
+            <div className="flex justify-end mb-6">
+              <button
+                onClick={() => setShowSubmissionModal(true)}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors shadow-lg"
               >
-                {/* Post Header */}
-                <div className="px-4 py-3 border-b border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={post.author.profileImage || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.displayName || 'User')}&background=9333ea&color=fff`}
-                        alt={post.author.displayName}
-                        className="w-10 h-10 rounded-full border-2 border-slate-100"
-                      />
-                      <div>
-                        <p className="font-semibold text-slate-900 text-sm">{post.author.displayName}</p>
-                        <p className="text-xs text-slate-500">@{post.author.username}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${getPlatformStyles(post.platform)}`}>
-                        {getPlatformIcon(post.platform)}
-                        <span className="capitalize">{post.platform}</span>
-                      </span>
-                      {post.isFeatured && (
-                        <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                          Featured
-                        </span>
-                      )}
-                    </div>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Submit Your Creation
+              </button>
+            </div>
+
+            {/* Filters Card */}
+            <div className="bg-card rounded-2xl shadow-soft border border-white/10 mb-8 overflow-hidden">
+              <div className="px-6 py-4 border-b border-white/10">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  {/* Sort By */}
+                  <div className="flex-1 sm:max-w-[200px]">
+                    <label className="block text-sm font-medium text-muted mb-1.5">Sort by</label>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-bg border border-white/10 rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    >
+                      <option value="recent">Most Recent</option>
+                      <option value="votes">Top Voted</option>
+                      <option value="featured">Featured</option>
+                    </select>
+                  </div>
+
+                  {/* Platform Filter */}
+                  <div className="flex-1 sm:max-w-[200px]">
+                    <label className="block text-sm font-medium text-muted mb-1.5">Platform</label>
+                    <select
+                      value={platformFilter}
+                      onChange={(e) => setPlatformFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-bg border border-white/10 rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    >
+                      <option value="all">All Platforms</option>
+                      <option value="tiktok">TikTok</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="youtube">YouTube</option>
+                      <option value="twitter">Twitter/X</option>
+                    </select>
+                  </div>
+
+                  {/* Active Filters Count */}
+                  <div className="flex items-end">
+                    {tagFilter.length > 0 && (
+                      <button
+                        onClick={() => setTagFilter([])}
+                        className="text-sm text-purple-400 hover:text-purple-300 font-medium"
+                      >
+                        Clear {tagFilter.length} filter{tagFilter.length > 1 ? 's' : ''}
+                      </button>
+                    )}
                   </div>
                 </div>
+              </div>
 
-                {/* Post Content */}
-                <div className="relative aspect-square bg-slate-100">
-                  {post.platform === 'tiktok' && post.embedCode ? (
-                    <div
-                      className="w-full h-full overflow-hidden"
-                      dangerouslySetInnerHTML={{ __html: post.embedCode }}
-                    />
-                  ) : (
-                    <div className="relative h-full">
-                      <img
-                        src={post.thumbnailUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.title || 'Post')}&size=400&background=f1f5f9&color=64748b`}
-                        alt={post.title}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-all flex items-end justify-center pb-6">
+              {/* Tag Filters */}
+              <div className="px-6 py-4 bg-bg/50">
+                <label className="block text-sm font-medium text-muted mb-3">Filter by tags</label>
+                <div className="flex flex-wrap gap-2">
+                  {availableTags.map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => toggleTag(tag)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                        tagFilter.includes(tag)
+                          ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
+                          : 'bg-white/5 text-muted border border-white/10 hover:border-purple-500/30 hover:text-purple-400'
+                      }`}
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Posts Grid */}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+                  <p className="text-muted">Loading posts...</p>
+                </div>
+              </div>
+            ) : posts.length === 0 ? (
+              <div className="bg-card rounded-2xl shadow-soft border border-white/10 p-12 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-white/5 flex items-center justify-center">
+                  <Users className="w-10 h-10 text-muted" />
+                </div>
+                <h3 className="text-xl font-display font-bold text-text mb-2">No posts found</h3>
+                <p className="text-muted mb-6">Try adjusting your filters or be the first to submit content!</p>
+                <button
+                  onClick={() => setShowSubmissionModal(true)}
+                  className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium transition-colors"
+                >
+                  Submit Your Creation
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {posts.map((post, index) => (
+                  <div
+                    key={post.id}
+                    className="bg-card rounded-2xl shadow-soft border border-white/10 overflow-hidden hover:border-purple-500/30 transition-all group"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    {/* Post Header */}
+                    <div className="px-4 py-3 border-b border-white/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={post.author.profileImage || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.displayName || 'User')}&background=9333ea&color=fff`}
+                            alt={post.author.displayName}
+                            className="w-10 h-10 rounded-full border-2 border-white/10"
+                          />
+                          <div>
+                            <p className="font-semibold text-text text-sm">{post.author.displayName}</p>
+                            <p className="text-xs text-muted">@{post.author.username}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${getPlatformStyles(post.platform)}`}>
+                            {getPlatformIcon(post.platform)}
+                            <span className="capitalize">{post.platform}</span>
+                          </span>
+                          {post.isFeatured && (
+                            <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/20">
+                              Featured
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Post Content */}
+                    <div className="relative aspect-square bg-bg/50">
+                      {post.platform === 'tiktok' && post.embedCode ? (
+                        <div
+                          className="w-full h-full overflow-hidden"
+                          dangerouslySetInnerHTML={{ __html: post.embedCode }}
+                        />
+                      ) : (
+                        <div className="relative h-full">
+                          <img
+                            src={post.thumbnailUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.title || 'Post')}&size=400&background=1a1a2e&color=64748b`}
+                            alt={post.title}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-all flex items-end justify-center pb-6">
+                            <a
+                              href={post.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-5 py-2.5 bg-white text-slate-900 rounded-full font-medium shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-transform"
+                            >
+                              View Original
+                            </a>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Post Info */}
+                    <div className="p-4">
+                      <h3 className="font-semibold text-text mb-2 line-clamp-1">{post.title}</h3>
+                      {post.description && (
+                        <p className="text-sm text-muted mb-3 line-clamp-2">{post.description}</p>
+                      )}
+
+                      {/* Tags */}
+                      {post.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {post.tags.slice(0, 3).map(tag => (
+                            <span key={tag} className="px-2 py-0.5 text-xs bg-white/5 text-muted rounded-md">
+                              #{tag}
+                            </span>
+                          ))}
+                          {post.tags.length > 3 && (
+                            <span className="px-2 py-0.5 text-xs bg-white/5 text-muted rounded-md">
+                              +{post.tags.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Engagement Stats */}
+                      <div className="flex items-center justify-between text-sm text-muted mb-3 pb-3 border-b border-white/10">
+                        <div className="flex items-center gap-4">
+                          <span className="flex items-center gap-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            {formatNumber(post.viewCount)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                            </svg>
+                            {formatNumber(post.engagement.likes)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            {formatNumber(post.engagement.comments)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted">
+                          {new Date(post.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleVote(post.id, 'up')}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white/5 hover:bg-purple-500/20 hover:text-purple-400 rounded-lg transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                            </svg>
+                            <span className="font-medium">{post.votes}</span>
+                          </button>
+                          <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            <span>{post.comments.length}</span>
+                          </button>
+                        </div>
                         <a
                           href={post.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-5 py-2.5 bg-white text-slate-900 rounded-full font-medium shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-transform"
+                          className="text-purple-400 hover:text-purple-300 text-sm font-medium flex items-center gap-1"
                         >
-                          View Original
+                          View
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
                         </a>
                       </div>
                     </div>
-                  )}
-                </div>
-
-                {/* Post Info */}
-                <div className="p-4">
-                  <h3 className="font-semibold text-slate-900 mb-2 line-clamp-1">{post.title}</h3>
-                  {post.description && (
-                    <p className="text-sm text-slate-500 mb-3 line-clamp-2">{post.description}</p>
-                  )}
-
-                  {/* Tags */}
-                  {post.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {post.tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded-md">
-                          #{tag}
-                        </span>
-                      ))}
-                      {post.tags.length > 3 && (
-                        <span className="px-2 py-0.5 text-xs bg-slate-100 text-slate-500 rounded-md">
-                          +{post.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Engagement Stats */}
-                  <div className="flex items-center justify-between text-sm text-slate-500 mb-3 pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-4">
-                      <span className="flex items-center gap-1">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                        {formatNumber(post.viewCount)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                        </svg>
-                        {formatNumber(post.engagement.likes)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
-                        {formatNumber(post.engagement.comments)}
-                      </span>
-                    </div>
-                    <span className="text-xs text-slate-400">
-                      {new Date(post.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
                   </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleVote(post.id, 'up')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-100 hover:bg-purple-100 hover:text-purple-700 rounded-lg transition-colors"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                        </svg>
-                        <span className="font-medium">{post.votes}</span>
-                      </button>
-                      <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
-                        <span>{post.comments.length}</span>
-                      </button>
-                    </div>
-                    <a
-                      href={post.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-purple-600 hover:text-purple-700 text-sm font-medium flex items-center gap-1"
-                    >
-                      View
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
-                  </div>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
 
       {/* Submission Modal */}
       {showSubmissionModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-white/10">
+            <div className="px-6 py-4 border-b border-white/10 sticky top-0 bg-card">
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-display font-bold text-slate-900">Submit Your Creation</h3>
+                <h3 className="text-xl font-display font-bold text-text">Submit Your Creation</h3>
                 <button
                   onClick={() => setShowSubmissionModal(false)}
-                  className="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
+                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
                 >
-                  <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -463,14 +519,14 @@ const Community: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-6">
-              <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
-                <h4 className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
+              <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
+                <h4 className="font-semibold text-purple-400 mb-2 flex items-center gap-2">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Submission Guidelines
                 </h4>
-                <ul className="text-sm text-purple-800 space-y-1.5">
+                <ul className="text-sm text-purple-300/80 space-y-1.5">
                   <li className="flex items-start gap-2">
                     <span className="text-purple-500 mt-0.5">•</span>
                     Share content featuring our products or designs
@@ -491,93 +547,93 @@ const Community: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-medium text-muted mb-2">
                   Post URL <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="url"
                   value={submissionForm.url}
                   onChange={(e) => setSubmissionForm(prev => ({ ...prev, url: e.target.value }))}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  className="w-full px-4 py-3 bg-bg border border-white/10 rounded-xl text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
                   placeholder="https://www.tiktok.com/@user/video/123..."
                   required
                 />
-                <p className="text-xs text-slate-500 mt-1.5">
+                <p className="text-xs text-muted mt-1.5">
                   Paste the full URL of your TikTok, Instagram, YouTube, or Twitter post
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-medium text-muted mb-2">
                   Featured Products <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={submissionForm.featuredProducts}
                   onChange={(e) => setSubmissionForm(prev => ({ ...prev, featuredProducts: e.target.value }))}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  className="w-full px-4 py-3 bg-bg border border-white/10 rounded-xl text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
                   placeholder="Custom T-Shirt, DTF Transfer, etc."
                   required
                 />
-                <p className="text-xs text-slate-500 mt-1.5">
+                <p className="text-xs text-muted mt-1.5">
                   List the products shown in your content (separated by commas)
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Your Handle <span className="text-slate-400">(Optional)</span>
+                <label className="block text-sm font-medium text-muted mb-2">
+                  Your Handle <span className="text-muted">(Optional)</span>
                 </label>
                 <input
                   type="text"
                   value={submissionForm.handle}
                   onChange={(e) => setSubmissionForm(prev => ({ ...prev, handle: e.target.value }))}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  className="w-full px-4 py-3 bg-bg border border-white/10 rounded-xl text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
                   placeholder="@yourusername"
                 />
-                <p className="text-xs text-slate-500 mt-1.5">
+                <p className="text-xs text-muted mt-1.5">
                   Your social media handle for attribution
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Description <span className="text-slate-400">(Optional)</span>
+                <label className="block text-sm font-medium text-muted mb-2">
+                  Description <span className="text-muted">(Optional)</span>
                 </label>
                 <textarea
                   value={submissionForm.description}
                   onChange={(e) => setSubmissionForm(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 resize-none"
+                  className="w-full px-4 py-3 bg-bg border border-white/10 rounded-xl text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 resize-none"
                   placeholder="Brief description of your content..."
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Additional Notes <span className="text-slate-400">(Optional)</span>
+                <label className="block text-sm font-medium text-muted mb-2">
+                  Additional Notes <span className="text-muted">(Optional)</span>
                 </label>
                 <textarea
                   value={submissionForm.notes}
                   onChange={(e) => setSubmissionForm(prev => ({ ...prev, notes: e.target.value }))}
                   rows={2}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 resize-none"
+                  className="w-full px-4 py-3 bg-bg border border-white/10 rounded-xl text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 resize-none"
                   placeholder="Anything else you'd like us to know..."
                 />
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between sticky bottom-0 bg-white">
+            <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between sticky bottom-0 bg-card">
               <button
                 onClick={() => setShowSubmissionModal(false)}
-                className="px-6 py-2.5 text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                className="px-6 py-2.5 text-muted hover:text-text font-medium transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmitContent}
                 disabled={isSubmitting || !submissionForm.url || !submissionForm.featuredProducts}
-                className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-semibold transition-all"
+                className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:bg-white/10 disabled:text-muted disabled:cursor-not-allowed font-semibold transition-all"
               >
                 {isSubmitting ? (
                   <span className="flex items-center gap-2">

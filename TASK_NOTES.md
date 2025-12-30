@@ -162,3 +162,19 @@
   - **Frontend update**: Model3DDetailModal now has 3 tabs (Preview, Order Print, Download Files) with license purchase flow.
   - Files created: `backend/services/watermark.ts`, `supabase/migrations/20251224_3d_models_licenses.sql`
   - Files modified: `backend/routes/3d-models.ts`, `backend/worker/ai-jobs-worker.ts`, `src/components/3d-models/Model3DDetailModal.tsx`
+- 2025-12-30 **FEATURE** Admin Dashboard Product Form Enhancements:
+  - **Size variants**: Added category-aware size checkboxes (S/M/L/XL for apparel, oz for tumblers, dimensions for DTF)
+  - **Color variants**: Added color picker with 10 preset swatches + custom hex color input with visual picker
+  - **Image upload**: Replaced URL text input with drag-and-drop file upload zone with thumbnail previews
+  - **Digital file upload**: Added separate upload section for digital product deliverables (STL, PDF, ZIP, etc.)
+  - **AI Assist**: Added AI-powered name/description suggestions using GPT-4 Vision analysis of uploaded product images
+  - Files created: `backend/routes/admin/products.ts`, `supabase/migrations/20251230_product_variants.sql`, `docs/plans/2025-12-30-product-form-enhancements-design.md`
+  - Files modified: `src/pages/AdminDashboard.tsx`, `backend/index.ts`
+- 2025-12-30 **FEATURE** Community Page with Creator Showcase and Boost System:
+  - **Database**: Created `community_posts`, `community_boosts`, `community_boost_earnings` tables with RLS policies, triggers for auto-updating boost counts, and leaderboard view
+  - **Backend API**: Created `/api/community` routes for feed (with sorting/filtering), leaderboard, free vote toggle, paid ITC boost, earnings tracking, post publishing
+  - **Frontend Components**: Created `CommunityPostCard.tsx` (post with vote/boost buttons), `PaidBoostModal.tsx` (ITC spend dialog), `CreatorLeaderboard.tsx` (top 5 creators), `CommunityShowcase.tsx` (main container)
+  - **Community Page**: Updated `Community.tsx` with tabs for "Creator Showcase" (new boost feature) and "Social Media" (existing functionality)
+  - **Boost System**: Free votes (1 per user per post, toggleable) + Paid ITC boosts (1-100 ITC, increases visibility). Creators earn 1 ITC per boost received.
+  - Files created: `supabase/migrations/20251231_community_features.sql`, `backend/routes/community.ts`, `src/utils/community-service.ts`, `src/components/community/CommunityPostCard.tsx`, `src/components/community/PaidBoostModal.tsx`, `src/components/community/CreatorLeaderboard.tsx`, `src/components/community/CommunityShowcase.tsx`, `src/components/community/index.ts`
+  - Files modified: `backend/index.ts`, `backend/middleware/supabaseAuth.ts` (added optionalAuth), `src/types/index.ts`, `src/pages/Community.tsx`

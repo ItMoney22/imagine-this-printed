@@ -1587,3 +1587,106 @@ export interface Order3DPrintOptions {
   color: string;
   size: 'small' | 'medium' | 'large' | 'xlarge';
 }
+
+// ============================================
+// Community Feature Types
+// ============================================
+
+export interface CommunityPost {
+  id: string
+  post_type: 'design' | 'vendor_product'
+  product_id?: string
+  vendor_product_id?: string
+  creator_id: string
+  creator_username: string
+  creator_display_name?: string
+  creator_avatar_url?: string
+  creator_role?: string
+  title?: string
+  description?: string
+  primary_image_url: string
+  additional_images: string[]
+  free_vote_count: number
+  paid_boost_count: number
+  total_boost_score: number
+  view_count: number
+  status: 'active' | 'hidden' | 'featured'
+  is_featured: boolean
+  featured_at?: string
+  created_at: string
+  updated_at: string
+  // Computed from user's perspective
+  user_has_voted?: boolean
+}
+
+export interface CommunityBoost {
+  id: string
+  post_id: string
+  user_id: string
+  boost_type: 'free_vote' | 'paid_boost'
+  itc_amount: number
+  boost_points: number
+  status: 'active' | 'removed'
+  created_at: string
+}
+
+export interface CommunityBoostEarning {
+  id: string
+  post_id?: string
+  creator_id: string
+  boost_id?: string
+  booster_id?: string
+  itc_earned: number
+  boost_type: 'free_vote' | 'paid_boost'
+  status: 'pending' | 'credited' | 'failed'
+  credited_at?: string
+  itc_transaction_id?: string
+  created_at: string
+  // Joined data
+  community_posts?: {
+    title?: string
+    primary_image_url?: string
+  }
+}
+
+export interface CommunityLeaderboardEntry {
+  creator_id: string
+  creator_username: string
+  creator_display_name?: string
+  creator_avatar_url?: string
+  post_count: number
+  total_boosts_received: number
+  total_itc_earned: number
+  rank: number
+}
+
+export interface CommunityFeedResponse {
+  ok: boolean
+  posts: CommunityPost[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+  }
+}
+
+export interface CommunityLeaderboardResponse {
+  ok: boolean
+  leaderboard: CommunityLeaderboardEntry[]
+}
+
+export interface CommunityBoostResponse {
+  ok: boolean
+  voted?: boolean
+  message: string
+  boost_points?: number
+  new_balance?: number
+}
+
+export interface CommunityEarningsResponse {
+  ok: boolean
+  earnings: CommunityBoostEarning[]
+  total_earned: number
+  count: number
+}

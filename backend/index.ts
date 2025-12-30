@@ -41,6 +41,7 @@ import couponsRouter from './routes/coupons.js'
 import giftCardsRouter from './routes/gift-cards.js'
 import marketingRouter from './routes/marketing.js'
 import socialRouter from './routes/social.js'
+import communityRouter from './routes/community.js'
 import adminControlPanelRouter from './routes/admin/control-panel.js'
 import adminEmailTemplatesRouter from './routes/admin/email-templates.js'
 import threeDModelsRouter from './routes/3d-models.js'
@@ -177,6 +178,7 @@ app.use('/api/coupons', couponsRouter)
 app.use('/api/gift-cards', giftCardsRouter)
 app.use('/api/marketing', marketingRouter)
 app.use('/api/social', socialRouter)
+app.use('/api/community', communityRouter)
 app.use('/api/admin/control-panel', adminControlPanelRouter)
 app.use('/api/admin/email-templates', adminEmailTemplatesRouter)
 app.use('/api/3d-models', threeDModelsRouter)
