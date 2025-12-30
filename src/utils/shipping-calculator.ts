@@ -199,13 +199,32 @@ export class ShippingCalculator {
       console.error('Shipping calculation error:', error)
 
       // Fallback to standard rates if API fails (still include local options)
+      // Note: These prices include the 5% markup already baked in
       const fallbackRates: ShippingRate[] = [
         ...localRates,
+        {
+          id: 'usps-ground',
+          name: 'USPS Ground Advantage',
+          provider: 'USPS',
+          amount: 7.34, // ~$6.99 + 5%
+          currency: 'USD',
+          estimatedDays: 5,
+          type: 'shipping'
+        },
+        {
+          id: 'ups-ground',
+          name: 'UPS Ground',
+          provider: 'UPS',
+          amount: 12.59, // ~$11.99 + 5%
+          currency: 'USD',
+          estimatedDays: 5,
+          type: 'shipping'
+        },
         {
           id: 'standard',
           name: 'USPS Priority Mail',
           provider: 'USPS',
-          amount: 9.99,
+          amount: 10.49, // ~$9.99 + 5%
           currency: 'USD',
           estimatedDays: 3,
           type: 'shipping'
@@ -214,7 +233,7 @@ export class ShippingCalculator {
           id: 'express',
           name: 'USPS Priority Express',
           provider: 'USPS',
-          amount: 24.99,
+          amount: 26.24, // ~$24.99 + 5%
           currency: 'USD',
           estimatedDays: 2,
           type: 'shipping'
@@ -223,7 +242,7 @@ export class ShippingCalculator {
           id: 'ups-2day',
           name: 'UPS 2nd Day Air',
           provider: 'UPS',
-          amount: 19.99,
+          amount: 20.99, // ~$19.99 + 5%
           currency: 'USD',
           estimatedDays: 2,
           type: 'shipping'
@@ -232,7 +251,7 @@ export class ShippingCalculator {
           id: 'ups-saver',
           name: 'UPS Next Day Air Saver',
           provider: 'UPS',
-          amount: 34.99,
+          amount: 36.74, // ~$34.99 + 5%
           currency: 'USD',
           estimatedDays: 1,
           type: 'shipping'
