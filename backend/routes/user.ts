@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/supabaseAuth.js";
 import { supabase } from "../lib/supabase.js";
-import { uploadFile, generateSignedUrl } from "../services/gcs-storage.js";
+import { uploadFile } from "../services/gcs-storage.js";
 
 const router = Router();
 
@@ -93,12 +93,11 @@ router.post("/upload-image", requireAuth, async (req: Request, res: Response): P
       contentType
     });
 
-    // Generate signed URL for long-term access (7 days)
-    const signedUrl = await generateSignedUrl(result.gcsPath, 24 * 7);
-
+    // Use public URL - avatars don't need signed URLs (they're not sensitive)
+    // The bucket is configured for public access
     console.log(`[user/profile/upload-image] ✅ ${type} uploaded to GCS:`, result.gcsPath);
 
-    return res.json({ ok: true, url: signedUrl, gcsPath: result.gcsPath });
+    return res.json({ ok: true, url: result.publicUrl, gcsPath: result.gcsPath });
   } catch (error: any) {
     console.error('[user/profile/upload-image] Error:', error);
     return res.status(500).json({ error: error.message });
@@ -235,38 +234,6 @@ router.post("/update", requireAuth, async (req: Request, res: Response): Promise
     return res.json({ ok: true, message: 'Profile updated successfully', profile: updatedProfile });
   } catch (error: any) {
     console.error('[user/profile/update] Error:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/profile/refresh-avatar-url
-// Refresh signed URL for avatar (used when signed URL expires)
-router.post("/refresh-avatar-url", requireAuth, async (req: Request, res: Response): Promise<any> => {
-  try {
-    const userId = req.user?.sub;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { gcsPath } = req.body;
-
-    if (!gcsPath) {
-      return res.status(400).json({ error: 'gcsPath is required' });
-    }
-
-    // Verify the path belongs to this user
-    if (!gcsPath.includes(userId)) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    // Generate new signed URL
-    const signedUrl = await generateSignedUrl(gcsPath, 24 * 7); // 7 days
-
-    console.log(`[user/profile/refresh-avatar-url] Refreshed URL for:`, gcsPath);
-
-    return res.json({ ok: true, url: signedUrl });
-  } catch (error: any) {
-    console.error('[user/profile/refresh-avatar-url] Error:', error);
     return res.status(500).json({ error: error.message });
   }
 });
