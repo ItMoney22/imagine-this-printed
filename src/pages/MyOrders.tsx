@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { apiFetch } from '../lib/api'
-import { Package, ChevronRight, Clock, CheckCircle, Truck, AlertCircle, XCircle } from 'lucide-react'
+import { Package, ChevronRight, Clock, CheckCircle, Truck, AlertCircle, XCircle, CreditCard, Edit3, FileText } from 'lucide-react'
 
 interface OrderItem {
   id: string
@@ -32,6 +32,12 @@ interface Order {
 }
 
 const statusConfig: Record<string, { icon: React.ReactNode; color: string; bgColor: string; label: string }> = {
+  draft: {
+    icon: <FileText className="w-4 h-4" />,
+    color: 'text-gray-600',
+    bgColor: 'bg-gray-100',
+    label: 'Draft - Awaiting Payment'
+  },
   pending: {
     icon: <Clock className="w-4 h-4" />,
     color: 'text-yellow-600',
@@ -72,10 +78,12 @@ const statusConfig: Record<string, { icon: React.ReactNode; color: string; bgCol
 
 export default function MyOrders() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [orders, setOrders] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'draft' | 'paid'>('all')
 
   useEffect(() => {
     fetchMyOrders()
@@ -117,9 +125,28 @@ export default function MyOrders() {
     }).format(amount)
   }
 
-  const getStatusConfig = (status: string) => {
-    return statusConfig[status] || statusConfig.pending
+  const getStatusConfig = (order: Order) => {
+    // Show draft status for unpaid orders
+    if (order.payment_status !== 'paid') {
+      return statusConfig.draft
+    }
+    return statusConfig[order.status] || statusConfig.pending
   }
+
+  // Check if order is a draft (unpaid)
+  const isDraftOrder = (order: Order) => order.payment_status !== 'paid'
+
+  // Filter orders based on selection
+  const filteredOrders = orders.filter(order => {
+    if (filter === 'all') return true
+    if (filter === 'draft') return isDraftOrder(order)
+    if (filter === 'paid') return !isDraftOrder(order)
+    return true
+  })
+
+  // Separate draft and paid orders for display
+  const draftOrders = orders.filter(isDraftOrder)
+  const paidOrders = orders.filter(o => !isDraftOrder(o))
 
   if (!user) {
     return (
@@ -146,6 +173,46 @@ export default function MyOrders() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">My Orders</h1>
           <p className="text-gray-500">Track and manage your orders</p>
+
+          {/* Filter Tabs */}
+          {orders.length > 0 && (
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setFilter('all')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  filter === 'all'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                }`}
+              >
+                All ({orders.length})
+              </button>
+              {draftOrders.length > 0 && (
+                <button
+                  onClick={() => setFilter('draft')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    filter === 'draft'
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                  }`}
+                >
+                  Draft ({draftOrders.length})
+                </button>
+              )}
+              {paidOrders.length > 0 && (
+                <button
+                  onClick={() => setFilter('paid')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    filter === 'paid'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                  }`}
+                >
+                  Paid ({paidOrders.length})
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Loading State */}
@@ -184,11 +251,12 @@ export default function MyOrders() {
         )}
 
         {/* Orders List */}
-        {!isLoading && orders.length > 0 && (
+        {!isLoading && filteredOrders.length > 0 && (
           <div className="space-y-6">
-            {orders.map((order) => {
-              const status = getStatusConfig(order.status)
+            {filteredOrders.map((order) => {
+              const status = getStatusConfig(order)
               const isExpanded = expandedOrderId === order.id
+              const isDraft = isDraftOrder(order)
               return (
                 <div
                   key={order.id}
@@ -222,7 +290,24 @@ export default function MyOrders() {
                         <p className="text-2xl font-display font-bold text-slate-900">
                           {formatCurrency(order.total)}
                         </p>
-                        {order.payment_status === 'paid' && (
+                        {isDraft ? (
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              onClick={() => navigate(`/checkout?order=${order.id}`)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              Pay Now
+                            </button>
+                            <button
+                              onClick={() => navigate(`/cart?restore=${order.id}`)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-200 transition-colors"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Edit
+                            </button>
+                          </div>
+                        ) : (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 mt-1">
                             <CheckCircle className="w-3.5 h-3.5" />
                             Payment confirmed

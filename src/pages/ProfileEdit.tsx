@@ -19,7 +19,15 @@ const ProfileEdit: React.FC = () => {
       instagram: '',
       linkedin: ''
     },
-    isPublic: true
+    isPublic: true,
+    // Shipping address
+    shippingAddressLine1: '',
+    shippingAddressLine2: '',
+    shippingCity: '',
+    shippingState: '',
+    shippingZip: '',
+    shippingCountry: 'US',
+    shippingPhone: ''
   })
 
   const [isLoading, setIsLoading] = useState(true)
@@ -71,7 +79,15 @@ const ProfileEdit: React.FC = () => {
           instagram: '',
           linkedin: ''
         },
-        isPublic: userProfile.is_public !== false
+        isPublic: userProfile.is_public !== false,
+        // Shipping address
+        shippingAddressLine1: userProfile.shipping_address_line1 || '',
+        shippingAddressLine2: userProfile.shipping_address_line2 || '',
+        shippingCity: userProfile.shipping_city || '',
+        shippingState: userProfile.shipping_state || '',
+        shippingZip: userProfile.shipping_zip || '',
+        shippingCountry: userProfile.shipping_country || 'US',
+        shippingPhone: userProfile.shipping_phone || ''
       })
 
       if (userProfile.avatar_url) {
@@ -154,26 +170,53 @@ const ProfileEdit: React.FC = () => {
 
       console.log('[ProfileEdit] Saving profile...')
 
-      // Convert image to base64 if a new one was selected
-      let avatarImageBase64: string | null = null
+      // Upload image first if a new one was selected
+      let avatarUrl: string | undefined = undefined
       if (profileImage) {
-        console.log('[ProfileEdit] Converting image to base64...')
-        avatarImageBase64 = await convertImageToBase64(profileImage)
+        console.log('[ProfileEdit] Uploading profile image...')
+        const imageBase64 = await convertImageToBase64(profileImage)
+
+        // Upload to Supabase Storage via backend API
+        const uploadResponse = await apiFetch('/api/profile/upload-image', {
+          method: 'POST',
+          body: JSON.stringify({
+            image: imageBase64,
+            type: 'avatar'
+          })
+        })
+
+        if (uploadResponse.ok && uploadResponse.url) {
+          avatarUrl = uploadResponse.url
+          console.log('[ProfileEdit] ✅ Image uploaded:', avatarUrl)
+        } else {
+          throw new Error(uploadResponse.error || 'Failed to upload profile image')
+        }
       }
 
       // Prepare profile data for API call
-      const profileData = {
+      const profileData: any = {
         username: formData.username,
         displayName: formData.displayName,
         bio: formData.bio || '',
         location: formData.location || '',
         website: formData.website || '',
-        socialLinks: formData.socialLinks,
-        avatarImage: avatarImageBase64, // Send as base64 data URL
+        socialTwitter: formData.socialLinks.twitter || '',
+        socialInstagram: formData.socialLinks.instagram || '',
         isPublic: formData.isPublic,
-        showOrderHistory: false,
         showDesigns: true,
-        showModels: true
+        // Shipping address
+        shippingAddressLine1: formData.shippingAddressLine1 || '',
+        shippingAddressLine2: formData.shippingAddressLine2 || '',
+        shippingCity: formData.shippingCity || '',
+        shippingState: formData.shippingState || '',
+        shippingZip: formData.shippingZip || '',
+        shippingCountry: formData.shippingCountry || 'US',
+        shippingPhone: formData.shippingPhone || ''
+      }
+
+      // Only include avatar_url if we uploaded a new image
+      if (avatarUrl) {
+        profileData.avatarUrl = avatarUrl
       }
 
       console.log('[ProfileEdit] Sending update request...')
@@ -392,6 +435,93 @@ const ProfileEdit: React.FC = () => {
                   onChange={(e) => handleInputChange('socialLinks.linkedin', e.target.value)}
                   className="form-input w-full"
                   placeholder="https://linkedin.com/in/username"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Shipping Address */}
+          <div>
+            <h4 className="text-lg font-medium text-text mb-4">Default Shipping Address</h4>
+            <p className="text-sm text-muted mb-4">This address will be pre-filled during checkout to save you time.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-text mb-2">
+                  Address Line 1
+                </label>
+                <input
+                  type="text"
+                  value={formData.shippingAddressLine1}
+                  onChange={(e) => handleInputChange('shippingAddressLine1', e.target.value)}
+                  className="form-input w-full"
+                  placeholder="123 Main Street"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-text mb-2">
+                  Address Line 2 <span className="text-muted">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.shippingAddressLine2}
+                  onChange={(e) => handleInputChange('shippingAddressLine2', e.target.value)}
+                  className="form-input w-full"
+                  placeholder="Apt, Suite, Unit, etc."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">
+                  City
+                </label>
+                <input
+                  type="text"
+                  value={formData.shippingCity}
+                  onChange={(e) => handleInputChange('shippingCity', e.target.value)}
+                  className="form-input w-full"
+                  placeholder="City"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">
+                  State
+                </label>
+                <input
+                  type="text"
+                  value={formData.shippingState}
+                  onChange={(e) => handleInputChange('shippingState', e.target.value)}
+                  className="form-input w-full"
+                  placeholder="GA"
+                  maxLength={2}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">
+                  ZIP Code
+                </label>
+                <input
+                  type="text"
+                  value={formData.shippingZip}
+                  onChange={(e) => handleInputChange('shippingZip', e.target.value)}
+                  className="form-input w-full"
+                  placeholder="30301"
+                  maxLength={10}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">
+                  Phone
+                </label>
+                <input
+                  type="tel"
+                  value={formData.shippingPhone}
+                  onChange={(e) => handleInputChange('shippingPhone', e.target.value)}
+                  className="form-input w-full"
+                  placeholder="(555) 123-4567"
                 />
               </div>
             </div>

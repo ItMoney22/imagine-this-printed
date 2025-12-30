@@ -114,26 +114,71 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
       }
     }
 
+    // Collect all product IDs to fetch images in one query
+    const allProductIds = new Set<string>()
+    for (const order of orders || []) {
+      const items = orderItemsMap[order.id] || []
+      for (const item of items) {
+        if (item.product_id) allProductIds.add(item.product_id)
+      }
+      // Also check metadata items
+      if (order.metadata?.items) {
+        for (const item of order.metadata.items) {
+          if (item.id) allProductIds.add(item.id)
+          if (item.product?.id) allProductIds.add(item.product.id)
+        }
+      }
+    }
+
+    // Fetch product images
+    let productImagesMap: Record<string, string> = {}
+    if (allProductIds.size > 0) {
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, images')
+        .in('id', Array.from(allProductIds))
+
+      for (const product of products || []) {
+        if (product.images && product.images.length > 0) {
+          productImagesMap[product.id] = product.images[0]
+        }
+      }
+    }
+
     // Attach items to orders, parse metadata for items if no order_items
     const ordersWithItems = (orders || []).map(order => {
       const items = orderItemsMap[order.id] || []
       if (items.length === 0 && order.metadata?.items) {
+        // Items from metadata - map with product images
         return {
           ...order,
-          order_items: order.metadata.items.map((item: any) => ({
-            id: item.product?.id || 'unknown',
-            product_id: item.product?.id,
-            product_name: item.product?.name || item.name || 'Unknown Product',
-            quantity: item.quantity || 1,
-            price: item.product?.price || item.price || 0,
-            total: (item.product?.price || item.price || 0) * (item.quantity || 1),
-            image_url: item.product?.images?.[0] || item.imageUrl || item.image_url || null,
-            variations: { size: item.selectedSize, color: item.selectedColor },
-            personalization: item.customDesign ? { designUrl: item.customDesign } : {}
-          }))
+          order_items: order.metadata.items.map((item: any) => {
+            const productId = item.product?.id || item.id
+            const imageUrl = item.product?.images?.[0] || item.imageUrl || item.image_url || productImagesMap[productId] || null
+            return {
+              id: productId || 'unknown',
+              product_id: productId,
+              product_name: item.product?.name || item.name || 'Unknown Product',
+              quantity: item.quantity || 1,
+              price: item.product?.price || item.price || 0,
+              total: (item.product?.price || item.price || 0) * (item.quantity || 1),
+              image_url: imageUrl,
+              variations: { size: item.selectedSize, color: item.selectedColor },
+              personalization: item.customDesign ? { designUrl: item.customDesign } : {}
+            }
+          })
         }
       }
-      return { ...order, order_items: items }
+      // Items from order_items table - add product images
+      return {
+        ...order,
+        order_items: items.map((item: any) => ({
+          ...item,
+          price: item.unit_price || item.price || 0,
+          total: item.subtotal || item.total || (item.unit_price || 0) * (item.quantity || 1),
+          image_url: item.image_url || productImagesMap[item.product_id] || null
+        }))
+      }
     })
 
     return res.json({ orders: ordersWithItems })

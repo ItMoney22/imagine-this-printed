@@ -29,9 +29,12 @@ export const WAREHOUSE_ADDRESS = {
   coordinates: { lat: 34.0027, lng: -85.0450 } // Approximate coordinates
 }
 
-// Local delivery settings
-export const LOCAL_DELIVERY_FEE = 10.00
-export const LOCAL_DELIVERY_RADIUS_MILES = 15
+// Local delivery settings (tiered pricing)
+export const LOCAL_DELIVERY_TIERS = [
+  { maxMiles: 10, fee: 10.00, label: 'Local Delivery (within 10 miles)' },
+  { maxMiles: 20, fee: 15.00, label: 'Local Delivery (10-20 miles)' }
+]
+export const MAX_DELIVERY_RADIUS_MILES = 20
 export const PICKUP_HOURS = '10:00 AM - 8:00 PM'
 
 // Shipping markup (5% hidden markup on shipping rates)
@@ -124,18 +127,20 @@ export class ShippingCalculator {
       description: `${WAREHOUSE_ADDRESS.address}, ${WAREHOUSE_ADDRESS.city}, ${WAREHOUSE_ADDRESS.state} ${WAREHOUSE_ADDRESS.zip} • Hours: ${PICKUP_HOURS}`
     })
 
-    // Check if address qualifies for local delivery (within 15 miles of warehouse)
-    const isLocalDeliveryEligible = this.isWithinDeliveryRadius(toAddress)
-    if (isLocalDeliveryEligible) {
+    // Check if address qualifies for local delivery using distance calculation
+    const deliveryInfo = await this.calculateLocalDelivery(toAddress)
+    if (deliveryInfo.eligible && deliveryInfo.deliveryFee !== null) {
       localRates.push({
         id: 'local-delivery',
-        name: 'Local Delivery',
+        name: deliveryInfo.tierLabel || 'Local Delivery',
         provider: 'Direct',
-        amount: LOCAL_DELIVERY_FEE,
+        amount: deliveryInfo.deliveryFee,
         currency: 'USD',
         estimatedDays: 2,
         type: 'delivery',
-        description: `Delivered within ${LOCAL_DELIVERY_RADIUS_MILES} mile radius of our warehouse`
+        description: deliveryInfo.distanceMiles
+          ? `${deliveryInfo.distanceMiles.toFixed(1)} miles from our warehouse`
+          : `Delivered within ${MAX_DELIVERY_RADIUS_MILES} mile radius of our warehouse`
       })
     }
 
@@ -247,10 +252,57 @@ export class ShippingCalculator {
     }
   }
 
-  // Check if address is within local delivery radius
-  private isWithinDeliveryRadius(address: ShippingAddress): boolean {
-    // Simple check - if the address is in Georgia, we'll check the zip code
-    // More sophisticated implementations would use actual distance calculation
+  // Calculate local delivery fee using Google Maps Distance Matrix API
+  private async calculateLocalDelivery(address: ShippingAddress): Promise<{
+    eligible: boolean
+    distanceMiles: number | null
+    deliveryFee: number | null
+    tierLabel: string | null
+  }> {
+    try {
+      // Build full address string
+      const fullAddress = [
+        address.address1,
+        address.address2,
+        address.city,
+        address.state,
+        address.zip,
+        address.country || 'US'
+      ].filter(Boolean).join(', ')
+
+      // Call backend API for distance calculation
+      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const response = await fetch(`${apiBase}/api/shipping/calculate-distance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: fullAddress })
+      })
+
+      if (!response.ok) {
+        console.warn('[shipping] Distance API error, falling back to ZIP check')
+        return this.fallbackZipCheck(address)
+      }
+
+      const data = await response.json()
+      return {
+        eligible: data.eligible,
+        distanceMiles: data.distanceMiles,
+        deliveryFee: data.deliveryFee,
+        tierLabel: data.tierLabel
+      }
+    } catch (error) {
+      console.warn('[shipping] Distance calculation failed, using fallback:', error)
+      return this.fallbackZipCheck(address)
+    }
+  }
+
+  // Fallback ZIP code check when Google Maps API is unavailable
+  private fallbackZipCheck(address: ShippingAddress): {
+    eligible: boolean
+    distanceMiles: number | null
+    deliveryFee: number | null
+    tierLabel: string | null
+  } {
     const georgiaLocalZips = [
       '30153', '30125', '30137', '30120', '30127', '30157', // Rockmart area
       '30132', '30141', '30139', '30103', '30104', '30145', // Nearby
@@ -264,11 +316,23 @@ export class ShippingCalculator {
     ]
 
     if (address.state?.toUpperCase() !== 'GA') {
-      return false
+      return { eligible: false, distanceMiles: null, deliveryFee: null, tierLabel: null }
     }
 
     const zip = address.zip?.substring(0, 5)
-    return georgiaLocalZips.includes(zip || '')
+    const isLocal = georgiaLocalZips.includes(zip || '')
+
+    if (isLocal) {
+      // Default to first tier when using fallback
+      return {
+        eligible: true,
+        distanceMiles: null,
+        deliveryFee: LOCAL_DELIVERY_TIERS[0].fee,
+        tierLabel: 'Local Delivery'
+      }
+    }
+
+    return { eligible: false, distanceMiles: null, deliveryFee: null, tierLabel: null }
   }
 
   calculateFreeShippingProgress(cartTotal: number): {

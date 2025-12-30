@@ -46,6 +46,7 @@ import adminControlPanelRouter from './routes/admin/control-panel.js'
 import adminEmailTemplatesRouter from './routes/admin/email-templates.js'
 import threeDModelsRouter from './routes/3d-models.js'
 import adminProductsRouter from './routes/admin/products.js'
+import shippingRouter from './routes/shipping.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -90,6 +91,7 @@ logger.info({
     GCS_PROJECT_ID: process.env.GCS_PROJECT_ID,
     GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME,
     GCS_CREDENTIALS: !!process.env.GCS_CREDENTIALS,
+    GOOGLE_MAPS_API_KEY: !!process.env.GOOGLE_MAPS_API_KEY,
   }
 }, 'Environment variables loaded')
 
@@ -184,6 +186,7 @@ app.use('/api/admin/email-templates', adminEmailTemplatesRouter)
 app.use('/api/3d-models', threeDModelsRouter)
 app.use('/api/admin', adminProductsRouter)
 app.use('/api/products', adminProductsRouter)
+app.use('/api/shipping', shippingRouter)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

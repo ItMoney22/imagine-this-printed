@@ -137,7 +137,15 @@ router.post("/update", requireAuth, async (req: Request, res: Response): Promise
       show_reviews, showReviews,
       show_activity, showActivity,
       allow_messages, allowMessages,
-      is_public, isPublic
+      is_public, isPublic,
+      // Shipping address fields
+      shipping_address_line1, shippingAddressLine1,
+      shipping_address_line2, shippingAddressLine2,
+      shipping_city, shippingCity,
+      shipping_state, shippingState,
+      shipping_zip, shippingZip,
+      shipping_country, shippingCountry,
+      shipping_phone, shippingPhone
     } = req.body;
 
     console.log('[user/profile/update] Updating profile for user:', userId);
@@ -191,6 +199,29 @@ router.post("/update", requireAuth, async (req: Request, res: Response): Promise
     }
     if (is_public !== undefined || isPublic !== undefined) {
       updateData.is_public = is_public ?? isPublic;
+    }
+
+    // Shipping address fields
+    if (shipping_address_line1 !== undefined || shippingAddressLine1 !== undefined) {
+      updateData.shipping_address_line1 = shipping_address_line1 ?? shippingAddressLine1;
+    }
+    if (shipping_address_line2 !== undefined || shippingAddressLine2 !== undefined) {
+      updateData.shipping_address_line2 = shipping_address_line2 ?? shippingAddressLine2;
+    }
+    if (shipping_city !== undefined || shippingCity !== undefined) {
+      updateData.shipping_city = shipping_city ?? shippingCity;
+    }
+    if (shipping_state !== undefined || shippingState !== undefined) {
+      updateData.shipping_state = shipping_state ?? shippingState;
+    }
+    if (shipping_zip !== undefined || shippingZip !== undefined) {
+      updateData.shipping_zip = shipping_zip ?? shippingZip;
+    }
+    if (shipping_country !== undefined || shippingCountry !== undefined) {
+      updateData.shipping_country = shipping_country ?? shippingCountry;
+    }
+    if (shipping_phone !== undefined || shippingPhone !== undefined) {
+      updateData.shipping_phone = shipping_phone ?? shippingPhone;
     }
 
     console.log('[user/profile/update] Update data:', updateData);
