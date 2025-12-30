@@ -156,7 +156,7 @@ export function ProfileHeader({
                     <img
                       src={profile.avatar_url}
                       alt={profile.display_name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-top"
                     />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
