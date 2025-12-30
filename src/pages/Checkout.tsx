@@ -4,7 +4,7 @@ import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, LOCAL_DELIVERY_RADIUS_MILES } from '../utils/shipping-calculator'
+import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store } from 'lucide-react'
@@ -666,7 +666,7 @@ const Checkout: React.FC = () => {
                                 {rate.type === 'pickup' ? (
                                   <>Ready in {rate.estimatedDays} business day</>
                                 ) : rate.type === 'delivery' ? (
-                                  <>{rate.estimatedDays} business days • Within {LOCAL_DELIVERY_RADIUS_MILES} miles</>
+                                  <>{rate.estimatedDays} business days • Within {MAX_DELIVERY_RADIUS_MILES} miles</>
                                 ) : (
                                   <>{rate.provider} • {rate.estimatedDays} business days</>
                                 )}
@@ -759,7 +759,7 @@ const Checkout: React.FC = () => {
                               Local Delivery Details
                             </h4>
                             <p className="text-xs text-muted">
-                              Your order will be delivered directly to your address within {LOCAL_DELIVERY_RADIUS_MILES} miles of our warehouse.
+                              Your order will be delivered directly to your address within {MAX_DELIVERY_RADIUS_MILES} miles of our warehouse.
                               We'll contact you to confirm delivery timing.
                             </p>
                           </div>
