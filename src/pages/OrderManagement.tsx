@@ -69,8 +69,13 @@ const OrderManagement: React.FC = () => {
         return
       }
 
+      // Filter to only show paid orders and transform to Order type
+      const paidOrders = (data || []).filter((dbOrder: DBOrder) =>
+        dbOrder.payment_status === 'paid' || dbOrder.status === 'completed' || dbOrder.status === 'delivered'
+      )
+
       // Transform database orders to the Order type expected by the UI
-      const transformedOrders: Order[] = (data || []).map((dbOrder: DBOrder) => ({
+      const transformedOrders: Order[] = paidOrders.map((dbOrder: DBOrder) => ({
         id: dbOrder.order_number || dbOrder.id.slice(0, 8).toUpperCase(),
         orderId: dbOrder.id,
         userId: dbOrder.user_id || '',

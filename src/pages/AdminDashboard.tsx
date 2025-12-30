@@ -66,13 +66,187 @@ const AdminDashboard: React.FC = () => {
     digitalPrice: 0,
     fileUrl: '',
     shippingCost: 0,
-    isFeatured: false
+    isFeatured: false,
+    sizes: [] as string[],
+    colors: [] as string[]
   })
+
+  // Image upload state
+  const [uploadedImages, setUploadedImages] = useState<{ url: string; file?: File }[]>([])
+  const [uploadingImages, setUploadingImages] = useState(false)
+  const [uploadedDigitalFile, setUploadedDigitalFile] = useState<{ url: string; name: string; size: number } | null>(null)
+  const [uploadingDigitalFile, setUploadingDigitalFile] = useState(false)
+  const [aiSuggesting, setAiSuggesting] = useState(false)
+  const [aiSuggestion, setAiSuggestion] = useState<{ name: string; description: string } | null>(null)
+  const [customColorHex, setCustomColorHex] = useState('#')
+  const [dragActive, setDragActive] = useState(false)
+
+  // Category-specific size options
+  const SIZE_OPTIONS: Record<string, string[]> = {
+    shirts: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    hoodies: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    tumblers: ['12oz', '20oz', '30oz', '40oz'],
+    'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
+    '3d-models': []
+  }
+
+  // Preset colors for products
+  const COLOR_PRESETS = [
+    { name: 'Black', hex: '#000000' },
+    { name: 'White', hex: '#FFFFFF' },
+    { name: 'Navy', hex: '#1E3A5F' },
+    { name: 'Red', hex: '#DC2626' },
+    { name: 'Royal Blue', hex: '#2563EB' },
+    { name: 'Forest Green', hex: '#166534' },
+    { name: 'Heather Grey', hex: '#9CA3AF' },
+    { name: 'Pink', hex: '#EC4899' },
+    { name: 'Orange', hex: '#EA580C' },
+    { name: 'Yellow', hex: '#EAB308' }
+  ]
 
   // OTC/ITC Grant State
   const [showItcModal, setShowItcModal] = useState(false)
   const [itcUser, setItcUser] = useState<User | null>(null)
   const [itcAmount, setItcAmount] = useState<number>(0)
+
+  // Handle size toggle
+  const toggleSize = (size: string) => {
+    setProductForm(prev => ({
+      ...prev,
+      sizes: prev.sizes.includes(size)
+        ? prev.sizes.filter(s => s !== size)
+        : [...prev.sizes, size]
+    }))
+  }
+
+  // Handle color toggle
+  const toggleColor = (hex: string) => {
+    setProductForm(prev => ({
+      ...prev,
+      colors: prev.colors.includes(hex)
+        ? prev.colors.filter(c => c !== hex)
+        : [...prev.colors, hex]
+    }))
+  }
+
+  // Add custom color
+  const addCustomColor = () => {
+    if (customColorHex.match(/^#[0-9A-Fa-f]{6}$/) && !productForm.colors.includes(customColorHex)) {
+      setProductForm(prev => ({ ...prev, colors: [...prev.colors, customColorHex] }))
+      setCustomColorHex('#')
+    }
+  }
+
+  // Handle image upload
+  const handleImageUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploadingImages(true)
+    try {
+      const newImages: { url: string; file?: File }[] = []
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) continue
+        const formData = new FormData()
+        formData.append('image', file)
+        formData.append('folder', 'products')
+        const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/upload-product-image`, {
+          method: 'POST',
+          body: formData
+        })
+        if (response.ok) {
+          const data = await response.json()
+          newImages.push({ url: data.url, file })
+        }
+      }
+      setUploadedImages(prev => [...prev, ...newImages])
+    } catch (error) {
+      console.error('Error uploading images:', error)
+    } finally {
+      setUploadingImages(false)
+    }
+  }
+
+  // Handle drag and drop
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true)
+    } else if (e.type === 'dragleave') {
+      setDragActive(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    handleImageUpload(e.dataTransfer.files)
+  }
+
+  // Remove uploaded image
+  const removeUploadedImage = (index: number) => {
+    setUploadedImages(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // Handle digital file upload
+  const handleDigitalFileUpload = async (file: File | null) => {
+    if (!file) return
+    setUploadingDigitalFile(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folder', 'digital-products')
+      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/upload-digital-file`, {
+        method: 'POST',
+        body: formData
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setUploadedDigitalFile({ url: data.url, name: file.name, size: file.size })
+      }
+    } catch (error) {
+      console.error('Error uploading digital file:', error)
+    } finally {
+      setUploadingDigitalFile(false)
+    }
+  }
+
+  // AI suggestion for name/description
+  const handleAiSuggest = async () => {
+    if (uploadedImages.length === 0) {
+      alert('Please upload an image first')
+      return
+    }
+    setAiSuggesting(true)
+    setAiSuggestion(null)
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/products/ai-suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl: uploadedImages[0].url,
+          category: productForm.category
+        })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAiSuggestion({ name: data.suggestedName, description: data.suggestedDescription })
+      }
+    } catch (error) {
+      console.error('Error getting AI suggestion:', error)
+    } finally {
+      setAiSuggesting(false)
+    }
+  }
+
+  // Apply AI suggestion
+  const applyAiSuggestion = (field: 'name' | 'description') => {
+    if (!aiSuggestion) return
+    setProductForm(prev => ({
+      ...prev,
+      [field]: aiSuggestion[field]
+    }))
+  }
 
   // Load products and metrics from Supabase
   useEffect(() => {
@@ -276,8 +450,14 @@ const AdminDashboard: React.FC = () => {
       digitalPrice: 0,
       fileUrl: '',
       shippingCost: 0,
-      isFeatured: false
+      isFeatured: false,
+      sizes: [],
+      colors: []
     })
+    // Reset upload state
+    setUploadedImages([])
+    setUploadedDigitalFile(null)
+    setAiSuggestion(null)
     setShowProductModal(true)
   }
 
@@ -294,8 +474,14 @@ const AdminDashboard: React.FC = () => {
       digitalPrice: product.digital_price || 0,
       fileUrl: product.file_url || '',
       shippingCost: product.shipping_cost || 0,
-      isFeatured: product.is_featured || false
+      isFeatured: product.is_featured || false,
+      sizes: (product as any).sizes || [],
+      colors: (product as any).colors || []
     })
+    // Pre-populate uploaded images from existing product
+    setUploadedImages(product.images.map(url => ({ url })))
+    setUploadedDigitalFile(product.file_url ? { url: product.file_url, name: 'Digital File', size: 0 } : null)
+    setAiSuggestion(null)
     setShowProductModal(true)
   }
 
@@ -324,10 +510,16 @@ const AdminDashboard: React.FC = () => {
     e.preventDefault()
 
     try {
-      const images = productForm.images
-        .split(',')
-        .map(url => url.trim())
-        .filter(url => url.length > 0)
+      // Use uploaded images if available, otherwise fall back to URL input
+      const images = uploadedImages.length > 0
+        ? uploadedImages.map(img => img.url)
+        : productForm.images
+            .split(',')
+            .map(url => url.trim())
+            .filter(url => url.length > 0)
+
+      // Use uploaded digital file URL if available
+      const fileUrl = uploadedDigitalFile?.url || productForm.fileUrl
 
       const productData = {
         name: productForm.name,
@@ -338,9 +530,11 @@ const AdminDashboard: React.FC = () => {
         is_active: productForm.inStock,
         product_type: productForm.productType,
         digital_price: productForm.digitalPrice,
-        file_url: productForm.fileUrl,
+        file_url: fileUrl,
         shipping_cost: productForm.shippingCost,
-        is_featured: productForm.isFeatured
+        is_featured: productForm.isFeatured,
+        sizes: productForm.sizes,
+        colors: productForm.colors
       }
 
       if (editingProduct) {
@@ -363,6 +557,10 @@ const AdminDashboard: React.FC = () => {
       // Reload products and close modal
       await loadProducts()
       setShowProductModal(false)
+      // Reset upload state
+      setUploadedImages([])
+      setUploadedDigitalFile(null)
+      setAiSuggestion(null)
 
       // Add audit log
       const auditLog: AuditLog = {
@@ -2230,10 +2428,123 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 <form onSubmit={handleProductSubmit} className="p-6 space-y-6">
+                  {/* Image Upload Section - First for AI assist */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Product Name *
+                      Product Images
                     </label>
+                    <div
+                      className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${
+                        dragActive ? 'border-purple-500 bg-purple-50' : 'border-slate-300 hover:border-purple-400'
+                      }`}
+                      onDragEnter={handleDrag}
+                      onDragLeave={handleDrag}
+                      onDragOver={handleDrag}
+                      onDrop={handleDrop}
+                    >
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e.target.files)}
+                        className="hidden"
+                        id="product-images"
+                      />
+                      <label htmlFor="product-images" className="cursor-pointer">
+                        <div className="flex flex-col items-center gap-2">
+                          <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-sm text-slate-600">
+                            {uploadingImages ? 'Uploading...' : 'Drop images here or click to browse'}
+                          </span>
+                          <span className="text-xs text-slate-400">JPG, PNG, WebP</span>
+                        </div>
+                      </label>
+                    </div>
+                    {uploadedImages.length > 0 && (
+                      <div className="grid grid-cols-4 gap-2 mt-3">
+                        {uploadedImages.map((img, idx) => (
+                          <div key={idx} className="relative group">
+                            <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
+                            {idx === 0 && (
+                              <span className="absolute top-1 left-1 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded">Main</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removeUploadedImage(idx)}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI Suggestion Card */}
+                  {aiSuggestion && (
+                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">✨</span>
+                        <span className="font-medium text-purple-800">AI Suggestions</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between bg-white rounded-lg p-2 border border-purple-100">
+                          <div className="flex-1">
+                            <span className="text-xs text-slate-500">Name:</span>
+                            <p className="text-sm text-slate-800">{aiSuggestion.name}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyAiSuggestion('name')}
+                            className="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between bg-white rounded-lg p-2 border border-purple-100">
+                          <div className="flex-1">
+                            <span className="text-xs text-slate-500">Description:</span>
+                            <p className="text-sm text-slate-800 line-clamp-2">{aiSuggestion.description}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyAiSuggestion('description')}
+                            className="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Product Name with AI Assist */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-slate-700">
+                        Product Name *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAiSuggest}
+                        disabled={aiSuggesting || uploadedImages.length === 0}
+                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                        title={uploadedImages.length === 0 ? 'Upload an image first' : 'Get AI suggestions'}
+                      >
+                        {aiSuggesting ? (
+                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                        ) : (
+                          <span>✨</span>
+                        )}
+                        AI Assist
+                      </button>
+                    </div>
                     <input
                       type="text"
                       required
@@ -2244,6 +2555,7 @@ const AdminDashboard: React.FC = () => {
                     />
                   </div>
 
+                  {/* Description */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">
                       Description *
@@ -2292,6 +2604,112 @@ const AdminDashboard: React.FC = () => {
                       </select>
                     </div>
                   </div>
+
+                  {/* Size Variants - Category Specific */}
+                  {SIZE_OPTIONS[productForm.category]?.length > 0 && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                      <label className="block text-sm font-medium text-slate-700 mb-3">
+                        Available Sizes
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {SIZE_OPTIONS[productForm.category].map((size) => (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => toggleSize(size)}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                              productForm.sizes.includes(size)
+                                ? 'bg-purple-600 text-white shadow-md'
+                                : 'bg-white text-slate-700 border border-slate-300 hover:border-purple-400'
+                            }`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                      {productForm.sizes.length > 0 && (
+                        <p className="text-xs text-slate-500 mt-2">
+                          Selected: {productForm.sizes.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Color Variants */}
+                  {productForm.category !== '3d-models' && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                      <label className="block text-sm font-medium text-slate-700 mb-3">
+                        Available Colors
+                      </label>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {COLOR_PRESETS.map((color) => (
+                          <button
+                            key={color.hex}
+                            type="button"
+                            onClick={() => toggleColor(color.hex)}
+                            className={`w-10 h-10 rounded-full border-2 transition-all flex items-center justify-center ${
+                              productForm.colors.includes(color.hex)
+                                ? 'border-purple-600 ring-2 ring-purple-300 ring-offset-2'
+                                : 'border-slate-300 hover:border-slate-400'
+                            }`}
+                            style={{ backgroundColor: color.hex }}
+                            title={color.name}
+                          >
+                            {productForm.colors.includes(color.hex) && (
+                              <svg className={`w-5 h-5 ${color.hex === '#FFFFFF' || color.hex === '#EAB308' ? 'text-slate-800' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Custom color input */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={customColorHex}
+                          onChange={(e) => setCustomColorHex(e.target.value)}
+                          placeholder="#000000"
+                          maxLength={7}
+                          className="w-24 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                        <input
+                          type="color"
+                          value={customColorHex.length === 7 ? customColorHex : '#000000'}
+                          onChange={(e) => setCustomColorHex(e.target.value)}
+                          className="w-8 h-8 rounded cursor-pointer"
+                        />
+                        <button
+                          type="button"
+                          onClick={addCustomColor}
+                          disabled={!customColorHex.match(/^#[0-9A-Fa-f]{6}$/)}
+                          className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add Color
+                        </button>
+                      </div>
+                      {productForm.colors.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-3">
+                          {productForm.colors.map((hex) => (
+                            <span
+                              key={hex}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-full text-xs"
+                            >
+                              <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: hex }} />
+                              {hex}
+                              <button
+                                type="button"
+                                onClick={() => toggleColor(hex)}
+                                className="text-slate-400 hover:text-red-500"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {(productForm.productType === 'physical' || productForm.productType === 'both') && (
@@ -2345,37 +2763,70 @@ const AdminDashboard: React.FC = () => {
                             placeholder="9.99"
                           />
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">
-                            STL File URL
-                          </label>
-                          <input
-                            type="text"
-                            value={productForm.fileUrl}
-                            onChange={(e) => setProductForm({ ...productForm, fileUrl: e.target.value })}
-                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
-                            placeholder="/models/my-model.stl"
-                          />
-                        </div>
                       </>
                     )}
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Image URLs (comma-separated)
-                    </label>
-                    <input
-                      type="text"
-                      value={productForm.images}
-                      onChange={(e) => setProductForm({ ...productForm, images: e.target.value })}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all placeholder:text-slate-400"
-                      placeholder="https://example.com/image1.jpg, https://example.com/image2.jpg"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">
-                      Enter one or more image URLs separated by commas
-                    </p>
-                  </div>
+                  {/* Digital File Upload - For digital products */}
+                  {(productForm.productType === 'digital' || productForm.productType === 'both') && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Digital File (delivered to customer)
+                      </label>
+                      {uploadedDigitalFile ? (
+                        <div className="flex items-center justify-between bg-white border border-blue-200 rounded-lg p-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-800">{uploadedDigitalFile.name}</p>
+                              <p className="text-xs text-slate-500">{(uploadedDigitalFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setUploadedDigitalFile(null)}
+                            className="text-red-500 hover:text-red-700 p-1"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <input
+                            type="file"
+                            onChange={(e) => handleDigitalFileUpload(e.target.files?.[0] || null)}
+                            className="hidden"
+                            id="digital-file"
+                            accept=".stl,.pdf,.zip,.png,.ai,.psd,.svg,.eps"
+                          />
+                          <label
+                            htmlFor="digital-file"
+                            className="flex items-center justify-center gap-2 w-full py-3 bg-white border-2 border-dashed border-blue-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors"
+                          >
+                            {uploadingDigitalFile ? (
+                              <span className="text-sm text-slate-600">Uploading...</span>
+                            ) : (
+                              <>
+                                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                                <span className="text-sm text-slate-600">Upload digital file (STL, PDF, ZIP, etc.)</span>
+                              </>
+                            )}
+                          </label>
+                        </div>
+                      )}
+                      <p className="text-xs text-blue-600 mt-2">
+                        This file will be delivered to customers after purchase
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
                     <div className="flex items-center">

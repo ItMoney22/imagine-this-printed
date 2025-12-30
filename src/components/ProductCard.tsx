@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Sparkles, Loader2, ShoppingCart, Check } from 'lucide-react'
 import { socialService } from '../utils/social-service'
 import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
+import { useCart } from '../context/CartContext'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -13,9 +14,21 @@ interface ProductCardProps {
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
   const navigate = useNavigate()
+  const { addToCart } = useCart()
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isAddingToSheet, setIsAddingToSheet] = useState(false)
+  const [showSizePicker, setShowSizePicker] = useState(false)
+  const [selectedSize, setSelectedSize] = useState<string | null>(null)
+  const [addedToCart, setAddedToCart] = useState(false)
+
+  // Get sizes from product metadata
+  const sizes = product.sizes || product.metadata?.sizes || []
+  const hasSizes = sizes.length > 0
+
+  // Common apparel sizes for fallback
+  const defaultSizes = ['S', 'M', 'L', 'XL', '2XL']
+  const displaySizes = hasSizes ? sizes : defaultSizes
 
   useEffect(() => {
     if (showSocialBadges) {
@@ -178,19 +191,97 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
         <div className="flex justify-between items-center mb-4">
           <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+          {selectedSize && (
+            <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">
+              Size: {selectedSize}
+            </span>
+          )}
         </div>
 
-        <div className="space-y-3">
+        {/* Quick Size Picker */}
+        {showSizePicker && (
+          <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <p className="text-xs text-muted mb-2 font-medium">Select Size:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {displaySizes.map((size: string) => (
+                <button
+                  key={size}
+                  onClick={() => setSelectedSize(size)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    selectedSize === size
+                      ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
+                      : 'bg-card border border-white/10 text-text hover:border-primary/50 hover:bg-primary/10'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {/* Add to Cart Button */}
+          <button
+            onClick={() => {
+              if (!showSizePicker) {
+                setShowSizePicker(true)
+                return
+              }
+              if (!selectedSize) {
+                // Flash the size picker to indicate selection needed
+                return
+              }
+              addToCart(product, 1, selectedSize)
+              setAddedToCart(true)
+              // Dispatch custom event for cart notification
+              window.dispatchEvent(new CustomEvent('cart-item-added', {
+                detail: { product, size: selectedSize }
+              }))
+              setTimeout(() => {
+                setAddedToCart(false)
+                setShowSizePicker(false)
+                setSelectedSize(null)
+              }, 2000)
+            }}
+            disabled={!product.inStock}
+            className={`w-full font-bold py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider ${
+              addedToCart
+                ? 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.5)]'
+                : showSizePicker && !selectedSize
+                ? 'bg-amber-500/80 hover:bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] hover:shadow-[0_0_20px_rgba(34,197,94,0.5)]'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {addedToCart ? (
+              <>
+                <Check className="w-4 h-4" />
+                Added to Cart!
+              </>
+            ) : showSizePicker && !selectedSize ? (
+              <>
+                <ShoppingCart className="w-4 h-4" />
+                Pick a Size
+              </>
+            ) : (
+              <>
+                <ShoppingCart className="w-4 h-4" />
+                {showSizePicker ? 'Add to Cart' : 'Quick Add'}
+              </>
+            )}
+          </button>
+
+          {/* View Details Link */}
           <Link
             to={`/product/${product.id}`}
-            className="btn-primary w-full text-center block text-sm uppercase tracking-wider"
+            className="block w-full text-center py-2 text-sm text-muted hover:text-primary transition-colors"
           >
             View Details
           </Link>
 
+          {/* Add to Imagination Sheet Button - Collapsed */}
           <button
             onClick={async () => {
-              // Fetch SOURCE image from product_assets (original Flux-generated image)
               setIsAddingToSheet(true)
               try {
                 const { data: assetsData } = await supabase
@@ -202,7 +293,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 let imageToAdd = product.images?.[0] || ''
 
                 if (assetsData && assetsData.length > 0) {
-                  // Prefer 'source' (original Flux image), then 'nobg' (background removed)
                   const sourceAsset = assetsData.find(a => a.kind === 'source')
                   const nobgAsset = assetsData.find(a => a.kind === 'nobg')
                   imageToAdd = sourceAsset?.url || nobgAsset?.url || imageToAdd
@@ -221,7 +311,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 navigate(`/imagination-station?${params.toString()}`)
               } catch (error) {
                 console.error('Error fetching source image:', error)
-                // Fallback to first image
                 const params = new URLSearchParams({
                   addImage: product.images?.[0] || '',
                   productName: product.name,
@@ -233,14 +322,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               }
             }}
             disabled={isAddingToSheet}
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(168,85,247,0.3)] hover:shadow-[0_0_20px_rgba(168,85,247,0.5)] disabled:opacity-70"
+            className="w-full bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-400 font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-xs disabled:opacity-70"
           >
             {isAddingToSheet ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-3 h-3 animate-spin" />
             ) : (
-              <Sparkles className="w-4 h-4" />
+              <Sparkles className="w-3 h-3" />
             )}
-            {isAddingToSheet ? 'Loading...' : 'Add to Imagination Sheet'}
+            {isAddingToSheet ? 'Loading...' : 'Add to Gang Sheet'}
           </button>
         </div>
       </div>

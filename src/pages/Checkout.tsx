@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { loadStripe } from '@stripe/stripe-js'
@@ -7,7 +7,7 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
-import { Tag, X } from 'lucide-react'
+import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -397,16 +397,30 @@ const Checkout: React.FC = () => {
 
   if (state.items.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-center py-12">
-          <h2 className="text-2xl font-bold text-text mb-2">No items to checkout</h2>
-          <p className="text-muted mb-6">Add items to your cart before proceeding to checkout</p>
-          <button
-            onClick={() => navigate('/catalog')}
-            className="btn-primary"
-          >
-            Browse Products
-          </button>
+      <div className="min-h-[60vh] flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center">
+            <ShoppingBag className="w-12 h-12 text-purple-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-text mb-3">Your cart is empty</h2>
+          <p className="text-muted mb-8">
+            Looks like you haven't added anything to your cart yet. Discover our amazing custom printed products!
+          </p>
+          <div className="space-y-3">
+            <button
+              onClick={() => navigate('/catalog')}
+              className="w-full btn-primary flex items-center justify-center gap-2"
+            >
+              <Package className="w-5 h-5" />
+              Browse Products
+            </button>
+            <Link
+              to="/imagination-station"
+              className="block w-full py-3 px-4 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 text-purple-400 rounded-lg font-medium hover:from-purple-600/30 hover:to-pink-600/30 transition-colors"
+            >
+              Create Custom Design
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -419,15 +433,80 @@ const Checkout: React.FC = () => {
     })
   }
 
+  // Determine current step based on filled data
+  const currentStep = !formData.email ? 1 : !formData.address ? 2 : 3
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold text-text mb-8">Checkout</h1>
+    <div className="min-h-screen bg-gradient-to-b from-bg via-bg to-purple-900/5">
+      {/* Header with back button */}
+      <div className="bg-card/80 backdrop-blur-sm border-b border-white/10 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => navigate('/cart')}
+              className="flex items-center gap-2 text-muted hover:text-text transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              <span className="hidden sm:inline">Back to Cart</span>
+            </button>
+            <h1 className="text-xl font-bold text-text">Secure Checkout</h1>
+            <div className="flex items-center gap-1 text-green-500 text-sm">
+              <Lock className="w-4 h-4" />
+              <span className="hidden sm:inline">SSL Encrypted</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Progress Steps */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex items-center justify-center mb-8">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Step 1: Contact */}
+            <div className={`flex items-center gap-2 ${currentStep >= 1 ? 'text-primary' : 'text-muted'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                currentStep > 1 ? 'bg-green-500 text-white' : currentStep === 1 ? 'bg-primary text-white' : 'bg-card border border-white/10'
+              }`}>
+                {currentStep > 1 ? <CheckCircle className="w-5 h-5" /> : '1'}
+              </div>
+              <span className="hidden sm:inline text-sm font-medium">Contact</span>
+            </div>
+            <div className={`w-8 sm:w-16 h-0.5 ${currentStep > 1 ? 'bg-green-500' : 'bg-white/10'}`} />
+
+            {/* Step 2: Shipping */}
+            <div className={`flex items-center gap-2 ${currentStep >= 2 ? 'text-primary' : 'text-muted'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                currentStep > 2 ? 'bg-green-500 text-white' : currentStep === 2 ? 'bg-primary text-white' : 'bg-card border border-white/10'
+              }`}>
+                {currentStep > 2 ? <CheckCircle className="w-5 h-5" /> : <Truck className="w-4 h-4" />}
+              </div>
+              <span className="hidden sm:inline text-sm font-medium">Shipping</span>
+            </div>
+            <div className={`w-8 sm:w-16 h-0.5 ${currentStep > 2 ? 'bg-green-500' : 'bg-white/10'}`} />
+
+            {/* Step 3: Payment */}
+            <div className={`flex items-center gap-2 ${currentStep >= 3 ? 'text-primary' : 'text-muted'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                currentStep === 3 ? 'bg-primary text-white' : 'bg-card border border-white/10'
+              }`}>
+                <CreditCard className="w-4 h-4" />
+              </div>
+              <span className="hidden sm:inline text-sm font-medium">Payment</span>
+            </div>
+          </div>
+        </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
           <div className="space-y-6">
-            <div className="bg-card rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold mb-4">Contact Information</h2>
+            {/* Contact Information */}
+            <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                  <span className="text-primary font-bold text-sm">1</span>
+                </div>
+                <h2 className="text-lg font-semibold">Contact Information</h2>
+              </div>
               <div className="space-y-4">
                 <input
                   type="email"
@@ -441,8 +520,14 @@ const Checkout: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-card rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold mb-4">Shipping Address</h2>
+            {/* Shipping Address */}
+            <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                  <Truck className="w-4 h-4 text-primary" />
+                </div>
+                <h2 className="text-lg font-semibold">Shipping Address</h2>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
                   type="text"
@@ -515,8 +600,13 @@ const Checkout: React.FC = () => {
 
             {/* Shipping Options */}
             {shippingCalculation && (
-              <div className="bg-card rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold mb-4">Shipping Options</h2>
+              <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                    <Package className="w-4 h-4 text-primary" />
+                  </div>
+                  <h2 className="text-lg font-semibold">Shipping Options</h2>
+                </div>
                 {loadingShipping ? (
                   <div className="text-center py-4">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
@@ -648,23 +738,51 @@ const Checkout: React.FC = () => {
           </div>
         </div>
 
+        {/* Order Summary - Right Column */}
         <div>
-          <div className="bg-card rounded-lg shadow p-6 sticky top-8">
-            <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
+          <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6 sticky top-24">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Order Summary</h2>
+              <span className="text-sm text-muted">{state.items.length} item{state.items.length !== 1 ? 's' : ''}</span>
+            </div>
 
-            <div className="space-y-4 mb-6">
+            <div className="space-y-4 mb-6 max-h-[300px] overflow-y-auto pr-2">
               {state.items.map((item) => (
-                <div key={item.id} className="flex items-center space-x-3">
-                  <img
-                    src={item.product.images[0]}
-                    alt={item.product.name}
-                    className="w-12 h-12 object-cover rounded"
-                  />
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{item.product.name}</p>
-                    <p className="text-muted text-sm">Qty: {item.quantity}</p>
+                <div key={item.id} className="flex items-start gap-3 p-3 bg-bg/30 rounded-lg border border-white/5">
+                  <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-white/5">
+                    <img
+                      src={item.product.images?.[0] || '/placeholder-product.png'}
+                      alt={item.product.name}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center">
+                      {item.quantity}
+                    </div>
                   </div>
-                  <p className="font-semibold">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{item.product.name}</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      {item.selectedSize && (
+                        <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
+                          {item.selectedSize}
+                        </span>
+                      )}
+                      {item.selectedColor && (
+                        <span
+                          className="w-4 h-4 rounded-full border-2 border-white/20"
+                          style={{ backgroundColor: item.selectedColor }}
+                          title={item.selectedColor}
+                        />
+                      )}
+                      {item.paymentMethod === 'itc' && (
+                        <span className="text-xs px-2 py-0.5 bg-secondary/20 text-secondary rounded flex items-center gap-1">
+                          <img src="/itc-coin.png" alt="" className="w-3 h-3" />
+                          ITC
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="font-semibold text-sm flex-shrink-0">
                     ${(item.product.price * item.quantity).toFixed(2)}
                   </p>
                 </div>
@@ -844,16 +962,38 @@ const Checkout: React.FC = () => {
               )}
             </div>
 
-            <div className="mt-6 pt-6 border-t">
-              <div className="flex items-center text-sm text-muted">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                Secure checkout with 256-bit SSL encryption
+            {/* Trust Badges */}
+            <div className="mt-6 pt-6 border-t border-white/10 space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex flex-col items-center text-center p-3 bg-green-500/10 rounded-lg border border-green-500/20">
+                  <Shield className="w-5 h-5 text-green-500 mb-1" />
+                  <span className="text-xs text-green-400">Secure</span>
+                </div>
+                <div className="flex flex-col items-center text-center p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                  <Truck className="w-5 h-5 text-blue-500 mb-1" />
+                  <span className="text-xs text-blue-400">Fast Ship</span>
+                </div>
+                <div className="flex flex-col items-center text-center p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                  <CheckCircle className="w-5 h-5 text-purple-500 mb-1" />
+                  <span className="text-xs text-purple-400">Guarantee</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-sm text-muted">
+                <Lock className="w-4 h-4" />
+                <span>256-bit SSL encrypted checkout</span>
+              </div>
+
+              {/* Payment Method Icons */}
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/us.svg" alt="US" className="h-4 rounded opacity-60" />
+                <span className="text-xs text-muted">|</span>
+                <span className="text-xs text-muted">Visa • Mastercard • Amex • Apple Pay • Google Pay</span>
               </div>
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

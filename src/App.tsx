@@ -14,6 +14,7 @@ import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 // import ChatBotWidget from './components/ChatBotWidget' // Replaced with Mr. Imagine
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
+import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
 import { ToastContainer } from './components/ToastContainer'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -87,6 +88,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         {!isFullScreen && <Footer />}
       </main>
       {!isFullScreen && <MrImagineChatWidget />}
+      <MrImagineCartNotification />
       <ToastContainer />
     </div>
   )

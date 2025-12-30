@@ -58,10 +58,11 @@ router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async
           order_items: order.metadata.items.map((item: any) => ({
             id: item.product?.id || 'unknown',
             product_id: item.product?.id,
-            product_name: item.product?.name || 'Unknown Product',
+            product_name: item.product?.name || item.name || 'Unknown Product',
             quantity: item.quantity || 1,
-            price: item.product?.price || 0,
-            total: (item.product?.price || 0) * (item.quantity || 1),
+            price: item.product?.price || item.price || 0,
+            total: (item.product?.price || item.price || 0) * (item.quantity || 1),
+            image_url: item.product?.images?.[0] || item.imageUrl || item.image_url || null,
             variations: { size: item.selectedSize, color: item.selectedColor },
             personalization: item.customDesign ? { designUrl: item.customDesign } : {}
           }))
@@ -122,10 +123,11 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
           order_items: order.metadata.items.map((item: any) => ({
             id: item.product?.id || 'unknown',
             product_id: item.product?.id,
-            product_name: item.product?.name || 'Unknown Product',
+            product_name: item.product?.name || item.name || 'Unknown Product',
             quantity: item.quantity || 1,
-            price: item.product?.price || 0,
-            total: (item.product?.price || 0) * (item.quantity || 1),
+            price: item.product?.price || item.price || 0,
+            total: (item.product?.price || item.price || 0) * (item.quantity || 1),
+            image_url: item.product?.images?.[0] || item.imageUrl || item.image_url || null,
             variations: { size: item.selectedSize, color: item.selectedColor },
             personalization: item.customDesign ? { designUrl: item.customDesign } : {}
           }))

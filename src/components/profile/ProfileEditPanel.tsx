@@ -116,8 +116,9 @@ export function ProfileEditPanel({
         allow_messages: formData.allow_messages
       })
 
-      if (response.data.profile) {
-        onProfileUpdated(response.data.profile)
+      if (response.data.ok) {
+        // Use the returned profile if available, otherwise use formData
+        onProfileUpdated(response.data.profile || formData)
         onClose()
       }
     } catch (error) {

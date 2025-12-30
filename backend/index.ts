@@ -44,6 +44,7 @@ import socialRouter from './routes/social.js'
 import adminControlPanelRouter from './routes/admin/control-panel.js'
 import adminEmailTemplatesRouter from './routes/admin/email-templates.js'
 import threeDModelsRouter from './routes/3d-models.js'
+import adminProductsRouter from './routes/admin/products.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -179,6 +180,8 @@ app.use('/api/social', socialRouter)
 app.use('/api/admin/control-panel', adminControlPanelRouter)
 app.use('/api/admin/email-templates', adminEmailTemplatesRouter)
 app.use('/api/3d-models', threeDModelsRouter)
+app.use('/api/admin', adminProductsRouter)
+app.use('/api/products', adminProductsRouter)
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

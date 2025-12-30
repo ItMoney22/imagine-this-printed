@@ -9,6 +9,9 @@ interface Design {
   view_count: number
   created_at: string
   product_assets?: { url: string; kind: string; is_primary: boolean }[]
+  type?: 'product' | 'imagination_sheet'
+  preview_url?: string
+  print_type?: string
 }
 
 interface DesignGridProps {
@@ -17,13 +20,14 @@ interface DesignGridProps {
   showFilters?: boolean
 }
 
-type FilterType = 'all' | 'approved' | 'pending' | 'draft'
+type FilterType = 'all' | 'approved' | 'pending' | 'draft' | 'sheets'
 
 export function DesignGrid({ designs, isOwnProfile, showFilters = true }: DesignGridProps) {
   const [filter, setFilter] = useState<FilterType>('all')
 
   const filteredDesigns = designs.filter(design => {
     if (filter === 'all') return true
+    if (filter === 'sheets') return design.type === 'imagination_sheet'
     if (filter === 'approved') return design.status === 'approved' || design.status === 'published'
     if (filter === 'pending') return design.status === 'pending_approval' || design.status === 'pending'
     if (filter === 'draft') return design.status === 'draft'
@@ -43,6 +47,11 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
   }
 
   const getDesignImage = (design: Design) => {
+    // For imagination sheets, use preview_url
+    if (design.type === 'imagination_sheet' && design.preview_url) {
+      return design.preview_url
+    }
+
     // Check product_assets first (if available from joined query)
     const primaryAsset = design.product_assets?.find(a => a.is_primary)
     if (primaryAsset?.url) return primaryAsset.url
@@ -54,8 +63,30 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
     return '/placeholder-design.png'
   }
 
+  const getDesignLink = (design: Design) => {
+    if (design.type === 'imagination_sheet') {
+      return `/imagination-station/${design.id}`
+    }
+    return isOwnProfile ? `/my-designs` : `/products/${design.id}`
+  }
+
+  const getDesignTypeBadge = (design: Design) => {
+    if (design.type === 'imagination_sheet') {
+      const printTypeLabels: Record<string, string> = {
+        'dtf': 'DTF',
+        'uv_dtf': 'UV DTF',
+        'sublimation': 'Sublimation'
+      }
+      return printTypeLabels[design.print_type || ''] || 'Sheet'
+    }
+    return null
+  }
+
+  const hasSheets = designs.some(d => d.type === 'imagination_sheet')
+
   const filters: { key: FilterType; label: string; icon?: string }[] = [
     { key: 'all', label: 'All' },
+    ...(isOwnProfile && hasSheets ? [{ key: 'sheets' as FilterType, label: 'My Sheets' }] : []),
     { key: 'approved', label: 'Approved' },
     { key: 'pending', label: 'Pending' },
     ...(isOwnProfile ? [{ key: 'draft' as FilterType, label: 'Drafts' }] : [])
@@ -98,6 +129,7 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
           {filters.map(f => {
             const count = designs.filter(d => {
               if (f.key === 'all') return true
+              if (f.key === 'sheets') return d.type === 'imagination_sheet'
               if (f.key === 'approved') return d.status === 'approved' || d.status === 'published'
               if (f.key === 'pending') return d.status === 'pending_approval' || d.status === 'pending'
               if (f.key === 'draft') return d.status === 'draft'
@@ -130,10 +162,11 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
         {filteredDesigns.map((design, idx) => {
           const badge = getStatusBadge(design.status)
+          const typeBadge = getDesignTypeBadge(design)
           return (
             <Link
               key={design.id}
-              to={isOwnProfile ? `/my-designs` : `/products/${design.id}`}
+              to={getDesignLink(design)}
               className="group block bg-white rounded-2xl overflow-hidden border border-slate-100 hover:border-purple-200 hover:shadow-soft-lg transition-all duration-300"
               style={{ animationDelay: `${idx * 50}ms` }}
             >
@@ -155,10 +188,17 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
                   </span>
                 )}
 
+                {/* Type Badge for imagination sheets */}
+                {typeBadge && (
+                  <span className="absolute top-3 right-3 px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
+                    {typeBadge}
+                  </span>
+                )}
+
                 {/* Hover Overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-end justify-center pb-6">
                   <span className="px-4 py-2 bg-white rounded-full text-sm font-medium text-slate-900 shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
-                    View Design
+                    {design.type === 'imagination_sheet' ? 'Edit Sheet' : 'View Design'}
                   </span>
                 </div>
               </div>
@@ -169,13 +209,22 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
                   {design.name || 'Untitled Design'}
                 </h4>
                 <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    <span>{design.view_count || 0}</span>
-                  </div>
+                  {design.type === 'imagination_sheet' ? (
+                    <div className="flex items-center gap-1.5 text-xs text-purple-500">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                      <span>Sheet</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      <span>{design.view_count || 0}</span>
+                    </div>
+                  )}
                   <span className="text-xs text-slate-400">
                     {new Date(design.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
