@@ -31,6 +31,16 @@ type CartAction =
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
 
+// Sizes that incur an additional $2.50 upcharge
+const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
+const PLUS_SIZE_UPCHARGE = 2.50
+
+// Check if a size is a plus size (2XL and above)
+const isPlusSize = (size?: string): boolean => {
+  if (!size) return false
+  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
+}
+
 const calculateTotal = (items: CartItem[]): number => {
   // Separate eligible and non-eligible items
   const eligibleItems = items.filter(item =>
@@ -40,10 +50,18 @@ const calculateTotal = (items: CartItem[]): number => {
     !item.product.isThreeForTwentyFive && !item.product.metadata?.isThreeForTwentyFive
   )
 
-  // Calculate total for non-eligible items
-  const nonEligibleTotal = nonEligibleItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+  // Calculate plus size upcharge for non-eligible items
+  const nonEligiblePlusSizeUpcharge = nonEligibleItems.reduce((sum, item) => {
+    if (isPlusSize(item.selectedSize)) {
+      return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
+    }
+    return sum
+  }, 0)
 
-  // Calculate total for eligible items
+  // Calculate total for non-eligible items (base price + plus size upcharge)
+  const nonEligibleTotal = nonEligibleItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0) + nonEligiblePlusSizeUpcharge
+
+  // Calculate total for eligible items (3 for $25 deal)
   const totalEligibleQty = eligibleItems.reduce((sum, item) => sum + item.quantity, 0)
 
   const numSetsOfThree = Math.floor(totalEligibleQty / 3)
@@ -52,7 +70,15 @@ const calculateTotal = (items: CartItem[]): number => {
   // 3 items for $25. Remainder items at $25 each (assuming eligible items are priced at $25)
   const eligibleTotal = (numSetsOfThree * 25) + (remainder * 25)
 
-  return nonEligibleTotal + eligibleTotal
+  // Add plus size upcharge to eligible items as well (even in the 3 for $25 deal)
+  const eligiblePlusSizeUpcharge = eligibleItems.reduce((sum, item) => {
+    if (isPlusSize(item.selectedSize)) {
+      return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
+    }
+    return sum
+  }, 0)
+
+  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge
 }
 
 const cartReducer = (state: CartState, action: CartAction): CartState => {

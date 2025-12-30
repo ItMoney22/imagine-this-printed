@@ -9,6 +9,8 @@ export interface ShippingRate {
   currency: string
   estimatedDays: number
   selected?: boolean
+  type?: 'shipping' | 'pickup' | 'delivery'
+  description?: string
 }
 
 export interface ShippingCalculation {
@@ -17,6 +19,23 @@ export interface ShippingCalculation {
   freeShippingThreshold: number
   isFreeShipping: boolean
 }
+
+// Warehouse location for local pickup/delivery
+export const WAREHOUSE_ADDRESS = {
+  address: '640 Goodyear Ave',
+  city: 'Rockmart',
+  state: 'GA',
+  zip: '30153',
+  coordinates: { lat: 34.0027, lng: -85.0450 } // Approximate coordinates
+}
+
+// Local delivery settings
+export const LOCAL_DELIVERY_FEE = 10.00
+export const LOCAL_DELIVERY_RADIUS_MILES = 15
+export const PICKUP_HOURS = '10:00 AM - 8:00 PM'
+
+// Shipping markup (5% hidden markup on shipping rates)
+const SHIPPING_MARKUP = 0.05
 
 export class ShippingCalculator {
   private shippoApi: ShippoAPI
@@ -90,29 +109,83 @@ export class ShippingCalculator {
       mass_unit: 'lb'
     }
 
+    // Build local options first
+    const localRates: ShippingRate[] = []
+
+    // Always add free local pickup option
+    localRates.push({
+      id: 'local-pickup',
+      name: 'Free Local Pickup',
+      provider: 'In-Store',
+      amount: 0,
+      currency: 'USD',
+      estimatedDays: 1,
+      type: 'pickup',
+      description: `${WAREHOUSE_ADDRESS.address}, ${WAREHOUSE_ADDRESS.city}, ${WAREHOUSE_ADDRESS.state} ${WAREHOUSE_ADDRESS.zip} • Hours: ${PICKUP_HOURS}`
+    })
+
+    // Check if address qualifies for local delivery (within 15 miles of warehouse)
+    const isLocalDeliveryEligible = this.isWithinDeliveryRadius(toAddress)
+    if (isLocalDeliveryEligible) {
+      localRates.push({
+        id: 'local-delivery',
+        name: 'Local Delivery',
+        provider: 'Direct',
+        amount: LOCAL_DELIVERY_FEE,
+        currency: 'USD',
+        estimatedDays: 2,
+        type: 'delivery',
+        description: `Delivered within ${LOCAL_DELIVERY_RADIUS_MILES} mile radius of our warehouse`
+      })
+    }
+
     try {
       const shipment = await this.shippoApi.createShipment(shipFrom, toAddress, [parcel])
 
-      const rates: ShippingRate[] = shipment.rates.map((rate: any) => ({
-        id: rate.object_id,
-        name: rate.servicelevel.name,
-        provider: rate.provider,
-        amount: parseFloat(rate.amount),
-        currency: rate.currency,
-        estimatedDays: rate.estimated_days || 5
-      }))
+      // Filter for specific carriers and services we want
+      const desiredServices = [
+        'usps_priority', 'usps_priority_express', 'usps_ground_advantage',
+        'ups_ground', 'ups_2nd_day_air', 'ups_2nd_day_air_am', 'ups_next_day_air_saver', 'ups_next_day_air'
+      ]
+
+      const rates: ShippingRate[] = shipment.rates
+        .filter((rate: any) => {
+          const serviceToken = rate.servicelevel?.token?.toLowerCase() || ''
+          const provider = rate.provider?.toLowerCase() || ''
+          // Include USPS Priority/Express and UPS 2nd Day/Saver/Air
+          return (provider === 'usps' && (serviceToken.includes('priority') || serviceToken.includes('express') || serviceToken.includes('ground'))) ||
+                 (provider === 'ups' && (serviceToken.includes('ground') || serviceToken.includes('2nd') || serviceToken.includes('next') || serviceToken.includes('saver')))
+        })
+        .map((rate: any) => {
+          // Apply 5% markup (hidden from customer)
+          const baseAmount = parseFloat(rate.amount)
+          const markedUpAmount = Math.round((baseAmount * (1 + SHIPPING_MARKUP)) * 100) / 100
+
+          return {
+            id: rate.object_id,
+            name: rate.servicelevel.name,
+            provider: rate.provider,
+            amount: markedUpAmount,
+            currency: rate.currency,
+            estimatedDays: rate.estimated_days || 5,
+            type: 'shipping' as const
+          }
+        })
+
+      // Combine local options with shipping rates
+      const allRates = [...localRates, ...rates]
 
       // Sort by price (cheapest first)
-      rates.sort((a, b) => a.amount - b.amount)
+      allRates.sort((a, b) => a.amount - b.amount)
 
-      // Select the cheapest rate by default
-      const selectedRate = rates.length > 0 ? { ...rates[0], selected: true } : undefined
+      // Select the cheapest rate by default (should be free pickup)
+      const selectedRate = allRates.length > 0 ? { ...allRates[0], selected: true } : undefined
       if (selectedRate) {
-        rates[0].selected = true
+        allRates[0].selected = true
       }
 
       return {
-        rates,
+        rates: allRates,
         selectedRate,
         freeShippingThreshold: this.freeShippingThreshold,
         isFreeShipping: false
@@ -120,26 +193,50 @@ export class ShippingCalculator {
     } catch (error) {
       console.error('Shipping calculation error:', error)
 
-      // Fallback to standard rates if API fails
+      // Fallback to standard rates if API fails (still include local options)
       const fallbackRates: ShippingRate[] = [
+        ...localRates,
         {
           id: 'standard',
-          name: 'Standard',
+          name: 'USPS Priority Mail',
           provider: 'USPS',
           amount: 9.99,
           currency: 'USD',
-          estimatedDays: 5,
-          selected: true
+          estimatedDays: 3,
+          type: 'shipping'
         },
         {
           id: 'express',
-          name: 'Express',
-          provider: 'FedEx',
+          name: 'USPS Priority Express',
+          provider: 'USPS',
           amount: 24.99,
           currency: 'USD',
-          estimatedDays: 2
+          estimatedDays: 2,
+          type: 'shipping'
+        },
+        {
+          id: 'ups-2day',
+          name: 'UPS 2nd Day Air',
+          provider: 'UPS',
+          amount: 19.99,
+          currency: 'USD',
+          estimatedDays: 2,
+          type: 'shipping'
+        },
+        {
+          id: 'ups-saver',
+          name: 'UPS Next Day Air Saver',
+          provider: 'UPS',
+          amount: 34.99,
+          currency: 'USD',
+          estimatedDays: 1,
+          type: 'shipping'
         }
       ]
+
+      // Sort by amount
+      fallbackRates.sort((a, b) => a.amount - b.amount)
+      fallbackRates[0].selected = true
 
       return {
         rates: fallbackRates,
@@ -148,6 +245,30 @@ export class ShippingCalculator {
         isFreeShipping: false
       }
     }
+  }
+
+  // Check if address is within local delivery radius
+  private isWithinDeliveryRadius(address: ShippingAddress): boolean {
+    // Simple check - if the address is in Georgia, we'll check the zip code
+    // More sophisticated implementations would use actual distance calculation
+    const georgiaLocalZips = [
+      '30153', '30125', '30137', '30120', '30127', '30157', // Rockmart area
+      '30132', '30141', '30139', '30103', '30104', '30145', // Nearby
+      '30101', '30102', '30107', '30108', '30110', '30114', // Extended area
+      '30116', '30117', '30118', '30119', '30121', '30122',
+      '30126', '30129', '30133', '30134', '30135', '30140',
+      '30142', '30143', '30144', '30147', '30149', '30150',
+      '30152', '30154', '30156', '30161', '30165', '30168',
+      '30171', '30173', '30178', '30179', '30180', '30182',
+      '30184', '30187', '30188', '30189'
+    ]
+
+    if (address.state?.toUpperCase() !== 'GA') {
+      return false
+    }
+
+    const zip = address.zip?.substring(0, 5)
+    return georgiaLocalZips.includes(zip || '')
   }
 
   calculateFreeShippingProgress(cartTotal: number): {

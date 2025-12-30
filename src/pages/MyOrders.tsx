@@ -92,12 +92,8 @@ export default function MyOrders() {
       const result = await apiFetch('/api/orders/my')
       const data = result?.orders || []
 
-      // Filter to only show paid orders
-      const paidOrders = data.filter((order: Order) =>
-        order.payment_status === 'paid' || order.status === 'completed' || order.status === 'delivered'
-      )
-
-      setOrders(paidOrders)
+      // Show all orders (users should see pending orders to complete payment)
+      setOrders(data)
     } catch (err: any) {
       console.error('Failed to fetch orders:', err)
       setError(err.message || 'Failed to load orders')

@@ -4,10 +4,10 @@ import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { shippingCalculator } from '../utils/shipping-calculator'
+import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, LOCAL_DELIVERY_RADIUS_MILES } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
-import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package } from 'lucide-react'
+import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -178,6 +178,10 @@ const Checkout: React.FC = () => {
     zipCode: '',
     country: 'US'
   })
+  // Local pickup appointment state
+  const [pickupDate, setPickupDate] = useState('')
+  const [pickupTime, setPickupTime] = useState('')
+  const [pickupNotes, setPickupNotes] = useState('')
 
   // Pre-fill form with user profile data
   useEffect(() => {
@@ -300,6 +304,11 @@ const Checkout: React.FC = () => {
         }
         return
       }
+      // Get selected shipping method info
+      const selectedShipping = shippingCalculation?.selectedRate
+      const isLocalPickup = selectedShipping?.type === 'pickup'
+      const isLocalDelivery = selectedShipping?.type === 'delivery'
+
       const data = await apiFetch('/api/stripe/checkout-payment-intent', {
         method: 'POST',
         body: JSON.stringify({
@@ -314,6 +323,16 @@ const Checkout: React.FC = () => {
           tax: tax,
           itcCreditAmount: itcCreditAmount,
           itcCreditUSD: itcCreditUSD,
+          // Shipping method details
+          shippingMethod: selectedShipping?.name || 'Standard',
+          shippingType: selectedShipping?.type || 'shipping',
+          // Local pickup appointment info
+          pickupAppointment: isLocalPickup ? {
+            date: pickupDate || null,
+            time: pickupTime || null,
+            notes: pickupNotes || null
+          } : null,
+          isLocalDelivery: isLocalDelivery,
           // Pass existing payment intent ID to update instead of create new
           existingPaymentIntentId: paymentIntentId || undefined,
           existingOrderId: orderId || undefined
@@ -615,35 +634,137 @@ const Checkout: React.FC = () => {
                 ) : (
                   <div className="space-y-3">
                     {shippingCalculation.rates.map((rate) => (
-                      <label
-                        key={rate.id}
-                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${rate.selected
-                          ? 'border-purple-500 bg-purple-50'
-                          : 'card-border hover:border-gray-400'
-                          }`}
-                      >
-                        <div className="flex items-center">
-                          <input
-                            type="radio"
-                            name="shippingRate"
-                            value={rate.id}
-                            checked={rate.selected}
-                            onChange={() => handleShippingRateChange(rate.id)}
-                            className="mr-3"
-                          />
-                          <div>
-                            <p className="font-medium">{rate.name}</p>
-                            <p className="text-sm text-muted">
-                              {rate.provider} • {rate.estimatedDays} business days
+                      <div key={rate.id}>
+                        <label
+                          className={`flex items-start justify-between p-4 border rounded-lg cursor-pointer transition-colors ${rate.selected
+                            ? 'border-purple-500 bg-purple-500/10'
+                            : 'card-border hover:border-purple-400/50'
+                            }`}
+                        >
+                          <div className="flex items-start">
+                            <input
+                              type="radio"
+                              name="shippingRate"
+                              value={rate.id}
+                              checked={rate.selected}
+                              onChange={() => handleShippingRateChange(rate.id)}
+                              className="mr-3 mt-1"
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                {rate.type === 'pickup' && <Store className="w-4 h-4 text-green-500" />}
+                                {rate.type === 'delivery' && <MapPin className="w-4 h-4 text-blue-500" />}
+                                {rate.type === 'shipping' && <Truck className="w-4 h-4 text-purple-500" />}
+                                <p className="font-medium">{rate.name}</p>
+                                {rate.type === 'pickup' && (
+                                  <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
+                                    Recommended
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted mt-1">
+                                {rate.type === 'pickup' ? (
+                                  <>Ready in {rate.estimatedDays} business day</>
+                                ) : rate.type === 'delivery' ? (
+                                  <>{rate.estimatedDays} business days • Within {LOCAL_DELIVERY_RADIUS_MILES} miles</>
+                                ) : (
+                                  <>{rate.provider} • {rate.estimatedDays} business days</>
+                                )}
+                              </p>
+                              {rate.description && (
+                                <p className="text-xs text-muted/70 mt-1 flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  {rate.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className={`font-semibold ${rate.amount === 0 ? 'text-green-500' : ''}`}>
+                              {rate.amount === 0 ? 'FREE' : `$${rate.amount.toFixed(2)}`}
                             </p>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-semibold">
-                            {rate.amount === 0 ? 'Free' : `$${rate.amount.toFixed(2)}`}
-                          </p>
-                        </div>
-                      </label>
+                        </label>
+
+                        {/* Pickup Appointment Booking - Shows when local pickup is selected */}
+                        {rate.type === 'pickup' && rate.selected && (
+                          <div className="mt-3 ml-6 p-4 bg-green-500/5 border border-green-500/20 rounded-lg">
+                            <h4 className="text-sm font-medium text-green-400 mb-3 flex items-center gap-2">
+                              <Calendar className="w-4 h-4" />
+                              Schedule Your Pickup (Optional but Recommended)
+                            </h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs text-muted mb-1">Preferred Date</label>
+                                <input
+                                  type="date"
+                                  value={pickupDate}
+                                  onChange={(e) => setPickupDate(e.target.value)}
+                                  min={new Date().toISOString().split('T')[0]}
+                                  className="w-full px-3 py-2 bg-bg border card-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-muted mb-1">Preferred Time</label>
+                                <select
+                                  value={pickupTime}
+                                  onChange={(e) => setPickupTime(e.target.value)}
+                                  className="w-full px-3 py-2 bg-bg border card-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                                >
+                                  <option value="">Select a time</option>
+                                  <option value="10:00 AM">10:00 AM</option>
+                                  <option value="11:00 AM">11:00 AM</option>
+                                  <option value="12:00 PM">12:00 PM</option>
+                                  <option value="1:00 PM">1:00 PM</option>
+                                  <option value="2:00 PM">2:00 PM</option>
+                                  <option value="3:00 PM">3:00 PM</option>
+                                  <option value="4:00 PM">4:00 PM</option>
+                                  <option value="5:00 PM">5:00 PM</option>
+                                  <option value="6:00 PM">6:00 PM</option>
+                                  <option value="7:00 PM">7:00 PM</option>
+                                  <option value="8:00 PM">8:00 PM</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="mt-3">
+                              <label className="block text-xs text-muted mb-1">Notes (Optional)</label>
+                              <input
+                                type="text"
+                                value={pickupNotes}
+                                onChange={(e) => setPickupNotes(e.target.value)}
+                                placeholder="e.g., I'll call when arriving"
+                                className="w-full px-3 py-2 bg-bg border card-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                              />
+                            </div>
+                            <div className="mt-3 p-2 bg-card rounded border border-white/5 text-xs text-muted">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Clock className="w-3 h-3" />
+                                <span className="font-medium">Store Hours: {PICKUP_HOURS}</span>
+                              </div>
+                              <p className="flex items-start gap-2">
+                                <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                <span>
+                                  {WAREHOUSE_ADDRESS.address}, {WAREHOUSE_ADDRESS.city}, {WAREHOUSE_ADDRESS.state} {WAREHOUSE_ADDRESS.zip}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Local Delivery Info - Shows when local delivery is selected */}
+                        {rate.type === 'delivery' && rate.selected && (
+                          <div className="mt-3 ml-6 p-4 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+                            <h4 className="text-sm font-medium text-blue-400 mb-2 flex items-center gap-2">
+                              <Truck className="w-4 h-4" />
+                              Local Delivery Details
+                            </h4>
+                            <p className="text-xs text-muted">
+                              Your order will be delivered directly to your address within {LOCAL_DELIVERY_RADIUS_MILES} miles of our warehouse.
+                              We'll contact you to confirm delivery timing.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
