@@ -1,7 +1,6 @@
 import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/supabaseAuth.js";
 import { supabase } from "../lib/supabase.js";
-import { uploadImageFromBase64 } from "../services/google-cloud-storage.js";
 
 const router = Router();
 
@@ -39,7 +38,7 @@ router.get("/get", async (req: Request, res: Response): Promise<any> => {
 });
 
 // POST /api/profile/upload-image
-// Upload avatar or cover image to GCS
+// Upload avatar or cover image to Supabase Storage
 router.post("/upload-image", requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.sub;
@@ -59,15 +58,55 @@ router.post("/upload-image", requireAuth, async (req: Request, res: Response): P
 
     console.log(`[user/profile/upload-image] Uploading ${type} image for user:`, userId);
 
+    // Extract the base64 string and content type from data URL
+    const matches = image.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ error: 'Invalid base64 data URL format' });
+    }
+
+    const contentType = matches[1];
+    const base64String = matches[2];
+    const buffer = Buffer.from(base64String, 'base64');
+
+    // Determine file extension from content type
+    const extMap: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/gif': 'gif',
+      'image/webp': 'webp'
+    };
+    const ext = extMap[contentType] || 'png';
+
     const timestamp = Date.now();
-    const folder = type === 'avatar' ? 'user-avatars' : 'user-covers';
-    const destinationPath = `${folder}/${userId}/${timestamp}.png`;
+    const bucket = type === 'avatar' ? 'avatars' : 'covers';
+    const filePath = `${userId}/${timestamp}.${ext}`;
 
-    const uploadResult = await uploadImageFromBase64(image, destinationPath);
+    console.log(`[user/profile/upload-image] Uploading to bucket: ${bucket}, path: ${filePath}`);
 
-    console.log(`[user/profile/upload-image] ✅ ${type} uploaded:`, uploadResult.publicUrl);
+    // Upload to Supabase Storage
+    const { data, error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(filePath, buffer, {
+        contentType,
+        upsert: true,
+      });
 
-    return res.json({ ok: true, url: uploadResult.publicUrl });
+    if (uploadError) {
+      console.error('[user/profile/upload-image] Upload error:', uploadError);
+      return res.status(500).json({ error: uploadError.message });
+    }
+
+    // Get the public URL
+    const { data: urlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(data.path);
+
+    const publicUrl = urlData.publicUrl;
+
+    console.log(`[user/profile/upload-image] ✅ ${type} uploaded:`, publicUrl);
+
+    return res.json({ ok: true, url: publicUrl });
   } catch (error: any) {
     console.error('[user/profile/upload-image] Error:', error);
     return res.status(500).json({ error: error.message });
