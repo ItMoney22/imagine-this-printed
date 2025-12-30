@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/supabaseAuth.js";
 import { supabase } from "../lib/supabase.js";
+import { uploadFile, generateSignedUrl } from "../services/gcs-storage.js";
 
 const router = Router();
 
@@ -38,7 +39,7 @@ router.get("/get", async (req: Request, res: Response): Promise<any> => {
 });
 
 // POST /api/profile/upload-image
-// Upload avatar or cover image to Supabase Storage
+// Upload avatar or cover image to Google Cloud Storage
 router.post("/upload-image", requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.sub;
@@ -79,34 +80,25 @@ router.post("/upload-image", requireAuth, async (req: Request, res: Response): P
     const ext = extMap[contentType] || 'png';
 
     const timestamp = Date.now();
-    const bucket = type === 'avatar' ? 'avatars' : 'covers';
-    const filePath = `${userId}/${timestamp}.${ext}`;
+    const folder = type === 'avatar' ? 'avatars' : 'covers';
+    const filename = `${timestamp}.${ext}`;
 
-    console.log(`[user/profile/upload-image] Uploading to bucket: ${bucket}, path: ${filePath}`);
+    console.log(`[user/profile/upload-image] Uploading to GCS folder: ${folder}, filename: ${filename}`);
 
-    // Upload to Supabase Storage
-    const { data, error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, buffer, {
-        contentType,
-        upsert: true,
-      });
+    // Upload to Google Cloud Storage
+    const result = await uploadFile(buffer, {
+      userId,
+      folder: folder as 'avatars' | 'covers',
+      filename,
+      contentType
+    });
 
-    if (uploadError) {
-      console.error('[user/profile/upload-image] Upload error:', uploadError);
-      return res.status(500).json({ error: uploadError.message });
-    }
+    // Generate signed URL for long-term access (7 days)
+    const signedUrl = await generateSignedUrl(result.gcsPath, 24 * 7);
 
-    // Get the public URL
-    const { data: urlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(data.path);
+    console.log(`[user/profile/upload-image] ✅ ${type} uploaded to GCS:`, result.gcsPath);
 
-    const publicUrl = urlData.publicUrl;
-
-    console.log(`[user/profile/upload-image] ✅ ${type} uploaded:`, publicUrl);
-
-    return res.json({ ok: true, url: publicUrl });
+    return res.json({ ok: true, url: signedUrl, gcsPath: result.gcsPath });
   } catch (error: any) {
     console.error('[user/profile/upload-image] Error:', error);
     return res.status(500).json({ error: error.message });
@@ -243,6 +235,38 @@ router.post("/update", requireAuth, async (req: Request, res: Response): Promise
     return res.json({ ok: true, message: 'Profile updated successfully', profile: updatedProfile });
   } catch (error: any) {
     console.error('[user/profile/update] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/profile/refresh-avatar-url
+// Refresh signed URL for avatar (used when signed URL expires)
+router.post("/refresh-avatar-url", requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { gcsPath } = req.body;
+
+    if (!gcsPath) {
+      return res.status(400).json({ error: 'gcsPath is required' });
+    }
+
+    // Verify the path belongs to this user
+    if (!gcsPath.includes(userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Generate new signed URL
+    const signedUrl = await generateSignedUrl(gcsPath, 24 * 7); // 7 days
+
+    console.log(`[user/profile/refresh-avatar-url] Refreshed URL for:`, gcsPath);
+
+    return res.json({ ok: true, url: signedUrl });
+  } catch (error: any) {
+    console.error('[user/profile/refresh-avatar-url] Error:', error);
     return res.status(500).json({ error: error.message });
   }
 });
