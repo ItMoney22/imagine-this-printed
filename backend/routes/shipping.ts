@@ -65,7 +65,17 @@ router.post('/calculate-distance', async (req: Request, res: Response) => {
     console.log('[shipping] Calculating distance from warehouse to:', address)
 
     const response = await fetch(url)
-    const data = await response.json()
+    const data = await response.json() as {
+      status: string
+      error_message?: string
+      rows?: Array<{
+        elements?: Array<{
+          status: string
+          distance?: { value: number; text: string }
+          duration?: { value: number; text: string }
+        }>
+      }>
+    }
 
     if (data.status !== 'OK') {
       console.error('[shipping] Google Maps API error:', data.status, data.error_message)
@@ -80,7 +90,7 @@ router.post('/calculate-distance', async (req: Request, res: Response) => {
 
     const element = data.rows?.[0]?.elements?.[0]
 
-    if (!element || element.status !== 'OK') {
+    if (!element || element.status !== 'OK' || !element.distance) {
       console.error('[shipping] Could not calculate distance:', element?.status)
       return res.json({
         eligible: false,
