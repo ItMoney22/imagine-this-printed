@@ -1105,9 +1105,9 @@ router.get('/connect/cashout-history', requireAuth, async (req: Request, res: Re
 // ADMIN: Connect Overview
 // =============================================================================
 
-router.get('/admin/connect/overview', async (req: AuthRequest, res: Response) => {
+router.get('/admin/connect/overview', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id
+    const userId = req.user?.sub
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
     }

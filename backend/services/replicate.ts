@@ -19,7 +19,7 @@ export interface ReplicateImageInput {
 
 export interface ReplicateTryOnInput {
   garment_image: string // URL or base64 - the design to apply
-  template?: 'flat_lay' | 'lifestyle'
+  template?: 'flat_lay' | 'lifestyle' | 'mr_imagine'
   product_type?: 'shirts' | 'hoodies' | 'tumblers' | 'dtf-transfers'
   shirtColor?: 'black' | 'white' | 'gray' | 'color' // DTF shirt color for mockup matching
   productType?: 'tshirt' | 'hoodie' | 'tank' // Product type for Mr. Imagine mockups

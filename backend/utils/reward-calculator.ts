@@ -79,6 +79,7 @@ export const REFERRAL_CONFIG = {
   referrerPurchaseITC: 50, // ITC awarded when referred user makes first purchase
   refereeITC: 0, // No welcome bonus (don't make it too easy to earn)
   cookieDays: 90, // Referral tracking cookie duration
+  firstPurchaseBonus: 1.5, // 50% extra ITC on first purchase (multiplier)
 }
 
 // Reward Configuration - All ITC based
