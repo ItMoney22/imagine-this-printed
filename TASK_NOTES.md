@@ -178,3 +178,64 @@
   - **Boost System**: Free votes (1 per user per post, toggleable) + Paid ITC boosts (1-100 ITC, increases visibility). Creators earn 1 ITC per boost received.
   - Files created: `supabase/migrations/20251231_community_features.sql`, `backend/routes/community.ts`, `src/utils/community-service.ts`, `src/components/community/CommunityPostCard.tsx`, `src/components/community/PaidBoostModal.tsx`, `src/components/community/CreatorLeaderboard.tsx`, `src/components/community/CommunityShowcase.tsx`, `src/components/community/index.ts`
   - Files modified: `backend/index.ts`, `backend/middleware/supabaseAuth.ts` (added optionalAuth), `src/types/index.ts`, `src/pages/Community.tsx`
+- 2025-12-31 **DIAGNOSED** Brevo emails not sending - API key invalid:
+  - **Root cause**: The BREVO_API_KEY in `.env` returns "Key not found" from Brevo API - key is expired or was revoked
+  - **Two separate email systems**:
+    1. **Custom emails** (welcome, order confirmation, design approval) - Use Brevo API via backend/utils/email.ts. Requires valid BREVO_API_KEY.
+    2. **Supabase Auth emails** (verify email, reset password) - Sent directly by Supabase. Requires SMTP configuration in Supabase Dashboard → Authentication → Email Templates.
+  - **To fix custom emails**: Generate new API key at https://app.brevo.com/settings/keys/api and update BREVO_API_KEY in backend/.env
+  - **To fix Supabase auth emails**: Configure custom SMTP in Supabase Dashboard → Project Settings → Authentication → SMTP Settings (use Brevo SMTP: smtp-relay.brevo.com, port 587)
+- 2025-12-31 **FIX** Ghost mannequin mockup display order:
+  - Updated [ai-jobs-worker.ts:857-861](backend/worker/ai-jobs-worker.ts#L857-L861) to set ghost_mannequin as display_order 1 (primary) instead of mr_imagine
+  - New order: ghost_mannequin(1) PRIMARY → flat_lay(2) → mr_imagine(3)
+  - Updated existing product assets in database to reflect new order
+- 2025-12-31 **FEATURE** ITC Cash-Out via Stripe Connect Express:
+  - **Database**: Created migration `20251231_stripe_connect_cashout.sql` with `stripe_connect_accounts` and `itc_cashout_requests` tables, RLS policies, and indexes
+  - **Backend Service**: Created `backend/services/stripe-connect.ts` with full Stripe Connect integration:
+    - `createExpressAccount()` - Creates Stripe Express account for user
+    - `createOnboardingLink()` - Returns Stripe-hosted onboarding URL
+    - `getConnectAccountStatus()` - Fetches account status, payout eligibility
+    - `calculateCashout()` - Calculates fees (5% platform + ~1.5% instant payout)
+    - `processInstantPayout()` - Full payout flow: deduct ITC → transfer → instant payout
+    - Webhook handlers for `account.updated`, `payout.paid`, `payout.failed`
+  - **API Endpoints**: Added 6 endpoints to `backend/routes/wallet.ts`:
+    - GET `/api/wallet/connect/status` - Account status
+    - POST `/api/wallet/connect/create-account` - Create Express account
+    - POST `/api/wallet/connect/onboarding-link` - Get Stripe onboarding URL
+    - POST `/api/wallet/connect/calculate` - Calculate fees
+    - POST `/api/wallet/connect/cashout` - Process instant payout
+    - GET `/api/wallet/connect/cashout-history` - Cashout history
+  - **Webhook Handlers**: Added Connect event handlers to `backend/routes/webhooks.ts`
+  - **TypeScript Types**: Added `StripeConnectAccount`, `ConnectAccountStatus`, `CashoutCalculation`, `ITCCashoutRequest`, `CashoutResult` to `src/types/index.ts`
+  - **Frontend UI**: Added new "Cash Out" tab to `src/pages/Wallet.tsx` with:
+    - Setup flow for new users (redirect to Stripe onboarding)
+    - Onboarding incomplete warning with continue button
+    - Ready state with connected card display, amount input, real-time fee breakdown
+    - $50 minimum (5000 ITC), instant payout button, cashout history table
+  - **Fees**: 7% platform fee + ~1.5% Stripe instant payout fee (e.g., $100 → $91.50 net)
+- 2025-12-31 **FEATURE** ITC Earnings Configuration:
+  - **Creator Royalty**: Updated from 10% → **15%** of sale price in `backend/services/user-royalties.ts`
+  - **Referral Signup**: Updated from 5 ITC → **10 ITC** to referrer in `backend/utils/reward-calculator.ts`
+  - **Referral First Purchase**: Changed from 5% of order → **50 ITC flat** bonus
+  - **Referral Cookie**: Extended from 30 days → **90 days** tracking with localStorage + cookie redundancy in `src/utils/referral-system.ts`
+  - **Vendor Commission**: Updated from 15% → **25%** in kiosk-service.ts, KioskManagement.tsx, VendorDashboard.tsx
+  - **Community Boost**: Kept at **1 ITC** per boost received
+  - **Cookie Consent Banner**: Created `src/components/CookieConsent.tsx` with Accept/Decline, 90-day cookie info, privacy policy link
+  - **Central Config**: Created `ITC_COMMISSION_RATES` and `REFERRAL_CONFIG` exports in reward-calculator.ts
+  - Files created: `src/components/CookieConsent.tsx`
+  - Files modified: `backend/services/user-royalties.ts`, `backend/utils/reward-calculator.ts`, `backend/services/referral-service.ts`, `src/utils/referral-system.ts`, `src/utils/kiosk-service.ts`, `src/pages/KioskManagement.tsx`, `src/pages/VendorDashboard.tsx`, `src/pages/Referrals.tsx`, `src/index.css` (slideUp animation), `src/App.tsx`
+- 2025-12-31 **REBRAND** Mr. Imagine Logo + Admin Invoices:
+  - **Logo Rebrand**: Replaced header/footer logo with Mr. Imagine mascot (purple fluffy character in branded shirt)
+  - **Files updated**: Copied logo to `public/assets/branding/mr-imagine-logo.jpg`, updated Header.tsx (line 78), Footer.tsx (line 13), index.html (favicon, apple-touch-icon, meta description, app-version 2.2.0)
+  - **Admin Invoices**: Extended invoice system to support admin-only invoices (100% to business, no founder split)
+  - **Backend changes**: Updated `backend/routes/invoices.ts` to handle `invoice_type: 'admin'` - sets founder_id to null, 0% founder earnings, 100% platform
+  - **Database migration**: Created `20251231_admin_invoices.sql` - added `invoice_type` column, made `founder_id` nullable
+  - **Frontend cleanup**: Updated `AdminInvoiceManagement.tsx` interfaces (removed founder-specific fields), simplified stats cards and table
+  - Files created: `supabase/migrations/20251231_admin_invoices.sql`, `docs/plans/2025-12-31-mr-imagine-rebrand-and-admin-invoices.md`
+  - Files modified: `src/components/Header.tsx`, `src/components/Footer.tsx`, `index.html`, `backend/routes/invoices.ts`, `src/components/AdminInvoiceManagement.tsx`, `src/components/CreateInvoiceModal.tsx`
+- 2025-12-31 **FIX** Logo and favicon transparency:
+  - **Favicon**: Changed to `/mr-imagine/mr-imagine-head.png` (transparent PNG) from .jpg
+  - **Navbar logo**: Changed to `/mr-imagine/mr-imagine-waist-up.png` (character only, no text background)
+  - **Footer logo**: Same - `/mr-imagine/mr-imagine-waist-up.png`
+  - All images now have transparent backgrounds, removed rounded-lg class since not needed
+  - Files modified: `index.html`, `src/components/Header.tsx`, `src/components/Footer.tsx`

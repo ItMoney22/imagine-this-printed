@@ -5,7 +5,7 @@
 
 import { supabase } from '../lib/supabase.js'
 
-const ROYALTY_PERCENTAGE = 0.10 // 10% of sale price
+const ROYALTY_PERCENTAGE = 0.15 // 15% of sale price for creators
 const ITC_CONVERSION_RATE = 1 // 1 cent = 1 ITC
 
 export interface RoyaltyPayment {

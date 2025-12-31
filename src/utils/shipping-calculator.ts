@@ -11,6 +11,8 @@ export interface ShippingRate {
   selected?: boolean
   type?: 'shipping' | 'pickup' | 'delivery'
   description?: string
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export interface ShippingCalculation {
@@ -129,7 +131,10 @@ export class ShippingCalculator {
 
     // Check if address qualifies for local delivery using distance calculation
     const deliveryInfo = await this.calculateLocalDelivery(toAddress)
+
+    // Always show local delivery option - but disable if too far
     if (deliveryInfo.eligible && deliveryInfo.deliveryFee !== null) {
+      // Address is within delivery range
       localRates.push({
         id: 'local-delivery',
         name: deliveryInfo.tierLabel || 'Local Delivery',
@@ -141,6 +146,23 @@ export class ShippingCalculator {
         description: deliveryInfo.distanceMiles
           ? `${deliveryInfo.distanceMiles.toFixed(1)} miles from our warehouse`
           : `Delivered within ${MAX_DELIVERY_RADIUS_MILES} mile radius of our warehouse`
+      })
+    } else {
+      // Address is outside delivery range - show disabled option with reason
+      const distanceText = deliveryInfo.distanceMiles
+        ? `${deliveryInfo.distanceMiles.toFixed(0)} miles away`
+        : 'outside our delivery area'
+      localRates.push({
+        id: 'local-delivery',
+        name: 'Local Delivery',
+        provider: 'Direct',
+        amount: LOCAL_DELIVERY_TIERS[0].fee, // Show base price
+        currency: 'USD',
+        estimatedDays: 2,
+        type: 'delivery',
+        description: `Available within ${MAX_DELIVERY_RADIUS_MILES} miles of Rockmart, GA`,
+        disabled: true,
+        disabledReason: `Sorry, your address is ${distanceText}. Local delivery is only available within ${MAX_DELIVERY_RADIUS_MILES} miles of our warehouse.`
       })
     }
 
@@ -157,7 +179,7 @@ export class ShippingCalculator {
         .filter((rate: any) => {
           const serviceToken = rate.servicelevel?.token?.toLowerCase() || ''
           const provider = rate.provider?.toLowerCase() || ''
-          // Include USPS Priority/Express and UPS 2nd Day/Saver/Air
+          // Include USPS Priority/Express/Ground and UPS Ground/2nd Day/Saver/Air
           return (provider === 'usps' && (serviceToken.includes('priority') || serviceToken.includes('express') || serviceToken.includes('ground'))) ||
                  (provider === 'ups' && (serviceToken.includes('ground') || serviceToken.includes('2nd') || serviceToken.includes('next') || serviceToken.includes('saver')))
         })
@@ -177,16 +199,52 @@ export class ShippingCalculator {
           }
         })
 
-      // Combine local options with shipping rates
-      const allRates = [...localRates, ...rates]
+      // Check if we have ground options from Shippo - if not, add estimated ground rates
+      const hasUSPSGround = rates.some(r => r.provider?.toLowerCase() === 'usps' && r.name?.toLowerCase().includes('ground'))
+      const hasUPSGround = rates.some(r => r.provider?.toLowerCase() === 'ups' && r.name?.toLowerCase().includes('ground'))
 
-      // Sort by price (cheapest first)
-      allRates.sort((a, b) => a.amount - b.amount)
+      // Add estimated ground rates if not returned by Shippo (common for test API or certain destinations)
+      const supplementalRates: ShippingRate[] = []
+      if (!hasUSPSGround) {
+        supplementalRates.push({
+          id: 'usps-ground-est',
+          name: 'USPS Ground Advantage',
+          provider: 'USPS',
+          amount: 7.34, // ~$6.99 + 5% markup
+          currency: 'USD',
+          estimatedDays: 5,
+          type: 'shipping'
+        })
+      }
+      if (!hasUPSGround) {
+        supplementalRates.push({
+          id: 'ups-ground-est',
+          name: 'UPS Ground',
+          provider: 'UPS',
+          amount: 12.59, // ~$11.99 + 5% markup
+          currency: 'USD',
+          estimatedDays: 5,
+          type: 'shipping'
+        })
+      }
 
-      // Select the cheapest rate by default (should be free pickup)
-      const selectedRate = allRates.length > 0 ? { ...allRates[0], selected: true } : undefined
-      if (selectedRate) {
-        allRates[0].selected = true
+      // Combine local options, Shippo rates, and supplemental ground rates
+      const allRates = [...localRates, ...rates, ...supplementalRates]
+
+      // Sort by price (cheapest first), but put disabled rates at the end
+      allRates.sort((a, b) => {
+        // Disabled rates go last
+        if (a.disabled && !b.disabled) return 1
+        if (!a.disabled && b.disabled) return -1
+        // Otherwise sort by amount
+        return a.amount - b.amount
+      })
+
+      // Select the cheapest NON-DISABLED rate by default (should be free pickup)
+      const firstEnabledIndex = allRates.findIndex(r => !r.disabled)
+      const selectedRate = firstEnabledIndex >= 0 ? { ...allRates[firstEnabledIndex], selected: true } : undefined
+      if (selectedRate && firstEnabledIndex >= 0) {
+        allRates[firstEnabledIndex].selected = true
       }
 
       return {
@@ -258,13 +316,22 @@ export class ShippingCalculator {
         }
       ]
 
-      // Sort by amount
-      fallbackRates.sort((a, b) => a.amount - b.amount)
-      fallbackRates[0].selected = true
+      // Sort by amount, but put disabled rates at the end
+      fallbackRates.sort((a, b) => {
+        if (a.disabled && !b.disabled) return 1
+        if (!a.disabled && b.disabled) return -1
+        return a.amount - b.amount
+      })
+
+      // Select the first non-disabled rate
+      const firstEnabledIdx = fallbackRates.findIndex(r => !r.disabled)
+      if (firstEnabledIdx >= 0) {
+        fallbackRates[firstEnabledIdx].selected = true
+      }
 
       return {
         rates: fallbackRates,
-        selectedRate: fallbackRates[0],
+        selectedRate: firstEnabledIdx >= 0 ? fallbackRates[firstEnabledIdx] : fallbackRates[0],
         freeShippingThreshold: this.freeShippingThreshold,
         isFreeShipping: false
       }

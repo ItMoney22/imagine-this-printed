@@ -123,7 +123,8 @@ const ProductPage: React.FC = () => {
   }
 
   const handleAddToCart = () => {
-    if (product?.sizes?.length && !selectedSize) {
+    // Size is always required (we show default sizes if product doesn't have them)
+    if (!selectedSize) {
       toast.warning('Selection required', 'Please select a size')
       return
     }
@@ -138,7 +139,8 @@ const ProductPage: React.FC = () => {
   }
 
   const handleBuyNow = () => {
-    if (product?.sizes?.length && !selectedSize) {
+    // Size is always required (we show default sizes if product doesn't have them)
+    if (!selectedSize) {
       toast.warning('Selection required', 'Please select a size')
       return
     }
@@ -224,26 +226,49 @@ const ProductPage: React.FC = () => {
           </div>
 
           <div className="border-t card-border pt-6">
-            {/* Variants */}
-            {product.sizes && product.sizes.length > 0 && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">Size</label>
-                <div className="flex flex-wrap gap-2">
-                  {product.sizes.map(size => (
-                    <button
-                      key={size}
-                      onClick={() => setSelectedSize(size)}
-                      className={`px-4 py-2 rounded-md border transition-colors ${selectedSize === size
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-gray-700 hover:border-gray-500 text-text'
-                        }`}
-                    >
-                      {size}
-                    </button>
-                  ))}
+            {/* Size Selector - always show for apparel products */}
+            {(() => {
+              // Use product sizes if available, otherwise use default apparel sizes
+              const defaultSizes = ['S', 'M', 'L', 'XL', '2XL']
+              const displaySizes = product.sizes && product.sizes.length > 0 ? product.sizes : defaultSizes
+              const hasPlusSizes = displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
+
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="block text-sm font-medium text-text">Size</label>
+                    {hasPlusSizes && (
+                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                        2XL+ = +$2.50
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {displaySizes.map(size => {
+                      const isPlusSize = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                      return (
+                        <button
+                          key={size}
+                          onClick={() => setSelectedSize(size)}
+                          className={`px-4 py-2 rounded-md border transition-colors relative group ${selectedSize === size
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-gray-700 hover:border-gray-500 text-text'
+                            } ${isPlusSize ? 'pr-6' : ''}`}
+                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
+                        >
+                          {size}
+                          {isPlusSize && (
+                            <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-amber-400 font-medium">
+                              +$
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {product.colors && product.colors.length > 0 && (
               <div className="mb-4">

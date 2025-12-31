@@ -339,21 +339,28 @@ export async function generateMockup(input: ReplicateTryOnInput) {
 
   const placementDesc = placementInstructions[printPlacement] || placementInstructions['front-center']
 
-  // Build the prompt for ITP Enhance Engine with Mr. Imagine + Design fusion
+  // Build the prompt and input images based on template type
   let prompt = ''
+  let imageInputs: string[] = []
 
   if (input.template === 'flat_lay') {
-    prompt = `Create a professional product mockup: Take the graphic design from the SECOND input image and apply it ${placementDesc} on the ${fabricColor} ${productName} shown in the FIRST input image.
+    // Flat lay: Professional product photography, just the design on a garment, no Mr. Imagine
+    prompt = `Create a professional flat lay product photograph of a ${fabricColor} ${productName} with the printed design from the input image applied ${placementDesc}.
 
-CRITICAL INSTRUCTIONS:
-1. The FIRST image shows Mr. Imagine (a friendly purple furry character) wearing/modeling the ${fabricColor} ${productName} - keep Mr. Imagine exactly as shown
-2. The SECOND image is the graphic design to apply to the ${productName}
-3. Apply the design ${placementDesc}, making it look like a real printed DTF transfer
-4. Preserve Mr. Imagine's pose and the ${productName}'s original ${fabricColor} color
-5. Do NOT modify, distort, or change the design - copy it EXACTLY
-6. The result should look like a real product photo with Mr. Imagine modeling the custom printed ${productName}
-7. Professional studio lighting, clean background, high quality product photography`
+REQUIREMENTS:
+- Professional flat lay photography style - garment laid flat on a neutral surface
+- Pure white or light gray background
+- The design should be applied ${placementDesc} on the ${productName}
+- Preserve the design EXACTLY as shown - same colors, same proportions
+- Make the print look like a real DTF transfer on ${fabricColor} cotton fabric
+- Professional studio lighting with soft shadows
+- High resolution, clean e-commerce product photo style
+- Slight natural fabric wrinkles for realism
+- No mannequin, no model, no Mr. Imagine - just the garment laid flat`
+
+    imageInputs = [input.garment_image] // Only the design image
   } else {
+    // Mr. Imagine mockup: Character wearing the product with the design
     prompt = `Create a lifestyle product mockup featuring Mr. Imagine: The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing/modeling a ${fabricColor} ${productName}. The SECOND input image is a graphic design.
 
 CRITICAL INSTRUCTIONS:
@@ -364,16 +371,18 @@ CRITICAL INSTRUCTIONS:
 5. Copy the graphic EXACTLY as it appears - same colors, same design elements
 6. Professional lifestyle photography style with natural lighting
 7. The result should look like Mr. Imagine is proudly showing off the custom ${productName}`
+
+    imageInputs = [mrImagineMockupUrl, input.garment_image] // Mr. Imagine base + design
   }
 
-  // ITP Enhance Engine parameters with TWO input images: Mr. Imagine mockup + design
+  // ITP Enhance Engine parameters
   const params: any = {
     input: {
       prompt: prompt,
-      image_input: [mrImagineMockupUrl, input.garment_image], // Array: [Mr. Imagine base, Design to apply]
+      image_input: imageInputs,
       aspect_ratio: '1:1',
       output_format: 'png',
-      
+
     },
     webhook: `${process.env.PUBLIC_URL}/api/ai/replicate/callback`,
     webhook_events_filter: ['completed'],
@@ -431,19 +440,21 @@ export async function generateGhostMannequin(input: GhostMannequinInput) {
   const fabricColor = colorDescMap[input.shirtColor] || 'black'
 
   // Build detailed prompt for ghost mannequin generation
-  const prompt = `Generate a ghost mannequin photograph of this ${fabricColor} ${productName} with the printed design exactly as shown in the input image.
+  const prompt = `Create a professional ghost mannequin / invisible mannequin product photo of a ${fabricColor} ${productName}.
 
-REQUIREMENTS:
-- Show the garment as a 3D volume with realistic fabric draping
-- The garment should appear as if worn by an invisible mannequin
-- No visible mannequin, support structure, or model - just the floating garment
-- Pure white background (RGB 255,255,255)
-- Professional e-commerce studio lighting
-- Preserve the printed design exactly as it appears in the input image
-- Show natural fabric folds, seams, and construction details
-- The interior neckline and collar structure should be visible
-- High resolution, suitable for online product catalog
-- Clean, professional product photography style`
+The input image shows the design that should be printed on the front of the shirt.
+
+CRITICAL REQUIREMENTS:
+1. The ${productName} must appear 3-DIMENSIONAL and VOLUMETRIC - like it's being worn by an invisible person
+2. Show the garment with realistic body shape - shoulders filled out, chest area rounded, natural torso taper
+3. The shirt should NOT look flat or like a flat-lay - it must have DEPTH and VOLUME
+4. Pure white background (#FFFFFF)
+5. Small subtle shadow beneath for grounding
+6. The neckline should show the inside collar (hollow neck effect typical of ghost mannequin photos)
+7. Sleeves should have slight volume as if arms are inside
+8. Apply the design from the input image centered on the chest
+9. Professional e-commerce photography lighting
+10. The overall effect should look like a real product photo from Amazon or a major retailer`
 
   console.log('[replicate] 📝 Ghost mannequin prompt:', prompt.substring(0, 100) + '...')
 
@@ -464,13 +475,22 @@ REQUIREMENTS:
     console.log('[replicate] ✅ Ghost mannequin generation complete')
     console.log('[replicate] 🔍 ITP Enhance Engine raw output type:', typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
 
-    // Get the URL from the output
+    // Get the URL from the output - handle URL objects, FileOutput objects, and strings
     let imageUrl: string
 
+    const extractUrl = (item: any): string => {
+      if (typeof item === 'string') return item
+      if (item instanceof URL) return item.href
+      if (item && typeof item.href === 'string') return item.href
+      if (item && typeof item.url === 'function') return item.url()
+      if (item && typeof item.url === 'string') return item.url
+      return String(item)
+    }
+
     if (Array.isArray(output) && output.length > 0) {
-      imageUrl = typeof output[0].url === 'function' ? output[0].url() : output[0]
+      imageUrl = extractUrl(output[0])
     } else {
-      imageUrl = typeof output.url === 'function' ? output.url() : output
+      imageUrl = extractUrl(output)
     }
 
     console.log('[replicate] 👻 Ghost mannequin image URL:', imageUrl)
@@ -483,6 +503,112 @@ REQUIREMENTS:
     }
   } catch (error: any) {
     console.error('[replicate] ❌ Ghost mannequin generation failed:', error.message)
+    throw error
+  }
+}
+
+/**
+ * Generate a flat lay mockup using ITP Enhance Engine (Gemini 2.5 Flash Image)
+ *
+ * Creates a professional flat lay product photo showing the garment laid flat
+ * on a clean white/neutral surface - pure product photography, no models.
+ */
+export interface FlatLayInput {
+  designImage: string // URL to the design/garment image
+  productType: 'tshirt' | 'hoodie' | 'tank'
+  shirtColor: 'black' | 'white' | 'gray'
+}
+
+export async function generateFlatLay(input: FlatLayInput) {
+  const modelId = 'google/nano-banana' // ITP Enhance Engine (Gemini 2.5 Flash Image)
+
+  console.log('[replicate] 📸 Generating flat lay mockup:', {
+    modelId,
+    productType: input.productType,
+    shirtColor: input.shirtColor,
+    designImage: input.designImage.substring(0, 50) + '...'
+  })
+
+  // Map product type to readable name
+  const productNameMap: Record<string, string> = {
+    'tshirt': 't-shirt',
+    'hoodie': 'hoodie',
+    'tank': 'tank top',
+  }
+  const productName = productNameMap[input.productType] || 't-shirt'
+
+  // Map shirt color to fabric description
+  const colorDescMap: Record<string, string> = {
+    'black': 'black',
+    'white': 'white',
+    'gray': 'heather gray',
+  }
+  const fabricColor = colorDescMap[input.shirtColor] || 'black'
+
+  // Build detailed prompt for flat lay generation
+  const prompt = `Create a professional flat lay product photograph of a ${fabricColor} ${productName}.
+
+The input image shows the design that should be printed on the front of the shirt.
+
+REQUIREMENTS:
+1. Professional flat lay photography - the garment is laid completely FLAT on a surface
+2. Shot from directly above (bird's eye view / top-down angle)
+3. Pure white background - clean, seamless white surface
+4. The ${productName} should be neatly arranged, not crumpled
+5. Apply the design from the input image centered on the chest area
+6. Make the print look like a real DTF transfer on ${fabricColor} cotton fabric
+7. Slight natural fabric texture visible
+8. Professional studio lighting - soft, even illumination
+9. Small subtle shadow under the garment for depth
+10. High resolution, clean e-commerce product photo style
+11. NO mannequin, NO model, NO person - JUST the garment laid flat on white`
+
+  console.log('[replicate] 📝 Flat lay prompt:', prompt.substring(0, 100) + '...')
+
+  // Use replicate.run() for synchronous execution with ITP Enhance Engine
+  const modelInput = {
+    prompt: prompt,
+    image_input: [input.designImage], // Array format required by ITP Enhance Engine
+    aspect_ratio: '1:1',
+    output_format: 'png',
+  }
+
+  console.log('[replicate] 🔍 Using replicate.run() for ITP Enhance Engine flat lay')
+
+  try {
+    const output = await replicate.run(modelId as any, { input: modelInput }) as any
+
+    console.log('[replicate] ✅ Flat lay generation complete')
+    console.log('[replicate] 🔍 ITP Enhance Engine raw output type:', typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
+
+    // Get the URL from the output - handle URL objects, FileOutput objects, and strings
+    let imageUrl: string
+
+    const extractUrl = (item: any): string => {
+      if (typeof item === 'string') return item
+      if (item instanceof URL) return item.href
+      if (item && typeof item.href === 'string') return item.href
+      if (item && typeof item.url === 'function') return item.url()
+      if (item && typeof item.url === 'string') return item.url
+      return String(item)
+    }
+
+    if (Array.isArray(output) && output.length > 0) {
+      imageUrl = extractUrl(output[0])
+    } else {
+      imageUrl = extractUrl(output)
+    }
+
+    console.log('[replicate] 📸 Flat lay image URL:', imageUrl)
+
+    return {
+      id: 'flat-lay-' + Date.now(),
+      status: 'succeeded',
+      url: imageUrl,
+      modelId,
+    }
+  } catch (error: any) {
+    console.error('[replicate] ❌ Flat lay generation failed:', error.message)
     throw error
   }
 }

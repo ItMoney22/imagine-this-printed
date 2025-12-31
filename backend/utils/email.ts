@@ -834,9 +834,12 @@ export const sendWelcomeEmail = async (
           </div>
 
           <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 12px; padding: 20px; margin: 20px 0; text-align: center;">
-            <p style="color: #7c3aed; font-size: 18px; font-weight: bold; margin: 0 0 5px 0;">🎁 Welcome Gift!</p>
+            <p style="color: #7c3aed; font-size: 18px; font-weight: bold; margin: 0 0 10px 0;">🎁 Welcome Gifts!</p>
+            <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">
+              <strong style="color: #ec4899;">50 ITC</strong> has been added to your wallet!
+            </p>
             <p style="color: #6b7280; font-size: 14px; margin: 0;">
-              Use code <strong style="color: #7c3aed;">WELCOME10</strong> for 10% off your first order!
+              Plus, use code <strong style="color: #7c3aed;">WELCOME10</strong> for 10% off your first order!
             </p>
           </div>
 
@@ -1022,6 +1025,89 @@ export const sendCustomJobCompletedEmail = async (
             Thank you for trusting us with your custom project!<br>
             - The Imagine This Printed Team
           </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+// ===============================
+// DESIGN SUBMISSION EMAILS
+// ===============================
+
+/**
+ * Send confirmation email when a design is submitted for approval
+ */
+export const sendDesignSubmittedEmail = async (
+  email: string,
+  designId: string,
+  designConcept: string,
+  previewUrl?: string
+): Promise<boolean> => {
+  const conceptPreview = designConcept.substring(0, 100)
+
+  return sendEmail({
+    to: email,
+    subject: `🎨 Design Submitted for Review!`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <!-- Header with Mr. Imagine -->
+        <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 16px 16px 0 0; padding: 25px; text-align: center;">
+          <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-waist-up-happy.png" alt="Mr. Imagine" style="width: 100px; height: auto; margin: 0 auto 12px; display: block;" />
+          <h1 style="color: white; margin: 0; font-size: 22px;">Design Submitted! 🎨</h1>
+          <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0; font-size: 13px;">Your creative masterpiece is under review</p>
+        </div>
+
+        <div style="background: white; padding: 25px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+          <p style="color: #7c3aed; font-size: 16px; font-weight: 600; margin: 0 0 15px;">
+            Hey creative genius! 👋
+          </p>
+
+          <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+            Woohoo! Your design has been submitted and is now being reviewed by our team.
+            We can't wait to see it go live!
+          </p>
+
+          ${previewUrl ? `
+          <div style="margin: 20px 0; text-align: center;">
+            <img src="${previewUrl}" alt="Your Design" style="max-width: 200px; max-height: 200px; border-radius: 12px; border: 2px solid #e5e7eb;" />
+          </div>
+          ` : ''}
+
+          <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 12px; padding: 15px; margin-bottom: 20px;">
+            <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px; text-transform: uppercase; letter-spacing: 1px;">Design ID</p>
+            <p style="color: #7c3aed; font-size: 16px; font-weight: bold; margin: 0;">${designId.slice(0, 8).toUpperCase()}</p>
+            <p style="color: #374151; font-size: 14px; margin: 10px 0 0; font-style: italic;">"${conceptPreview}${designConcept.length > 100 ? '...' : ''}"</p>
+          </div>
+
+          <div style="background: #f9fafb; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+            <h3 style="color: #374151; margin: 0 0 15px 0;">What happens next?</h3>
+            <ul style="color: #6b7280; font-size: 15px; line-height: 2; margin: 0; padding-left: 20px;">
+              <li>🔍 Our team reviews your design (usually within 24 hours)</li>
+              <li>✅ Once approved, we'll generate professional mockups</li>
+              <li>🛒 Your design goes live and you can start earning!</li>
+              <li>💰 Earn 10% royalty on every sale</li>
+            </ul>
+          </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${FRONTEND_URL}/my-designs" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);">
+              View My Designs
+            </a>
+          </div>
+
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px;">
+            <p style="color: #6b7280; font-size: 14px; margin: 0;">
+              I'll send you another email as soon as your design is approved. Keep creating!
+            </p>
+            <p style="color: #7c3aed; font-weight: 600; margin: 12px 0 0; font-size: 15px;">
+              — Mr. Imagine 🎨
+            </p>
+          </div>
+        </div>
+
+        <div style="text-align: center; padding: 15px; color: #9ca3af; font-size: 11px;">
+          <a href="${FRONTEND_URL}" style="color: #7c3aed; text-decoration: none;">Imagine This Printed</a>
         </div>
       </div>
     `

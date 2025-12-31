@@ -417,9 +417,17 @@ export function Sidebar() {
               className="flex-shrink-0"
               onClick={closeMobile}
             >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm shadow-lg hover:shadow-purple-300/50 transition-shadow">
-                {user.username?.charAt(0).toUpperCase() || 'U'}
-              </div>
+              {user.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt={user.username || 'Profile'}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-purple-300 shadow-lg hover:shadow-purple-300/50 transition-shadow"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm shadow-lg hover:shadow-purple-300/50 transition-shadow">
+                  {user.username?.charAt(0).toUpperCase() || 'U'}
+                </div>
+              )}
             </Link>
             {!isCollapsed && (
               <div className="flex-1 min-w-0">

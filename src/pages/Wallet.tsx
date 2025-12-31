@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe, type StripeElementsOptions } from '@stripe/stripe-js'
 import { apiFetch } from '../lib/api'
-import type { ITCTransaction } from '../types'
+import type { ITCTransaction, ConnectAccountStatus, CashoutCalculation, ITCCashoutRequest, ITC_CASHOUT_CONSTANTS } from '../types'
 import { type ITCPackage, ITC_PACKAGES } from '../utils/stripe-itc'
 import PaymentForm from '../components/PaymentForm'
 
@@ -11,7 +11,7 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
 
 const Wallet: React.FC = () => {
   const { user } = useAuth()
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'history' | 'purchase'>('overview')
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'history' | 'purchase' | 'cashout'>('overview')
   const [itcBalance, setItcBalance] = useState(0)
   const [itcHistory, setItcHistory] = useState<ITCTransaction[]>([])
   const [loading, setLoading] = useState(true)
@@ -30,8 +30,21 @@ const Wallet: React.FC = () => {
   const [giftCardError, setGiftCardError] = useState('')
   const [giftCardSuccess, setGiftCardSuccess] = useState<{ amount: number; newBalance: number } | null>(null)
 
+  // Cash-out state
+  const [connectStatus, setConnectStatus] = useState<ConnectAccountStatus | null>(null)
+  const [cashoutAmount, setCashoutAmount] = useState<number>(5000)
+  const [cashoutCalculation, setCashoutCalculation] = useState<CashoutCalculation | null>(null)
+  const [cashoutHistory, setCashoutHistory] = useState<ITCCashoutRequest[]>([])
+  const [cashoutLoading, setCashoutLoading] = useState(false)
+  const [cashoutError, setCashoutError] = useState('')
+  const [cashoutSuccess, setCashoutSuccess] = useState(false)
+  const [isSettingUpConnect, setIsSettingUpConnect] = useState(false)
+
   // ITC to USD rate (1 ITC = $0.01)
   const itcToUSD = 0.01
+  const MINIMUM_CASHOUT_ITC = 5000
+  const PLATFORM_FEE_PERCENT = 7
+  const INSTANT_FEE_PERCENT = 1.5
 
   // Load user wallet data
   useEffect(() => {
@@ -44,12 +57,24 @@ const Wallet: React.FC = () => {
     loadWalletData()
   }, [user?.id])
 
-  // Check for payment success in URL
+  // Check for payment success or Connect return in URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('payment') === 'success') {
       setPaymentSuccess(true)
       loadWalletData()
+      // Clean URL
+      window.history.replaceState({}, '', '/wallet')
+    }
+    // Handle Connect onboarding return
+    if (params.get('connect') === 'success') {
+      setSelectedTab('cashout')
+      loadConnectStatus()
+      // Clean URL
+      window.history.replaceState({}, '', '/wallet')
+    }
+    if (params.get('connect') === 'refresh') {
+      setSelectedTab('cashout')
       // Clean URL
       window.history.replaceState({}, '', '/wallet')
     }
@@ -195,6 +220,166 @@ const Wallet: React.FC = () => {
     setPaymentError('')
   }
 
+  // ===== CASH-OUT FUNCTIONS =====
+
+  const loadConnectStatus = async () => {
+    if (!user?.id) return
+
+    try {
+      const response = await apiFetch('/api/wallet/connect/status', { method: 'GET' })
+      if (response.ok) {
+        setConnectStatus(response.status)
+      }
+    } catch (error) {
+      console.error('Failed to load Connect status:', error)
+    }
+  }
+
+  const loadCashoutHistory = async () => {
+    if (!user?.id) return
+
+    try {
+      const response = await apiFetch('/api/wallet/connect/cashout-history', { method: 'GET' })
+      if (response.ok) {
+        // Map snake_case to camelCase
+        const mapped = (response.requests || []).map((r: any) => ({
+          id: r.id,
+          userId: r.user_id,
+          stripeConnectAccountId: r.stripe_connect_account_id,
+          amountItc: r.amount_itc,
+          grossAmountUsd: r.gross_amount_usd,
+          platformFeeUsd: r.platform_fee_usd,
+          platformFeePercent: r.platform_fee_percent,
+          instantFeeUsd: r.instant_fee_usd,
+          netAmountUsd: r.net_amount_usd,
+          payoutType: r.payout_type,
+          stripePayoutId: r.stripe_payout_id,
+          stripeTransferId: r.stripe_transfer_id,
+          status: r.status,
+          failureCode: r.failure_code,
+          failureMessage: r.failure_message,
+          initiatedAt: r.initiated_at,
+          processedAt: r.processed_at,
+          arrivedAt: r.arrived_at,
+          createdAt: r.created_at,
+        }))
+        setCashoutHistory(mapped)
+      }
+    } catch (error) {
+      console.error('Failed to load cashout history:', error)
+    }
+  }
+
+  // Load Connect status when cashout tab is selected
+  useEffect(() => {
+    if (selectedTab === 'cashout' && user?.id) {
+      loadConnectStatus()
+      loadCashoutHistory()
+    }
+  }, [selectedTab, user?.id])
+
+  const handleSetupConnect = async () => {
+    if (!user?.id) return
+
+    setIsSettingUpConnect(true)
+    setCashoutError('')
+
+    try {
+      // First check if account exists
+      if (!connectStatus?.hasAccount) {
+        // Create account
+        const createResponse = await apiFetch('/api/wallet/connect/create-account', {
+          method: 'POST'
+        })
+        if (!createResponse.ok) {
+          throw new Error(createResponse.error || 'Failed to create account')
+        }
+      }
+
+      // Get onboarding link
+      const linkResponse = await apiFetch('/api/wallet/connect/onboarding-link', {
+        method: 'POST',
+        body: JSON.stringify({
+          returnUrl: `${window.location.origin}/wallet?connect=success`,
+          refreshUrl: `${window.location.origin}/wallet?connect=refresh`
+        })
+      })
+
+      if (linkResponse.ok && linkResponse.url) {
+        // Redirect to Stripe onboarding
+        window.location.href = linkResponse.url
+      } else {
+        throw new Error(linkResponse.error || 'Failed to get onboarding link')
+      }
+    } catch (error: any) {
+      console.error('Failed to setup Connect:', error)
+      setCashoutError(error.message || 'Failed to set up cash-out')
+    } finally {
+      setIsSettingUpConnect(false)
+    }
+  }
+
+  const handleCalculateCashout = async (amount: number) => {
+    if (!user?.id || amount < MINIMUM_CASHOUT_ITC) {
+      setCashoutCalculation(null)
+      return
+    }
+
+    try {
+      const response = await apiFetch('/api/wallet/connect/calculate', {
+        method: 'POST',
+        body: JSON.stringify({ amountItc: amount })
+      })
+
+      if (response.ok) {
+        setCashoutCalculation(response.calculation)
+      }
+    } catch (error) {
+      console.error('Failed to calculate cashout:', error)
+    }
+  }
+
+  // Debounced calculation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (cashoutAmount >= MINIMUM_CASHOUT_ITC) {
+        handleCalculateCashout(cashoutAmount)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [cashoutAmount])
+
+  const handleProcessCashout = async () => {
+    if (!user?.id || !connectStatus?.payoutsEnabled) return
+    if (cashoutAmount < MINIMUM_CASHOUT_ITC || cashoutAmount > itcBalance) return
+
+    setCashoutLoading(true)
+    setCashoutError('')
+    setCashoutSuccess(false)
+
+    try {
+      const response = await apiFetch('/api/wallet/connect/cashout', {
+        method: 'POST',
+        body: JSON.stringify({ amountItc: cashoutAmount })
+      })
+
+      if (response.ok) {
+        setCashoutSuccess(true)
+        await loadWalletData()
+        await loadCashoutHistory()
+        setCashoutAmount(MINIMUM_CASHOUT_ITC)
+        setCashoutCalculation(null)
+      } else {
+        throw new Error(response.error || 'Failed to process cashout')
+      }
+    } catch (error: any) {
+      console.error('Failed to process cashout:', error)
+      setCashoutError(error.message || 'Failed to process cashout')
+    } finally {
+      setCashoutLoading(false)
+    }
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
@@ -273,6 +458,11 @@ const Wallet: React.FC = () => {
     { key: 'purchase' as const, label: 'Buy ITC', icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    )},
+    { key: 'cashout' as const, label: 'Cash Out', icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     )}
   ]
@@ -754,6 +944,343 @@ const Wallet: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {selectedTab === 'cashout' && (
+          <div className="space-y-6">
+            {/* Cashout Success Message */}
+            {cashoutSuccess && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-emerald-800 font-semibold">Cash out initiated!</p>
+                  <p className="text-emerald-600 text-sm">Funds are on their way to your debit card (usually within minutes).</p>
+                </div>
+                <button onClick={() => setCashoutSuccess(false)} className="ml-auto text-emerald-400 hover:text-emerald-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {cashoutError && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-red-800 font-semibold">Error</p>
+                  <p className="text-red-600 text-sm">{cashoutError}</p>
+                </div>
+                <button onClick={() => setCashoutError('')} className="ml-auto text-red-400 hover:text-red-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Setup Flow - Not Connected Yet */}
+            {!connectStatus?.hasAccount && (
+              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 p-8 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-white shadow-soft flex items-center justify-center">
+                  <svg className="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-2xl font-display font-bold text-slate-900 mb-3">Cash Out Your ITC</h3>
+                <p className="text-slate-600 mb-6 max-w-md mx-auto">
+                  Convert your ITC balance to real USD and receive instant payouts directly to your debit card.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 max-w-2xl mx-auto">
+                  <div className="bg-white rounded-xl p-4 border border-purple-100">
+                    <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <p className="font-semibold text-slate-900 text-sm">Instant Payouts</p>
+                    <p className="text-xs text-slate-500">Funds arrive in minutes</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-4 border border-purple-100">
+                    <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    </div>
+                    <p className="font-semibold text-slate-900 text-sm">Secure</p>
+                    <p className="text-xs text-slate-500">Powered by Stripe</p>
+                  </div>
+                  <div className="bg-white rounded-xl p-4 border border-purple-100">
+                    <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="font-semibold text-slate-900 text-sm">$50 Minimum</p>
+                    <p className="text-xs text-slate-500">5,000 ITC or more</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleSetupConnect}
+                  disabled={isSettingUpConnect}
+                  className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all inline-flex items-center gap-2"
+                >
+                  {isSettingUpConnect ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Setting up...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                      <span>Set Up Cash Out</span>
+                    </>
+                  )}
+                </button>
+                <p className="text-xs text-slate-500 mt-4">
+                  You'll be redirected to Stripe to securely add your debit card and verify your identity.
+                </p>
+              </div>
+            )}
+
+            {/* Onboarding Incomplete */}
+            {connectStatus?.hasAccount && !connectStatus.payoutsEnabled && (
+              <div className="bg-amber-50 rounded-2xl border border-amber-200 p-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-display font-bold text-amber-800 mb-1">Complete Setup Required</h4>
+                    <p className="text-amber-700 text-sm mb-4">
+                      You need to complete your Stripe account setup before you can cash out. This includes verifying your identity and adding a debit card.
+                    </p>
+                    <button
+                      onClick={handleSetupConnect}
+                      disabled={isSettingUpConnect}
+                      className="px-6 py-2.5 bg-amber-600 text-white rounded-xl font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-2"
+                    >
+                      {isSettingUpConnect ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Loading...</span>
+                        </>
+                      ) : (
+                        <span>Continue Setup</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Ready to Cash Out */}
+            {connectStatus?.payoutsEnabled && (
+              <>
+                {/* Account Status Card */}
+                <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="text-lg font-display font-bold text-slate-900">Cash Out</h3>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                      <span className="text-emerald-600 font-medium">Ready</span>
+                    </div>
+                  </div>
+                  <div className="p-6">
+                    {/* Connected Card Info */}
+                    {connectStatus.defaultPayoutMethod && (
+                      <div className="mb-6 p-4 bg-slate-50 rounded-xl flex items-center gap-4">
+                        <div className="w-12 h-8 bg-slate-200 rounded flex items-center justify-center">
+                          <svg className="w-8 h-5 text-slate-500" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="1" y="4" width="22" height="16" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="2"/>
+                            <line x1="1" y1="10" x2="23" y2="10" stroke="currentColor" strokeWidth="2"/>
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900">Debit Card ending in {connectStatus.defaultPayoutMethod.last4}</p>
+                          <p className="text-sm text-slate-500">
+                            {connectStatus.instantPayoutsEnabled ? 'Instant payouts enabled' : 'Standard payouts'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleSetupConnect}
+                          className="ml-auto text-sm text-purple-600 hover:text-purple-700 font-medium"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Amount Input */}
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Amount to cash out (ITC)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          value={cashoutAmount}
+                          onChange={(e) => setCashoutAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                          min={MINIMUM_CASHOUT_ITC}
+                          max={itcBalance}
+                          className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg font-semibold"
+                        />
+                        <button
+                          onClick={() => setCashoutAmount(itcBalance)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1 bg-purple-100 text-purple-600 text-sm font-medium rounded-lg hover:bg-purple-200 transition-colors"
+                        >
+                          Max
+                        </button>
+                      </div>
+                      <div className="flex justify-between mt-2 text-sm">
+                        <span className="text-slate-500">Minimum: {MINIMUM_CASHOUT_ITC.toLocaleString()} ITC ($50)</span>
+                        <span className="text-slate-500">Available: {itcBalance.toLocaleString()} ITC</span>
+                      </div>
+                    </div>
+
+                    {/* Fee Breakdown */}
+                    {cashoutCalculation && cashoutAmount >= MINIMUM_CASHOUT_ITC && (
+                      <div className="mb-6 p-4 bg-slate-50 rounded-xl space-y-3">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-600">Gross Amount</span>
+                          <span className="text-slate-900 font-medium">${cashoutCalculation.grossAmountUsd.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-600">Platform Fee ({PLATFORM_FEE_PERCENT}%)</span>
+                          <span className="text-red-600">-${cashoutCalculation.platformFeeUsd.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-600">Instant Payout Fee (~{INSTANT_FEE_PERCENT}%)</span>
+                          <span className="text-red-600">-${cashoutCalculation.instantFeeUsd.toFixed(2)}</span>
+                        </div>
+                        <div className="border-t border-slate-200 pt-3 flex justify-between">
+                          <span className="text-slate-900 font-semibold">You'll receive</span>
+                          <span className="text-2xl font-bold text-emerald-600">${cashoutCalculation.netAmountUsd.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Validation Message */}
+                    {cashoutAmount < MINIMUM_CASHOUT_ITC && (
+                      <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                        Minimum cash out amount is {MINIMUM_CASHOUT_ITC.toLocaleString()} ITC ($50)
+                      </div>
+                    )}
+                    {cashoutAmount > itcBalance && (
+                      <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                        Amount exceeds your available balance of {itcBalance.toLocaleString()} ITC
+                      </div>
+                    )}
+
+                    {/* Cash Out Button */}
+                    <button
+                      onClick={handleProcessCashout}
+                      disabled={cashoutLoading || cashoutAmount < MINIMUM_CASHOUT_ITC || cashoutAmount > itcBalance || !connectStatus?.payoutsEnabled}
+                      className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold text-lg hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-3"
+                    >
+                      {cashoutLoading ? (
+                        <>
+                          <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Processing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          <span>Cash Out Now</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-center text-xs text-slate-500 mt-3">
+                      Funds typically arrive on your debit card within minutes
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Cash Out History */}
+            {cashoutHistory.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <h3 className="text-lg font-display font-bold text-slate-900">Cash Out History</h3>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {cashoutHistory.map((request) => (
+                    <div key={request.id} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          request.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
+                          request.status === 'failed' ? 'bg-red-50 text-red-600' :
+                          'bg-amber-50 text-amber-600'
+                        }`}>
+                          {request.status === 'completed' ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : request.status === 'failed' ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900">
+                            {request.status === 'completed' ? 'Completed' :
+                             request.status === 'failed' ? 'Failed' :
+                             request.status === 'pending' ? 'Pending' : 'Processing'}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {new Date(request.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-lg text-slate-900">
+                          {request.amountItc.toLocaleString()} ITC
+                        </p>
+                        <p className="text-sm text-emerald-600 font-medium">
+                          ${request.netAmountUsd.toFixed(2)} received
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -72,11 +72,12 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
 
 /**
  * POST /api/admin/user-products/:id/approve
- * Approve a user-submitted product
+ * Approve a user-submitted product with color/size configuration
  */
 router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
+    const { colors, sizes, price } = req.body
     const adminId = req.user?.sub
 
     // Get product
@@ -94,17 +95,35 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       return res.status(400).json({ error: 'This is not a user-submitted product' })
     }
 
-    // Update product status to active
+    // Build update object with colors, sizes, and price
+    const updateData: any = {
+      status: 'active',
+      metadata: {
+        ...product.metadata,
+        approved_at: new Date().toISOString(),
+        approved_by: adminId,
+      }
+    }
+
+    // Add colors if provided
+    if (colors && Array.isArray(colors) && colors.length > 0) {
+      updateData.colors = colors
+    }
+
+    // Add sizes if provided
+    if (sizes && Array.isArray(sizes) && sizes.length > 0) {
+      updateData.sizes = sizes
+    }
+
+    // Update price if provided (in cents)
+    if (price && typeof price === 'number' && price > 0) {
+      updateData.price = price
+    }
+
+    // Update product status to active with configuration
     const { error: updateError } = await supabase
       .from('products')
-      .update({
-        status: 'active',
-        metadata: {
-          ...product.metadata,
-          approved_at: new Date().toISOString(),
-          approved_by: adminId,
-        }
-      })
+      .update(updateData)
       .eq('id', id)
 
     if (updateError) {

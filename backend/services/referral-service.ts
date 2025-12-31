@@ -249,8 +249,8 @@ export async function processReferralFirstPurchase(
       return { success: false, message: 'Referral code not found' }
     }
 
-    // Calculate 5% bonus for referrer
-    const bonusPoints = Math.floor(orderTotal * 5)
+    // Flat 50 ITC bonus for referrer when referred user makes first purchase
+    const bonusITC = 50
 
     // Create referral transaction
     const { data: transaction, error: txError } = await supabase
@@ -261,8 +261,8 @@ export async function processReferralFirstPurchase(
         referee_id: userId,
         referee_email: '', // We don't need email for purchase bonus
         type: 'purchase',
-        referrer_reward_points: bonusPoints,
-        referrer_reward_itc: 0,
+        referrer_reward_points: 0,
+        referrer_reward_itc: bonusITC,
         referee_reward_points: 0,
         referee_reward_itc: 0,
         status: 'completed',
@@ -273,18 +273,20 @@ export async function processReferralFirstPurchase(
 
     if (txError) throw txError
 
-    // Award points to referrer
+    // Award ITC to referrer's wallet
     const { data: wallet } = await supabase
       .from('user_wallets')
-      .select('points')
+      .select('itc_balance')
       .eq('user_id', profile.referred_by)
       .single()
 
-    await supabase.from('points_transactions').insert({
+    const newBalance = (wallet?.itc_balance || 0) + bonusITC
+
+    await supabase.from('itc_transactions').insert({
       user_id: profile.referred_by,
       type: 'earned',
-      amount: bonusPoints,
-      balance_after: (wallet?.points || 0) + bonusPoints,
+      amount: bonusITC,
+      balance_after: newBalance,
       reason: 'Referral first purchase bonus',
       related_entity_type: 'referral',
       related_entity_id: transaction.id
@@ -293,16 +295,16 @@ export async function processReferralFirstPurchase(
     await supabase
       .from('user_wallets')
       .update({
-        points: (wallet?.points || 0) + bonusPoints,
+        itc_balance: newBalance,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', profile.referred_by)
 
-    console.log(`[ReferralService] First purchase bonus awarded: ${bonusPoints} points to ${profile.referred_by}`)
+    console.log(`[ReferralService] First purchase bonus awarded: ${bonusITC} ITC to ${profile.referred_by}`)
 
     return {
       success: true,
-      bonusPoints,
+      bonusITC,
       referrerId: profile.referred_by
     }
   } catch (error: any) {

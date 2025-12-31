@@ -54,17 +54,40 @@ export const REWARD_TIERS: Record<string, RewardTier> = {
   }
 }
 
+// ============================================
+// ITC EARNINGS CONFIGURATION - CENTRAL SOURCE OF TRUTH
+// ============================================
+
+// Commission Rates (% of sale price → ITC)
+export const ITC_COMMISSION_RATES = {
+  // Creator royalty when their design sells
+  creatorRoyalty: 0.15, // 15%
+
+  // Vendor/Kiosk operator commission on sales
+  vendorCommission: 0.25, // 25%
+
+  // Location partner commission (optional split with vendor)
+  partnerCommission: 0.05, // 5%
+
+  // Community boost reward
+  communityBoost: 1, // 1 ITC per boost received
+}
+
+// Referral System Configuration
+export const REFERRAL_CONFIG = {
+  referrerSignupITC: 10, // ITC awarded to referrer when someone signs up
+  referrerPurchaseITC: 50, // ITC awarded when referred user makes first purchase
+  refereeITC: 0, // No welcome bonus (don't make it too easy to earn)
+  cookieDays: 90, // Referral tracking cookie duration
+}
+
 // Reward Configuration - All ITC based
 export const REWARD_CONFIG = {
   // Base reward rate (1 ITC = $0.01, so 1% of order = 1 ITC per dollar)
   baseITCPerDollar: 1,
 
-  // Referral rewards (all ITC)
-  referral: {
-    referrerITC: 5, // ITC awarded to referrer on signup
-    refereeITC: 2.5, // Welcome ITC for new user
-    firstPurchaseBonus: 1.5 // 1.5x multiplier on first purchase
-  },
+  // Referral rewards (all ITC) - legacy reference, use REFERRAL_CONFIG instead
+  referral: REFERRAL_CONFIG,
 
   // Promotional multipliers
   promotions: {
@@ -130,6 +153,8 @@ export function calculateOrderRewards(
 
 /**
  * Calculate referral rewards (ITC only)
+ * - Signup: 10 ITC to referrer
+ * - First purchase: 50 ITC to referrer (flat amount)
  */
 export function calculateReferralRewards(
   referralType: 'signup' | 'purchase',
@@ -139,15 +164,14 @@ export function calculateReferralRewards(
 
   if (referralType === 'signup') {
     return {
-      referrerITC: config.referrerITC,
+      referrerITC: config.referrerSignupITC,
       refereeITC: config.refereeITC,
       reason: 'Referral signup bonus'
     }
-  } else if (referralType === 'purchase' && purchaseAmount) {
-    // On first purchase, referrer gets additional 5% of purchase value as ITC
-    const bonusITC = purchaseAmount * 0.05
+  } else if (referralType === 'purchase') {
+    // Flat 50 ITC bonus when referred user makes first purchase
     return {
-      referrerITC: Math.round(bonusITC * 100) / 100,
+      referrerITC: config.referrerPurchaseITC,
       refereeITC: 0,
       reason: 'Referral first purchase bonus'
     }

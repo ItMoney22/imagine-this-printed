@@ -610,6 +610,30 @@ const UserProfilePage = () => {
             <div className="space-y-6">
               {/* Quick Stats */}
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+                {/* Profile Mini Card */}
+                <div className="flex items-center gap-3 mb-5 pb-5 border-b border-slate-100">
+                  <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-pink-500 flex-shrink-0 ring-2 ring-purple-100">
+                    {profile.avatar_url ? (
+                      <img
+                        src={profile.avatar_url}
+                        alt={profile.display_name || profile.username}
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: 'center 20%' }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-lg text-white font-display font-bold">
+                          {(profile.display_name || profile.username)?.[0]?.toUpperCase() || '?'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{profile.display_name || profile.username}</p>
+                    <p className="text-xs text-slate-500 truncate">@{profile.username}</p>
+                  </div>
+                </div>
+
                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Stats</h3>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">

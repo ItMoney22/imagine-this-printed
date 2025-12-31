@@ -57,7 +57,19 @@
       "Bash(timeout:*)",
       "Bash(findstr:*)",
       "Bash(cat:*)",
-      "Bash(del \"e:\\\\Projects for MetaSphere\\\\imagine-this-printed\\\\src\\\\types\\\\model-viewer.d.ts\")"
+      "Bash(del \"e:\\\\Projects for MetaSphere\\\\imagine-this-printed\\\\src\\\\types\\\\model-viewer.d.ts\")",
+      "Bash(npx supabase db push:*)",
+      "Bash(netstat:*)",
+      "mcp__supabase__search_docs",
+      "Bash(npm run dev:full:*)",
+      "mcp__stripe__get_stripe_account_info",
+      "mcp__stripe__list_products",
+      "mcp__stripe__list_customers",
+      "mcp__stripe__list_subscriptions",
+      "mcp__stripe__retrieve_balance",
+      "mcp__stripe__list_payment_intents",
+      "mcp__stripe__list_coupons",
+      "mcp__stripe__list_prices"
     ],
     "deny": [],
     "ask": []

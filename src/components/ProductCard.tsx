@@ -161,10 +161,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         )}
 
         {/* User Submitted Badge */}
-        {(product as any).isUserSubmitted && (
+        {(product.is_user_generated || (product as any).isUserSubmitted || product.metadata?.user_submitted) && (
           <div className="absolute top-2 left-2 z-10 mt-16">
-            <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20">
-              User Design
+            <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
+              </svg>
+              Creator Design
             </span>
           </div>
         )}
@@ -201,21 +204,37 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         {/* Quick Size Picker */}
         {showSizePicker && (
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <p className="text-xs text-muted mb-2 font-medium">Select Size:</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted font-medium">Select Size:</p>
+              {displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
+                <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">
+                  2XL+ = +$2.50
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1.5">
-              {displaySizes.map((size: string) => (
-                <button
-                  key={size}
-                  onClick={() => setSelectedSize(size)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
-                    selectedSize === size
-                      ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
-                      : 'bg-card border border-white/10 text-text hover:border-primary/50 hover:bg-primary/10'
-                  }`}
-                >
-                  {size}
-                </button>
-              ))}
+              {displaySizes.map((size: string) => {
+                const isPlusSize = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                return (
+                  <button
+                    key={size}
+                    onClick={() => setSelectedSize(size)}
+                    title={isPlusSize ? '+$2.50 upcharge' : undefined}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all relative ${
+                      selectedSize === size
+                        ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
+                        : 'bg-card border border-white/10 text-text hover:border-primary/50 hover:bg-primary/10'
+                    } ${isPlusSize ? 'pr-5' : ''}`}
+                  >
+                    {size}
+                    {isPlusSize && (
+                      <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[8px] font-bold ${selectedSize === size ? 'text-amber-200' : 'text-amber-400'}`}>
+                        +$
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
@@ -329,7 +348,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             ) : (
               <Sparkles className="w-3 h-3" />
             )}
-            {isAddingToSheet ? 'Loading...' : 'Add to Gang Sheet'}
+            {isAddingToSheet ? 'Loading...' : 'Add to Imagination Sheet'}
           </button>
         </div>
       </div>

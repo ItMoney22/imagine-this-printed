@@ -11,6 +11,7 @@ interface User {
   displayName?: string
   firstName?: string
   lastName?: string
+  avatar_url?: string
   emailVerified: boolean
   profileCompleted: boolean
   wallet?: {
@@ -52,7 +53,7 @@ const fetchProfileWithRetry = async (userId: string, maxRetries = 3): Promise<{ 
       const result = await Promise.race([
         supabase
           .from('user_profiles')
-          .select('id, email, role, username, display_name, first_name, last_name, email_verified')
+          .select('id, email, role, username, display_name, first_name, last_name, email_verified, avatar_url')
           .eq('id', userId)
           .single(),
         new Promise<never>((_, reject) =>
@@ -138,6 +139,59 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
       display_name: profile.display_name
     })
 
+    // Fetch wallet balance - create wallet if it doesn't exist
+    let walletBalance = 0
+    try {
+      const { data: walletData, error: walletError } = await supabase
+        .from('user_wallets')
+        .select('itc_balance')
+        .eq('user_id', userId)
+        .single()
+
+      if (walletData?.itc_balance !== undefined) {
+        walletBalance = walletData.itc_balance
+        console.log('[AuthContext] 💰 Wallet balance loaded:', walletBalance, 'ITC')
+      } else if (walletError?.code === 'PGRST116') {
+        // Wallet doesn't exist - create it with welcome bonus (trigger may have failed)
+        const WELCOME_ITC_BONUS = 50 // Welcome ITC for new users ($0.50)
+        console.log('[AuthContext] ⚠️ No wallet found, creating one with welcome bonus...')
+        const { data: newWallet, error: createError } = await supabase
+          .from('user_wallets')
+          .insert({
+            user_id: userId,
+            points_balance: 0,
+            itc_balance: WELCOME_ITC_BONUS,
+            lifetime_points_earned: 0,
+            lifetime_itc_earned: WELCOME_ITC_BONUS,
+            wallet_status: 'active'
+          })
+          .select('itc_balance')
+          .single()
+
+        if (newWallet) {
+          walletBalance = newWallet.itc_balance || 0
+          console.log('[AuthContext] ✅ Wallet created with welcome bonus:', walletBalance, 'ITC')
+
+          // Log the welcome bonus transaction
+          try {
+            await supabase.from('itc_transactions').insert({
+              user_id: userId,
+              type: 'signup_bonus',
+              amount: WELCOME_ITC_BONUS,
+              balance_after: WELCOME_ITC_BONUS,
+              description: 'Welcome bonus for joining Imagine This Printed!'
+            })
+          } catch (txError) {
+            console.warn('[AuthContext] ⚠️ Could not log welcome bonus transaction')
+          }
+        } else if (createError) {
+          console.warn('[AuthContext] ⚠️ Could not create wallet:', createError.message)
+        }
+      }
+    } catch (walletError: any) {
+      console.warn('[AuthContext] ⚠️ Could not fetch wallet balance:', walletError?.message || walletError)
+    }
+
     const mappedUser: User = {
       id: profile.id,
       email: profile.email || supabaseUser.email || '',
@@ -146,9 +200,12 @@ const fetchUserProfile = async (supabaseUser: SupabaseUser): Promise<User | null
       displayName: profile.display_name,
       firstName: profile.first_name,
       lastName: profile.last_name,
+      avatar_url: profile.avatar_url,
       emailVerified: profile.email_verified || false,
       profileCompleted: true, // Column doesn't exist in DB, default to true
-      wallet: undefined
+      wallet: {
+        itcBalance: walletBalance
+      }
     }
 
     // Cache the result
@@ -279,15 +336,17 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const signUp = async (email: string, password: string, userData?: any): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting sign up for:', email)
-    
+
     try {
+      const username = userData?.username || email.split('@')[0]
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            username: userData?.username || email.split('@')[0],
-            display_name: userData?.displayName || userData?.firstName || email.split('@')[0],
+            username: username,
+            display_name: userData?.displayName || userData?.firstName || username,
             first_name: userData?.firstName,
             last_name: userData?.lastName,
           }
@@ -301,6 +360,21 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
 
       if (data.user) {
         console.log('✅ SupabaseAuth: Sign up successful')
+
+        // Send welcome email via backend
+        try {
+          const apiBase = import.meta.env.VITE_API_BASE || ''
+          await fetch(`${apiBase}/api/account/send-welcome-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, username })
+          })
+          console.log('📧 SupabaseAuth: Welcome email request sent')
+        } catch (emailError) {
+          console.warn('⚠️ SupabaseAuth: Welcome email request failed (non-blocking):', emailError)
+          // Don't fail registration if email fails
+        }
+
         return {}
       }
 

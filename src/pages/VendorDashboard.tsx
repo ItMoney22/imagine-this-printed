@@ -28,7 +28,7 @@ const VendorDashboard: React.FC = () => {
     totalSales: 542.30,
     thisMonth: 123.45,
     pendingPayout: 89.67,
-    commissionRate: 10 // Updated to 10% for 3D Marketplace
+    commissionRate: 25 // 25% vendor commission on sales
   })
 
   // Mock data - replace with real PostgreSQL queries
@@ -43,7 +43,7 @@ const VendorDashboard: React.FC = () => {
         images: ['https://images.unsplash.com/photo-1527814050087-3793815479db?w=300&h=300&fit=crop'],
         category: 'gaming',
         approved: true,
-        commissionRate: 10,
+        commissionRate: 25,
         createdAt: '2025-01-08T10:00:00Z',
         productType: 'physical'
       },
@@ -57,7 +57,7 @@ const VendorDashboard: React.FC = () => {
         images: ['https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=300&h=300&fit=crop'],
         category: '3d-models',
         approved: true,
-        commissionRate: 10,
+        commissionRate: 25,
         createdAt: '2025-01-09T14:30:00Z',
         productType: 'digital',
         fileUrl: '/models/dragon.stl'
@@ -115,7 +115,7 @@ const VendorDashboard: React.FC = () => {
       images: product.images,
       category: product.category,
       approved: true,
-      commissionRate: 10,
+      commissionRate: 25,
       createdAt: new Date().toISOString(),
       productType: 'physical'
     }
@@ -138,7 +138,7 @@ const VendorDashboard: React.FC = () => {
       images: newProduct.images,
       category: newProduct.category,
       approved: false,
-      commissionRate: 10,
+      commissionRate: 25,
       createdAt: new Date().toISOString(),
       productType: newProduct.productType,
       shippingCost: newProduct.shippingCost,
@@ -556,7 +556,7 @@ const VendorDashboard: React.FC = () => {
                     <li>• Products must be original and not infringe on copyrights</li>
                     <li>• High-quality images are required (minimum 1000x1000px)</li>
                     <li>• Accurate descriptions and competitive pricing</li>
-                    <li>• <strong>Commission rate is {analytics.commissionRate}% of sales</strong> (You keep 90%)</li>
+                    <li>• <strong>You earn {analytics.commissionRate}% commission</strong> on all sales through your storefront</li>
                   </ul>
                 </div>
               </div>

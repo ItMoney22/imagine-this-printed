@@ -1683,7 +1683,7 @@ const ImaginationStation: React.FC = () => {
             </h1>
 
             <p className="text-sm sm:text-lg md:text-xl text-white/70 max-w-2xl mx-auto leading-relaxed font-light px-4 sm:px-0">
-              Create <span className="text-cyan-400 font-medium">professional gang sheets</span> for DTF, UV DTF, and sublimation
+              Create <span className="text-cyan-400 font-medium">professional imagination sheets</span> for DTF, UV DTF, and sublimation
               with <span className="text-fuchsia-400 font-medium">Mr. Imagine's AI magic</span>
             </p>
 

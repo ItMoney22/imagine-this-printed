@@ -23,7 +23,9 @@ import {
   Clock,
   TrendingUp,
   Box,
-  Loader2
+  Loader2,
+  AlertTriangle,
+  Info
 } from 'lucide-react'
 import { CreateDesignModal } from '../components/CreateDesignModal'
 import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
@@ -401,16 +403,17 @@ export default function UserDesignDashboard() {
           {/* Tab Navigation */}
           <div className="flex gap-1 sm:gap-2 border-b border-border mb-8 overflow-x-auto pb-px">
             {[
-              { key: 'designs', label: 'My Designs', icon: Palette },
-              { key: 'drafts', label: 'Drafts', icon: FileText },
-              { key: '3d-models', label: '3D Models', icon: Box },
-              { key: 'tools', label: 'AI Tools', icon: Wand2 },
-              { key: 'earnings', label: 'Earnings', icon: DollarSign },
+              { key: 'designs', label: 'My Designs', icon: Palette, tooltip: null },
+              { key: 'drafts', label: 'Drafts', icon: FileText, tooltip: 'Drafts expire after 2 weeks' },
+              { key: '3d-models', label: '3D Models', icon: Box, tooltip: null },
+              { key: 'tools', label: 'AI Tools', icon: Wand2, tooltip: null },
+              { key: 'earnings', label: 'Earnings', icon: DollarSign, tooltip: null },
             ].map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as Tab)}
-                className={`flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 font-medium transition-all border-b-2 -mb-px whitespace-nowrap rounded-t-lg ${activeTab === tab.key
+                title={tab.tooltip || undefined}
+                className={`relative flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 font-medium transition-all border-b-2 -mb-px whitespace-nowrap rounded-t-lg group ${activeTab === tab.key
                   ? 'text-purple-600 border-purple-600 bg-purple-50'
                   : 'text-muted border-transparent hover:text-text hover:bg-gray-50'
                   }`}
@@ -418,6 +421,9 @@ export default function UserDesignDashboard() {
                 <tab.icon className={`w-4 h-4 ${activeTab === tab.key ? 'text-purple-600' : ''}`} />
                 <span className="hidden sm:inline">{tab.label}</span>
                 <span className="sm:hidden">{tab.label.split(' ')[0]}</span>
+                {tab.tooltip && (
+                  <Info className="w-3.5 h-3.5 text-amber-500 ml-1" />
+                )}
               </button>
             ))}
           </div>
@@ -503,6 +509,19 @@ export default function UserDesignDashboard() {
 
           {activeTab === 'drafts' && (
             <div className="space-y-4">
+              {/* Expiration Warning Banner */}
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-amber-800 font-medium text-sm">
+                    Drafts expire after 2 weeks
+                  </p>
+                  <p className="text-amber-700 text-xs mt-0.5">
+                    Drafts, pending designs, and incomplete orders that aren't submitted or purchased will be automatically deleted after 14 days. Save your work by completing your designs!
+                  </p>
+                </div>
+              </div>
+
               {sessions.length === 0 ? (
                 <div className="text-center py-16 sm:py-20 card-editorial border-2 border-dashed border-purple-200">
                   <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -512,55 +531,76 @@ export default function UserDesignDashboard() {
                   <p className="text-muted">Your in-progress designs will appear here</p>
                 </div>
               ) : (
-                sessions.map(session => (
-                  <div
-                    key={session.id}
-                    className="card-editorial p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 group"
-                  >
-                    <div className="w-full sm:w-20 h-32 sm:h-20 bg-gray-100 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {session.selected_image_url ? (
-                        <img
-                          src={session.selected_image_url}
-                          alt="Draft"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <FileText className="w-8 h-8 text-gray-300" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-display font-medium text-text text-lg truncate mb-1">
-                        {session.prompt || 'Untitled Draft'}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium uppercase tracking-wider">
-                          Step: {session.step}
-                        </span>
-                        <span className="hidden sm:inline">•</span>
-                        <span>{session.style || 'No style'}</span>
-                        <span className="hidden sm:inline">•</span>
-                        <span>{session.color || 'No color'}</span>
+                sessions.map(session => {
+                  // Calculate days until expiration (14 days from creation/update)
+                  const sessionDate = new Date(session.updated_at || session.created_at)
+                  const expirationDate = new Date(sessionDate.getTime() + 14 * 24 * 60 * 60 * 1000)
+                  const now = new Date()
+                  const daysLeft = Math.max(0, Math.ceil((expirationDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+                  const isExpiringSoon = daysLeft <= 3
+
+                  return (
+                    <div
+                      key={session.id}
+                      className={`card-editorial p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 group ${isExpiringSoon ? 'border-amber-300 bg-amber-50/30' : ''}`}
+                    >
+                      <div className="w-full sm:w-20 h-32 sm:h-20 bg-gray-100 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden relative">
+                        {session.selected_image_url ? (
+                          <img
+                            src={session.selected_image_url}
+                            alt="Draft"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <FileText className="w-8 h-8 text-gray-300" />
+                        )}
+                        {/* Expiration badge */}
+                        {isExpiringSoon && (
+                          <div className="absolute top-1 right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                            {daysLeft}d
+                          </div>
+                        )}
                       </div>
-                      <p className="text-xs text-muted mt-2">
-                        Last edited: {new Date(session.updated_at).toLocaleDateString()}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-display font-medium text-text text-lg truncate mb-1">
+                          {session.prompt || 'Untitled Draft'}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+                          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium uppercase tracking-wider">
+                            Step: {session.step}
+                          </span>
+                          <span className="hidden sm:inline">•</span>
+                          <span>{session.style || 'No style'}</span>
+                          <span className="hidden sm:inline">•</span>
+                          <span>{session.color || 'No color'}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-2">
+                          <p className="text-xs text-muted">
+                            Last edited: {new Date(session.updated_at).toLocaleDateString()}
+                          </p>
+                          <span className={`text-xs font-medium flex items-center gap-1 ${isExpiringSoon ? 'text-amber-600' : 'text-muted'}`}>
+                            <Clock className="w-3 h-3" />
+                            {daysLeft === 0 ? 'Expires today!' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleResumeSession(session)}
+                          className="flex-1 sm:flex-none btn-primary py-2.5 px-5"
+                        >
+                          Resume
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSession(session.id)}
+                          className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleResumeSession(session)}
-                        className="flex-1 sm:flex-none btn-primary py-2.5 px-5"
-                      >
-                        Resume
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSession(session.id)}
-                        className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           )}

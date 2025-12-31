@@ -1,9 +1,10 @@
 import { supabase } from '../lib/supabase.js'
-import { generateProductImage, generateMockup, removeBackground, upscaleImage, getPrediction, generateGhostMannequin, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { generateProductImage, generateMockup, removeBackground, upscaleImage, getPrediction, generateGhostMannequin, generateFlatLay, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
-import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mockup.js'
+// Gemini mockup import removed - now using Replicate NanoBanana for all mockups
+// import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mockup.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
@@ -494,7 +495,7 @@ async function startJob(job: any) {
         .eq('id', job.id)
     }
   } else if (job.type === 'replicate_mockup') {
-    // Wait for source image to complete
+    // Check if source image job exists and its status
     const { data: sourceImageJob } = await supabase
       .from('ai_jobs')
       .select('status')
@@ -502,7 +503,8 @@ async function startJob(job: any) {
       .eq('type', 'replicate_image')
       .single()
 
-    if (!sourceImageJob || sourceImageJob.status !== 'succeeded') {
+    // If source image job exists but hasn't completed, wait for it
+    if (sourceImageJob && sourceImageJob.status !== 'succeeded' && sourceImageJob.status !== 'failed') {
       // Reset to queued, will try again next cycle
       await supabase
         .from('ai_jobs')
@@ -511,8 +513,46 @@ async function startJob(job: any) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', job.id)
-      console.log('[worker] ⏳ Source image job not completed yet (status:', sourceImageJob?.status || 'not found', '), will retry...')
+      console.log('[worker] ⏳ Source image job still processing (status:', sourceImageJob.status, '), will retry...')
       return
+    }
+
+    // If no source image job exists, check if product has a source asset directly
+    // This handles manually uploaded products or products from Imagination Station
+    if (!sourceImageJob) {
+      const { data: sourceAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'source')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (!sourceAsset) {
+        // Also check for products.images array as fallback
+        const { data: product } = await supabase
+          .from('products')
+          .select('images')
+          .eq('id', job.product_id)
+          .single()
+
+        if (!product?.images?.length) {
+          console.error('[worker] ❌ No source image job and no source asset found for product')
+          await supabase
+            .from('ai_jobs')
+            .update({
+              status: 'failed',
+              error: 'No source image available for mockup generation',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id)
+          return
+        }
+        console.log('[worker] 📸 No source image job, but product has images array - proceeding with mockup')
+      } else {
+        console.log('[worker] 📸 No source image job, but found source asset - proceeding with mockup')
+      }
     }
 
     // Check if background removal job exists (optional)
@@ -609,21 +649,76 @@ async function startJob(job: any) {
         .limit(1)
         .single()
 
-      if (!sourceAsset) {
-        console.error('[worker] ❌ Source image not found!')
+      if (sourceAsset) {
+        garmentImageUrl = sourceAsset.url
+        console.log('[worker] 📸 Using source image for mockup (no optimization):', garmentImageUrl)
+      }
+    }
+
+    // Final fallback: use products.images array (for manually created products)
+    if (!garmentImageUrl) {
+      const { data: product } = await supabase
+        .from('products')
+        .select('images')
+        .eq('id', job.product_id)
+        .single()
+
+      if (product?.images?.length) {
+        garmentImageUrl = product.images[0]
+        console.log('[worker] 📸 Using product.images[0] for mockup:', garmentImageUrl)
+      } else {
+        console.error('[worker] ❌ No source image found anywhere!')
         await supabase
           .from('ai_jobs')
           .update({
             status: 'failed',
-            error: 'Source image asset not found',
+            error: 'No source image available for mockup generation',
             updated_at: new Date().toISOString(),
           })
           .eq('id', job.id)
         return
       }
+    }
 
-      garmentImageUrl = sourceAsset.url
-      console.log('[worker] 📸 Using source image for mockup (no optimization):', garmentImageUrl)
+    // If garmentImageUrl is a base64 data URL, upload to GCS first
+    // (Gemini and other APIs require HTTP(S) URLs)
+    if (garmentImageUrl && garmentImageUrl.startsWith('data:')) {
+      console.log('[worker] 📤 Converting base64 image to GCS URL...')
+      try {
+        const productSlug = await getProductSlug(job.product_id)
+        const uploadResult = await uploadImageFromBase64(
+          garmentImageUrl,
+          `products/${productSlug}/source-${Date.now()}.png`
+        )
+        console.log('[worker] ✅ Base64 converted to GCS URL:', uploadResult.publicUrl.substring(0, 80) + '...')
+        garmentImageUrl = uploadResult.publicUrl
+
+        // Also update the product's images array to use the permanent URL
+        const { data: product } = await supabase
+          .from('products')
+          .select('images')
+          .eq('id', job.product_id)
+          .single()
+
+        if (product?.images?.length && product.images[0].startsWith('data:')) {
+          await supabase
+            .from('products')
+            .update({ images: [uploadResult.publicUrl, ...product.images.slice(1)] })
+            .eq('id', job.product_id)
+          console.log('[worker] ✅ Updated product.images with permanent GCS URL')
+        }
+      } catch (uploadError: any) {
+        console.error('[worker] ❌ Failed to upload base64 image:', uploadError.message)
+        await supabase
+          .from('ai_jobs')
+          .update({
+            status: 'failed',
+            error: `Failed to upload source image: ${uploadError.message}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.id)
+        return
+      }
     }
 
     // Store template info in job metadata for organized upload later
@@ -645,70 +740,145 @@ async function startJob(job: any) {
       .eq('type', 'replicate_image')
       .single()
 
-    const shirtColor = imageJob?.input?.shirtColor
-    const productType = imageJob?.input?.productType
-    const printPlacement = imageJob?.input?.printPlacement
+    const shirtColor = imageJob?.input?.shirtColor || job.input?.shirtColor || 'black'
+    const productType = imageJob?.input?.productType || job.input?.productType || 'tshirt'
+    const printPlacement = imageJob?.input?.printPlacement || job.input?.printPlacement || 'front-center'
+    const productCategory = job.input?.product_type || 'shirts'
 
-    // Generate mockup with Gemini (synchronous - returns image directly)
+    // Get template type - determines which mockup style to generate
     const template = job.input?.template || 'flat_lay'
     const templateName = template === 'mr_imagine' ? 'Mr. Imagine mascot' :
-                         template === 'flat_lay' ? 'professional flat lay' : template
-    await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Gemini AI...`, 1, 3)
-    console.log('[worker] 🎭 Starting Gemini mockup generation...')
-    const geminiResult = await generateGeminiMockup({
-      designImageUrl: garmentImageUrl!, // Safe: we would have returned early if not set
-      template: job.input.template,
-      productType: productType || 'tshirt',
-      shirtColor: shirtColor || 'black',
-      printPlacement: printPlacement || 'front-center',
-    })
+                         template === 'flat_lay' ? 'professional flat lay' :
+                         template === 'ghost_mannequin' ? 'ghost mannequin' : template
 
-    if (!geminiResult.success || !geminiResult.imageBase64) {
-      console.error('[worker] ❌ Gemini mockup generation failed:', geminiResult.error)
+    await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Replicate AI...`, 1, 3)
+    console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
+
+    let mockupImageUrl: string
+
+    try {
+      if (template === 'ghost_mannequin') {
+        // Ghost mannequin - floating garment with invisible mannequin effect
+        console.log('[worker] 👻 Generating ghost mannequin mockup...')
+        const ghostResult = await generateGhostMannequin({
+          designImage: garmentImageUrl!,
+          productType: productType as 'tshirt' | 'hoodie' | 'tank',
+          shirtColor: shirtColor,
+        })
+
+        if (!ghostResult.url) {
+          throw new Error('Ghost mannequin generation returned no URL')
+        }
+        mockupImageUrl = ghostResult.url
+        console.log('[worker] ✅ Ghost mannequin generated:', mockupImageUrl.substring(0, 80) + '...')
+
+      } else if (template === 'flat_lay') {
+        // Flat lay - simple product photo laid flat on white background (NO Mr. Imagine)
+        console.log('[worker] 📸 Generating flat lay mockup (NanoBanana)...')
+        const flatLayResult = await generateFlatLay({
+          designImage: garmentImageUrl!,
+          productType: productType as 'tshirt' | 'hoodie' | 'tank',
+          shirtColor: shirtColor,
+        })
+
+        if (!flatLayResult.url) {
+          throw new Error('Flat lay generation returned no URL')
+        }
+        mockupImageUrl = flatLayResult.url
+        console.log('[worker] ✅ Flat lay generated:', mockupImageUrl.substring(0, 80) + '...')
+
+      } else {
+        // mr_imagine - use generateMockup which handles Mr. Imagine character fusion
+        console.log('[worker] 🎭 Generating Mr. Imagine mockup...')
+        const mockupResult = await generateMockup({
+          garment_image: garmentImageUrl!,
+          template: 'mr_imagine', // Always Mr. Imagine for this branch
+          product_type: productCategory,
+          productType: productType,
+          shirtColor: shirtColor,
+          printPlacement: printPlacement,
+        })
+
+        // generateMockup returns a prediction - we need to poll for completion
+        console.log('[worker] ⏳ Waiting for Mr. Imagine mockup prediction to complete:', mockupResult.id)
+        await updateJobProgress(job.id, `⏳ Processing Mr. Imagine mockup...`, 1, 3)
+
+        // Poll for prediction completion
+        let prediction = mockupResult
+        let attempts = 0
+        const maxAttempts = 60 // 5 minutes max
+
+        while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
+          prediction = await getPrediction(prediction.id)
+          attempts++
+          console.log('[worker] 📊 Prediction status:', prediction.status, 'attempt:', attempts)
+        }
+
+        if (prediction.status === 'failed') {
+          const errorMsg = typeof prediction.error === 'string' ? prediction.error : JSON.stringify(prediction.error) || 'Mockup prediction failed'
+          throw new Error(errorMsg)
+        }
+
+        if (prediction.status !== 'succeeded') {
+          throw new Error('Mockup generation timed out')
+        }
+
+        // Get the output URL
+        if (Array.isArray(prediction.output) && prediction.output.length > 0) {
+          mockupImageUrl = prediction.output[0]
+        } else if (typeof prediction.output === 'string') {
+          mockupImageUrl = prediction.output
+        } else {
+          throw new Error('Unexpected prediction output format')
+        }
+
+        console.log('[worker] ✅ Mr. Imagine mockup generated:', mockupImageUrl.substring(0, 80) + '...')
+      }
+    } catch (mockupError: any) {
+      console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
       await supabase
         .from('ai_jobs')
         .update({
           status: 'failed',
-          error: geminiResult.error || 'Mockup generation failed',
+          error: mockupError.message || 'Mockup generation failed',
           updated_at: new Date().toISOString(),
         })
         .eq('id', job.id)
       return
     }
 
-    console.log('[worker] ✅ Gemini mockup generated successfully')
+    console.log('[worker] ✅ Replicate mockup generated successfully')
     await updateJobProgress(job.id, `📤 Uploading ${templateName} mockup to cloud storage...`, 2, 3)
 
-    // Upload the mockup image to GCS
+    // Upload the mockup image to GCS (from Replicate URL)
     const productSlug = await getProductSlug(job.product_id)
     const timestamp = Date.now()
-    // Note: template already defined above
     const filename = `${productSlug}-${template}-${timestamp}.png`
     const gcsPath = `mockups/${productSlug}/${template}/${filename}`
 
     console.log('[worker] 📤 Uploading mockup to GCS:', gcsPath)
 
-    const { publicUrl, path } = await uploadImageFromBase64(
-      `data:${geminiResult.mimeType};base64,${geminiResult.imageBase64}`,
-      gcsPath
-    )
+    const { publicUrl, path } = await uploadImageFromUrl(mockupImageUrl, gcsPath)
 
     console.log('[worker] ✅ Mockup uploaded to GCS:', publicUrl)
 
     // Determine asset_role and display_order based on template
-    // Mr. Imagine is PRIMARY (display first), then flat_lay, ghost_mannequin
-    // Order: mr_imagine(1) PRIMARY -> flat_lay(2) -> ghost_mannequin(3)
+    // Ghost mannequin is PRIMARY (display first), then flat_lay, mr_imagine
+    // Order: ghost_mannequin(1) PRIMARY -> flat_lay(2) -> mr_imagine(3)
     const assetRole = template === 'flat_lay' ? 'mockup_flat_lay' :
                       template === 'mr_imagine' ? 'mockup_mr_imagine' :
+                      template === 'ghost_mannequin' ? 'mockup_ghost_mannequin' :
                       'mockup_flat_lay'
-    const displayOrder = template === 'mr_imagine' ? 1 :
+    const displayOrder = template === 'ghost_mannequin' ? 1 :
                          template === 'flat_lay' ? 2 :
+                         template === 'mr_imagine' ? 3 :
                          2
-    const isPrimary = template === 'mr_imagine' // Mr. Imagine is the primary/main product image
+    const isPrimary = template === 'ghost_mannequin' // Ghost mannequin is the primary/main product image
 
-    // If this is the primary image (Mr. Imagine), unset any existing primary images first
+    // If this is the primary image (ghost mannequin), unset any existing primary images first
     if (isPrimary) {
-      console.log('[worker] 🌟 Mr. Imagine mockup will be set as PRIMARY image')
+      console.log('[worker] 🌟 Ghost mannequin mockup will be set as PRIMARY image')
       await supabase
         .from('product_assets')
         .update({ is_primary: false })
@@ -731,7 +901,7 @@ async function startJob(job: any) {
         display_order: displayOrder,
         metadata: {
           template: template,
-          generated_with: 'gemini',
+          generated_with: 'replicate-nano-banana',
           generated_at: new Date().toISOString(),
         },
       })

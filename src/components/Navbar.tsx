@@ -118,25 +118,48 @@ const Navbar: React.FC = () => {
               <div className="relative" ref={accountMenuRef}>
                 <button
                   onClick={toggleAccountMenu}
-                  className="flex items-center text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium"
+                  className="flex items-center text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium gap-2"
                 >
-                  <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  Account
-                  <svg className={`w-4 h-4 ml-1 transition-transform ${showAccountMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {/* Profile Avatar */}
+                  {user.avatar_url ? (
+                    <img
+                      src={user.avatar_url}
+                      alt={user.username || 'Profile'}
+                      className="w-7 h-7 rounded-full object-cover border-2 border-purple-500/50"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold">
+                      {user.username?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <span className="hidden lg:inline">{user.username || 'Account'}</span>
+                  <svg className={`w-4 h-4 transition-transform ${showAccountMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {showAccountMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-1 z-10 border border-gray-200">
-                    <div className="px-4 py-2 text-sm text-gray-700 border-b">
-                      <div className="font-medium">{user.email}</div>
-                      <div className="text-xs text-gray-500">
-                        Role: <span className="capitalize font-semibold">{user.role?.replace('_', ' ')}</span>
-                        {user.role === 'admin' && <span className="ml-2 text-green-600">✓ Admin</span>}
-                        {user.role === 'manager' && <span className="ml-2 text-blue-600">✓ Manager</span>}
-                        {user.role === 'support_agent' && <span className="ml-2 text-purple-600">✓ Support</span>}
+                    <div className="px-4 py-3 text-sm text-gray-700 border-b flex items-center gap-3">
+                      {/* Dropdown header with avatar */}
+                      {user.avatar_url ? (
+                        <img
+                          src={user.avatar_url}
+                          alt={user.username || 'Profile'}
+                          className="w-10 h-10 rounded-full object-cover border-2 border-purple-200"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                          {user.username?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || '?'}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{user.username || user.email}</div>
+                        <div className="text-xs text-gray-500">
+                          <span className="capitalize font-semibold">{user.role?.replace('_', ' ')}</span>
+                          {user.role === 'admin' && <span className="ml-1 text-green-600">✓</span>}
+                          {user.role === 'manager' && <span className="ml-1 text-blue-600">✓</span>}
+                          {user.role === 'support_agent' && <span className="ml-1 text-purple-600">✓</span>}
+                        </div>
                       </div>
                     </div>
 

@@ -65,6 +65,7 @@ import ImaginationStation from './pages/ImaginationStation'
 import { ImaginationErrorBoundary } from './components/imagination'
 import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
+import CookieConsent from './components/CookieConsent'
 
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk']
@@ -90,6 +91,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       {!isFullScreen && <MrImagineChatWidget />}
       <MrImagineCartNotification />
       <ToastContainer />
+      <CookieConsent />
     </div>
   )
 }

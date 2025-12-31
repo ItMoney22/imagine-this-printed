@@ -387,7 +387,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       .from('ai_jobs')
       .delete()
       .eq('product_id', id)
-      .in('type', ['replicate_mockup', 'ghost_mannequin'])
+      .eq('type', 'replicate_mockup')  // All mockups now use unified replicate_mockup type
       .select('id')
 
     if (deleteJobsError) {
@@ -459,9 +459,12 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       jobs.push({
         product_id: id,
-        type: 'ghost_mannequin',
+        type: 'replicate_mockup',  // Unified type - all mockups use replicate_mockup
         status: 'queued',
-        input: baseInput,
+        input: {
+          ...baseInput,
+          template: 'ghost_mannequin',  // Template determines the mockup style
+        },
       })
       console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
     }
@@ -589,7 +592,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       .from('ai_jobs')
       .delete()
       .eq('product_id', id)
-      .in('type', ['replicate_mockup', 'ghost_mannequin'])
+      .eq('type', 'replicate_mockup')  // All mockups now use unified replicate_mockup type
       .select('id')
 
     if (deleteMockupJobsError) {
@@ -658,9 +661,12 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       mockupJobs.push({
         product_id: id,
-        type: 'ghost_mannequin',
+        type: 'replicate_mockup',  // Unified type - all mockups use replicate_mockup
         status: 'queued',
-        input: baseInput,
+        input: {
+          ...baseInput,
+          template: 'ghost_mannequin',  // Template determines the mockup style
+        },
       })
       console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
     }
@@ -754,6 +760,58 @@ router.post('/:id/regenerate-images', requireAuth, requireAdmin, async (req: Req
     res.json({ job: createdJobs[0] })
   } catch (error: any) {
     req.log?.error({ error }, '[ai-products] ❌ Error')
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// POST /api/admin/products/ai/:id/generate-text - Generate GPT name/description for existing product
+router.post('/:id/generate-text', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { prompt } = req.body // Optional custom prompt, otherwise use existing metadata
+
+    console.log('[ai-products] 🤖 generate-text called for product:', id)
+    req.log?.info({ productId: id, prompt }, '[ai-products] 🤖 Generating text for product')
+
+    // Fetch the product
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (productError || !product) {
+      return res.status(404).json({ error: 'Product not found' })
+    }
+
+    // Determine the prompt to use
+    const textPrompt = prompt || product.metadata?.original_prompt || product.metadata?.image_prompt || product.name || 'Custom design'
+
+    // Generate normalized product text using GPT
+    const normalized = await normalizeProduct({
+      prompt: textPrompt,
+      priceTarget: Math.round((product.price || 25) * 100),
+      imageStyle: product.metadata?.image_style || 'semi-realistic',
+    })
+
+    req.log?.info({
+      productId: id,
+      newTitle: normalized.title,
+      newDescription: normalized.description
+    }, '[ai-products] ✅ Generated text')
+
+    // Return the generated text without saving (let frontend decide)
+    res.json({
+      title: normalized.title,
+      description: normalized.description,
+      summary: normalized.summary,
+      tags: normalized.tags,
+      seo_title: normalized.seo_title,
+      seo_description: normalized.seo_description,
+    })
+  } catch (error: any) {
+    console.error('[ai-products] ❌ Error generating text:', error)
+    req.log?.error({ error }, '[ai-products] ❌ Error generating text')
     res.status(500).json({ error: error.message })
   }
 })

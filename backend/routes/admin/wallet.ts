@@ -159,16 +159,55 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: 'Reason must be at least 10 characters' })
     }
 
-    // Fetch current wallet
-    const { data: wallet, error: fetchError } = await supabase
+    // Fetch current wallet - auto-create if it doesn't exist
+    let { data: wallet, error: fetchError } = await supabase
       .from('user_wallets')
       .select('*')
       .eq('user_id', userId)
       .single()
 
-    if (fetchError || !wallet) {
-      console.error('[admin/wallet/credit] Wallet not found:', fetchError)
-      return res.status(404).json({ error: 'User wallet not found' })
+    // If wallet doesn't exist, create it
+    if (fetchError?.code === 'PGRST116' || !wallet) {
+      console.log('[admin/wallet/credit] Wallet not found, creating one for user:', userId)
+
+      // First verify user exists
+      const { data: userProfile, error: userError } = await supabase
+        .from('user_profiles')
+        .select('id, email')
+        .eq('id', userId)
+        .single()
+
+      if (userError || !userProfile) {
+        console.error('[admin/wallet/credit] User not found:', userError)
+        return res.status(404).json({ error: 'User not found' })
+      }
+
+      // Create wallet
+      const { data: newWallet, error: createError } = await supabase
+        .from('user_wallets')
+        .insert({
+          user_id: userId,
+          points_balance: 0,
+          itc_balance: 0,
+          lifetime_points_earned: 0,
+          lifetime_itc_earned: 0,
+          wallet_status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (createError) {
+        console.error('[admin/wallet/credit] Failed to create wallet:', createError)
+        return res.status(500).json({ error: 'Failed to create user wallet' })
+      }
+
+      wallet = newWallet
+      console.log('[admin/wallet/credit] ✅ Wallet created for user:', userId)
+    } else if (fetchError) {
+      console.error('[admin/wallet/credit] Wallet fetch error:', fetchError)
+      return res.status(500).json({ error: 'Failed to fetch wallet' })
     }
 
     const balanceBefore = wallet.itc_balance

@@ -1041,4 +1041,155 @@ router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): P
   }
 });
 
+// ===========================================
+// DESIGN SUBMISSION FROM CREATE DESIGN MODAL
+// ===========================================
+
+/**
+ * POST /api/imagination-station/designs/submit
+ * Submit a design created in CreateDesignModal for admin approval
+ * This is a simpler flow than the full Imagination Station sheet workflow
+ */
+router.post('/designs/submit', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const {
+      name,
+      design_concept,
+      preview_url,
+      style,
+      category
+    } = req.body;
+
+    if (!preview_url) {
+      res.status(400).json({ error: 'Preview URL is required' });
+      return;
+    }
+
+    console.log('[imagination-station] 📤 Design submission from:', user.email, 'concept:', design_concept?.substring(0, 50));
+
+    // CRITICAL: Upload image to GCS to prevent expiration
+    // Replicate delivery URLs expire after ~1 hour, so we must persist to GCS
+    let permanentImageUrl = preview_url;
+
+    // Check if URL is a temporary Replicate URL that needs to be persisted
+    const isTemporaryUrl = preview_url.includes('replicate.delivery') ||
+                          preview_url.includes('replicate.com') ||
+                          preview_url.includes('pbxt.replicate.delivery');
+
+    if (isTemporaryUrl) {
+      try {
+        console.log('[imagination-station] 🔄 Persisting temporary image to GCS...');
+        const uploadResult = await gcsStorage.uploadFromUrl(preview_url, {
+          userId: user.id,
+          folder: 'designs',
+          filename: `design-${Date.now()}-${Math.random().toString(36).substring(7)}.png`
+        });
+        permanentImageUrl = uploadResult.publicUrl;
+        console.log('[imagination-station] ✅ Image persisted to GCS:', permanentImageUrl);
+      } catch (uploadError: any) {
+        console.error('[imagination-station] ⚠️ Failed to persist image to GCS:', uploadError.message);
+        // Continue with original URL as fallback (better than failing completely)
+        // But log a warning - this image may expire
+        console.warn('[imagination-station] ⚠️ Using temporary URL - image may expire!');
+      }
+    }
+
+    // Get user profile for email
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('email, username, display_name')
+      .eq('id', user.id)
+      .single();
+
+    // Use GPT to generate a catchy product name and description
+    let productName = 'My Custom Design';
+    let productDescription = 'Created with AI design tools';
+
+    try {
+      const { normalizeProduct } = await import('../services/ai-product.js');
+      const normalized = await normalizeProduct({
+        prompt: design_concept || name || 'Custom design',
+        priceTarget: 2500, // $25 default
+        imageStyle: style || 'semi-realistic',
+      });
+      productName = normalized.title;
+      productDescription = normalized.description;
+      console.log('[imagination-station] ✨ GPT generated name:', productName);
+    } catch (gptError) {
+      console.error('[imagination-station] ⚠️ GPT normalization failed, using defaults:', gptError);
+      // Fall back to user input if GPT fails
+      productName = name || 'My Custom Design';
+      productDescription = design_concept || 'Created with AI design tools';
+    }
+
+    // Create a draft product entry with pending_approval status
+    const { data: design, error } = await supabase
+      .from('products')
+      .insert({
+        name: productName,
+        description: productDescription,
+        slug: `design-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        price: 25, // $25 default - stored as dollars, admin can adjust
+        images: [permanentImageUrl], // Use permanent GCS URL
+        status: 'pending_approval',
+        category_id: null, // Will be set during approval
+        metadata: {
+          design_concept,
+          style,
+          category,
+          source: 'create_design_modal',
+          submitted_at: new Date().toISOString(),
+          user_submitted: true,
+          creator_id: user.id,
+          original_prompt: design_concept,
+          creator_royalty_percent: 10,
+          original_replicate_url: isTemporaryUrl ? preview_url : undefined // Keep original for reference
+        },
+        created_by_user_id: user.id,
+        is_user_generated: true
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[imagination-station] ❌ Failed to create design:', error);
+      res.status(500).json({ error: 'Failed to save design' });
+      return;
+    }
+
+    console.log('[imagination-station] ✅ Design created:', design.id);
+
+    // Send confirmation email
+    try {
+      const { sendDesignSubmittedEmail } = await import('../utils/email.js');
+      const userEmail = profile?.email || user.email;
+      if (userEmail) {
+        await sendDesignSubmittedEmail(
+          userEmail,
+          design.id,
+          design_concept || name || 'My Custom Design',
+          preview_url
+        );
+        console.log('[imagination-station] 📧 Confirmation email sent to:', userEmail);
+      }
+    } catch (emailError) {
+      console.error('[imagination-station] ⚠️ Failed to send email (non-blocking):', emailError);
+      // Don't fail the submission if email fails
+    }
+
+    res.status(201).json({
+      id: design.id,
+      name: design.name,
+      status: 'pending_approval',
+      preview_url: permanentImageUrl, // Return the permanent GCS URL
+      message: 'Design submitted for approval! You\'ll receive an email when it\'s reviewed.'
+    });
+
+  } catch (error: any) {
+    console.error('[imagination-station] ❌ Design submission error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

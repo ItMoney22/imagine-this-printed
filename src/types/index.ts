@@ -23,6 +23,8 @@ export interface Product {
   shipping_cost?: number
   stock?: number
   is_featured?: boolean
+  is_user_generated?: boolean
+  created_by_user_id?: string
   sizes?: string[]
   colors?: string[]
 }
@@ -1690,3 +1692,96 @@ export interface CommunityEarningsResponse {
   total_earned: number
   count: number
 }
+
+// ==============================================
+// STRIPE CONNECT CASH-OUT TYPES
+// ==============================================
+
+export interface StripeConnectAccount {
+  id: string
+  userId: string
+  stripeAccountId: string
+  accountType: 'express' | 'standard' | 'custom'
+  onboardingComplete: boolean
+  detailsSubmitted: boolean
+  chargesEnabled: boolean
+  payoutsEnabled: boolean
+  instantPayoutsEnabled: boolean
+  defaultPayoutMethod: 'instant' | 'standard'
+  hasExternalAccount: boolean
+  externalAccountLast4: string | null
+  externalAccountBrand: string | null
+  externalAccountType: 'card' | 'bank_account' | null
+  currentlyDue: string[]
+  eventuallyDue: string[]
+  pastDue: string[]
+  disabledReason: string | null
+  country: string
+  currency: string
+  metadata: Record<string, any>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConnectAccountStatus {
+  hasAccount: boolean
+  accountId: string | null
+  onboardingComplete: boolean
+  payoutsEnabled: boolean
+  instantPayoutsEnabled: boolean
+  externalAccountLast4: string | null
+  externalAccountBrand: string | null
+  requiresAction: boolean
+  currentlyDue: string[]
+}
+
+export interface CashoutCalculation {
+  amountItc: number
+  grossUsd: number
+  platformFeeUsd: number
+  platformFeePercent: number
+  instantFeeUsd: number
+  netUsd: number
+  payoutType: 'instant' | 'standard'
+}
+
+export interface ITCCashoutRequest {
+  id: string
+  userId: string
+  stripeConnectAccountId: string
+  amountItc: number
+  grossAmountUsd: number
+  platformFeeUsd: number
+  platformFeePercent: number
+  instantFeeUsd: number
+  netAmountUsd: number
+  payoutType: 'instant' | 'standard'
+  stripePayoutId: string | null
+  stripeTransferId: string | null
+  status: 'pending' | 'processing' | 'paid' | 'failed' | 'cancelled'
+  failureCode: string | null
+  failureMessage: string | null
+  initiatedAt: string
+  processedAt: string | null
+  arrivedAt: string | null
+  metadata: Record<string, any>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CashoutResult {
+  success: boolean
+  payoutId?: string
+  transferId?: string
+  error?: string
+  cashoutRequestId?: string
+}
+
+// Constants for cash-out
+export const ITC_CASHOUT_CONSTANTS = {
+  ITC_TO_USD: 0.01, // 1 ITC = $0.01
+  MINIMUM_CASHOUT_ITC: 5000, // $50 minimum
+  PLATFORM_FEE_PERCENT: 7, // 7% platform fee
+  INSTANT_PAYOUT_FEE_PERCENT: 1.5, // Stripe charges ~1.5% for instant
+  INSTANT_PAYOUT_MIN_FEE: 0.50, // Minimum $0.50 fee
+} as const

@@ -19,8 +19,8 @@ export class KioskService {
         kioskUserId: 'kiosk_user_123',
         location: 'Downtown Print Shop - Main Counter',
         isActive: true,
-        commissionRate: 0.15, // 15% commission
-        partnerCommissionRate: 0.05, // 5% partner commission
+        commissionRate: 0.25, // 25% vendor commission
+        partnerCommissionRate: 0.05, // 5% location partner commission
         accessUrl: `${window.location.origin}/kiosk/${kioskId}`,
         createdAt: '2025-01-01T00:00:00Z',
         lastActivity: new Date().toISOString(),
@@ -118,20 +118,24 @@ export class KioskService {
 
       // Default to standard rates if kiosk not found or rates not set
       const platformFeeRate = 0.07 // 7% base platform fee
-      // Use kiosk specific commission rate if available (this is the partner's cut)
-      const partnerCommissionRate = kiosk?.commissionRate || 0.15
+      // Use kiosk specific commission rate if available (this is the vendor's cut)
+      const vendorCommissionRate = kiosk?.commissionRate || 0.25
 
       const total = order.total || 0
 
       // Calculate commissions
-      // Partner gets their configured rate (e.g. 15%)
-      const partnerCommission = total * partnerCommissionRate
+      // Vendor gets 25% commission
+      const vendorCommission = total * vendorCommissionRate
 
       // Platform gets the fee
       const platformFee = total * platformFeeRate
 
-      // Vendor gets the rest
-      const vendorAmount = total - platformFee - partnerCommission
+      // Partner gets their configured rate (optional location partner)
+      const partnerCommissionRate = kiosk?.partnerCommissionRate || 0.05
+      const partnerCommission = total * partnerCommissionRate
+
+      // Vendor amount is their commission
+      const vendorAmount = vendorCommission
 
       // Generate Customer Identifier
       // Format: First Name (or Guest) + Last 4 of ID

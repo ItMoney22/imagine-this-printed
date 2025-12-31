@@ -371,4 +371,40 @@ router.get('/wallet', async (req: Request, res: Response) => {
   }
 })
 
+// ===========================================
+// SEND WELCOME EMAIL (for Supabase Auth signups)
+// ===========================================
+
+/**
+ * POST /api/account/send-welcome-email
+ * Send welcome email to a new user after Supabase signup
+ * Called from the frontend after successful registration
+ */
+router.post('/send-welcome-email', async (req: Request, res: Response) => {
+  try {
+    const { email, username } = req.body
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' })
+    }
+
+    const displayName = username || email.split('@')[0] || 'Friend'
+
+    console.log('[account] 📧 Sending welcome email to:', email, 'as:', displayName)
+
+    try {
+      await sendWelcomeEmail(email, displayName)
+      console.log('[account] ✅ Welcome email sent successfully to:', email)
+      return res.status(200).json({ success: true, message: 'Welcome email sent' })
+    } catch (emailError: any) {
+      console.error('[account] ❌ Failed to send welcome email:', emailError)
+      // Return success anyway - we don't want to fail registration over email
+      return res.status(200).json({ success: false, message: 'Email sending failed but registration complete' })
+    }
+  } catch (error: any) {
+    console.error('[account] ❌ Welcome email endpoint error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 export default router

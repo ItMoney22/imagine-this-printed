@@ -146,38 +146,44 @@ export function ProfileHeader({
 
       {/* Profile Info Section */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 -mt-20 relative z-10">
-        <div className="bg-white rounded-3xl shadow-soft-xl border border-slate-100 overflow-hidden">
-          <div className="p-6 sm:p-8">
-            <div className="flex flex-col sm:flex-row gap-6">
-              {/* Avatar */}
-              <div className="relative flex-shrink-0 -mt-24 sm:-mt-28">
-                <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full border-4 border-white bg-white shadow-soft-lg overflow-hidden ring-4 ring-purple-100">
-                  {profile.avatar_url ? (
-                    <img
-                      src={profile.avatar_url}
-                      alt={profile.display_name}
-                      className="w-full h-full object-cover object-top"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                      <span className="text-4xl sm:text-5xl text-white font-display font-bold">
-                        {profile.display_name?.[0]?.toUpperCase() || '?'}
-                      </span>
-                    </div>
-                  )}
+        {/* Avatar - positioned outside the card to avoid overflow clipping */}
+        <div className="relative flex justify-center sm:justify-start sm:pl-8 mb-[-4rem] sm:mb-[-5rem] z-30">
+          <div className="relative">
+            <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full border-4 border-white bg-white shadow-soft-lg overflow-hidden ring-4 ring-purple-100">
+              {profile.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={profile.display_name}
+                  className="w-full h-full object-cover"
+                  style={{ objectPosition: 'center 20%' }}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <span className="text-4xl sm:text-5xl text-white font-display font-bold">
+                    {profile.display_name?.[0]?.toUpperCase() || '?'}
+                  </span>
                 </div>
-                {isOwnProfile && (
-                  <button
-                    onClick={onEditClick}
-                    className="absolute bottom-2 right-2 p-2.5 bg-primary rounded-full text-white shadow-lg hover:bg-primary-dark transition-colors"
-                    title="Edit avatar"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                  </button>
-                )}
-              </div>
+              )}
+            </div>
+            {isOwnProfile && (
+              <button
+                onClick={onEditClick}
+                className="absolute bottom-2 right-2 p-2.5 bg-primary rounded-full text-white shadow-lg hover:bg-primary-dark transition-colors"
+                title="Edit avatar"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-soft-xl border border-slate-100 overflow-hidden">
+          <div className="p-6 sm:p-8 pt-20 sm:pt-24">
+            <div className="flex flex-col sm:flex-row gap-6">
+              {/* Spacer for avatar area on desktop */}
+              <div className="hidden sm:block flex-shrink-0 w-40" />
 
               {/* Name & Info */}
               <div className="flex-1 min-w-0 pt-2">

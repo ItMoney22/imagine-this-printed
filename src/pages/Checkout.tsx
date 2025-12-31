@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { loadStripe } from '@stripe/stripe-js'
@@ -7,7 +7,7 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
-import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store } from 'lucide-react'
+import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
@@ -152,9 +152,10 @@ const US_STATES = [
 ]
 
 const Checkout: React.FC = () => {
-  const { state, clearCart, appliedCoupon, discount, finalTotal, applyCoupon, removeCoupon, couponLoading } = useCart()
+  const { state, clearCart, appliedCoupon, discount, finalTotal, applyCoupon, removeCoupon, couponLoading, restoreFromOrder } = useCart()
   const { user, refreshProfile } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [clientSecret, setClientSecret] = useState('')
   const [paymentIntentId, setPaymentIntentId] = useState('')
   const [orderId, setOrderId] = useState('')
@@ -168,6 +169,12 @@ const Checkout: React.FC = () => {
   const [itcCreditAmount, setItcCreditAmount] = useState<number>(0)
   const [applyingITCCredit, setApplyingITCCredit] = useState(false)
   const [itcCreditError, setItcCreditError] = useState<string | null>(null)
+  // Draft order loading state
+  const [loadingDraftOrder, setLoadingDraftOrder] = useState(false)
+  const [draftOrderError, setDraftOrderError] = useState<string | null>(null)
+  // Payment method selection: 'card' | 'itc_full'
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'itc_full'>('card')
+  const [processingFullITC, setProcessingFullITC] = useState(false)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -195,13 +202,107 @@ const Checkout: React.FC = () => {
     }
   }, [user])
 
-  // Calculate totals based on payment methods
-  const { usdItems, itcItems, usdTotal, itcTotal, requiresITCPayment, requiresUSDPayment } = useMemo(() => {
+  // Load draft order from URL parameter if present
+  useEffect(() => {
+    const draftOrderId = searchParams.get('order')
+    if (draftOrderId && user) {
+      loadDraftOrder(draftOrderId)
+    }
+  }, [searchParams, user])
+
+  const loadDraftOrder = async (draftOrderId: string) => {
+    setLoadingDraftOrder(true)
+    setDraftOrderError(null)
+    try {
+      // Fetch the order details
+      const result = await apiFetch(`/api/orders/${draftOrderId}`)
+      const order = result?.order
+
+      if (!order) {
+        setDraftOrderError('Order not found')
+        return
+      }
+
+      // Check if order belongs to current user
+      if (order.user_id !== user?.id) {
+        setDraftOrderError('This order does not belong to your account')
+        return
+      }
+
+      // Check if order is already paid
+      if (order.payment_status === 'paid') {
+        setDraftOrderError('This order has already been paid')
+        navigate(`/order-success?order_id=${draftOrderId}`)
+        return
+      }
+
+      // Set the order ID for payment
+      setOrderId(draftOrderId)
+
+      // If order has a payment intent, use it
+      if (order.stripe_payment_intent_id) {
+        setPaymentIntentId(order.stripe_payment_intent_id)
+      }
+
+      // Pre-fill shipping address from order if available
+      if (order.shipping_address) {
+        const addr = order.shipping_address
+        setFormData(prev => ({
+          ...prev,
+          firstName: addr.firstName || addr.first_name || prev.firstName,
+          lastName: addr.lastName || addr.last_name || prev.lastName,
+          email: addr.email || order.customer_email || prev.email,
+          address: addr.address || addr.line1 || prev.address,
+          city: addr.city || prev.city,
+          state: addr.state || prev.state,
+          zipCode: addr.zipCode || addr.zip || addr.postal_code || prev.zipCode,
+          country: addr.country || 'US'
+        }))
+      }
+
+      // Restore cart items from order metadata if cart is empty
+      if (state.items.length === 0 && order.metadata?.items) {
+        if (typeof restoreFromOrder === 'function') {
+          restoreFromOrder(order.metadata.items)
+        }
+      }
+
+      console.log('[checkout] Loaded draft order:', draftOrderId)
+    } catch (error: any) {
+      console.error('[checkout] Error loading draft order:', error)
+      setDraftOrderError(error.message || 'Failed to load order')
+    } finally {
+      setLoadingDraftOrder(false)
+    }
+  }
+
+  // Sizes that incur an additional $2.50 upcharge (must match CartContext)
+  const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
+  const PLUS_SIZE_UPCHARGE = 2.50
+  const isPlusSize = (size?: string): boolean => {
+    if (!size) return false
+    return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
+  }
+
+  // Calculate totals based on payment methods (including plus size upcharge)
+  const { usdItems, itcItems, usdTotal, itcTotal, requiresITCPayment, requiresUSDPayment, plusSizeUpcharge } = useMemo(() => {
     const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
     const itcItems = state.items.filter(item => item.paymentMethod === 'itc')
 
-    const usdTotal = usdItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+    // Calculate base total
+    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
     const itcTotal = itcItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+
+    // Calculate plus size upcharge for USD items
+    const plusSizeUpcharge = usdItems.reduce((sum, item) => {
+      if (isPlusSize(item.selectedSize)) {
+        return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
+      }
+      return sum
+    }, 0)
+
+    // USD total includes plus size upcharge
+    const usdTotal = usdBaseTotal + plusSizeUpcharge
 
     return {
       usdItems,
@@ -210,6 +311,7 @@ const Checkout: React.FC = () => {
       itcTotal,
       requiresITCPayment: itcItems.length > 0,
       requiresUSDPayment: usdItems.length > 0,
+      plusSizeUpcharge,
     }
   }, [state.items])
 
@@ -295,9 +397,10 @@ const Checkout: React.FC = () => {
     try {
       // totalUSD already has itcCreditUSD deducted
       const discountedTotal = Math.max(0, totalUSD - discount)
+      console.log('[checkout] createPaymentIntent called', { totalUSD, discount, discountedTotal, requiresUSDPayment, shippingCalculation: !!shippingCalculation })
       // Stripe minimum is 50 cents
       if (discountedTotal < 0.50) {
-        console.log('Order total too low for Stripe payment')
+        console.log('[checkout] Order total too low for Stripe payment:', discountedTotal)
         // If ITC covers the whole order, we can skip Stripe
         if (itcCreditAmount > 0 && discountedTotal === 0) {
           setClientSecret('') // Clear any existing payment intent
@@ -339,7 +442,9 @@ const Checkout: React.FC = () => {
         }),
       })
 
+      console.log('[checkout] Payment intent API response:', data)
       if (data.clientSecret) {
+        console.log('[checkout] Setting clientSecret')
         setClientSecret(data.clientSecret)
         if (data.paymentIntentId) {
           setPaymentIntentId(data.paymentIntentId)
@@ -394,6 +499,84 @@ const Checkout: React.FC = () => {
       setPaymentError(error.message || 'Failed to process ITC payment')
     } finally {
       setProcessingITCPayment(false)
+    }
+  }
+
+  // Calculate product cost in ITC (1 ITC = $0.01) - ITC only covers product cost, NOT shipping/tax
+  const productCostAfterDiscount = Math.max(0, usdTotal - discount)
+  const productCostInITC = Math.ceil(productCostAfterDiscount / 0.01)
+  const shippingAndTaxUSD = shipping + tax
+  const canPayProductsWithITC = user && userItcBalance >= productCostInITC && productCostInITC > 0
+
+  // Handle paying product cost with ITC (shipping/tax still requires card)
+  const handleProductITCPayment = async () => {
+    if (!user) {
+      setPaymentError('Please sign in to use ITC wallet')
+      return
+    }
+
+    if (!canPayProductsWithITC) {
+      setPaymentError(`Insufficient ITC balance. You need ${productCostInITC.toLocaleString()} ITC but have ${userItcBalance.toLocaleString()} ITC`)
+      return
+    }
+
+    // Validate shipping info
+    if (!formData.email || !formData.firstName || !formData.lastName || !formData.address || !formData.city || !formData.state || !formData.zipCode) {
+      setPaymentError('Please fill in all shipping information')
+      return
+    }
+
+    // If there's shipping/tax, user needs to pay that with card
+    if (shippingAndTaxUSD > 0) {
+      setPaymentError(`ITC covers product cost only. You'll need to pay $${shippingAndTaxUSD.toFixed(2)} (shipping + tax) with card.`)
+      // Switch to card payment method to show Stripe form
+      setPaymentMethod('card')
+      // Apply max ITC as store credit instead
+      setItcCreditAmount(productCostInITC)
+      return
+    }
+
+    setProcessingFullITC(true)
+    setPaymentError(null)
+
+    try {
+      // Call backend to process ITC payment (for product cost only)
+      const response = await apiFetch('/api/wallet/process-full-itc-payment', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: state.items,
+          itcAmount: productCostInITC,
+          usdEquivalent: (productCostInITC * 0.01).toFixed(2),
+          shipping: formData,
+          shippingCost: 0, // Products only - shipping paid separately if needed
+          tax: 0, // Products only - tax paid separately if needed
+          discount: discount,
+          couponCode: appliedCoupon?.code,
+          shippingMethod: shippingCalculation?.selectedRate?.name || 'Standard',
+          shippingType: shippingCalculation?.selectedRate?.type || 'shipping',
+          pickupAppointment: shippingCalculation?.selectedRate?.type === 'pickup' ? {
+            date: pickupDate || null,
+            time: pickupTime || null,
+            notes: pickupNotes || null
+          } : null,
+        }),
+      })
+
+      if (response.success) {
+        clearCart()
+        // Refresh user profile to update wallet balance
+        if (refreshProfile) {
+          await refreshProfile()
+        }
+        navigate(`/order-success?order_id=${response.orderId}`)
+      } else {
+        setPaymentError(response.error || 'Failed to process ITC payment')
+      }
+    } catch (error: any) {
+      console.error('ITC payment error:', error)
+      setPaymentError(error.message || 'Failed to process ITC payment')
+    } finally {
+      setProcessingFullITC(false)
     }
   }
 
@@ -636,10 +819,13 @@ const Checkout: React.FC = () => {
                     {shippingCalculation.rates.map((rate) => (
                       <div key={rate.id}>
                         <label
-                          className={`flex items-start justify-between p-4 border rounded-lg cursor-pointer transition-colors ${rate.selected
-                            ? 'border-purple-500 bg-purple-500/10'
-                            : 'card-border hover:border-purple-400/50'
-                            }`}
+                          className={`flex items-start justify-between p-4 border rounded-lg transition-colors ${
+                            rate.disabled
+                              ? 'opacity-60 cursor-not-allowed border-slate-300 bg-slate-50'
+                              : rate.selected
+                                ? 'border-purple-500 bg-purple-500/10 cursor-pointer'
+                                : 'card-border hover:border-purple-400/50 cursor-pointer'
+                          }`}
                         >
                           <div className="flex items-start">
                             <input
@@ -647,22 +833,28 @@ const Checkout: React.FC = () => {
                               name="shippingRate"
                               value={rate.id}
                               checked={rate.selected}
-                              onChange={() => handleShippingRateChange(rate.id)}
+                              onChange={() => !rate.disabled && handleShippingRateChange(rate.id)}
+                              disabled={rate.disabled}
                               className="mr-3 mt-1"
                             />
                             <div>
                               <div className="flex items-center gap-2">
-                                {rate.type === 'pickup' && <Store className="w-4 h-4 text-green-500" />}
-                                {rate.type === 'delivery' && <MapPin className="w-4 h-4 text-blue-500" />}
-                                {rate.type === 'shipping' && <Truck className="w-4 h-4 text-purple-500" />}
-                                <p className="font-medium">{rate.name}</p>
-                                {rate.type === 'pickup' && (
+                                {rate.type === 'pickup' && <Store className={`w-4 h-4 ${rate.disabled ? 'text-slate-400' : 'text-green-500'}`} />}
+                                {rate.type === 'delivery' && <MapPin className={`w-4 h-4 ${rate.disabled ? 'text-slate-400' : 'text-blue-500'}`} />}
+                                {rate.type === 'shipping' && <Truck className={`w-4 h-4 ${rate.disabled ? 'text-slate-400' : 'text-purple-500'}`} />}
+                                <p className={`font-medium ${rate.disabled ? 'text-slate-500' : ''}`}>{rate.name}</p>
+                                {rate.type === 'pickup' && !rate.disabled && (
                                   <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
                                     Recommended
                                   </span>
                                 )}
+                                {rate.disabled && (
+                                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                                    Unavailable
+                                  </span>
+                                )}
                               </div>
-                              <p className="text-sm text-muted mt-1">
+                              <p className={`text-sm mt-1 ${rate.disabled ? 'text-slate-400' : 'text-muted'}`}>
                                 {rate.type === 'pickup' ? (
                                   <>Ready in {rate.estimatedDays} business day</>
                                 ) : rate.type === 'delivery' ? (
@@ -671,17 +863,23 @@ const Checkout: React.FC = () => {
                                   <>{rate.provider} • {rate.estimatedDays} business days</>
                                 )}
                               </p>
-                              {rate.description && (
+                              {rate.description && !rate.disabled && (
                                 <p className="text-xs text-muted/70 mt-1 flex items-center gap-1">
                                   <MapPin className="w-3 h-3" />
                                   {rate.description}
                                 </p>
                               )}
+                              {rate.disabled && rate.disabledReason && (
+                                <p className="text-xs text-amber-600 mt-2 flex items-start gap-1 bg-amber-50 p-2 rounded">
+                                  <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  {rate.disabledReason}
+                                </p>
+                              )}
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className={`font-semibold ${rate.amount === 0 ? 'text-green-500' : ''}`}>
-                              {rate.amount === 0 ? 'FREE' : `$${rate.amount.toFixed(2)}`}
+                            <p className={`font-semibold ${rate.disabled ? 'text-slate-400' : rate.amount === 0 ? 'text-green-500' : ''}`}>
+                              {rate.amount === 0 ? 'FREE' : rate.disabled ? `From $${rate.amount.toFixed(2)}` : `$${rate.amount.toFixed(2)}`}
                             </p>
                           </div>
                         </label>
@@ -794,7 +992,207 @@ const Checkout: React.FC = () => {
               </div>
             )}
 
-            {/* ITC Payment Section */}
+            {/* Payment Method Selection - Show when logged in, even with 0 ITC (so users know the option exists) */}
+            {requiresUSDPayment && user && (
+              <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                    <Wallet className="w-4 h-4 text-primary" />
+                  </div>
+                  <h2 className="text-lg font-semibold">Payment Method</h2>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Card Payment Option */}
+                  <label
+                    className={`flex items-center justify-between p-4 border rounded-xl transition-all cursor-pointer ${
+                      paymentMethod === 'card'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-white/10 hover:border-primary/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="card"
+                        checked={paymentMethod === 'card'}
+                        onChange={() => setPaymentMethod('card')}
+                        className="w-4 h-4 text-primary"
+                      />
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="w-5 h-5 text-primary" />
+                        <div>
+                          <p className="font-medium">Pay with Card</p>
+                          <p className="text-xs text-muted">Credit card, Apple Pay, Google Pay</p>
+                        </div>
+                      </div>
+                    </div>
+                    <span className="font-semibold">${Math.max(0, totalUSD - discount).toFixed(2)}</span>
+                  </label>
+
+                  {/* ITC Payment Option (products only) */}
+                  <label
+                    className={`flex items-center justify-between p-4 border rounded-xl transition-all ${
+                      canPayProductsWithITC ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+                    } ${
+                      paymentMethod === 'itc_full'
+                        ? 'border-amber-500 bg-amber-500/10'
+                        : 'border-white/10 hover:border-amber-500/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="itc_full"
+                        checked={paymentMethod === 'itc_full'}
+                        onChange={() => canPayProductsWithITC && setPaymentMethod('itc_full')}
+                        disabled={!canPayProductsWithITC}
+                        className="w-4 h-4 text-amber-500"
+                      />
+                      <div className="flex items-center gap-2">
+                        <Coins className="w-5 h-5 text-amber-500" />
+                        <div>
+                          <p className="font-medium">Pay Products with ITC</p>
+                          <p className="text-xs text-muted">
+                            {canPayProductsWithITC
+                              ? `Your balance: ${userItcBalance.toLocaleString()} ITC`
+                              : `Need ${productCostInITC.toLocaleString()} ITC (you have ${userItcBalance.toLocaleString()})`
+                            }
+                          </p>
+                          {shippingAndTaxUSD > 0 && (
+                            <p className="text-xs text-amber-400 mt-0.5">
+                              + ${shippingAndTaxUSD.toFixed(2)} shipping/tax (card)
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-semibold text-amber-500">{productCostInITC.toLocaleString()} ITC</span>
+                      <p className="text-xs text-muted">≈ ${(productCostInITC * 0.01).toFixed(2)}</p>
+                    </div>
+                  </label>
+
+                  {!canPayProductsWithITC && userItcBalance > 0 && (
+                    <p className="text-xs text-amber-500 flex items-center gap-1 mt-2">
+                      <AlertCircle className="w-3 h-3" />
+                      You can still use ITC as partial store credit with card payment
+                    </p>
+                  )}
+
+                  {/* Note about ITC usage */}
+                  <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg mt-2">
+                    <p className="text-xs text-amber-400 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span><strong>Note:</strong> ITC can only be used for product costs. Shipping and tax must be paid with a card.</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ITC Payment Section - when ITC is selected */}
+            {paymentMethod === 'itc_full' && canPayProductsWithITC && (
+              <div className="bg-card rounded-xl shadow-lg border border-amber-500/30 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+                    <Coins className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <h2 className="text-lg font-semibold">Pay Products with ITC</h2>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Product cost in ITC */}
+                  <div className="flex justify-between items-center p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                    <div>
+                      <p className="text-sm text-muted">Product Cost</p>
+                      <p className="text-2xl font-bold text-amber-500">{productCostInITC.toLocaleString()} ITC</p>
+                      <p className="text-xs text-muted">≈ ${productCostAfterDiscount.toFixed(2)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted">Your Balance</p>
+                      <p className="text-lg font-semibold text-green-400">{userItcBalance.toLocaleString()} ITC</p>
+                      <p className="text-xs text-muted">After: {(userItcBalance - productCostInITC).toLocaleString()} ITC</p>
+                    </div>
+                  </div>
+
+                  {/* Shipping/tax notice */}
+                  {shippingAndTaxUSD > 0 && (
+                    <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <CreditCard className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-blue-400">Card payment required for shipping & tax</p>
+                          <p className="text-xs text-muted mt-1">
+                            ITC covers product costs only. You'll need to pay <strong>${shippingAndTaxUSD.toFixed(2)}</strong> (shipping: ${shipping.toFixed(2)} + tax: ${tax.toFixed(2)}) with a card.
+                          </p>
+                          <button
+                            onClick={() => {
+                              setPaymentMethod('card')
+                              setItcCreditAmount(productCostInITC)
+                            }}
+                            className="mt-2 text-xs text-blue-400 underline hover:text-blue-300"
+                          >
+                            Switch to card payment with ITC credit applied
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentError && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400">
+                      {paymentError}
+                    </div>
+                  )}
+
+                  {/* Only show pay button if no shipping/tax (e.g., free shipping + local pickup) */}
+                  {shippingAndTaxUSD === 0 ? (
+                    <>
+                      <button
+                        onClick={handleProductITCPayment}
+                        disabled={processingFullITC}
+                        className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-amber-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {processingFullITC ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Coins className="w-5 h-5" />
+                            Pay {productCostInITC.toLocaleString()} ITC
+                          </>
+                        )}
+                      </button>
+                      <p className="text-xs text-center text-muted">
+                        By completing this purchase, you agree to our terms and conditions.
+                      </p>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-sm text-muted">
+                        To complete your order, switch to card payment with ITC credit applied.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setPaymentMethod('card')
+                          setItcCreditAmount(productCostInITC)
+                        }}
+                        className="mt-3 px-6 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                      >
+                        Continue with Card + ITC Credit
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Legacy ITC Payment Section - for items specifically marked as ITC */}
             {requiresITCPayment && (
               <div className="bg-card rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -845,7 +1243,8 @@ const Checkout: React.FC = () => {
               </div>
             )}
 
-            {requiresUSDPayment && clientSecret && (
+            {/* Card Payment with Stripe - only show when card is selected */}
+            {requiresUSDPayment && paymentMethod === 'card' && clientSecret && (
               <Elements stripe={stripePromise} options={{ clientSecret }}>
                 <CheckoutForm
                   clientSecret={clientSecret}
@@ -855,6 +1254,16 @@ const Checkout: React.FC = () => {
                   orderId={orderId}
                 />
               </Elements>
+            )}
+
+            {/* Debug: Show why payment form isn't displaying */}
+            {requiresUSDPayment && !clientSecret && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                <p className="font-medium">Loading payment form...</p>
+                <p className="text-xs mt-1 text-amber-600">
+                  {!shippingCalculation ? 'Calculating shipping...' : 'Creating payment intent...'}
+                </p>
+              </div>
             )}
           </div>
         </div>
@@ -957,7 +1366,7 @@ const Checkout: React.FC = () => {
             </div>
 
             {/* ITC Store Credit Section */}
-            {user && userItcBalance > 0 && requiresUSDPayment && (
+            {user && requiresUSDPayment && (
               <div className="border-t pt-4 mb-4">
                 <label className="block text-sm font-medium mb-2 flex items-center gap-2">
                   <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
@@ -1021,8 +1430,14 @@ const Checkout: React.FC = () => {
                 <>
                   <div className="flex justify-between">
                     <span>USD Subtotal</span>
-                    <span>${usdTotal.toFixed(2)}</span>
+                    <span>${(usdTotal - plusSizeUpcharge).toFixed(2)}</span>
                   </div>
+                  {plusSizeUpcharge > 0 && (
+                    <div className="flex justify-between text-muted">
+                      <span>Plus Size Upcharge (2XL+)</span>
+                      <span>+${plusSizeUpcharge.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span>Shipping</span>
                     <span>

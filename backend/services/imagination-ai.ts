@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { pricingService } from './imagination-pricing.js';
 import { AI_STYLES } from '../config/imagination-presets.js';
 import { removeBackgroundWithRemoveBg } from './removebg.js';
+import * as gcsStorage from './gcs-storage.js';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!
@@ -89,6 +90,36 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/**
+ * Helper to persist temporary Replicate URLs to GCS.
+ * Returns the permanent GCS URL, or the original URL if persistence fails.
+ */
+async function persistToGCS(url: string, userId: string, folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined'): Promise<string> {
+  // Skip if not a temporary Replicate URL
+  const isTemporaryUrl = url.includes('replicate.delivery') ||
+                         url.includes('replicate.com') ||
+                         url.includes('pbxt.replicate.delivery');
+
+  if (!isTemporaryUrl) {
+    return url;
+  }
+
+  try {
+    console.log(`[imagination-ai] 🔄 Persisting temp URL to GCS (${folder})...`);
+    const uploadResult = await gcsStorage.uploadFromUrl(url, {
+      userId,
+      folder,
+      filename: `${folder}-${Date.now()}-${Math.random().toString(36).substring(7)}.png`
+    });
+    console.log(`[imagination-ai] ✅ Persisted to GCS: ${uploadResult.publicUrl.substring(0, 80)}...`);
+    return uploadResult.publicUrl;
+  } catch (error: any) {
+    console.error(`[imagination-ai] ⚠️ Failed to persist to GCS:`, error.message);
+    // Return original URL as fallback - better than nothing
+    return url;
+  }
+}
+
 export interface GenerateImageParams {
   userId: string;
   sheetId: string;
@@ -158,6 +189,9 @@ export class ImaginationAIService {
       // The SDK may return: string, URL object, FileOutput with .url() method, array, or ReadableStream
       let imageUrl: string = extractUrlString(output);
       console.log('[imagination-ai] generateImage imageUrl:', imageUrl);
+
+      // CRITICAL: Persist to GCS to prevent Replicate URL expiration
+      imageUrl = await persistToGCS(imageUrl, userId, 'ai-generated');
 
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
@@ -294,6 +328,9 @@ export class ImaginationAIService {
       let processedUrl: string = extractUrlString(output);
       console.log('[imagination-ai] upscaleImage processedUrl:', processedUrl);
 
+      // CRITICAL: Persist to GCS to prevent Replicate URL expiration
+      processedUrl = await persistToGCS(processedUrl, userId, 'upscaled');
+
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
         return {
@@ -357,6 +394,9 @@ export class ImaginationAIService {
       // Handle various output types from Replicate SDK
       let processedUrl: string = extractUrlString(output);
       console.log('[imagination-ai] enhanceImage processedUrl:', processedUrl);
+
+      // CRITICAL: Persist to GCS to prevent Replicate URL expiration
+      processedUrl = await persistToGCS(processedUrl, userId, 'enhanced');
 
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
@@ -428,6 +468,9 @@ export class ImaginationAIService {
       // Handle various output types from Replicate SDK
       let processedUrl: string = extractUrlString(output);
       console.log('[imagination-ai] reimagineImage processedUrl:', processedUrl);
+
+      // CRITICAL: Persist to GCS to prevent Replicate URL expiration
+      processedUrl = await persistToGCS(processedUrl, userId, 'reimagined');
 
       // For standalone operations, return the URL without persisting
       if (isStandalone) {

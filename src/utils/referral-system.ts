@@ -183,33 +183,59 @@ export class ReferralSystem {
     return urlParams.get('ref')
   }
 
-  // Store referral code in localStorage for later processing
+  // Store referral code in localStorage AND 90-day cookie for later processing
   storeReferralCode(code: string): void {
     if (typeof window === 'undefined') return
+    const timestamp = Date.now().toString()
     localStorage.setItem('pending_referral', code)
-    localStorage.setItem('referral_timestamp', Date.now().toString())
+    localStorage.setItem('referral_timestamp', timestamp)
+    // Also set 90-day tracking cookies
+    this.setCookie('itp_referral', code, 90)
+    this.setCookie('itp_referral_ts', timestamp, 90)
   }
 
   // Retrieve stored referral code (and clear it)
   retrieveStoredReferral(): string | null {
     if (typeof window === 'undefined') return null
-    const code = localStorage.getItem('pending_referral')
-    const timestamp = localStorage.getItem('referral_timestamp')
-    
+    const code = localStorage.getItem('pending_referral') || this.getCookie('itp_referral')
+    const timestamp = localStorage.getItem('referral_timestamp') || this.getCookie('itp_referral_ts')
+
     if (code && timestamp) {
-      // Check if referral is still valid (within 30 days)
+      // Check if referral is still valid (within 90 days)
       const referralAge = Date.now() - parseInt(timestamp)
-      const thirtyDays = 30 * 24 * 60 * 60 * 1000
-      
-      if (referralAge < thirtyDays) {
+      const ninetyDays = 90 * 24 * 60 * 60 * 1000
+
+      if (referralAge < ninetyDays) {
         // Clear stored referral
         localStorage.removeItem('pending_referral')
         localStorage.removeItem('referral_timestamp')
+        this.deleteCookie('itp_referral')
+        this.deleteCookie('itp_referral_ts')
         return code
       }
     }
-    
+
     return null
+  }
+
+  // Cookie helpers for 90-day referral tracking
+  private setCookie(name: string, value: string, days: number = 90): void {
+    if (typeof document === 'undefined') return
+    const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString()
+    document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Lax`
+  }
+
+  private getCookie(name: string): string | null {
+    if (typeof document === 'undefined') return null
+    const value = `; ${document.cookie}`
+    const parts = value.split(`; ${name}=`)
+    if (parts.length === 2) return parts.pop()?.split(';').shift() || null
+    return null
+  }
+
+  private deleteCookie(name: string): void {
+    if (typeof document === 'undefined') return
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
   }
 }
 

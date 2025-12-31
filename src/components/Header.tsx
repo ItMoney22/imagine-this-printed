@@ -75,9 +75,9 @@ export function Header() {
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
             <img
-              src="/itp-logo-v3.png"
-              alt="Imagine This Printed"
-              className="h-10 w-auto"
+              src="/mr-imagine/mr-imagine-waist-up.png"
+              alt="Mr. Imagine"
+              className="h-14 w-auto"
             />
           </Link>
 

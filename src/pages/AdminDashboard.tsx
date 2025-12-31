@@ -12,12 +12,14 @@ import AdminImaginationProducts from './admin/ImaginationProducts'
 import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
+import AdminConnectManagement from '../components/AdminConnectManagement'
+import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -81,6 +83,10 @@ const AdminDashboard: React.FC = () => {
   const [customColorHex, setCustomColorHex] = useState('#')
   const [dragActive, setDragActive] = useState(false)
 
+  // Edit modal states
+  const [editCustomColorHex, setEditCustomColorHex] = useState('#')
+  const [generatingGptText, setGeneratingGptText] = useState(false)
+
   // Category-specific size options
   const SIZE_OPTIONS: Record<string, string[]> = {
     shirts: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
@@ -134,6 +140,92 @@ const AdminDashboard: React.FC = () => {
     if (customColorHex.match(/^#[0-9A-Fa-f]{6}$/) && !productForm.colors.includes(customColorHex)) {
       setProductForm(prev => ({ ...prev, colors: [...prev.colors, customColorHex] }))
       setCustomColorHex('#')
+    }
+  }
+
+  // Edit modal: Toggle size
+  const toggleEditSize = (size: string) => {
+    if (!editingProductData) return
+    const currentSizes = editingProductData.sizes || []
+    const newSizes = currentSizes.includes(size)
+      ? currentSizes.filter((s: string) => s !== size)
+      : [...currentSizes, size]
+    setEditingProductData({ ...editingProductData, sizes: newSizes })
+    handleUpdateProductField('sizes', newSizes)
+  }
+
+  // Edit modal: Toggle color
+  const toggleEditColor = (hex: string) => {
+    if (!editingProductData) return
+    const currentColors = editingProductData.colors || []
+    const newColors = currentColors.includes(hex)
+      ? currentColors.filter((c: string) => c !== hex)
+      : [...currentColors, hex]
+    setEditingProductData({ ...editingProductData, colors: newColors })
+    handleUpdateProductField('colors', newColors)
+  }
+
+  // Edit modal: Add custom color
+  const addEditCustomColor = () => {
+    if (!editingProductData) return
+    if (editCustomColorHex.match(/^#[0-9A-Fa-f]{6}$/) && !(editingProductData.colors || []).includes(editCustomColorHex)) {
+      const newColors = [...(editingProductData.colors || []), editCustomColorHex]
+      setEditingProductData({ ...editingProductData, colors: newColors })
+      handleUpdateProductField('colors', newColors)
+      setEditCustomColorHex('#')
+    }
+  }
+
+  // Edit modal: GPT Assist for name/description
+  const handleGptAssist = async () => {
+    if (!editingProductData) return
+    setGeneratingGptText(true)
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/products/ai/${editingProductData.id}/generate-text`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({})
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        console.error('GPT assist API error:', data)
+        throw new Error(data.error || 'Failed to generate text')
+      }
+
+      // Update local state with generated text
+      console.log('GPT generated - title:', data.title, 'description:', data.description)
+
+      // Update in database (single call to avoid race condition)
+      const { error } = await supabase
+        .from('products')
+        .update({
+          name: data.title,
+          description: data.description
+        })
+        .eq('id', editingProductData.id)
+
+      if (error) throw error
+
+      // Update local state after DB success
+      setEditingProductData({
+        ...editingProductData,
+        name: data.title,
+        description: data.description
+      })
+
+      // Refresh products list
+      await loadProducts()
+
+    } catch (error: any) {
+      console.error('GPT assist failed:', error)
+      alert(`Failed to generate text: ${error.message || 'Unknown error'}. Please try again.`)
+    } finally {
+      setGeneratingGptText(false)
     }
   }
 
@@ -1555,7 +1647,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
           <nav className="flex flex-wrap gap-2">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -1567,7 +1659,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -2350,6 +2442,20 @@ const AdminDashboard: React.FC = () => {
           )
         }
 
+        {/* Connect / Cash Out Tab */}
+        {
+          selectedTab === 'connect' && (
+            <AdminConnectManagement />
+          )
+        }
+
+        {/* Invoices Tab */}
+        {
+          selectedTab === 'invoices' && (
+            <AdminInvoiceManagement />
+          )
+        }
+
         {/* Audit Logs Tab */}
         {
           selectedTab === 'audit' && (
@@ -3118,7 +3224,31 @@ const AdminDashboard: React.FC = () => {
 
                   {/* Editable Fields */}
                   <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                    <h4 className="font-semibold text-slate-900 mb-3">Product Details</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-slate-900">Product Details</h4>
+                      <button
+                        onClick={handleGptAssist}
+                        disabled={generatingGptText}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-400 text-white text-sm font-medium rounded-lg shadow-md transition-all"
+                      >
+                        {generatingGptText ? (
+                          <>
+                            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            GPT Assist
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-2">Product Name</label>
@@ -3214,36 +3344,111 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">Sizes (comma separated)</label>
-                          <input
-                            type="text"
-                            placeholder="S, M, L, XL"
-                            defaultValue={editingProductData.sizes?.join(', ')}
-                            onBlur={(e) => {
-                              const sizes = e.target.value.split(',').map(s => s.trim()).filter(s => s)
-                              setEditingProductData({ ...editingProductData, sizes })
-                              handleUpdateProductField('sizes', sizes)
-                            }}
-                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-slate-400"
-                          />
+                      {/* Size Variants - Category Specific */}
+                      {SIZE_OPTIONS[editingProductData.category]?.length > 0 && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                          <label className="block text-sm font-medium text-slate-700 mb-3">
+                            Available Sizes
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {SIZE_OPTIONS[editingProductData.category].map((size: string) => (
+                              <button
+                                key={size}
+                                type="button"
+                                onClick={() => toggleEditSize(size)}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                  (editingProductData.sizes || []).includes(size)
+                                    ? 'bg-purple-600 text-white shadow-md'
+                                    : 'bg-white text-slate-700 border border-slate-300 hover:border-purple-400'
+                                }`}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                          </div>
+                          {(editingProductData.sizes || []).length > 0 && (
+                            <p className="text-xs text-slate-500 mt-2">
+                              Selected: {(editingProductData.sizes || []).join(', ')}
+                            </p>
+                          )}
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">Colors (comma separated)</label>
-                          <input
-                            type="text"
-                            placeholder="Red, Blue, Black"
-                            defaultValue={editingProductData.colors?.join(', ')}
-                            onBlur={(e) => {
-                              const colors = e.target.value.split(',').map(s => s.trim()).filter(s => s)
-                              setEditingProductData({ ...editingProductData, colors })
-                              handleUpdateProductField('colors', colors)
-                            }}
-                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder:text-slate-400"
-                          />
+                      )}
+
+                      {/* Color Variants */}
+                      {editingProductData.category !== '3d-models' && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                          <label className="block text-sm font-medium text-slate-700 mb-3">
+                            Available Colors
+                          </label>
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {COLOR_PRESETS.map((color) => (
+                              <button
+                                key={color.hex}
+                                type="button"
+                                onClick={() => toggleEditColor(color.hex)}
+                                className={`w-10 h-10 rounded-full border-2 transition-all flex items-center justify-center ${
+                                  (editingProductData.colors || []).includes(color.hex)
+                                    ? 'border-purple-600 ring-2 ring-purple-300 ring-offset-2'
+                                    : 'border-slate-300 hover:border-slate-400'
+                                }`}
+                                style={{ backgroundColor: color.hex }}
+                                title={color.name}
+                              >
+                                {(editingProductData.colors || []).includes(color.hex) && (
+                                  <svg className={`w-5 h-5 ${color.hex === '#FFFFFF' || color.hex === '#EAB308' ? 'text-slate-800' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          {/* Custom color input */}
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editCustomColorHex}
+                              onChange={(e) => setEditCustomColorHex(e.target.value)}
+                              placeholder="#000000"
+                              maxLength={7}
+                              className="w-24 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                            <input
+                              type="color"
+                              value={editCustomColorHex.length === 7 ? editCustomColorHex : '#000000'}
+                              onChange={(e) => setEditCustomColorHex(e.target.value)}
+                              className="w-8 h-8 rounded cursor-pointer"
+                            />
+                            <button
+                              type="button"
+                              onClick={addEditCustomColor}
+                              disabled={!editCustomColorHex.match(/^#[0-9A-Fa-f]{6}$/)}
+                              className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Add Color
+                            </button>
+                          </div>
+                          {(editingProductData.colors || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-3">
+                              {(editingProductData.colors || []).map((hex: string) => (
+                                <span
+                                  key={hex}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-full text-xs"
+                                >
+                                  <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: hex }} />
+                                  {hex}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleEditColor(hex)}
+                                    className="text-slate-400 hover:text-red-500"
+                                  >
+                                    x
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
 

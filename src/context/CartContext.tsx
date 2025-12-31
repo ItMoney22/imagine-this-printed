@@ -15,6 +15,7 @@ interface CartContextType {
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
+  restoreFromOrder: (orderItems: any[]) => void
   appliedCoupon: AppliedCoupon | null
   discount: number
   finalTotal: number
@@ -30,6 +31,7 @@ type CartAction =
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
+  | { type: 'RESTORE_FROM_ORDER'; payload: CartItem[] }
 
 // Sizes that incur an additional $2.50 upcharge
 const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
@@ -137,6 +139,12 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
     case 'CLEAR_CART':
       return { items: [], total: 0 }
 
+    case 'RESTORE_FROM_ORDER': {
+      const restoredItems = action.payload
+      const newTotal = calculateTotal(restoredItems)
+      return { items: restoredItems, total: newTotal }
+    }
+
     default:
       return state
   }
@@ -163,6 +171,31 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dispatch({ type: 'CLEAR_CART' })
     setAppliedCoupon(null)
   }
+
+  // Restore cart from order metadata (for resuming draft orders)
+  const restoreFromOrder = useCallback((orderItems: any[]) => {
+    const cartItems: CartItem[] = orderItems.map((item: any, index: number) => ({
+      id: `restored-${item.product?.id || item.id || index}-${Date.now()}`,
+      product: item.product || {
+        id: item.id || item.product_id || `unknown-${index}`,
+        name: item.name || item.product_name || 'Unknown Product',
+        description: item.description || '',
+        price: item.price || item.product?.price || 0,
+        images: item.product?.images || (item.imageUrl ? [item.imageUrl] : []) || (item.image_url ? [item.image_url] : []),
+        category: item.product?.category || 'shirts',
+        inStock: true,
+        isThreeForTwentyFive: item.product?.isThreeForTwentyFive || false
+      },
+      quantity: item.quantity || 1,
+      selectedSize: item.selectedSize || item.variations?.size,
+      selectedColor: item.selectedColor || item.variations?.color,
+      customDesign: item.customDesign,
+      designData: item.designData,
+      paymentMethod: item.paymentMethod || 'usd'
+    }))
+
+    dispatch({ type: 'RESTORE_FROM_ORDER', payload: cartItems })
+  }, [])
 
   const applyCoupon = useCallback(async (code: string, userId?: string): Promise<{ success: boolean; error?: string }> => {
     setCouponLoading(true)
@@ -213,6 +246,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       removeFromCart,
       updateQuantity,
       clearCart,
+      restoreFromOrder,
       appliedCoupon,
       discount,
       finalTotal,

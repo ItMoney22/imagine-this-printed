@@ -46,7 +46,7 @@ const bucket: Bucket = storage.bucket(bucketName)
 
 export interface UploadOptions {
   userId: string
-  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers'
+  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined'
   filename?: string
   contentType?: string
   metadata?: Record<string, any>
@@ -245,9 +245,42 @@ export async function uploadThumbnail(
   })
 }
 
+/**
+ * Upload from a remote URL (downloads and re-uploads to GCS)
+ * This is critical for persisting temporary URLs (like Replicate delivery URLs)
+ */
+export async function uploadFromUrl(
+  imageUrl: string,
+  options: UploadOptions
+): Promise<UploadResult> {
+  console.log('[gcs-storage] 📥 Downloading image from URL:', imageUrl.substring(0, 80) + '...')
+
+  // Fetch the image from the remote URL
+  const response = await fetch(imageUrl)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`)
+  }
+
+  // Get content type from response or default to png
+  const contentType = response.headers.get('content-type') || 'image/png'
+
+  // Convert to buffer
+  const arrayBuffer = await response.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  console.log('[gcs-storage] 📤 Re-uploading to GCS, size:', buffer.length, 'bytes')
+
+  return uploadFile(buffer, {
+    ...options,
+    contentType
+  })
+}
+
 export default {
   uploadFile,
   uploadFromDataUrl,
+  uploadFromUrl,
   generateSignedUrl,
   deleteFile,
   fileExists,

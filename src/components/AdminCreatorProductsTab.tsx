@@ -31,6 +31,24 @@ interface CreatorProduct {
   }
 }
 
+// Available shirt colors and sizes
+const SHIRT_COLORS = [
+  { id: 'black', name: 'Black', hex: '#1a1a1a' },
+  { id: 'white', name: 'White', hex: '#ffffff' },
+  { id: 'navy', name: 'Navy Blue', hex: '#1e3a5f' },
+  { id: 'grey', name: 'Heather Grey', hex: '#9ca3af' },
+  { id: 'red', name: 'Red', hex: '#dc2626' },
+  { id: 'forest', name: 'Forest Green', hex: '#166534' },
+]
+
+const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
+
+interface ApprovalConfig {
+  colors: string[]
+  sizes: string[]
+  price: number
+}
+
 export const AdminCreatorProductsTab: React.FC = () => {
   const [products, setProducts] = useState<CreatorProduct[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,6 +56,12 @@ export const AdminCreatorProductsTab: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
+  const [showApproveModal, setShowApproveModal] = useState<string | null>(null)
+  const [approvalConfig, setApprovalConfig] = useState<ApprovalConfig>({
+    colors: ['black', 'white'],
+    sizes: ['S', 'M', 'L', 'XL'],
+    price: 25
+  })
 
   useEffect(() => {
     loadPendingProducts()
@@ -57,11 +81,43 @@ export const AdminCreatorProductsTab: React.FC = () => {
     }
   }
 
+  const openApproveModal = (productId: string, currentPrice?: number) => {
+    setApprovalConfig({
+      colors: ['black', 'white'],
+      sizes: ['S', 'M', 'L', 'XL'],
+      price: currentPrice ? currentPrice / 100 : 25
+    })
+    setShowApproveModal(productId)
+  }
+
+  const toggleColor = (colorId: string) => {
+    setApprovalConfig(prev => ({
+      ...prev,
+      colors: prev.colors.includes(colorId)
+        ? prev.colors.filter(c => c !== colorId)
+        : [...prev.colors, colorId]
+    }))
+  }
+
+  const toggleSize = (size: string) => {
+    setApprovalConfig(prev => ({
+      ...prev,
+      sizes: prev.sizes.includes(size)
+        ? prev.sizes.filter(s => s !== size)
+        : [...prev.sizes, size]
+    }))
+  }
+
   const handleApprove = async (productId: string) => {
     try {
       setActionLoading(productId)
-      await api.post(`/api/admin/user-products/${productId}/approve`)
+      await api.post(`/api/admin/user-products/${productId}/approve`, {
+        colors: approvalConfig.colors,
+        sizes: approvalConfig.sizes,
+        price: Math.round(approvalConfig.price * 100)
+      })
       setProducts(products.filter(p => p.id !== productId))
+      setShowApproveModal(null)
       alert('Product approved! Creator has been notified.')
     } catch (err: any) {
       console.error('Failed to approve product:', err)
@@ -224,11 +280,11 @@ export const AdminCreatorProductsTab: React.FC = () => {
                   {/* Actions */}
                   <div className="mt-6 flex gap-3">
                     <button
-                      onClick={() => handleApprove(product.id)}
+                      onClick={() => openApproveModal(product.id, product.price)}
                       disabled={actionLoading === product.id}
                       className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white rounded-lg font-medium transition-colors"
                     >
-                      {actionLoading === product.id ? 'Processing...' : '✓ Approve'}
+                      ✓ Configure & Approve
                     </button>
                     <button
                       onClick={() => setShowRejectModal(product.id)}
@@ -273,6 +329,108 @@ export const AdminCreatorProductsTab: React.FC = () => {
                   setShowRejectModal(null)
                   setRejectReason('')
                 }}
+                className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approve Modal with Color/Size Configuration */}
+      {showApproveModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-text mb-4">Configure & Approve Product</h3>
+            <p className="text-sm text-muted mb-6">
+              Set the available colors, sizes, and price before approving.
+            </p>
+
+            {/* Price */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-text mb-2">Price ($)</label>
+              <input
+                type="number"
+                min="10"
+                max="100"
+                step="0.01"
+                value={approvalConfig.price}
+                onChange={(e) => setApprovalConfig(prev => ({ ...prev, price: parseFloat(e.target.value) || 25 }))}
+                className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+
+            {/* Colors */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-text mb-2">
+                Available Colors ({approvalConfig.colors.length} selected)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {SHIRT_COLORS.map(color => (
+                  <button
+                    key={color.id}
+                    onClick={() => toggleColor(color.id)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
+                      approvalConfig.colors.includes(color.id)
+                        ? 'border-purple-500 bg-purple-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <span
+                      className="w-5 h-5 rounded-full border border-gray-300"
+                      style={{ backgroundColor: color.hex }}
+                    />
+                    <span className="text-sm text-text">{color.name}</span>
+                    {approvalConfig.colors.includes(color.id) && (
+                      <span className="text-purple-500">✓</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sizes */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-text mb-2">
+                Available Sizes ({approvalConfig.sizes.length} selected)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {SHIRT_SIZES.map(size => (
+                  <button
+                    key={size}
+                    onClick={() => toggleSize(size)}
+                    className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                      approvalConfig.sizes.includes(size)
+                        ? 'border-purple-500 bg-purple-50 text-purple-700'
+                        : 'border-gray-200 hover:border-gray-300 text-text'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Validation warning */}
+            {(approvalConfig.colors.length === 0 || approvalConfig.sizes.length === 0) && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-700">
+                  Please select at least one color and one size.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleApprove(showApproveModal)}
+                disabled={actionLoading === showApproveModal || approvalConfig.colors.length === 0 || approvalConfig.sizes.length === 0}
+                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white rounded-lg font-medium"
+              >
+                {actionLoading === showApproveModal ? 'Approving...' : '✓ Approve Product'}
+              </button>
+              <button
+                onClick={() => setShowApproveModal(null)}
                 className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium"
               >
                 Cancel

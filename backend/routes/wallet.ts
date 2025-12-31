@@ -8,6 +8,15 @@ import {
   processReferralSignup,
   getReferralStats
 } from '../services/referral-service.js'
+import {
+  createExpressAccount,
+  createOnboardingLink,
+  getConnectAccountStatus,
+  calculateCashout,
+  processInstantPayout,
+  MINIMUM_CASHOUT_ITC,
+  ITC_TO_USD as CONNECT_ITC_TO_USD
+} from '../services/stripe-connect.js'
 
 const router = Router()
 
@@ -677,6 +686,552 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
     })
   } catch (error: any) {
     console.error('[wallet/deduct-itc] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/process-full-itc-payment
+ * Process a full order payment using ITC tokens
+ * Deducts ITC from user's wallet and creates an order
+ */
+router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const userEmail = req.user?.email
+    const {
+      items,
+      itcAmount,
+      usdEquivalent,
+      shipping,
+      shippingCost,
+      tax,
+      discount,
+      couponCode,
+      shippingMethod,
+      shippingType,
+      pickupAppointment
+    } = req.body
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'No items provided' })
+    }
+
+    if (!itcAmount || itcAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid ITC amount' })
+    }
+
+    console.log('[wallet/process-full-itc-payment] Processing ITC payment:', {
+      userId,
+      itcAmount,
+      usdEquivalent,
+      itemCount: items.length
+    })
+
+    // Get current wallet balance
+    const { data: wallet, error: walletError } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (walletError || !wallet) {
+      console.error('[wallet/process-full-itc-payment] Wallet error:', walletError)
+      return res.status(400).json({ error: 'Wallet not found' })
+    }
+
+    const currentBalance = wallet.itc_balance || 0
+    if (currentBalance < itcAmount) {
+      return res.status(400).json({
+        error: 'Insufficient ITC balance',
+        required: itcAmount,
+        available: currentBalance
+      })
+    }
+
+    // Calculate new balance
+    const newBalance = currentBalance - itcAmount
+
+    // Generate order number
+    const orderNumber = `ITP-ITC-${Date.now().toString(36).toUpperCase()}`
+
+    // Calculate totals
+    const subtotal = items.reduce((sum: number, item: any) => {
+      return sum + (item.product?.price || 0) * (item.quantity || 1)
+    }, 0)
+
+    // Create the order in Supabase
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        order_number: orderNumber,
+        user_id: userId,
+        customer_email: shipping?.email || userEmail,
+        subtotal: subtotal,
+        shipping_cost: shippingCost || 0,
+        tax: tax || 0,
+        discount: discount || 0,
+        total: parseFloat(usdEquivalent),
+        currency: 'ITC',
+        status: 'processing',
+        payment_status: 'paid',
+        payment_method: 'itc_full',
+        shipping_address: {
+          firstName: shipping?.firstName,
+          lastName: shipping?.lastName,
+          email: shipping?.email || userEmail,
+          address: shipping?.address,
+          city: shipping?.city,
+          state: shipping?.state,
+          zipCode: shipping?.zipCode,
+          country: shipping?.country || 'US'
+        },
+        shipping_method: shippingMethod,
+        shipping_type: shippingType,
+        pickup_appointment: pickupAppointment,
+        coupon_code: couponCode || null,
+        metadata: {
+          items: items.map((item: any) => ({
+            id: item.id,
+            productId: item.product?.id,
+            name: item.product?.name,
+            price: item.product?.price,
+            quantity: item.quantity,
+            size: item.selectedSize,
+            color: item.selectedColor,
+            image: item.product?.images?.[0]
+          })),
+          itc_payment: {
+            itc_amount: itcAmount,
+            usd_equivalent: usdEquivalent,
+            rate: '0.01'
+          },
+          payment_method: 'itc_full'
+        }
+      })
+      .select()
+      .single()
+
+    if (orderError) {
+      console.error('[wallet/process-full-itc-payment] Order creation error:', orderError)
+      return res.status(500).json({ error: 'Failed to create order' })
+    }
+
+    // Deduct ITC from wallet
+    const { error: updateError } = await supabase
+      .from('user_wallets')
+      .update({ itc_balance: newBalance })
+      .eq('user_id', userId)
+
+    if (updateError) {
+      console.error('[wallet/process-full-itc-payment] Wallet update error:', updateError)
+      // Rollback order if wallet update fails
+      await supabase.from('orders').delete().eq('id', order.id)
+      return res.status(500).json({ error: 'Failed to process payment' })
+    }
+
+    // Log the ITC transaction
+    await supabase.from('itc_transactions').insert({
+      user_id: userId,
+      type: 'purchase_payment',
+      amount: -itcAmount,
+      balance_after: newBalance,
+      reference_type: 'order',
+      reference_id: order.id,
+      description: `Order payment: ${orderNumber}`
+    })
+
+    console.log('[wallet/process-full-itc-payment] ✅ Order created:', {
+      orderId: order.id,
+      orderNumber,
+      itcAmount,
+      newBalance
+    })
+
+    return res.json({
+      success: true,
+      orderId: order.id,
+      orderNumber,
+      itcDeducted: itcAmount,
+      newBalance,
+      message: 'Order placed successfully with ITC payment'
+    })
+  } catch (error: any) {
+    console.error('[wallet/process-full-itc-payment] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// ==============================================
+// STRIPE CONNECT INSTANT CASHOUT ENDPOINTS
+// ==============================================
+
+/**
+ * GET /api/wallet/connect/status
+ * Get user's Stripe Connect account status
+ */
+router.get('/connect/status', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const status = await getConnectAccountStatus(userId)
+
+    return res.json({ ok: true, status })
+  } catch (error: any) {
+    console.error('[wallet/connect/status] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/connect/create-account
+ * Create a new Stripe Connect Express account
+ */
+router.post('/connect/create-account', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    // Check if already has account
+    const existingStatus = await getConnectAccountStatus(userId)
+    if (existingStatus.hasAccount) {
+      return res.status(400).json({
+        error: 'You already have a Stripe Connect account',
+        accountId: existingStatus.accountId
+      })
+    }
+
+    // Get user email
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('email')
+      .eq('id', userId)
+      .single()
+
+    if (!profile?.email) {
+      return res.status(400).json({ error: 'User email not found' })
+    }
+
+    // Create account
+    const account = await createExpressAccount(userId, profile.email)
+
+    console.log('[wallet/connect] Created Express account:', account.id)
+
+    return res.json({
+      ok: true,
+      accountId: account.id,
+      message: 'Stripe Connect account created. Complete onboarding to enable payouts.'
+    })
+  } catch (error: any) {
+    console.error('[wallet/connect/create-account] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/connect/onboarding-link
+ * Get onboarding link for Stripe Express
+ */
+router.post('/connect/onboarding-link', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const { returnUrl, refreshUrl } = req.body
+
+    // Get account
+    const { data: connectAccount } = await supabase
+      .from('stripe_connect_accounts')
+      .select('stripe_account_id')
+      .eq('user_id', userId)
+      .single()
+
+    if (!connectAccount) {
+      return res.status(404).json({ error: 'No Stripe Connect account found. Create one first.' })
+    }
+
+    const baseUrl = process.env.VITE_SITE_URL || 'https://imaginethisprinted.com'
+    const onboardingUrl = await createOnboardingLink(
+      connectAccount.stripe_account_id,
+      returnUrl || `${baseUrl}/wallet?connect=success`,
+      refreshUrl || `${baseUrl}/wallet?connect=refresh`
+    )
+
+    return res.json({ ok: true, url: onboardingUrl })
+  } catch (error: any) {
+    console.error('[wallet/connect/onboarding-link] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/connect/calculate
+ * Calculate cashout amounts before confirming
+ */
+router.post('/connect/calculate', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const { amountItc } = req.body
+
+    if (!amountItc || amountItc < MINIMUM_CASHOUT_ITC) {
+      return res.status(400).json({
+        error: `Minimum cashout is ${MINIMUM_CASHOUT_ITC} ITC ($${MINIMUM_CASHOUT_ITC * CONNECT_ITC_TO_USD})`,
+        minimum: MINIMUM_CASHOUT_ITC
+      })
+    }
+
+    // Check if instant payouts available
+    const status = await getConnectAccountStatus(userId)
+    const calculation = calculateCashout(amountItc, status.instantPayoutsEnabled)
+
+    return res.json({
+      ok: true,
+      calculation,
+      instantAvailable: status.instantPayoutsEnabled
+    })
+  } catch (error: any) {
+    console.error('[wallet/connect/calculate] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/connect/cashout
+ * Process ITC cashout via Stripe Connect instant payout
+ */
+router.post('/connect/cashout', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const { amountItc } = req.body
+
+    if (!amountItc || amountItc < MINIMUM_CASHOUT_ITC) {
+      return res.status(400).json({
+        error: `Minimum cashout is ${MINIMUM_CASHOUT_ITC} ITC ($${MINIMUM_CASHOUT_ITC * CONNECT_ITC_TO_USD})`,
+        minimum: MINIMUM_CASHOUT_ITC
+      })
+    }
+
+    // Check for pending cashout requests
+    const { data: pendingRequests } = await supabase
+      .from('itc_cashout_requests')
+      .select('id')
+      .eq('user_id', userId)
+      .in('status', ['pending', 'processing'])
+
+    if (pendingRequests && pendingRequests.length > 0) {
+      return res.status(400).json({
+        error: 'You have a pending cashout request. Please wait for it to complete.'
+      })
+    }
+
+    // Process the payout
+    const result = await processInstantPayout(userId, amountItc)
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error })
+    }
+
+    console.log('[wallet/connect/cashout] ✅ Cashout processed:', result.payoutId)
+
+    return res.json({
+      ok: true,
+      message: 'Cashout processed successfully! Funds will arrive on your debit card shortly.',
+      payoutId: result.payoutId,
+      transferId: result.transferId,
+      cashoutRequestId: result.cashoutRequestId
+    })
+  } catch (error: any) {
+    console.error('[wallet/connect/cashout] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/wallet/connect/cashout-history
+ * Get user's cashout request history
+ */
+router.get('/connect/cashout-history', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const { data: requests, error } = await supabase
+      .from('itc_cashout_requests')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      console.error('[wallet/connect/cashout-history] Error:', error)
+      return res.status(500).json({ error: 'Failed to fetch cashout history' })
+    }
+
+    return res.json({ ok: true, requests: requests || [] })
+  } catch (error: any) {
+    console.error('[wallet/connect/cashout-history] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// =============================================================================
+// ADMIN: Connect Overview
+// =============================================================================
+
+router.get('/admin/connect/overview', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    // Check if user is admin
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', userId)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' })
+    }
+
+    // Fetch all connected accounts with user info
+    const { data: accounts, error: accountsError } = await supabase
+      .from('stripe_connect_accounts')
+      .select(`
+        id,
+        user_id,
+        stripe_account_id,
+        onboarding_complete,
+        payouts_enabled,
+        instant_payouts_enabled,
+        external_account_last4,
+        external_account_brand,
+        created_at
+      `)
+      .order('created_at', { ascending: false })
+
+    if (accountsError) {
+      console.error('[admin/connect/overview] Accounts error:', accountsError)
+    }
+
+    // Fetch user info for accounts
+    const accountUserIds = (accounts || []).map(a => a.user_id)
+    let accountUsers: Record<string, any> = {}
+    if (accountUserIds.length > 0) {
+      const { data: users } = await supabase
+        .from('user_profiles')
+        .select('id, email, first_name, last_name')
+        .in('id', accountUserIds)
+
+      if (users) {
+        accountUsers = users.reduce((acc, u) => ({ ...acc, [u.id]: u }), {})
+      }
+    }
+
+    // Attach user info to accounts
+    const accountsWithUsers = (accounts || []).map(a => ({
+      ...a,
+      user: accountUsers[a.user_id] || null
+    }))
+
+    // Fetch all cashout requests
+    const { data: cashouts, error: cashoutsError } = await supabase
+      .from('itc_cashout_requests')
+      .select(`
+        id,
+        user_id,
+        amount_itc,
+        gross_amount_usd,
+        platform_fee_usd,
+        net_amount_usd,
+        status,
+        created_at
+      `)
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (cashoutsError) {
+      console.error('[admin/connect/overview] Cashouts error:', cashoutsError)
+    }
+
+    // Fetch user info for cashouts
+    const cashoutUserIds = (cashouts || []).map(c => c.user_id)
+    let cashoutUsers: Record<string, any> = {}
+    if (cashoutUserIds.length > 0) {
+      const { data: users } = await supabase
+        .from('user_profiles')
+        .select('id, email, first_name, last_name')
+        .in('id', cashoutUserIds)
+
+      if (users) {
+        cashoutUsers = users.reduce((acc, u) => ({ ...acc, [u.id]: u }), {})
+      }
+    }
+
+    // Attach user info to cashouts
+    const cashoutsWithUsers = (cashouts || []).map(c => ({
+      ...c,
+      user: cashoutUsers[c.user_id] || null
+    }))
+
+    // Calculate stats
+    const totalAccounts = accounts?.length || 0
+    const activeAccounts = accounts?.filter(a => a.payouts_enabled).length || 0
+    const pendingOnboarding = accounts?.filter(a => !a.payouts_enabled).length || 0
+
+    const completedCashouts = cashouts?.filter(c => c.status === 'paid' || c.status === 'completed') || []
+    const totalCashouts = completedCashouts.length
+    const totalCashedOut = completedCashouts.reduce((sum, c) => sum + Number(c.net_amount_usd || 0), 0)
+    const totalPlatformFees = completedCashouts.reduce((sum, c) => sum + Number(c.platform_fee_usd || 0), 0)
+    const pendingCashouts = cashouts?.filter(c => c.status === 'pending' || c.status === 'processing').length || 0
+
+    const stats = {
+      totalAccounts,
+      activeAccounts,
+      pendingOnboarding,
+      totalCashouts,
+      totalCashedOut,
+      totalPlatformFees,
+      pendingCashouts
+    }
+
+    return res.json({
+      ok: true,
+      accounts: accountsWithUsers,
+      cashouts: cashoutsWithUsers,
+      stats
+    })
+  } catch (error: any) {
+    console.error('[admin/connect/overview] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

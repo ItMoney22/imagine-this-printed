@@ -20,8 +20,8 @@ const KioskManagement: React.FC = () => {
     name: '',
     vendorId: '',
     location: '',
-    commissionRate: 15,
-    partnerCommissionRate: 5,
+    commissionRate: 25, // 25% vendor commission
+    partnerCommissionRate: 5, // 5% location partner commission
     settings: {
       allowCash: true,
       allowStripeTerminal: true,
@@ -89,8 +89,8 @@ const KioskManagement: React.FC = () => {
       name: '',
       vendorId: '',
       location: '',
-      commissionRate: 15,
-      partnerCommissionRate: 5,
+      commissionRate: 25, // 25% vendor commission
+      partnerCommissionRate: 5, // 5% location partner commission
       settings: {
         allowCash: true,
         allowStripeTerminal: true,

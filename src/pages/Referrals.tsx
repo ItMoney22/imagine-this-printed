@@ -213,7 +213,7 @@ const Referrals: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-medium text-text">You Earn Rewards</h4>
-                    <p className="text-sm text-muted">Get 100 points when they sign up, plus 5% commission on their future purchases</p>
+                    <p className="text-sm text-muted">Get 10 ITC when they sign up, plus 50 ITC when they make their first purchase</p>
                   </div>
                 </div>
               </div>
@@ -225,25 +225,25 @@ const Referrals: React.FC = () => {
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded">
                   <div>
                     <p className="font-medium text-green-900">Friend Signs Up</p>
-                    <p className="text-sm text-green-700">One-time bonus</p>
+                    <p className="text-sm text-green-700">One-time signup bonus</p>
                   </div>
-                  <span className="text-green-600 font-bold">100 points</span>
+                  <span className="text-green-600 font-bold">10 ITC</span>
                 </div>
-                
+
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded">
                   <div>
-                    <p className="font-medium text-blue-900">Friend Makes Purchase</p>
-                    <p className="text-sm text-blue-700">5% commission as points</p>
+                    <p className="font-medium text-blue-900">Friend Makes First Purchase</p>
+                    <p className="text-sm text-blue-700">Bonus when they buy</p>
                   </div>
-                  <span className="text-blue-600 font-bold">5% value</span>
+                  <span className="text-blue-600 font-bold">50 ITC</span>
                 </div>
-                
+
                 <div className="flex items-center justify-between p-3 bg-purple-50 rounded">
                   <div>
-                    <p className="font-medium text-purple-900">Friend's Bonus</p>
-                    <p className="text-sm text-purple-700">Welcome bonus for new users</p>
+                    <p className="font-medium text-purple-900">Tracking Cookie</p>
+                    <p className="text-sm text-purple-700">Referral link active for</p>
                   </div>
-                  <span className="text-purple-600 font-bold">50 points</span>
+                  <span className="text-purple-600 font-bold">90 days</span>
                 </div>
               </div>
             </div>

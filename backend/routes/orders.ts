@@ -188,6 +188,67 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
   }
 })
 
+// GET /api/orders/:orderId - Get a single order by ID
+router.get('/:orderId', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const userId = req.user?.sub
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single()
+
+    if (error || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    // Check if user owns this order (unless admin)
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('user_id', userId)
+      .single()
+
+    const isAdmin = profile?.role === 'admin' || profile?.role === 'manager'
+    if (order.user_id !== userId && !isAdmin) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    // Get order items
+    const { data: items } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId)
+
+    // If no items in table, try metadata
+    let orderItems = items || []
+    if (orderItems.length === 0 && order.metadata?.items) {
+      orderItems = order.metadata.items.map((item: any) => ({
+        id: item.product?.id || item.id || 'unknown',
+        product_id: item.product?.id || item.id,
+        product_name: item.product?.name || item.name || 'Unknown Product',
+        quantity: item.quantity || 1,
+        price: item.product?.price || item.price || 0,
+        total: (item.product?.price || item.price || 0) * (item.quantity || 1),
+        image_url: item.product?.images?.[0] || item.imageUrl || null,
+        variations: { size: item.selectedSize, color: item.selectedColor }
+      }))
+    }
+
+    return res.json({
+      order: {
+        ...order,
+        order_items: orderItems
+      }
+    })
+  } catch (error: any) {
+    console.error('[orders/:orderId] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 // POST /api/orders/:orderId/complete - Mark order as completed and award rewards
 router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
   try {

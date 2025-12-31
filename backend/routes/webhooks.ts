@@ -3,6 +3,11 @@ import { PrismaClient } from '@prisma/client'
 import Stripe from 'stripe'
 import { supabase } from '../lib/supabase.js'
 import { sendWelcomeEmail } from '../utils/email.js'
+import {
+  handleConnectAccountUpdate,
+  handlePayoutPaid,
+  handlePayoutFailed
+} from '../services/stripe-connect.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -242,11 +247,58 @@ router.post('/stripe', async (req: Request, res: Response) => {
       case 'payment_intent.succeeded':
         await handlePaymentSuccess(event.data.object as Stripe.PaymentIntent)
         break
-      
+
       case 'payment_intent.payment_failed':
         await handlePaymentFailure(event.data.object as Stripe.PaymentIntent)
         break
-      
+
+      // ===============================
+      // STRIPE CONNECT EVENTS
+      // ===============================
+      case 'account.updated': {
+        const account = event.data.object as Stripe.Account
+        console.log('[Stripe Connect Webhook] Account updated:', account.id)
+        await handleConnectAccountUpdate(account)
+        break
+      }
+
+      case 'payout.paid': {
+        const payout = event.data.object as Stripe.Payout
+        // Check if this is from a connected account
+        if (event.account) {
+          console.log('[Stripe Connect Webhook] Payout paid:', payout.id, 'account:', event.account)
+          await handlePayoutPaid(payout, event.account)
+        }
+        break
+      }
+
+      case 'payout.failed': {
+        const payout = event.data.object as Stripe.Payout
+        // Check if this is from a connected account
+        if (event.account) {
+          console.log('[Stripe Connect Webhook] Payout failed:', payout.id, 'account:', event.account)
+          await handlePayoutFailed(payout, event.account)
+        }
+        break
+      }
+
+      // ===============================
+      // FOUNDER INVOICE EVENTS
+      // ===============================
+      case 'invoice.paid': {
+        const invoice = event.data.object as Stripe.Invoice
+        console.log('[Stripe Webhook] Invoice paid:', invoice.id)
+        await handleInvoicePaid(invoice)
+        break
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice
+        console.log('[Stripe Webhook] Invoice payment failed:', invoice.id)
+        await handleInvoicePaymentFailed(invoice)
+        break
+      }
+
       default:
         console.log(`Unhandled event type: ${event.type}`)
     }
@@ -261,82 +313,127 @@ router.post('/stripe', async (req: Request, res: Response) => {
 async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   try {
     const { metadata } = paymentIntent
-    const items = JSON.parse(metadata?.items || '[]')
-    const shipping = JSON.parse(metadata?.shipping || '{}')
+    console.log('[Stripe Webhook] Payment succeeded:', paymentIntent.id, 'metadata:', metadata)
 
-    const orderData = {
-      order_number: `ORD-${Date.now()}`,
-      payment_intent_id: paymentIntent.id,
-      user_id: metadata?.userId || null,
-      customer_email: metadata?.customerEmail || null,
-      subtotal: paymentIntent.amount / 100, // Convert cents to dollars
-      total: paymentIntent.amount / 100,
-      currency: paymentIntent.currency.toUpperCase(),
-      status: 'confirmed',
-      payment_status: 'paid',
-      payment_method: 'stripe',
-      shipping_address: shipping,
-      source: 'web'
+    // First, try to find and update an existing order by payment_intent_id or order_id
+    const orderId = metadata?.orderId
+    const paymentIntentIdForLookup = paymentIntent.id
+
+    // Look for existing order in Supabase
+    let existingOrder = null
+    if (orderId) {
+      const { data } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('id', orderId)
+        .single()
+      existingOrder = data
     }
 
-    const order = await prisma.order.create({
-      data: {
-        orderNumber: orderData.order_number,
-        paymentIntentId: orderData.payment_intent_id,
-        userId: orderData.user_id,
-        customerEmail: orderData.customer_email,
-        subtotal: orderData.subtotal,
-        total: orderData.total,
-        currency: orderData.currency,
-        status: orderData.status,
-        paymentStatus: orderData.payment_status,
-        paymentMethod: orderData.payment_method,
-        shippingAddress: orderData.shipping_address,
-        source: orderData.source
-      }
-    })
+    if (!existingOrder) {
+      // Try to find by stripe_payment_intent_id
+      const { data } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('stripe_payment_intent_id', paymentIntentIdForLookup)
+        .single()
+      existingOrder = data
+    }
 
+    if (existingOrder) {
+      // Update existing order to paid
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          payment_status: 'paid',
+          status: 'processing',
+          stripe_payment_intent_id: paymentIntentIdForLookup,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingOrder.id)
+
+      if (updateError) {
+        console.error('[Stripe Webhook] Failed to update order:', updateError)
+      } else {
+        console.log('[Stripe Webhook] ✅ Order updated to paid:', existingOrder.id)
+      }
+    } else {
+      // No existing order found - create a new one in Supabase
+      const items = JSON.parse(metadata?.items || '[]')
+      const shipping = JSON.parse(metadata?.shipping || '{}')
+
+      const { data: newOrder, error: createError } = await supabase
+        .from('orders')
+        .insert({
+          order_number: `ITP-${Date.now().toString(36).toUpperCase()}`,
+          stripe_payment_intent_id: paymentIntent.id,
+          user_id: metadata?.userId || null,
+          customer_email: metadata?.customerEmail || shipping?.email || null,
+          subtotal: paymentIntent.amount / 100,
+          total: paymentIntent.amount / 100,
+          currency: paymentIntent.currency.toUpperCase(),
+          status: 'processing',
+          payment_status: 'paid',
+          shipping_address: shipping,
+          metadata: { items, source: 'webhook_fallback' }
+        })
+        .select()
+        .single()
+
+      if (createError) {
+        console.error('[Stripe Webhook] Failed to create order:', createError)
+      } else {
+        console.log('[Stripe Webhook] ✅ New order created:', newOrder?.id)
+      }
+    }
+
+    // Handle ITC purchases (wallet top-ups)
     if (metadata?.userId && metadata?.itcAmount) {
       const itcAmount = parseFloat(metadata.itcAmount)
-      const usdAmount = paymentIntent.amount / 100 // Convert cents to dollars
-      
-      // Get current wallet balance
-      const walletData = await prisma.userWallet.findUnique({
-        where: { userId: metadata.userId },
-        select: { itcBalance: true }
-      })
-      
-      const currentBalance = Number(walletData?.itcBalance || 0)
-      const newBalance = currentBalance + itcAmount
-      
-      // Update wallet balance
-      await prisma.userWallet.upsert({
-        where: { userId: metadata.userId },
-        update: { itcBalance: newBalance },
-        create: {
-          userId: metadata.userId,
-          itcBalance: newBalance,
-          pointsBalance: 0
-        }
-      })
+      const usdAmount = paymentIntent.amount / 100
 
-      // Record transaction
-      await prisma.itcTransaction.create({
-        data: {
-          userId: metadata.userId,
+      // Get current wallet
+      const { data: wallet } = await supabase
+        .from('user_wallets')
+        .select('itc_balance')
+        .eq('user_id', metadata.userId)
+        .single()
+
+      const currentBalance = wallet?.itc_balance || 0
+      const newBalance = currentBalance + itcAmount
+
+      // Update wallet in Supabase
+      const { error: walletError } = await supabase
+        .from('user_wallets')
+        .upsert({
+          user_id: metadata.userId,
+          itc_balance: newBalance,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' })
+
+      if (walletError) {
+        console.error('[Stripe Webhook] Failed to update wallet:', walletError)
+      } else {
+        console.log('[Stripe Webhook] ✅ Wallet updated, new ITC balance:', newBalance)
+      }
+
+      // Record ITC transaction
+      await supabase
+        .from('itc_transactions')
+        .insert({
+          user_id: metadata.userId,
           type: 'purchase',
           amount: itcAmount,
-          balanceAfter: newBalance,
-          usdValue: usdAmount,
+          balance_after: newBalance,
+          usd_value: usdAmount,
           reason: 'ITC token purchase',
-          paymentIntentId: paymentIntent.id
-        }
-      })
+          reference_id: paymentIntent.id
+        })
     }
 
-    console.log(`Payment succeeded: ${paymentIntent.id}`)
+    console.log(`[Stripe Webhook] Payment processing complete: ${paymentIntent.id}`)
   } catch (error) {
-    console.error('Payment success handling error:', error)
+    console.error('[Stripe Webhook] Payment success handling error:', error)
   }
 }
 
@@ -345,6 +442,124 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent) {
     console.log(`Payment failed: ${paymentIntent.id}`, paymentIntent.last_payment_error)
   } catch (error) {
     console.error('Payment failure handling error:', error)
+  }
+}
+
+// ===============================
+// FOUNDER INVOICE HANDLERS
+// ===============================
+
+async function handleInvoicePaid(stripeInvoice: Stripe.Invoice) {
+  try {
+    const founderId = stripeInvoice.metadata?.founder_id
+
+    if (!founderId) {
+      console.log('[Invoice Webhook] Not a founder invoice, skipping')
+      return
+    }
+
+    // Find the invoice in our database
+    const { data: invoice, error: findError } = await supabase
+      .from('founder_invoices')
+      .select('*')
+      .eq('stripe_invoice_id', stripeInvoice.id)
+      .single()
+
+    if (findError || !invoice) {
+      console.error('[Invoice Webhook] Invoice not found:', stripeInvoice.id)
+      return
+    }
+
+    // Update invoice status
+    const { error: updateError } = await supabase
+      .from('founder_invoices')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString()
+      })
+      .eq('id', invoice.id)
+
+    if (updateError) {
+      console.error('[Invoice Webhook] Failed to update invoice:', updateError)
+      return
+    }
+
+    // Credit founder earnings to their wallet
+    const founderEarningsCents = invoice.founder_earnings_cents
+    const founderEarningsUSD = founderEarningsCents / 100
+
+    // Get current wallet balance
+    const { data: wallet, error: walletError } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', founderId)
+      .single()
+
+    if (walletError || !wallet) {
+      console.error('[Invoice Webhook] Founder wallet not found:', founderId)
+      return
+    }
+
+    // Convert USD earnings to ITC (1 ITC = $0.01)
+    const itcEarnings = founderEarningsCents // $1 = 100 ITC
+
+    const newBalance = parseFloat(wallet.itc_balance || '0') + itcEarnings
+
+    // Update wallet
+    const { error: walletUpdateError } = await supabase
+      .from('user_wallets')
+      .update({
+        itc_balance: newBalance,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', founderId)
+
+    if (walletUpdateError) {
+      console.error('[Invoice Webhook] Failed to update wallet:', walletUpdateError)
+      return
+    }
+
+    // Record the ITC transaction
+    await supabase
+      .from('itc_transactions')
+      .insert({
+        user_id: founderId,
+        type: 'reward',
+        amount: itcEarnings,
+        balance_after: newBalance,
+        usd_value: founderEarningsUSD,
+        reason: `Invoice earnings (35% of $${(invoice.subtotal_cents / 100).toFixed(2)})`,
+        reference_id: invoice.id
+      })
+
+    console.log(`[Invoice Webhook] ✅ Invoice paid: ${invoice.id}, Founder ${founderId} earned ${itcEarnings} ITC ($${founderEarningsUSD.toFixed(2)})`)
+  } catch (error) {
+    console.error('[Invoice Webhook] Invoice paid handling error:', error)
+  }
+}
+
+async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice) {
+  try {
+    const founderId = stripeInvoice.metadata?.founder_id
+
+    if (!founderId) {
+      console.log('[Invoice Webhook] Not a founder invoice, skipping')
+      return
+    }
+
+    // Update invoice status to overdue (Stripe will retry)
+    const { error } = await supabase
+      .from('founder_invoices')
+      .update({ status: 'overdue' })
+      .eq('stripe_invoice_id', stripeInvoice.id)
+
+    if (error) {
+      console.error('[Invoice Webhook] Failed to update invoice status:', error)
+    }
+
+    console.log(`[Invoice Webhook] Invoice payment failed: ${stripeInvoice.id}`)
+  } catch (error) {
+    console.error('[Invoice Webhook] Invoice payment failed handling error:', error)
   }
 }
 

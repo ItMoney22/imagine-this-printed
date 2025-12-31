@@ -446,15 +446,16 @@ router.post('/:id/select-image', requireAuth, async (req: Request, res: Response
     ]
 
     // Add ghost mannequin job only for supported garment types
+    // Uses same replicate_mockup job type with template: 'ghost_mannequin'
     const productCategory = product.category || 'shirts'
     const productType = imageJob?.input?.productType || 'tshirt'
     if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       mockupJobs.push({
         product_id: id,
-        type: 'ghost_mannequin',
+        type: 'replicate_mockup',
         status: 'queued',
-        input: baseInput,
+        input: { ...baseInput, template: 'ghost_mannequin' },
       })
       console.log('[user-products] 👻 Adding ghost mannequin job for garment type:', productType)
     }
