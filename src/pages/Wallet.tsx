@@ -1108,7 +1108,7 @@ const Wallet: React.FC = () => {
                   </div>
                   <div className="p-6">
                     {/* Connected Card Info */}
-                    {connectStatus.defaultPayoutMethod && (
+                    {connectStatus.externalAccountLast4 && (
                       <div className="mb-6 p-4 bg-slate-50 rounded-xl flex items-center gap-4">
                         <div className="w-12 h-8 bg-slate-200 rounded flex items-center justify-center">
                           <svg className="w-8 h-5 text-slate-500" viewBox="0 0 24 24" fill="currentColor">
@@ -1117,7 +1117,7 @@ const Wallet: React.FC = () => {
                           </svg>
                         </div>
                         <div>
-                          <p className="font-medium text-slate-900">Debit Card ending in {connectStatus.defaultPayoutMethod.last4}</p>
+                          <p className="font-medium text-slate-900">{connectStatus.externalAccountBrand || 'Card'} ending in {connectStatus.externalAccountLast4}</p>
                           <p className="text-sm text-slate-500">
                             {connectStatus.instantPayoutsEnabled ? 'Instant payouts enabled' : 'Standard payouts'}
                           </p>
@@ -1161,7 +1161,7 @@ const Wallet: React.FC = () => {
                       <div className="mb-6 p-4 bg-slate-50 rounded-xl space-y-3">
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-600">Gross Amount</span>
-                          <span className="text-slate-900 font-medium">${cashoutCalculation.grossAmountUsd.toFixed(2)}</span>
+                          <span className="text-slate-900 font-medium">${cashoutCalculation.grossUsd.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-600">Platform Fee ({PLATFORM_FEE_PERCENT}%)</span>
@@ -1173,7 +1173,7 @@ const Wallet: React.FC = () => {
                         </div>
                         <div className="border-t border-slate-200 pt-3 flex justify-between">
                           <span className="text-slate-900 font-semibold">You'll receive</span>
-                          <span className="text-2xl font-bold text-emerald-600">${cashoutCalculation.netAmountUsd.toFixed(2)}</span>
+                          <span className="text-2xl font-bold text-emerald-600">${cashoutCalculation.netUsd.toFixed(2)}</span>
                         </div>
                       </div>
                     )}
@@ -1232,11 +1232,11 @@ const Wallet: React.FC = () => {
                     <div key={request.id} className="flex justify-between items-center px-6 py-4 hover:bg-slate-50 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          request.status === 'completed' ? 'bg-emerald-50 text-emerald-600' :
+                          request.status === 'paid' ? 'bg-emerald-50 text-emerald-600' :
                           request.status === 'failed' ? 'bg-red-50 text-red-600' :
                           'bg-amber-50 text-amber-600'
                         }`}>
-                          {request.status === 'completed' ? (
+                          {request.status === 'paid' ? (
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
@@ -1253,7 +1253,7 @@ const Wallet: React.FC = () => {
                         </div>
                         <div>
                           <p className="font-medium text-slate-900">
-                            {request.status === 'completed' ? 'Completed' :
+                            {request.status === 'paid' ? 'Completed' :
                              request.status === 'failed' ? 'Failed' :
                              request.status === 'pending' ? 'Pending' : 'Processing'}
                           </p>
