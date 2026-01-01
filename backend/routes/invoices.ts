@@ -61,6 +61,98 @@ router.get('/', requireAuth, requireRole(['founder', 'admin']), async (req: Requ
   }
 })
 
+// GET /api/invoices/stats/summary - Get invoice statistics
+// NOTE: This route MUST be defined BEFORE /:id to avoid matching "stats" as an id
+router.get('/stats/summary', requireAuth, requireRole(['founder', 'admin']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const userRole = req.user?.role
+
+    let query = supabase
+      .from('founder_invoices')
+      .select('status, subtotal_cents, founder_earnings_cents')
+
+    if (userRole === 'founder') {
+      query = query.eq('founder_id', userId)
+    }
+
+    const { data: invoices, error } = await query
+
+    if (error) {
+      req.log?.error({ err: error }, 'Failed to fetch invoice stats')
+      return res.status(500).json({ error: 'Failed to fetch statistics' })
+    }
+
+    const stats = {
+      total_invoices: invoices?.length || 0,
+      draft: 0,
+      sent: 0,
+      paid: 0,
+      overdue: 0,
+      void: 0,
+      total_billed_cents: 0,
+      total_collected_cents: 0,
+      total_earnings_cents: 0,
+      pending_earnings_cents: 0
+    }
+
+    for (const inv of invoices || []) {
+      stats[inv.status as keyof typeof stats]++
+      stats.total_billed_cents += inv.subtotal_cents
+
+      if (inv.status === 'paid') {
+        stats.total_collected_cents += inv.subtotal_cents
+        stats.total_earnings_cents += inv.founder_earnings_cents
+      } else if (inv.status === 'sent') {
+        stats.pending_earnings_cents += inv.founder_earnings_cents
+      }
+    }
+
+    return res.json({
+      ok: true,
+      stats: {
+        ...stats,
+        total_billed: stats.total_billed_cents / 100,
+        total_collected: stats.total_collected_cents / 100,
+        total_earnings: stats.total_earnings_cents / 100,
+        pending_earnings: stats.pending_earnings_cents / 100
+      }
+    })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'Error fetching invoice stats')
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// GET /api/invoices/founders/list - List founders (admin only, for dropdown)
+// NOTE: This route MUST be defined BEFORE /:id to avoid matching "founders" as an id
+router.get('/founders/list', requireAuth, requireRole(['admin']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { data: founders, error } = await supabase
+      .from('user_profiles')
+      .select('user_id, email, first_name, last_name, username')
+      .eq('role', 'founder')
+      .order('email')
+
+    if (error) {
+      req.log?.error({ err: error }, 'Failed to fetch founders')
+      return res.status(500).json({ error: 'Failed to fetch founders' })
+    }
+
+    return res.json({
+      ok: true,
+      founders: founders?.map(f => ({
+        id: f.user_id,
+        email: f.email,
+        name: `${f.first_name || ''} ${f.last_name || ''}`.trim() || f.username || f.email
+      }))
+    })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'Error fetching founders')
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 // GET /api/invoices/:id - Get single invoice
 router.get('/:id', requireAuth, requireRole(['founder', 'admin']), async (req: Request, res: Response): Promise<any> => {
   try {
@@ -347,96 +439,6 @@ router.post('/:id/void', requireAuth, requireRole(['founder', 'admin']), async (
     return res.json({ ok: true, message: 'Invoice voided' })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error voiding invoice')
-    return res.status(500).json({ error: error.message })
-  }
-})
-
-// GET /api/invoices/stats - Get invoice statistics
-router.get('/stats/summary', requireAuth, requireRole(['founder', 'admin']), async (req: Request, res: Response): Promise<any> => {
-  try {
-    const userId = req.user?.sub
-    const userRole = req.user?.role
-
-    let query = supabase
-      .from('founder_invoices')
-      .select('status, subtotal_cents, founder_earnings_cents')
-
-    if (userRole === 'founder') {
-      query = query.eq('founder_id', userId)
-    }
-
-    const { data: invoices, error } = await query
-
-    if (error) {
-      req.log?.error({ err: error }, 'Failed to fetch invoice stats')
-      return res.status(500).json({ error: 'Failed to fetch statistics' })
-    }
-
-    const stats = {
-      total_invoices: invoices?.length || 0,
-      draft: 0,
-      sent: 0,
-      paid: 0,
-      overdue: 0,
-      void: 0,
-      total_billed_cents: 0,
-      total_collected_cents: 0,
-      total_earnings_cents: 0,
-      pending_earnings_cents: 0
-    }
-
-    for (const inv of invoices || []) {
-      stats[inv.status as keyof typeof stats]++
-      stats.total_billed_cents += inv.subtotal_cents
-
-      if (inv.status === 'paid') {
-        stats.total_collected_cents += inv.subtotal_cents
-        stats.total_earnings_cents += inv.founder_earnings_cents
-      } else if (inv.status === 'sent') {
-        stats.pending_earnings_cents += inv.founder_earnings_cents
-      }
-    }
-
-    return res.json({
-      ok: true,
-      stats: {
-        ...stats,
-        total_billed: stats.total_billed_cents / 100,
-        total_collected: stats.total_collected_cents / 100,
-        total_earnings: stats.total_earnings_cents / 100,
-        pending_earnings: stats.pending_earnings_cents / 100
-      }
-    })
-  } catch (error: any) {
-    req.log?.error({ err: error }, 'Error fetching invoice stats')
-    return res.status(500).json({ error: error.message })
-  }
-})
-
-// GET /api/invoices/founders - List founders (admin only, for dropdown)
-router.get('/founders/list', requireAuth, requireRole(['admin']), async (req: Request, res: Response): Promise<any> => {
-  try {
-    const { data: founders, error } = await supabase
-      .from('user_profiles')
-      .select('user_id, email, first_name, last_name, username')
-      .eq('role', 'founder')
-      .order('email')
-
-    if (error) {
-      req.log?.error({ err: error }, 'Failed to fetch founders')
-      return res.status(500).json({ error: 'Failed to fetch founders' })
-    }
-
-    return res.json({
-      ok: true,
-      founders: founders?.map(f => ({
-        id: f.user_id,
-        email: f.email,
-        name: `${f.first_name || ''} ${f.last_name || ''}`.trim() || f.username || f.email
-      }))
-    })
-  } catch (error: any) {
-    req.log?.error({ err: error }, 'Error fetching founders')
     return res.status(500).json({ error: error.message })
   }
 })
