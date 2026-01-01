@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy, memo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star } from 'lucide-react'
 import { Hero } from '../components/Hero'
 import ProductCard from '../components/ProductCard'
@@ -29,6 +29,7 @@ let featuredProductsCache: { data: Product[]; timestamp: number } | null = null
 const CACHE_TTL = 60000 // 1 minute
 
 const Home: React.FC = () => {
+  const navigate = useNavigate()
   const [showDesignModal, setShowDesignModal] = useState(false)
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>(() =>
     featuredProductsCache?.data || []
@@ -406,7 +407,7 @@ const Home: React.FC = () => {
               </ul>
 
               <button
-                onClick={() => setShowDesignModal(true)}
+                onClick={() => navigate('/account/designs')}
                 className="btn-primary group"
               >
                 <Sparkles className="w-5 h-5" />
@@ -522,7 +523,7 @@ const Home: React.FC = () => {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
-              onClick={() => setShowDesignModal(true)}
+              onClick={() => navigate('/account/designs')}
               className="group flex items-center gap-3 px-8 py-4 bg-white text-purple-700 font-semibold rounded-full hover:bg-purple-50 transition-all duration-300 shadow-xl hover:shadow-2xl hover:-translate-y-1"
             >
               <Sparkles className="w-5 h-5" />

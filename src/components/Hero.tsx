@@ -122,7 +122,7 @@ export function Hero() {
                 {/* CTA Buttons - Purple themed - Stack on mobile */}
                 <div className="animate-fade-up-delay-3 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4">
                   <Link
-                    to="/create-design"
+                    to="/account/designs"
                     className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold rounded-full hover:from-purple-600 hover:to-purple-700 transition-all duration-300 shadow-lg shadow-purple-500/30 hover:shadow-xl hover:shadow-purple-500/40 hover:-translate-y-1 text-sm sm:text-base"
                   >
                     <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
