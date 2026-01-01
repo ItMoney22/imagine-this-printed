@@ -111,7 +111,7 @@ router.get('/feed', optionalAuth, async (req: Request, res: Response): Promise<a
         is_user_generated
       `, { count: 'exact' })
       .eq('is_user_generated', true)
-      .eq('approved', true)
+      .eq('status', 'active')
 
     // Apply sorting
     productsQuery = productsQuery.order('created_at', { ascending: false })
