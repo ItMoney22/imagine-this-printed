@@ -78,7 +78,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
 
     try {
       // Create invoice (admin-only, no founder split)
-      const { data } = await api.post('/invoices', {
+      const { data } = await api.post('/api/invoices', {
         client_email: clientEmail,
         client_name: clientName || undefined,
         line_items: lineItems.map(item => ({
@@ -98,7 +98,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({
 
       // Send immediately if checked
       if (sendImmediately) {
-        await api.post(`/invoices/${data.invoice.id}/send`)
+        await api.post(`/api/invoices/${data.invoice.id}/send`)
       }
 
       onSuccess()

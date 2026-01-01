@@ -48,8 +48,8 @@ const FoundersDashboard: React.FC = () => {
     setLoading(true)
     try {
       const [invoicesRes, statsRes] = await Promise.all([
-        api.get('/invoices'),
-        api.get('/invoices/stats/summary')
+        api.get('/api/invoices'),
+        api.get('/api/invoices/stats/summary')
       ])
 
       if (invoicesRes.data.ok) {
@@ -74,7 +74,7 @@ const FoundersDashboard: React.FC = () => {
   const handleSendInvoice = async (invoiceId: string) => {
     setSendingId(invoiceId)
     try {
-      const { data } = await api.post(`/invoices/${invoiceId}/send`)
+      const { data } = await api.post(`/api/invoices/${invoiceId}/send`)
       if (data.ok) {
         fetchData()
       }
@@ -90,7 +90,7 @@ const FoundersDashboard: React.FC = () => {
 
     setVoidingId(invoiceId)
     try {
-      const { data } = await api.post(`/invoices/${invoiceId}/void`)
+      const { data } = await api.post(`/api/invoices/${invoiceId}/void`)
       if (data.ok) {
         fetchData()
       }
