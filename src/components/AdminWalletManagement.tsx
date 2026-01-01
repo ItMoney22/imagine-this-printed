@@ -42,7 +42,7 @@ export default function AdminWalletManagement() {
     try {
       setLoading(true)
       setError(null)
-      const response = await api.get('/admin/wallet/users', {
+      const response = await api.get('/api/admin/wallet/users', {
         params: { limit: 100 }
       })
       setUsers(response.data.users || [])
@@ -63,7 +63,7 @@ export default function AdminWalletManagement() {
     try {
       setLoading(true)
       setError(null)
-      const response = await api.get('/admin/wallet/users', {
+      const response = await api.get('/api/admin/wallet/users', {
         params: { search: searchQuery, limit: 100 }
       })
       setUsers(response.data.users || [])
@@ -125,13 +125,13 @@ export default function AdminWalletManagement() {
       }
 
       if (actionType === 'credit') {
-        endpoint = '/admin/wallet/credit'
+        endpoint = '/api/admin/wallet/credit'
         payload.amount = formData.amount
       } else if (actionType === 'debit') {
-        endpoint = '/admin/wallet/debit'
+        endpoint = '/api/admin/wallet/debit'
         payload.amount = formData.amount
       } else if (actionType === 'adjust') {
-        endpoint = '/admin/wallet/adjust'
+        endpoint = '/api/admin/wallet/adjust'
         payload.newBalance = formData.newBalance
       }
 

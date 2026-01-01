@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
 import { supabase } from '../lib/supabase.js';
 import { sendWelcomeEmail } from '../utils/email.js';
+import { handleConnectAccountUpdate, handlePayoutPaid, handlePayoutFailed } from '../services/stripe-connect.js';
 const router = Router();
 const prisma = new PrismaClient();
 router.post('/brevo', async (req, res) => {
@@ -154,6 +155,40 @@ router.post('/stripe', async (req, res) => {
             case 'payment_intent.payment_failed':
                 await handlePaymentFailure(event.data.object);
                 break;
+            case 'account.updated': {
+                const account = event.data.object;
+                console.log('[Stripe Connect Webhook] Account updated:', account.id);
+                await handleConnectAccountUpdate(account);
+                break;
+            }
+            case 'payout.paid': {
+                const payout = event.data.object;
+                if (event.account) {
+                    console.log('[Stripe Connect Webhook] Payout paid:', payout.id, 'account:', event.account);
+                    await handlePayoutPaid(payout, event.account);
+                }
+                break;
+            }
+            case 'payout.failed': {
+                const payout = event.data.object;
+                if (event.account) {
+                    console.log('[Stripe Connect Webhook] Payout failed:', payout.id, 'account:', event.account);
+                    await handlePayoutFailed(payout, event.account);
+                }
+                break;
+            }
+            case 'invoice.paid': {
+                const invoice = event.data.object;
+                console.log('[Stripe Webhook] Invoice paid:', invoice.id);
+                await handleInvoicePaid(invoice);
+                break;
+            }
+            case 'invoice.payment_failed': {
+                const invoice = event.data.object;
+                console.log('[Stripe Webhook] Invoice payment failed:', invoice.id);
+                await handleInvoicePaymentFailed(invoice);
+                break;
+            }
             default:
                 console.log(`Unhandled event type: ${event.type}`);
         }
@@ -167,72 +202,109 @@ router.post('/stripe', async (req, res) => {
 async function handlePaymentSuccess(paymentIntent) {
     try {
         const { metadata } = paymentIntent;
-        const items = JSON.parse(metadata?.items || '[]');
-        const shipping = JSON.parse(metadata?.shipping || '{}');
-        const orderData = {
-            order_number: `ORD-${Date.now()}`,
-            payment_intent_id: paymentIntent.id,
-            user_id: metadata?.userId || null,
-            customer_email: metadata?.customerEmail || null,
-            subtotal: paymentIntent.amount / 100,
-            total: paymentIntent.amount / 100,
-            currency: paymentIntent.currency.toUpperCase(),
-            status: 'confirmed',
-            payment_status: 'paid',
-            payment_method: 'stripe',
-            shipping_address: shipping,
-            source: 'web'
-        };
-        const order = await prisma.order.create({
-            data: {
-                orderNumber: orderData.order_number,
-                paymentIntentId: orderData.payment_intent_id,
-                userId: orderData.user_id,
-                customerEmail: orderData.customer_email,
-                subtotal: orderData.subtotal,
-                total: orderData.total,
-                currency: orderData.currency,
-                status: orderData.status,
-                paymentStatus: orderData.payment_status,
-                paymentMethod: orderData.payment_method,
-                shippingAddress: orderData.shipping_address,
-                source: orderData.source
+        console.log('[Stripe Webhook] Payment succeeded:', paymentIntent.id, 'metadata:', metadata);
+        const orderId = metadata?.orderId;
+        const paymentIntentIdForLookup = paymentIntent.id;
+        let existingOrder = null;
+        if (orderId) {
+            const { data } = await supabase
+                .from('orders')
+                .select('id')
+                .eq('id', orderId)
+                .single();
+            existingOrder = data;
+        }
+        if (!existingOrder) {
+            const { data } = await supabase
+                .from('orders')
+                .select('id')
+                .eq('stripe_payment_intent_id', paymentIntentIdForLookup)
+                .single();
+            existingOrder = data;
+        }
+        if (existingOrder) {
+            const { error: updateError } = await supabase
+                .from('orders')
+                .update({
+                payment_status: 'paid',
+                status: 'processing',
+                stripe_payment_intent_id: paymentIntentIdForLookup,
+                updated_at: new Date().toISOString()
+            })
+                .eq('id', existingOrder.id);
+            if (updateError) {
+                console.error('[Stripe Webhook] Failed to update order:', updateError);
             }
-        });
+            else {
+                console.log('[Stripe Webhook] ✅ Order updated to paid:', existingOrder.id);
+            }
+        }
+        else {
+            const items = JSON.parse(metadata?.items || '[]');
+            const shipping = JSON.parse(metadata?.shipping || '{}');
+            const { data: newOrder, error: createError } = await supabase
+                .from('orders')
+                .insert({
+                order_number: `ITP-${Date.now().toString(36).toUpperCase()}`,
+                stripe_payment_intent_id: paymentIntent.id,
+                user_id: metadata?.userId || null,
+                customer_email: metadata?.customerEmail || shipping?.email || null,
+                subtotal: paymentIntent.amount / 100,
+                total: paymentIntent.amount / 100,
+                currency: paymentIntent.currency.toUpperCase(),
+                status: 'processing',
+                payment_status: 'paid',
+                shipping_address: shipping,
+                metadata: { items, source: 'webhook_fallback' }
+            })
+                .select()
+                .single();
+            if (createError) {
+                console.error('[Stripe Webhook] Failed to create order:', createError);
+            }
+            else {
+                console.log('[Stripe Webhook] ✅ New order created:', newOrder?.id);
+            }
+        }
         if (metadata?.userId && metadata?.itcAmount) {
             const itcAmount = parseFloat(metadata.itcAmount);
             const usdAmount = paymentIntent.amount / 100;
-            const walletData = await prisma.userWallet.findUnique({
-                where: { userId: metadata.userId },
-                select: { itcBalance: true }
-            });
-            const currentBalance = Number(walletData?.itcBalance || 0);
+            const { data: wallet } = await supabase
+                .from('user_wallets')
+                .select('itc_balance')
+                .eq('user_id', metadata.userId)
+                .single();
+            const currentBalance = wallet?.itc_balance || 0;
             const newBalance = currentBalance + itcAmount;
-            await prisma.userWallet.upsert({
-                where: { userId: metadata.userId },
-                update: { itcBalance: newBalance },
-                create: {
-                    userId: metadata.userId,
-                    itcBalance: newBalance,
-                    pointsBalance: 0
-                }
-            });
-            await prisma.itcTransaction.create({
-                data: {
-                    userId: metadata.userId,
-                    type: 'purchase',
-                    amount: itcAmount,
-                    balanceAfter: newBalance,
-                    usdValue: usdAmount,
-                    reason: 'ITC token purchase',
-                    paymentIntentId: paymentIntent.id
-                }
+            const { error: walletError } = await supabase
+                .from('user_wallets')
+                .upsert({
+                user_id: metadata.userId,
+                itc_balance: newBalance,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+            if (walletError) {
+                console.error('[Stripe Webhook] Failed to update wallet:', walletError);
+            }
+            else {
+                console.log('[Stripe Webhook] ✅ Wallet updated, new ITC balance:', newBalance);
+            }
+            await supabase
+                .from('itc_transactions')
+                .insert({
+                user_id: metadata.userId,
+                type: 'purchase',
+                amount: itcAmount,
+                balance_after: newBalance,
+                usd_value: usdAmount,
+                reason: 'ITC token purchase',
+                reference_id: paymentIntent.id
             });
         }
-        console.log(`Payment succeeded: ${paymentIntent.id}`);
+        console.log(`[Stripe Webhook] Payment processing complete: ${paymentIntent.id}`);
     }
     catch (error) {
-        console.error('Payment success handling error:', error);
+        console.error('[Stripe Webhook] Payment success handling error:', error);
     }
 }
 async function handlePaymentFailure(paymentIntent) {
@@ -241,6 +313,94 @@ async function handlePaymentFailure(paymentIntent) {
     }
     catch (error) {
         console.error('Payment failure handling error:', error);
+    }
+}
+async function handleInvoicePaid(stripeInvoice) {
+    try {
+        const founderId = stripeInvoice.metadata?.founder_id;
+        if (!founderId) {
+            console.log('[Invoice Webhook] Not a founder invoice, skipping');
+            return;
+        }
+        const { data: invoice, error: findError } = await supabase
+            .from('founder_invoices')
+            .select('*')
+            .eq('stripe_invoice_id', stripeInvoice.id)
+            .single();
+        if (findError || !invoice) {
+            console.error('[Invoice Webhook] Invoice not found:', stripeInvoice.id);
+            return;
+        }
+        const { error: updateError } = await supabase
+            .from('founder_invoices')
+            .update({
+            status: 'paid',
+            paid_at: new Date().toISOString()
+        })
+            .eq('id', invoice.id);
+        if (updateError) {
+            console.error('[Invoice Webhook] Failed to update invoice:', updateError);
+            return;
+        }
+        const founderEarningsCents = invoice.founder_earnings_cents;
+        const founderEarningsUSD = founderEarningsCents / 100;
+        const { data: wallet, error: walletError } = await supabase
+            .from('user_wallets')
+            .select('itc_balance')
+            .eq('user_id', founderId)
+            .single();
+        if (walletError || !wallet) {
+            console.error('[Invoice Webhook] Founder wallet not found:', founderId);
+            return;
+        }
+        const itcEarnings = founderEarningsCents;
+        const newBalance = parseFloat(wallet.itc_balance || '0') + itcEarnings;
+        const { error: walletUpdateError } = await supabase
+            .from('user_wallets')
+            .update({
+            itc_balance: newBalance,
+            updated_at: new Date().toISOString()
+        })
+            .eq('user_id', founderId);
+        if (walletUpdateError) {
+            console.error('[Invoice Webhook] Failed to update wallet:', walletUpdateError);
+            return;
+        }
+        await supabase
+            .from('itc_transactions')
+            .insert({
+            user_id: founderId,
+            type: 'reward',
+            amount: itcEarnings,
+            balance_after: newBalance,
+            usd_value: founderEarningsUSD,
+            reason: `Invoice earnings (35% of $${(invoice.subtotal_cents / 100).toFixed(2)})`,
+            reference_id: invoice.id
+        });
+        console.log(`[Invoice Webhook] ✅ Invoice paid: ${invoice.id}, Founder ${founderId} earned ${itcEarnings} ITC ($${founderEarningsUSD.toFixed(2)})`);
+    }
+    catch (error) {
+        console.error('[Invoice Webhook] Invoice paid handling error:', error);
+    }
+}
+async function handleInvoicePaymentFailed(stripeInvoice) {
+    try {
+        const founderId = stripeInvoice.metadata?.founder_id;
+        if (!founderId) {
+            console.log('[Invoice Webhook] Not a founder invoice, skipping');
+            return;
+        }
+        const { error } = await supabase
+            .from('founder_invoices')
+            .update({ status: 'overdue' })
+            .eq('stripe_invoice_id', stripeInvoice.id);
+        if (error) {
+            console.error('[Invoice Webhook] Failed to update invoice status:', error);
+        }
+        console.log(`[Invoice Webhook] Invoice payment failed: ${stripeInvoice.id}`);
+    }
+    catch (error) {
+        console.error('[Invoice Webhook] Invoice payment failed handling error:', error);
     }
 }
 export default router;

@@ -12,5 +12,6 @@ declare global {
     }
 }
 export declare function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void>;
+export declare function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void>;
 export declare function requireRole(allowedRoles: string[]): (req: Request, res: Response, next: NextFunction) => Promise<void>;
 //# sourceMappingURL=supabaseAuth.d.ts.map

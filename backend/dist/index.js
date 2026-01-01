@@ -38,9 +38,13 @@ import couponsRouter from './routes/coupons.js';
 import giftCardsRouter from './routes/gift-cards.js';
 import marketingRouter from './routes/marketing.js';
 import socialRouter from './routes/social.js';
+import communityRouter from './routes/community.js';
 import adminControlPanelRouter from './routes/admin/control-panel.js';
 import adminEmailTemplatesRouter from './routes/admin/email-templates.js';
 import threeDModelsRouter from './routes/3d-models.js';
+import adminProductsRouter from './routes/admin/products.js';
+import shippingRouter from './routes/shipping.js';
+import invoicesRouter from './routes/invoices.js';
 import { requireAuth } from './middleware/supabaseAuth.js';
 dotenv.config();
 const logger = pino({
@@ -77,6 +81,7 @@ logger.info({
         GCS_PROJECT_ID: process.env.GCS_PROJECT_ID,
         GCS_BUCKET_NAME: process.env.GCS_BUCKET_NAME,
         GCS_CREDENTIALS: !!process.env.GCS_CREDENTIALS,
+        GOOGLE_MAPS_API_KEY: !!process.env.GOOGLE_MAPS_API_KEY,
     }
 }, 'Environment variables loaded');
 const app = express();
@@ -153,9 +158,14 @@ app.use('/api/coupons', couponsRouter);
 app.use('/api/gift-cards', giftCardsRouter);
 app.use('/api/marketing', marketingRouter);
 app.use('/api/social', socialRouter);
+app.use('/api/community', communityRouter);
 app.use('/api/admin/control-panel', adminControlPanelRouter);
 app.use('/api/admin/email-templates', adminEmailTemplatesRouter);
 app.use('/api/3d-models', threeDModelsRouter);
+app.use('/api/admin', adminProductsRouter);
+app.use('/api/products', adminProductsRouter);
+app.use('/api/shipping', shippingRouter);
+app.use('/api/invoices', invoicesRouter);
 app.get('/api/auth/me', requireAuth, (req, res) => {
     return res.json({ ok: true, user: req.user });
 });

@@ -38,6 +38,33 @@ export async function requireAuth(req, res, next) {
         return;
     }
 }
+export async function optionalAuth(req, res, next) {
+    try {
+        const auth = req.header("authorization") || req.header("Authorization");
+        if (!auth?.startsWith("Bearer ")) {
+            next();
+            return;
+        }
+        const token = auth.substring(7);
+        const { jwtVerify, decodeJwt } = await jose();
+        const secret = new TextEncoder().encode(SUPABASE_JWT_SECRET);
+        const { payload } = await jwtVerify(token, secret, {
+            algorithms: ["HS256"],
+            issuer: `https://${new URL(SUPABASE_URL).host}/auth/v1`,
+        });
+        const userMetadata = payload.user_metadata;
+        const role = userMetadata?.role || (typeof payload.role === "string" ? payload.role : undefined);
+        req.user = {
+            sub: String(payload.sub ?? ""),
+            email: typeof payload.email === "string" ? payload.email : undefined,
+            role,
+        };
+    }
+    catch (err) {
+        console.log("[auth] Optional auth failed, continuing without user:", err.message);
+    }
+    next();
+}
 export function requireRole(allowedRoles) {
     return async (req, res, next) => {
         if (!req.user) {
