@@ -69,7 +69,8 @@
       "mcp__stripe__retrieve_balance",
       "mcp__stripe__list_payment_intents",
       "mcp__stripe__list_coupons",
-      "mcp__stripe__list_prices"
+      "mcp__stripe__list_prices",
+      "mcp__stripe__search_stripe_documentation"
     ],
     "deny": [],
     "ask": []

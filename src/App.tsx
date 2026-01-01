@@ -65,6 +65,10 @@ import ImaginationStation from './pages/ImaginationStation'
 import { ImaginationErrorBoundary } from './components/imagination'
 import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+import TermsOfService from './pages/TermsOfService'
+import ShippingPolicy from './pages/ShippingPolicy'
+import ReturnsPolicy from './pages/ReturnsPolicy'
 import CookieConsent from './components/CookieConsent'
 
 // Routes that should hide the sidebar for full-screen experience
@@ -134,6 +138,12 @@ function App() {
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
+
+                  {/* Legal Pages */}
+                  <Route path="/privacy" element={<PrivacyPolicy />} />
+                  <Route path="/terms" element={<TermsOfService />} />
+                  <Route path="/shipping" element={<ShippingPolicy />} />
+                  <Route path="/returns" element={<ReturnsPolicy />} />
 
                   {/* Account & Profile Routes */}
                   <Route path="/account/profile" element={<UserProfile />} />
