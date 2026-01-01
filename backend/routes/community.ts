@@ -30,7 +30,7 @@ router.get('/feed', optionalAuth, async (req: Request, res: Response): Promise<a
     const limitNum = Math.min(50, Math.max(1, Number(limit)))
     const offset = (pageNum - 1) * limitNum
 
-    // Build query
+    // First try community_posts table
     let query = supabase
       .from('community_posts')
       .select('*', { count: 'exact' })
@@ -49,8 +49,6 @@ router.get('/feed', optionalAuth, async (req: Request, res: Response): Promise<a
         query = query.order('created_at', { ascending: false })
         break
       case 'trending':
-        // Trending = high boost score relative to age
-        // For now, order by total_boost_score descending, then created_at for recency
         query = query
           .order('total_boost_score', { ascending: false })
           .order('created_at', { ascending: false })
@@ -61,43 +59,157 @@ router.get('/feed', optionalAuth, async (req: Request, res: Response): Promise<a
         break
     }
 
-    // Apply pagination
     query = query.range(offset, offset + limitNum - 1)
 
-    const { data: posts, error, count } = await query
+    const { data: communityPosts, error: communityError, count: communityCount } = await query
 
-    if (error) {
-      console.error('[community/feed] Error:', error)
-      return res.status(500).json({ error: 'Failed to fetch community feed' })
+    // If we have community posts, return them
+    if (!communityError && communityPosts && communityPosts.length > 0) {
+      let postsWithVoteStatus = communityPosts
+      if (userId && communityPosts.length > 0) {
+        const postIds = communityPosts.map(p => p.id)
+        const { data: userVotes } = await supabase
+          .from('community_boosts')
+          .select('post_id')
+          .eq('user_id', userId)
+          .eq('boost_type', 'free_vote')
+          .eq('status', 'active')
+          .in('post_id', postIds)
+
+        const votedPostIds = new Set(userVotes?.map(v => v.post_id) || [])
+        postsWithVoteStatus = communityPosts.map(post => ({
+          ...post,
+          user_has_voted: votedPostIds.has(post.id)
+        }))
+      }
+
+      return res.json({
+        ok: true,
+        posts: postsWithVoteStatus,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: communityCount || 0,
+          totalPages: Math.ceil((communityCount || 0) / limitNum)
+        }
+      })
     }
 
-    // If user is authenticated, check their vote status for each post
-    let postsWithVoteStatus = posts || []
-    if (userId && posts && posts.length > 0) {
-      const postIds = posts.map(p => p.id)
-      const { data: userVotes } = await supabase
-        .from('community_boosts')
-        .select('post_id')
-        .eq('user_id', userId)
-        .eq('boost_type', 'free_vote')
-        .eq('status', 'active')
-        .in('post_id', postIds)
+    // FALLBACK: Query user-generated products directly when community_posts is empty
+    console.log('[community/feed] No community posts found, falling back to user-generated products')
 
-      const votedPostIds = new Set(userVotes?.map(v => v.post_id) || [])
-      postsWithVoteStatus = posts.map(post => ({
-        ...post,
-        user_has_voted: votedPostIds.has(post.id)
-      }))
+    let productsQuery = supabase
+      .from('products')
+      .select(`
+        id,
+        name,
+        description,
+        category,
+        images,
+        created_at,
+        created_by_user_id,
+        is_user_generated
+      `, { count: 'exact' })
+      .eq('is_user_generated', true)
+      .eq('approved', true)
+
+    // Apply sorting
+    productsQuery = productsQuery.order('created_at', { ascending: false })
+    productsQuery = productsQuery.range(offset, offset + limitNum - 1)
+
+    const { data: products, error: productsError, count: productsCount } = await productsQuery
+
+    if (productsError) {
+      console.error('[community/feed] Products fallback error:', productsError)
+      return res.json({
+        ok: true,
+        posts: [],
+        pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 }
+      })
     }
+
+    if (!products || products.length === 0) {
+      return res.json({
+        ok: true,
+        posts: [],
+        pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 }
+      })
+    }
+
+    // Fetch product assets for mockups
+    const productIds = products.map(p => p.id)
+    const { data: assets } = await supabase
+      .from('product_assets')
+      .select('*')
+      .in('product_id', productIds)
+      .in('kind', ['mockup', 'source'])
+      .order('display_order', { ascending: true })
+
+    const assetsByProduct = (assets || []).reduce((acc: Record<string, any[]>, asset: any) => {
+      if (!acc[asset.product_id]) acc[asset.product_id] = []
+      acc[asset.product_id].push(asset)
+      return acc
+    }, {})
+
+    // Fetch user profiles for creators
+    const userIds = products.map(p => p.created_by_user_id).filter(Boolean)
+    let userProfiles: Record<string, any> = {}
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, username, first_name, last_name, avatar_url')
+        .in('id', userIds)
+
+      if (profiles) {
+        userProfiles = profiles.reduce((acc: Record<string, any>, p: any) => {
+          acc[p.id] = p
+          return acc
+        }, {})
+      }
+    }
+
+    // Transform products to community post format
+    const transformedPosts = products.map(product => {
+      const productAssets = assetsByProduct[product.id] || []
+      const mockup = productAssets.find((a: any) => a.kind === 'mockup') || productAssets[0]
+      const imageUrl = mockup?.url || (product.images as string[])?.[0] || ''
+      const userProfile = product.created_by_user_id ? userProfiles[product.created_by_user_id] : null
+      const creatorName = userProfile?.username ||
+        (userProfile?.first_name && userProfile?.last_name
+          ? `${userProfile.first_name} ${userProfile.last_name}`
+          : 'Community Creator')
+
+      return {
+        id: product.id,
+        post_type: 'design',
+        product_id: product.id,
+        creator_id: product.created_by_user_id,
+        creator_username: creatorName,
+        creator_display_name: creatorName,
+        creator_avatar_url: userProfile?.avatar_url || null,
+        creator_role: 'customer',
+        title: product.name,
+        description: product.description,
+        primary_image_url: imageUrl,
+        additional_images: (product.images as string[])?.slice(1) || [],
+        status: 'active',
+        free_vote_count: 0,
+        paid_boost_count: 0,
+        total_boost_score: 0,
+        view_count: 0,
+        created_at: product.created_at,
+        user_has_voted: false
+      }
+    })
 
     return res.json({
       ok: true,
-      posts: postsWithVoteStatus,
+      posts: transformedPosts,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / limitNum)
+        total: productsCount || 0,
+        totalPages: Math.ceil((productsCount || 0) / limitNum)
       }
     })
   } catch (error: any) {
@@ -119,39 +231,63 @@ router.get('/leaderboard', async (req: Request, res: Response): Promise<any> => 
 
     const { data: leaderboard, error } = await query
 
-    if (error) {
-      console.error('[community/leaderboard] Error:', error)
-      // If view doesn't exist yet, fall back to manual query
-      const { data: fallback, error: fallbackError } = await supabase
-        .from('community_posts')
-        .select('creator_id, creator_username, creator_display_name, creator_avatar_url')
-        .in('status', ['active', 'featured'])
+    if (error || !leaderboard || leaderboard.length === 0) {
+      console.log('[community/leaderboard] No leaderboard data, falling back to products')
 
-      if (fallbackError) {
-        return res.status(500).json({ error: 'Failed to fetch leaderboard' })
+      // Fallback: Query user-generated products to create leaderboard
+      const { data: products, error: productsError } = await supabase
+        .from('products')
+        .select('created_by_user_id')
+        .eq('is_user_generated', true)
+        .eq('approved', true)
+
+      if (productsError || !products || products.length === 0) {
+        return res.json({ ok: true, leaderboard: [] })
       }
 
-      // Aggregate manually
-      const creatorMap = new Map()
-      fallback?.forEach(post => {
-        const existing = creatorMap.get(post.creator_id) || {
-          creator_id: post.creator_id,
-          creator_username: post.creator_username,
-          creator_display_name: post.creator_display_name,
-          creator_avatar_url: post.creator_avatar_url,
-          post_count: 0,
-          total_boosts_received: 0
+      // Get unique creator IDs and count products
+      const creatorCounts = new Map<string, number>()
+      products.forEach(p => {
+        if (p.created_by_user_id) {
+          creatorCounts.set(p.created_by_user_id, (creatorCounts.get(p.created_by_user_id) || 0) + 1)
         }
-        existing.post_count++
-        creatorMap.set(post.creator_id, existing)
       })
 
-      const leaderboardFallback = Array.from(creatorMap.values())
-        .sort((a, b) => b.total_boosts_received - a.total_boosts_received)
+      const creatorIds = Array.from(creatorCounts.keys())
+      if (creatorIds.length === 0) {
+        return res.json({ ok: true, leaderboard: [] })
+      }
+
+      // Fetch user profiles
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, username, first_name, last_name, avatar_url')
+        .in('id', creatorIds)
+
+      const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+
+      // Build leaderboard from products
+      const leaderboardFromProducts = Array.from(creatorCounts.entries())
+        .map(([creatorId, postCount]) => {
+          const profile = profileMap.get(creatorId)
+          const creatorName = profile?.username ||
+            (profile?.first_name && profile?.last_name
+              ? `${profile.first_name} ${profile.last_name}`
+              : 'Community Creator')
+          return {
+            creator_id: creatorId,
+            creator_username: creatorName,
+            creator_display_name: creatorName,
+            creator_avatar_url: profile?.avatar_url || null,
+            post_count: postCount,
+            total_boosts_received: 0
+          }
+        })
+        .sort((a, b) => b.post_count - a.post_count)
         .slice(0, Number(limit))
         .map((entry, index) => ({ ...entry, rank: index + 1 }))
 
-      return res.json({ ok: true, leaderboard: leaderboardFallback })
+      return res.json({ ok: true, leaderboard: leaderboardFromProducts })
     }
 
     return res.json({ ok: true, leaderboard })
