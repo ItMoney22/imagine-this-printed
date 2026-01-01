@@ -1113,3 +1113,136 @@ export const sendDesignSubmittedEmail = async (
     `
   })
 }
+
+// ===============================
+// INVOICE EMAILS
+// ===============================
+
+/**
+ * Send a branded invoice email to client
+ */
+export const sendInvoiceEmail = async ({
+  clientEmail,
+  clientName,
+  invoiceNumber,
+  amountDue,
+  dueDate,
+  lineItems,
+  memo,
+  paymentUrl,
+  businessName = 'Imagine This Printed'
+}: {
+  clientEmail: string
+  clientName?: string
+  invoiceNumber: string
+  amountDue: number
+  dueDate: string
+  lineItems: Array<{ description: string; quantity: number; amount_cents: number }>
+  memo?: string
+  paymentUrl: string
+  businessName?: string
+}): Promise<boolean> => {
+  const formattedAmount = (amountDue / 100).toFixed(2)
+  const displayName = clientName || clientEmail.split('@')[0]
+
+  const lineItemsHtml = lineItems.map(item => `
+    <tr>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; color: #374151;">${item.description}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center; color: #374151;">${item.quantity}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #374151;">$${(item.amount_cents / 100).toFixed(2)}</td>
+    </tr>
+  `).join('')
+
+  return sendEmail({
+    to: clientEmail,
+    subject: `Invoice from ${businessName} - $${formattedAmount} Due`,
+    htmlContent: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+
+        <!-- Header with Mr. Imagine -->
+        <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
+          <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" style="height: 80px; margin-bottom: 15px;" />
+          <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 600;">Invoice from ${businessName}</h1>
+        </div>
+
+        <div style="padding: 30px; background: #f9fafb;">
+          <p style="color: #374151; font-size: 16px; margin: 0 0 20px;">
+            Hi ${displayName}! 👋
+          </p>
+
+          <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 25px;">
+            Here's your invoice. You can pay securely online using the button below.
+          </p>
+
+          <!-- Invoice Details Box -->
+          <div style="background: white; border-radius: 12px; padding: 25px; margin-bottom: 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+            <table style="width: 100%; margin-bottom: 20px;">
+              <tr>
+                <td style="vertical-align: top;">
+                  <p style="color: #6b7280; font-size: 13px; margin: 0;">Invoice Number</p>
+                  <p style="color: #111827; font-size: 15px; font-weight: 600; margin: 5px 0 0;">${invoiceNumber}</p>
+                </td>
+                <td style="vertical-align: top; text-align: right;">
+                  <p style="color: #6b7280; font-size: 13px; margin: 0;">Due Date</p>
+                  <p style="color: #111827; font-size: 15px; font-weight: 600; margin: 5px 0 0;">${dueDate}</p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Line Items Table -->
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+              <thead>
+                <tr style="background: #f3f4f6;">
+                  <th style="padding: 12px; text-align: left; font-size: 13px; color: #6b7280; font-weight: 600;">Description</th>
+                  <th style="padding: 12px; text-align: center; font-size: 13px; color: #6b7280; font-weight: 600;">Qty</th>
+                  <th style="padding: 12px; text-align: right; font-size: 13px; color: #6b7280; font-weight: 600;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${lineItemsHtml}
+              </tbody>
+            </table>
+
+            <!-- Total -->
+            <table style="width: 100%; border-top: 2px solid #e5e7eb; padding-top: 15px; margin-top: 10px;">
+              <tr>
+                <td style="font-size: 18px; font-weight: 600; color: #111827; padding-top: 15px;">Amount Due</td>
+                <td style="font-size: 24px; font-weight: 700; color: #7c3aed; text-align: right; padding-top: 15px;">$${formattedAmount}</td>
+              </tr>
+            </table>
+
+            ${memo ? `
+              <div style="background: #fef3c7; border-radius: 8px; padding: 15px; margin-top: 20px;">
+                <p style="color: #92400e; font-size: 14px; margin: 0;"><strong>Note:</strong> ${memo}</p>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Pay Now Button -->
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${paymentUrl}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 16px 40px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);">
+              💳 Pay Now - $${formattedAmount}
+            </a>
+          </div>
+
+          <p style="color: #6b7280; font-size: 13px; text-align: center; margin: 20px 0 0;">
+            Payment is processed securely via Stripe. Click the button above to pay online.
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background: #1f2937; padding: 25px; text-align: center; border-radius: 0 0 12px 12px;">
+          <p style="color: #9ca3af; font-size: 13px; margin: 0 0 10px;">
+            Questions about this invoice? Reply to this email or contact us at
+          </p>
+          <a href="mailto:wecare@imaginethisprinted.com" style="color: #a78bfa; text-decoration: none; font-size: 14px;">
+            wecare@imaginethisprinted.com
+          </a>
+          <p style="color: #6b7280; font-size: 11px; margin: 15px 0 0;">
+            © ${new Date().getFullYear()} Imagine This Printed. All rights reserved.
+          </p>
+        </div>
+      </div>
+    `
+  })
+}

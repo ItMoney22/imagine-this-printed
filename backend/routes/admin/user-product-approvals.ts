@@ -149,7 +149,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
             htmlContent: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                 <div style="text-align: center; margin-bottom: 30px;">
-                  <img src="https://imaginethisprinted.com/logo-tech.png" alt="ITP" style="height: 50px;">
+                  <img src="https://imaginethisprinted.com/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" style="height: 60px;">
                 </div>
 
                 <h1 style="color: #9333EA; text-align: center;">Congratulations! 🎨</h1>
@@ -266,7 +266,7 @@ router.post('/:id/reject', requireAuth, requireAdmin, async (req: Request, res: 
             htmlContent: `
               <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                 <div style="text-align: center; margin-bottom: 30px;">
-                  <img src="https://imaginethisprinted.com/logo-tech.png" alt="ITP" style="height: 50px;">
+                  <img src="https://imaginethisprinted.com/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" style="height: 60px;">
                 </div>
 
                 <h1 style="color: #666; text-align: center;">Design Update</h1>
@@ -463,7 +463,7 @@ router.post('/payout/:creatorId', requireAuth, requireAdmin, async (req: Request
           htmlContent: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
               <div style="text-align: center; margin-bottom: 30px;">
-                <img src="https://imaginethisprinted.com/logo-tech.png" alt="ITP" style="height: 50px;">
+                <img src="https://imaginethisprinted.com/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" style="height: 60px;">
               </div>
 
               <h1 style="color: #9333EA; text-align: center;">Payment Sent! 💰</h1>

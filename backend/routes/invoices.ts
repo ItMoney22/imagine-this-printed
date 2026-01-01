@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import Stripe from 'stripe'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
+import { sendInvoiceEmail } from '../utils/email.js'
 
 const router = Router()
 
@@ -355,8 +356,29 @@ router.post('/:id/send', requireAuth, requireRole(['founder', 'admin']), async (
       return res.status(400).json({ error: `Cannot send invoice with status: ${invoice.status}` })
     }
 
-    // Send via Stripe
-    const sentInvoice = await stripe.invoices.sendInvoice(invoice.stripe_invoice_id)
+    // Finalize invoice in Stripe (makes it payable) but DON'T use sendInvoice to avoid Stripe's default email
+    // The invoice should already be finalized from creation, but ensure it's open
+    const stripeInvoice = await stripe.invoices.retrieve(invoice.stripe_invoice_id)
+
+    // Send our branded email instead of Stripe's default
+    const emailSent = await sendInvoiceEmail({
+      clientEmail: invoice.client_email,
+      clientName: invoice.client_name || undefined,
+      invoiceNumber: stripeInvoice.number || invoice.id.slice(0, 8).toUpperCase(),
+      amountDue: invoice.subtotal_cents,
+      dueDate: new Date(invoice.due_date).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }),
+      lineItems: invoice.line_items || [],
+      memo: invoice.memo || undefined,
+      paymentUrl: invoice.stripe_hosted_invoice_url || stripeInvoice.hosted_invoice_url || ''
+    })
+
+    if (!emailSent) {
+      req.log?.warn({ invoiceId: id }, 'Failed to send invoice email, but invoice is still valid')
+    }
 
     // Update database
     const { error: updateError } = await supabase
@@ -374,13 +396,14 @@ router.post('/:id/send', requireAuth, requireRole(['founder', 'admin']), async (
     req.log?.info({
       invoiceId: id,
       stripeInvoiceId: invoice.stripe_invoice_id,
-      clientEmail: invoice.client_email
+      clientEmail: invoice.client_email,
+      emailSent
     }, 'Invoice sent successfully')
 
     return res.json({
       ok: true,
       message: `Invoice sent to ${invoice.client_email}`,
-      hosted_invoice_url: sentInvoice.hosted_invoice_url
+      hosted_invoice_url: stripeInvoice.hosted_invoice_url
     })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error sending invoice')

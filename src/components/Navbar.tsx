@@ -68,7 +68,7 @@ const Navbar: React.FC = () => {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0">
-              <img src="/itp-logo-v3.png" alt="Imagine This Printed" className="h-12 w-auto object-contain" />
+              <img src="/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" className="h-14 w-auto object-contain" />
             </Link>
           </div>
 
