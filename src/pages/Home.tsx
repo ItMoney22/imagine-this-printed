@@ -120,6 +120,18 @@ const Home: React.FC = () => {
 
   /* Scroll-triggered video logic */
   const videoRef = React.useRef<HTMLVideoElement>(null)
+  const [hasUserInteracted, setHasUserInteracted] = React.useState(false)
+
+  // Track user interaction for unmuting
+  React.useEffect(() => {
+    const handleInteraction = () => setHasUserInteracted(true)
+    window.addEventListener('click', handleInteraction, { once: true })
+    window.addEventListener('touchstart', handleInteraction, { once: true })
+    return () => {
+      window.removeEventListener('click', handleInteraction)
+      window.removeEventListener('touchstart', handleInteraction)
+    }
+  }, [])
 
   React.useEffect(() => {
     const observer = new IntersectionObserver(
@@ -128,9 +140,12 @@ const Home: React.FC = () => {
           if (!videoRef.current) return
 
           if (entry.isIntersecting) {
-            // Provide a better experience by not restarting if it's already ended
+            // Play video when visible - keep muted on mobile for autoplay to work
+            // Only unmute if user has already interacted with the page
             if (!videoRef.current.ended) {
-              videoRef.current.muted = false
+              if (hasUserInteracted) {
+                videoRef.current.muted = false
+              }
               videoRef.current.play().catch((e) => console.log('Autoplay blocked:', e))
             }
           } else {
@@ -147,7 +162,7 @@ const Home: React.FC = () => {
     }
 
     return () => observer.disconnect()
-  }, [])
+  }, [hasUserInteracted])
 
   return (
     <div className="bg-bg">
@@ -420,17 +435,17 @@ const Home: React.FC = () => {
       </section>
 
       {/* Social Showcase */}
-      <section className="py-24 bg-bg">
+      <section className="py-12 sm:py-24 bg-bg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-pink-100 text-pink-700 text-sm font-medium mb-4">
-              <Heart className="w-4 h-4" />
+          <div className="text-center mb-8 sm:mb-12">
+            <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-pink-100 text-pink-700 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
+              <Heart className="w-3 h-3 sm:w-4 sm:h-4" />
               Community
             </span>
-            <h2 className="font-display text-4xl md:text-5xl text-text mb-4">
+            <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text mb-3 sm:mb-4">
               Customer <span className="text-gradient-pink">Showcase</span>
             </h2>
-            <p className="text-muted text-lg max-w-2xl mx-auto">
+            <p className="text-muted text-sm sm:text-lg max-w-2xl mx-auto px-4 sm:px-0">
               See how our customers are using our products and sharing their amazing creations
             </p>
           </div>
@@ -442,7 +457,7 @@ const Home: React.FC = () => {
       </section>
 
       {/* Personalized Recommendations */}
-      <section className="py-24 bg-gradient-to-b from-bg to-purple-50/30">
+      <section className="py-12 sm:py-24 bg-gradient-to-b from-bg to-purple-50/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <Suspense fallback={<SectionSkeleton />}>
             <ProductRecommendations
@@ -458,45 +473,45 @@ const Home: React.FC = () => {
       </section>
 
       {/* Why Choose Us */}
-      <section className="py-24 bg-bg">
+      <section className="py-12 sm:py-24 bg-bg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-100 text-blue-700 text-sm font-medium mb-4">
-              <Shield className="w-4 h-4" />
+          <div className="text-center mb-8 sm:mb-16">
+            <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-blue-100 text-blue-700 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
+              <Shield className="w-3 h-3 sm:w-4 sm:h-4" />
               Why Us
             </span>
-            <h2 className="font-display text-4xl md:text-5xl text-text mb-4">
+            <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text mb-3 sm:mb-4 px-4 sm:px-0">
               Why Choose <span className="text-gradient">Imagine This Printed</span>
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="card-editorial p-8 text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
-                <Zap className="w-8 h-8 text-white" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8">
+            <div className="card-editorial p-5 sm:p-8 text-center">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-purple-200">
+                <Zap className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
               </div>
-              <h3 className="font-display text-xl text-text mb-3">Fast Turnaround</h3>
-              <p className="text-muted">
+              <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Fast Turnaround</h3>
+              <p className="text-muted text-sm sm:text-base">
                 Quick processing and shipping to get your orders to you fast. Most orders ship within 2-3 business days.
               </p>
             </div>
 
-            <div className="card-editorial p-8 text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200">
-                <Shield className="w-8 h-8 text-white" />
+            <div className="card-editorial p-5 sm:p-8 text-center">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-blue-200">
+                <Shield className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
               </div>
-              <h3 className="font-display text-xl text-text mb-3">Quality Guaranteed</h3>
-              <p className="text-muted">
+              <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Quality Guaranteed</h3>
+              <p className="text-muted text-sm sm:text-base">
                 Premium materials and professional DTF printing processes for lasting, vibrant results.
               </p>
             </div>
 
-            <div className="card-editorial p-8 text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-pink-200">
-                <Heart className="w-8 h-8 text-white" />
+            <div className="card-editorial p-5 sm:p-8 text-center">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-pink-200">
+                <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
               </div>
-              <h3 className="font-display text-xl text-text mb-3">Made with Love</h3>
-              <p className="text-muted">
+              <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Made with Love</h3>
+              <p className="text-muted text-sm sm:text-base">
                 Every design is crafted with care. Our AI + human team ensures your vision comes to life perfectly.
               </p>
             </div>
@@ -505,37 +520,37 @@ const Home: React.FC = () => {
       </section>
 
       {/* Final CTA */}
-      <section className="py-24 bg-gradient-to-br from-purple-600 via-purple-700 to-blue-700 relative overflow-hidden">
-        {/* Background elements */}
-        <div className="absolute inset-0 pointer-events-none">
+      <section className="py-12 sm:py-24 bg-gradient-to-br from-purple-600 via-purple-700 to-blue-700 relative overflow-hidden">
+        {/* Background elements - hidden on mobile */}
+        <div className="absolute inset-0 pointer-events-none hidden sm:block">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-400/20 rounded-full blur-[150px]" />
           <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-blue-400/20 rounded-full blur-[120px]" />
         </div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
-          <h2 className="font-display text-4xl md:text-5xl lg:text-6xl text-white mb-6">
+          <h2 className="font-display text-2xl sm:text-4xl md:text-5xl lg:text-6xl text-white mb-4 sm:mb-6">
             Ready to Create Something
             <br />
             <span className="text-purple-200">Amazing?</span>
           </h2>
-          <p className="text-purple-100 text-lg mb-10 max-w-2xl mx-auto">
+          <p className="text-purple-100 text-sm sm:text-lg mb-6 sm:mb-10 max-w-2xl mx-auto px-4 sm:px-0">
             Join thousands of customers who have brought their creative visions to life with Imagine This Printed.
           </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <button
               onClick={() => navigate('/account/designs')}
-              className="group flex items-center gap-3 px-8 py-4 bg-white text-purple-700 font-semibold rounded-full hover:bg-purple-50 transition-all duration-300 shadow-xl hover:shadow-2xl hover:-translate-y-1"
+              className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-white text-purple-700 font-semibold rounded-full hover:bg-purple-50 transition-all duration-300 shadow-xl hover:shadow-2xl hover:-translate-y-1 text-sm sm:text-base"
             >
-              <Sparkles className="w-5 h-5" />
+              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
               Start Creating Free
-              <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:translate-x-1" />
             </button>
             <Link
               to="/catalog"
-              className="group flex items-center gap-3 px-8 py-4 bg-transparent border-2 border-white/40 text-white font-semibold rounded-full hover:bg-white/10 hover:border-white/60 transition-all duration-300"
+              className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-transparent border-2 border-white/40 text-white font-semibold rounded-full hover:bg-white/10 hover:border-white/60 transition-all duration-300 text-sm sm:text-base"
             >
               Browse Products
-              <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:translate-x-1" />
             </Link>
           </div>
         </div>

@@ -38,11 +38,25 @@ export function Hero() {
     <>
       {/* Full-Screen Video Hero */}
       <section className="relative w-full h-screen overflow-hidden">
-        {/* Video Background - Position right on mobile to show Mr. Imagine */}
+        {/* Video Background - Separate videos for mobile and desktop */}
         <div className="absolute inset-0">
+          {/* Mobile Video - Portrait/Square optimized with Mr. Imagine centered */}
           <video
             ref={videoRef}
-            className={`w-full h-full object-cover object-right md:object-center transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+            className={`md:hidden w-full h-full object-cover object-center transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+            autoPlay
+            muted
+            loop
+            playsInline
+            onLoadedData={() => setIsLoaded(true)}
+            poster="/mr-imagine/mr-imagine-standing-happy.png"
+          >
+            <source src="/mr-imagine/mr-imagine-hero-mobile.mp4" type="video/mp4" />
+          </video>
+
+          {/* Desktop Video - Landscape with full scene */}
+          <video
+            className={`hidden md:block w-full h-full object-cover object-center transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
             autoPlay
             muted
             loop
