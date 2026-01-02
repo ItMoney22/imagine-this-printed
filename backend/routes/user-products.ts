@@ -1173,4 +1173,108 @@ router.get('/creator-analytics', requireAuth, async (req: Request, res: Response
   }
 })
 
+// Cost in ITC to download a design
+const DOWNLOAD_COST_ITC = 100
+
+/**
+ * POST /api/user-products/download
+ * Purchase download rights for a design for 100 ITC
+ * Returns the high-res image URL for download
+ */
+router.post('/download', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
+    const { designId, imageUrl } = req.body
+
+    if (!designId || !imageUrl) {
+      return res.status(400).json({ error: 'Design ID and image URL are required' })
+    }
+
+    console.log('[user-products] 📥 Download request:', { userId, designId })
+
+    // Verify the user owns this design
+    const { data: design, error: designError } = await supabase
+      .from('vendor_products')
+      .select('id, name, images, metadata')
+      .eq('id', designId)
+      .single()
+
+    if (designError || !design) {
+      return res.status(404).json({ error: 'Design not found' })
+    }
+
+    // Check if the design belongs to the user
+    if (design.metadata?.creator_id !== userId) {
+      return res.status(403).json({ error: 'You can only download your own designs' })
+    }
+
+    // Check user's ITC balance
+    const { data: wallet, error: walletError } = await supabase
+      .from('user_wallets')
+      .select('id, itc_balance')
+      .eq('user_id', userId)
+      .single()
+
+    if (walletError || !wallet) {
+      return res.status(402).json({
+        error: 'Wallet not found',
+        required: DOWNLOAD_COST_ITC,
+        current: 0
+      })
+    }
+
+    if (wallet.itc_balance < DOWNLOAD_COST_ITC) {
+      return res.status(402).json({
+        error: 'Insufficient ITC credits',
+        required: DOWNLOAD_COST_ITC,
+        current: wallet.itc_balance,
+        message: `You need ${DOWNLOAD_COST_ITC} ITC credits to download. Current balance: ${wallet.itc_balance} ITC`
+      })
+    }
+
+    // Deduct ITC credits
+    const newBalance = wallet.itc_balance - DOWNLOAD_COST_ITC
+    const { error: deductError } = await supabase
+      .from('user_wallets')
+      .update({ itc_balance: newBalance })
+      .eq('user_id', userId)
+
+    if (deductError) {
+      console.error('[user-products] ❌ Failed to deduct ITC credits:', deductError)
+      return res.status(500).json({ error: 'Failed to process payment' })
+    }
+
+    // Log the transaction
+    await supabase
+      .from('itc_transactions')
+      .insert({
+        user_id: userId,
+        type: 'usage',
+        amount: -DOWNLOAD_COST_ITC,
+        balance_after: newBalance,
+        reference_type: 'design_download',
+        reference_id: designId,
+        description: `Design download: ${design.name}`,
+        metadata: { designId, designName: design.name }
+      })
+
+    console.log('[user-products] ✅ Download authorized:', { userId, designId, newBalance })
+
+    // Return the image URL for download
+    res.json({
+      success: true,
+      downloadUrl: imageUrl,
+      newBalance,
+      message: `Download authorized! ${DOWNLOAD_COST_ITC} ITC has been deducted.`
+    })
+  } catch (error: any) {
+    console.error('[user-products] ❌ Download error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 export default router

@@ -226,8 +226,12 @@ router.get('/profile', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Profile not found' })
     }
 
+    // Only count paid orders for CRM stats
     const orderStats = await prisma.order.findMany({
-      where: { userId: profileData.id },
+      where: {
+        userId: profileData.id,
+        paymentStatus: 'paid'  // Only count completed/paid orders
+      },
       select: { total: true }
     })
 

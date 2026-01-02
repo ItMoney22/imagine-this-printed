@@ -1983,13 +1983,121 @@ async function checkJobStatus(job: any) {
   }
 }
 
+// Cleanup interval: 1 hour
+const CLEANUP_INTERVAL = 60 * 60 * 1000
+
+// Delete incomplete orders older than 10 days
+async function cleanupIncompleteOrders() {
+  console.log('[worker] 🧹 Running cleanup for incomplete orders...')
+  try {
+    // Calculate date 10 days ago
+    const tenDaysAgo = new Date()
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10)
+
+    // Find and delete orders with pending payment status older than 10 days
+    const { data: oldOrders, error: fetchError } = await supabase
+      .from('orders')
+      .select('id, order_number, created_at')
+      .eq('payment_status', 'pending')
+      .lt('created_at', tenDaysAgo.toISOString())
+
+    if (fetchError) {
+      console.error('[worker] Error fetching old orders:', fetchError)
+      return
+    }
+
+    if (!oldOrders || oldOrders.length === 0) {
+      console.log('[worker] No incomplete orders to clean up')
+      return
+    }
+
+    console.log(`[worker] Found ${oldOrders.length} incomplete orders to delete`)
+
+    // Delete the orders
+    const { error: deleteError } = await supabase
+      .from('orders')
+      .delete()
+      .in('id', oldOrders.map(o => o.id))
+
+    if (deleteError) {
+      console.error('[worker] Error deleting old orders:', deleteError)
+      return
+    }
+
+    console.log(`[worker] ✅ Cleaned up ${oldOrders.length} incomplete orders older than 10 days`)
+
+    // Log to audit
+    await supabase.from('audit_logs').insert({
+      action: 'cleanup_incomplete_orders',
+      details: {
+        deleted_count: oldOrders.length,
+        order_numbers: oldOrders.map(o => o.order_number),
+        cleanup_date: new Date().toISOString()
+      }
+    })
+  } catch (error) {
+    console.error('[worker] Error in cleanup:', error)
+  }
+}
+
+// Delete expired design sessions (drafts) older than 14 days
+async function cleanupExpiredDesignSessions() {
+  console.log('[worker] 🧹 Running cleanup for expired design sessions...')
+  try {
+    const fourteenDaysAgo = new Date()
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+
+    const { data: expiredSessions, error: fetchError } = await supabase
+      .from('design_sessions')
+      .select('id')
+      .lt('updated_at', fourteenDaysAgo.toISOString())
+
+    if (fetchError) {
+      console.error('[worker] Error fetching expired sessions:', fetchError)
+      return
+    }
+
+    if (!expiredSessions || expiredSessions.length === 0) {
+      console.log('[worker] No expired design sessions to clean up')
+      return
+    }
+
+    const { error: deleteError } = await supabase
+      .from('design_sessions')
+      .delete()
+      .in('id', expiredSessions.map(s => s.id))
+
+    if (deleteError) {
+      console.error('[worker] Error deleting expired sessions:', deleteError)
+      return
+    }
+
+    console.log(`[worker] ✅ Cleaned up ${expiredSessions.length} expired design sessions`)
+  } catch (error) {
+    console.error('[worker] Error in session cleanup:', error)
+  }
+}
+
 export function startWorker() {
   console.log('[worker] 🚀 Starting AI jobs worker')
 
+  // AI job processing (every 5 seconds)
   setInterval(async () => {
     await processQueuedJobs()
   }, POLL_INTERVAL)
 
+  // Cleanup tasks (every hour)
+  setInterval(async () => {
+    await cleanupIncompleteOrders()
+    await cleanupExpiredDesignSessions()
+  }, CLEANUP_INTERVAL)
+
   // Process immediately on start
   processQueuedJobs()
+
+  // Run cleanup once on start (delayed by 1 minute to let server fully start)
+  setTimeout(async () => {
+    await cleanupIncompleteOrders()
+    await cleanupExpiredDesignSessions()
+  }, 60000)
 }

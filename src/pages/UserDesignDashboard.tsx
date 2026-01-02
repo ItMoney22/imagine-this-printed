@@ -78,6 +78,7 @@ type Tab = 'designs' | 'drafts' | '3d-models' | 'tools' | 'earnings'
 // ITC costs for tools
 const UPSCALE_COST = 15
 const BG_REMOVE_COST = 10
+const DOWNLOAD_COST = 100
 
 export default function UserDesignDashboard() {
   const { user } = useAuth()
@@ -263,6 +264,52 @@ export default function UserDesignDashboard() {
     } catch (error: any) {
       console.error('[Dashboard] BG remove error:', error)
       alert(error.response?.data?.error || 'Failed to remove background')
+    } finally {
+      setToolProcessing(null)
+    }
+  }, [wallet.itc_balance])
+
+  // Handle design download (costs 100 ITC for high-res download)
+  const handleDownload = useCallback(async (imageUrl: string, designName: string) => {
+    if (wallet.itc_balance < DOWNLOAD_COST) {
+      alert(`Not enough ITC! Need ${DOWNLOAD_COST} ITC to download, you have ${wallet.itc_balance}`)
+      return
+    }
+
+    if (!confirm(`Download high-resolution design for ${DOWNLOAD_COST} ITC?`)) return
+
+    setToolProcessing('download')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      // Deduct ITC first
+      await axios.post('/api/wallet/deduct-itc', {
+        amount: DOWNLOAD_COST,
+        reason: 'High-resolution design download'
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      // Update local wallet state
+      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - DOWNLOAD_COST }))
+
+      // Trigger download
+      const response = await fetch(imageUrl)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${designName.replace(/[^a-zA-Z0-9]/g, '-')}-high-res.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+
+      alert('Download complete!')
+    } catch (error: any) {
+      console.error('[Dashboard] Download error:', error)
+      alert(error.response?.data?.error || 'Failed to download design')
     } finally {
       setToolProcessing(null)
     }
@@ -987,6 +1034,18 @@ export default function UserDesignDashboard() {
                 >
                   <Wand2 className="w-4 h-4" />
                   Use AI Tools
+                </button>
+                <button
+                  onClick={() => selectedDesign.images?.[0] && handleDownload(selectedDesign.images[0], selectedDesign.name)}
+                  disabled={toolProcessing === 'download' || !selectedDesign.images?.[0]}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold rounded-full shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {toolProcessing === 'download' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Download ({DOWNLOAD_COST} ITC)
                 </button>
                 <button
                   onClick={() => setSelectedDesign(null)}
