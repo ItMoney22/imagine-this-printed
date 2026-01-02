@@ -1246,3 +1246,134 @@ export const sendInvoiceEmail = async ({
     `
   })
 }
+
+/**
+ * Send gift card email to recipient with Mr. Imagine branding
+ */
+export async function sendGiftCardEmail({
+  recipientEmail,
+  recipientName,
+  senderName,
+  giftCardCode,
+  itcAmount,
+  personalMessage
+}: {
+  recipientEmail: string
+  recipientName?: string
+  senderName: string
+  giftCardCode: string
+  itcAmount: number
+  personalMessage?: string
+}): Promise<void> {
+  const usdValue = (itcAmount * 0.10).toFixed(2)
+  const greeting = recipientName ? `Hi ${recipientName}!` : 'Hello!'
+
+  await sendEmail({
+    to: recipientEmail,
+    subject: `${senderName} sent you a gift! 🎁`,
+    htmlContent: `
+      <div style="background: linear-gradient(135deg, #f9f5ff 0%, #fdf2f8 100%); padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15);">
+          <!-- Header with Mr. Imagine -->
+          <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); padding: 40px; text-align: center;">
+            <img
+              src="https://imaginethisprinted.com/mr-imagine/mr-imagine-waist-up.png"
+              alt="Mr. Imagine"
+              style="height: 100px; margin-bottom: 15px;"
+            />
+            <h1 style="color: #ffffff; font-size: 28px; margin: 0; font-weight: 700;">
+              You've Got a Gift!
+            </h1>
+            <p style="color: rgba(255,255,255,0.9); font-size: 16px; margin: 10px 0 0;">
+              From ${senderName}
+            </p>
+          </div>
+
+          <!-- Body -->
+          <div style="padding: 40px;">
+            <p style="color: #374151; font-size: 18px; line-height: 1.6; margin: 0 0 25px;">
+              ${greeting}
+            </p>
+            <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 25px;">
+              ${senderName} has sent you a special gift from Imagine This Printed!
+              Use this gift card to unlock exclusive AI-powered designs and create something amazing.
+            </p>
+
+            ${personalMessage ? `
+              <div style="background: linear-gradient(135deg, #f5f3ff 0%, #fce7f3 100%); border-left: 4px solid #7c3aed; padding: 20px; border-radius: 0 12px 12px 0; margin: 25px 0;">
+                <p style="color: #6b7280; font-size: 14px; margin: 0 0 5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Personal Message
+                </p>
+                <p style="color: #374151; font-size: 16px; font-style: italic; margin: 0;">
+                  "${personalMessage}"
+                </p>
+              </div>
+            ` : ''}
+
+            <!-- Gift Card Display -->
+            <div style="background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 16px; padding: 30px; text-align: center; margin: 30px 0;">
+              <p style="color: rgba(255,255,255,0.9); font-size: 14px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 1px;">
+                Your Gift Card Code
+              </p>
+              <div style="background: rgba(255,255,255,0.2); border-radius: 8px; padding: 15px; margin: 0 0 20px;">
+                <code style="color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 3px;">
+                  ${giftCardCode}
+                </code>
+              </div>
+              <div style="display: flex; justify-content: center; gap: 30px; flex-wrap: wrap;">
+                <div>
+                  <p style="color: rgba(255,255,255,0.8); font-size: 12px; margin: 0 0 5px;">ITC TOKENS</p>
+                  <p style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 0;">
+                    ${itcAmount.toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p style="color: rgba(255,255,255,0.8); font-size: 12px; margin: 0 0 5px;">VALUE</p>
+                  <p style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 0;">
+                    $${usdValue}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- How to Redeem -->
+            <div style="background: #f9fafb; border-radius: 12px; padding: 25px; margin: 25px 0;">
+              <h3 style="color: #374151; font-size: 16px; margin: 0 0 15px; font-weight: 600;">
+                How to Redeem Your Gift:
+              </h3>
+              <ol style="color: #6b7280; font-size: 14px; line-height: 1.8; margin: 0; padding-left: 20px;">
+                <li>Visit <a href="https://imaginethisprinted.com" style="color: #7c3aed; text-decoration: none; font-weight: 600;">imaginethisprinted.com</a></li>
+                <li>Create an account or sign in</li>
+                <li>Go to your Wallet page</li>
+                <li>Enter your gift card code to claim your ITC tokens</li>
+                <li>Start creating amazing designs!</li>
+              </ol>
+            </div>
+
+            <!-- CTA Button -->
+            <div style="text-align: center; margin: 30px 0;">
+              <a
+                href="https://imaginethisprinted.com/wallet"
+                style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 12px; font-weight: 600; font-size: 16px; box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.4);"
+              >
+                Redeem Your Gift Now
+              </a>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div style="background: #f9fafb; padding: 25px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <img
+              src="https://imaginethisprinted.com/mr-imagine/mr-imagine-head.png"
+              alt="Mr. Imagine"
+              style="height: 40px; margin-bottom: 10px;"
+            />
+            <p style="color: #6b7280; font-size: 12px; margin: 0;">
+              © ${new Date().getFullYear()} Imagine This Printed. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </div>
+    `
+  })
+}

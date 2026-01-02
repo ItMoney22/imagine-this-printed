@@ -239,3 +239,8 @@
   - **Footer logo**: Same - `/mr-imagine/mr-imagine-waist-up.png`
   - All images now have transparent backgrounds, removed rounded-lg class since not needed
   - Files modified: `index.html`, `src/components/Header.tsx`, `src/components/Footer.tsx`
+- 2026-01-01 **FIX** Community page not showing designs:
+  - **Root cause**: Backend `community.ts` fallback query was checking `approved = true` (boolean column) but admin approval sets `status = 'active'` (text column)
+  - **Fix**: Changed line 114 and 242 from `.eq('approved', true)` to `.eq('status', 'active')`
+  - **Result**: Community feed now returns approved user-generated designs with creator info, images, and boost scores
+  - Files modified: `backend/routes/community.ts`

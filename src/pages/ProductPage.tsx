@@ -7,6 +7,7 @@ import { useToast } from '../hooks/useToast'
 import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
+import ProtectedImage from '../components/ProtectedImage'
 import type { Product } from '../types'
 
 const ProductPage: React.FC = () => {
@@ -169,7 +170,7 @@ const ProductPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
           <div className="mb-4">
-            <img
+            <ProtectedImage
               src={product.images && product.images.length > 0
                 ? product.images[selectedImage]
                 : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}

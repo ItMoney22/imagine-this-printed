@@ -113,9 +113,9 @@ export function Sidebar() {
       <div className={`flex items-center h-20 px-4 border-b border-purple-100 ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
         <Link to="/" className="flex items-center" onClick={closeMobile}>
           {isCollapsed ? (
-            <img src="/itp-logo-v3.png" alt="ITP" className="h-8 w-auto" />
+            <img src="/mr-imagine/mr-imagine-head.png" alt="Mr. Imagine" className="h-8 w-auto" />
           ) : (
-            <img src="/itp-logo-v3.png" alt="Imagine This Printed" className="h-10 w-auto" />
+            <img src="/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" className="h-12 w-auto" />
           )}
         </Link>
         <button
@@ -172,12 +172,18 @@ export function Sidebar() {
             <NavItem
               to="/wallet"
               icon={<Wallet className="w-5 h-5" />}
-              label={`Wallet${!isCollapsed && itcBalance > 0 ? ` ($${itcBalance})` : ''}`}
+              label="Wallet"
               isCollapsed={isCollapsed}
               isActive={isActive('/wallet')}
               badge={isCollapsed && itcBalance > 0 ? itcBalance : undefined}
               onClick={closeMobile}
             />
+            {!isCollapsed && itcBalance > 0 && (
+              <div className="flex items-center gap-1.5 px-3 py-1 ml-8 -mt-1 text-sm text-purple-600 font-medium">
+                <img src="/itc-coin.png" alt="ITC" className="w-4 h-4" />
+                <span>{itcBalance.toLocaleString()}</span>
+              </div>
+            )}
             <NavItem
               to="/cart"
               icon={<ShoppingCart className="w-5 h-5" />}

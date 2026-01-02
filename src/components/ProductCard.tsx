@@ -4,6 +4,7 @@ import { Sparkles, Loader2, ShoppingCart, Check } from 'lucide-react'
 import { socialService } from '../utils/social-service'
 import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
+import ProtectedImage from './ProtectedImage'
 import { useCart } from '../context/CartContext'
 import type { Product, SocialPost } from '../types'
 
@@ -107,7 +108,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
     >
       <div className="relative aspect-square overflow-hidden">
         <Link to={`/product/${product.id}`}>
-          <img
+          <ProtectedImage
             src={productImage}
             alt={product.name}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 transition-opacity"

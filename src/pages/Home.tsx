@@ -134,10 +134,10 @@ const Home: React.FC = () => {
     }
   }, [])
 
-  // Manual play handler for when autoplay fails
+  // Manual play handler for when autoplay fails - unmute since tap IS user interaction
   const handleVideoPlay = React.useCallback(() => {
     if (!videoRef.current) return
-    videoRef.current.muted = true // Always start muted for mobile
+    videoRef.current.muted = false // User tapped = interaction, can unmute
     videoRef.current.play()
       .then(() => setIsVideoPlaying(true))
       .catch((e) => console.log('Play blocked:', e))

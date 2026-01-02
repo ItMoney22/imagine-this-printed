@@ -1763,7 +1763,6 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Points</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">ITC Balance</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Joined</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
@@ -1789,8 +1788,12 @@ const AdminDashboard: React.FC = () => {
                           <option value="admin">Admin</option>
                         </select>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-amber-600">{user.points || 0}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-purple-600">{user.itcBalance || 0} ITC</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <img src="/itc-coin.png" alt="ITC" className="w-4 h-4" />
+                          <span className="text-sm font-medium text-purple-600">{(user.itcBalance || 0).toLocaleString()}</span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                         {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
                       </td>
@@ -2476,6 +2479,14 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-slate-100">
+                    {auditLogs.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                          <p className="text-lg font-medium">No audit logs yet</p>
+                          <p className="text-sm mt-1">Audit logs will appear here when actions are performed</p>
+                        </td>
+                      </tr>
+                    )}
                     {auditLogs.map((log) => {
                       const logUser = users.find(u => u.id === log.userId)
                       return (

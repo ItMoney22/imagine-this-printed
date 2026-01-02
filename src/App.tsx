@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
 import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
@@ -75,6 +76,17 @@ import CookieConsent from './components/CookieConsent'
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk']
 
+// Scroll to top on route change
+function ScrollToTop() {
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+
+  return null
+}
+
 // Layout component that conditionally shows sidebar
 function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
@@ -87,7 +99,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       {!isFullScreen && <MobileMenuButton />}
       <main
         className={`flex-1 min-w-0 overflow-x-hidden min-h-screen transition-all duration-300 ${
-          !isFullScreen ? (isCollapsed ? 'lg:ml-16' : 'lg:ml-60') : ''
+          !isFullScreen ? `pt-16 lg:pt-0 ${isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
         }`}
       >
         {children}
@@ -111,7 +123,8 @@ function App() {
               <MrImagineNotificationProvider>
                 <SidebarProvider>
                   <Router>
-                  <AppLayout>
+                    <ScrollToTop />
+                    <AppLayout>
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/login" element={<Login />} />

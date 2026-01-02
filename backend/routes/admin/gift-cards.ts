@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { nanoid } from 'nanoid'
 import dotenv from 'dotenv'
+import { sendGiftCardEmail } from '../../utils/email.js'
 
 dotenv.config()
 
@@ -114,7 +115,24 @@ router.post('/', async (req: Request, res: Response) => {
 
         if (error) throw error
 
-        res.json({ success: true, giftCard })
+        // Send email to recipient if recipient_email is provided
+        if (recipient_email && giftCard) {
+            try {
+                await sendGiftCardEmail({
+                    recipientEmail: recipient_email,
+                    senderName: sender_name || 'Imagine This Printed',
+                    giftCardCode: giftCard.code,
+                    itcAmount: giftCard.itc_amount,
+                    personalMessage: message
+                })
+                console.log(`Gift card email sent to ${recipient_email}`)
+            } catch (emailError) {
+                console.error('Failed to send gift card email:', emailError)
+                // Don't fail the request if email fails - gift card was still created
+            }
+        }
+
+        res.json({ success: true, giftCard, emailSent: !!recipient_email })
     } catch (error: any) {
         console.error('Error creating gift card:', error)
         res.status(500).json({ error: error.message })

@@ -4,6 +4,7 @@ import { Heart, Rocket, Eye, User, Store, Palette, Crown, BadgeCheck } from 'luc
 import type { CommunityPost } from '../../types'
 import { communityService } from '../../utils/community-service'
 import { useAuth } from '../../context/SupabaseAuthContext'
+import { useMrImagineNotify } from '../MrImagineNotification'
 import PaidBoostModal from './PaidBoostModal'
 
 interface CommunityPostCardProps {
