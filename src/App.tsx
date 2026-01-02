@@ -15,6 +15,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 // import ChatBotWidget from './components/ChatBotWidget' // Replaced with Mr. Imagine
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
+import { MrImagineNotificationProvider } from './components/MrImagineNotification'
 import { ToastContainer } from './components/ToastContainer'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -85,7 +86,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       {!isFullScreen && <Sidebar />}
       {!isFullScreen && <MobileMenuButton />}
       <main
-        className={`flex-1 min-h-screen transition-all duration-300 ${
+        className={`flex-1 min-w-0 overflow-x-hidden min-h-screen transition-all duration-300 ${
           !isFullScreen ? (isCollapsed ? 'lg:ml-16' : 'lg:ml-60') : ''
         }`}
       >
@@ -107,8 +108,9 @@ function App() {
         <CartProvider>
           <KioskAuthProvider>
             <ToastProvider>
-              <SidebarProvider>
-                <Router>
+              <MrImagineNotificationProvider>
+                <SidebarProvider>
+                  <Router>
                   <AppLayout>
                 <Routes>
                   <Route path="/" element={<Home />} />
@@ -218,7 +220,8 @@ function App() {
                   </Routes>
                   </AppLayout>
                 </Router>
-              </SidebarProvider>
+                </SidebarProvider>
+              </MrImagineNotificationProvider>
             </ToastProvider>
           </KioskAuthProvider>
         </CartProvider>
