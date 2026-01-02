@@ -24,45 +24,57 @@ router.get('/users', async (req: Request, res: Response): Promise<any> => {
       metadata: { search, limit, offset }
     })
 
-    let query = supabase
+    // First, get user profiles
+    let profileQuery = supabase
       .from('user_profiles')
-      .select(`
-        id,
-        username,
-        email,
-        role,
-        user_wallets (
-          itc_balance,
-          updated_at
-        )
-      `)
+      .select('id, username, email, role, created_at')
       .order('created_at', { ascending: false })
       .range(Number(offset), Number(offset) + Number(limit) - 1)
 
     // Apply search filter if provided
     if (search) {
-      query = query.or(`username.ilike.%${search}%,email.ilike.%${search}%`)
+      profileQuery = profileQuery.or(`username.ilike.%${search}%,email.ilike.%${search}%`)
     }
 
-    const { data: users, error, count } = await query
+    const { data: profiles, error: profileError } = await profileQuery
 
-    if (error) {
-      console.error('[admin/wallet/users] Error fetching users:', error)
+    if (profileError) {
+      console.error('[admin/wallet/users] Error fetching profiles:', profileError)
       logWalletError({
-        error: error.message,
+        error: profileError.message,
         userId: 'system',
         action: 'list',
         currency: 'itc',
         metadata: { adminId: adminId! }
       })
-      return res.status(500).json({ error: 'Failed to fetch user wallets' })
+      return res.status(500).json({ error: 'Failed to fetch user profiles' })
     }
+
+    // Then, get wallets for these users
+    const userIds = (profiles || []).map(p => p.id)
+    const { data: wallets, error: walletError } = await supabase
+      .from('user_wallets')
+      .select('user_id, itc_balance, updated_at')
+      .in('user_id', userIds.length > 0 ? userIds : ['none'])
+
+    if (walletError) {
+      console.error('[admin/wallet/users] Error fetching wallets:', walletError)
+    }
+
+    // Create a wallet map for easy lookup
+    const walletMap = new Map((wallets || []).map(w => [w.user_id, w]))
+
+    // Combine profiles with wallet data
+    const users = (profiles || []).map(profile => ({
+      ...profile,
+      user_wallets: walletMap.has(profile.id) ? [walletMap.get(profile.id)] : []
+    }))
 
     return res.json({
       ok: true,
-      users: users || [],
+      users,
       pagination: {
-        total: count,
+        total: profiles?.length || 0,
         limit: Number(limit),
         offset: Number(offset)
       }
