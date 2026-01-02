@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy, memo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star } from 'lucide-react'
+import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star, Play } from 'lucide-react'
 import { Hero } from '../components/Hero'
 import ProductCard from '../components/ProductCard'
 import type { Product } from '../types'
@@ -121,6 +121,7 @@ const Home: React.FC = () => {
   /* Scroll-triggered video logic */
   const videoRef = React.useRef<HTMLVideoElement>(null)
   const [hasUserInteracted, setHasUserInteracted] = React.useState(false)
+  const [isVideoPlaying, setIsVideoPlaying] = React.useState(false)
 
   // Track user interaction for unmuting
   React.useEffect(() => {
@@ -130,6 +131,37 @@ const Home: React.FC = () => {
     return () => {
       window.removeEventListener('click', handleInteraction)
       window.removeEventListener('touchstart', handleInteraction)
+    }
+  }, [])
+
+  // Manual play handler for when autoplay fails
+  const handleVideoPlay = React.useCallback(() => {
+    if (!videoRef.current) return
+    videoRef.current.muted = true // Always start muted for mobile
+    videoRef.current.play()
+      .then(() => setIsVideoPlaying(true))
+      .catch((e) => console.log('Play blocked:', e))
+  }, [])
+
+  // Track video play/pause state
+  React.useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const onPlay = () => setIsVideoPlaying(true)
+    const onPause = () => setIsVideoPlaying(false)
+
+    video.addEventListener('play', onPlay)
+    video.addEventListener('pause', onPause)
+
+    // Try to play immediately when component mounts (for mobile)
+    video.play()
+      .then(() => setIsVideoPlaying(true))
+      .catch(() => setIsVideoPlaying(false))
+
+    return () => {
+      video.removeEventListener('play', onPlay)
+      video.removeEventListener('pause', onPause)
     }
   }, [])
 
@@ -146,7 +178,12 @@ const Home: React.FC = () => {
               if (hasUserInteracted) {
                 videoRef.current.muted = false
               }
-              videoRef.current.play().catch((e) => console.log('Autoplay blocked:', e))
+              videoRef.current.play()
+                .then(() => setIsVideoPlaying(true))
+                .catch((e) => {
+                  console.log('Autoplay blocked:', e)
+                  setIsVideoPlaying(false)
+                })
             }
           } else {
             // Pause when out of view
@@ -360,16 +397,28 @@ const Home: React.FC = () => {
                 {/* Glow effect */}
                 <div className="absolute inset-0 bg-gradient-radial from-purple-400/30 via-purple-300/10 to-transparent rounded-full blur-3xl scale-150" />
 
-                <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20 border-2 sm:border-4 border-white/50 backdrop-blur-sm">
+                <div
+                  className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20 border-2 sm:border-4 border-white/50 backdrop-blur-sm cursor-pointer"
+                  onClick={handleVideoPlay}
+                >
                   <video
                     ref={videoRef}
                     src="/mr-imagine/welcome-video.mp4"
+                    poster="/mr-imagine/mr-imagine-standing-happy.png"
                     className="w-full h-auto object-cover"
                     playsInline
                     autoPlay
                     muted
                     loop
                   />
+                  {/* Play button overlay - shows when video isn't playing */}
+                  {!isVideoPlaying && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/90 flex items-center justify-center shadow-lg hover:scale-110 transition-transform">
+                        <Play className="w-8 h-8 sm:w-10 sm:h-10 text-purple-600 ml-1" fill="currentColor" />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Floating elements - Hidden on mobile */}
