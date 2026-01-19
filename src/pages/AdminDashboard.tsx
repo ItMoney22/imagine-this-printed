@@ -328,9 +328,18 @@ const AdminDashboard: React.FC = () => {
     setAiSuggesting(true)
     setAiSuggestion(null)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error('No auth session for AI suggest')
+        alert('Please log in again to use AI assist')
+        return
+      }
       const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/products/ai-suggest`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
         body: JSON.stringify({
           imageUrl: uploadedImages[0].url,
           category: productForm.category
@@ -339,9 +348,14 @@ const AdminDashboard: React.FC = () => {
       if (response.ok) {
         const data = await response.json()
         setAiSuggestion({ name: data.suggestedName, description: data.suggestedDescription })
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('AI suggest failed:', response.status, errorData)
+        alert('AI assist failed: ' + (errorData.error || 'Unknown error'))
       }
     } catch (error) {
       console.error('Error getting AI suggestion:', error)
+      alert('Failed to get AI suggestion')
     } finally {
       setAiSuggesting(false)
     }
@@ -866,6 +880,13 @@ const AdminDashboard: React.FC = () => {
     try {
       // For each product, fetch its assets and build images array
       const updatePromises = Array.from(selectedProducts).map(async (productId) => {
+        // Get the current product to preserve existing images if no assets
+        const { data: currentProduct } = await supabase
+          .from('products')
+          .select('images')
+          .eq('id', productId)
+          .single()
+
         // Get all assets for this product
         const { data: assets } = await supabase
           .from('product_assets')
@@ -874,17 +895,22 @@ const AdminDashboard: React.FC = () => {
           .order('created_at', { ascending: false })
 
         // Build images array: [mockups, source, nobg, upscaled]
-        const images: string[] = []
+        const assetImages: string[] = []
 
-        if (assets) {
+        if (assets && assets.length > 0) {
           // Prioritize mockups for display
           const mockups = assets.filter(a => a.kind === 'mockup').map(a => a.url)
           const upscaled = assets.filter(a => a.kind === 'upscaled').map(a => a.url)
           const nobg = assets.filter(a => a.kind === 'nobg').map(a => a.url)
           const source = assets.filter(a => a.kind === 'source').map(a => a.url)
 
-          images.push(...mockups, ...upscaled, ...nobg, ...source)
+          assetImages.push(...mockups, ...upscaled, ...nobg, ...source)
         }
+
+        // Use asset images if available, otherwise PRESERVE existing images
+        const finalImages = assetImages.length > 0
+          ? assetImages
+          : (currentProduct?.images || [])
 
         // Update product with images array and publish
         return supabase
@@ -892,7 +918,7 @@ const AdminDashboard: React.FC = () => {
           .update({
             status: 'active',
             is_active: true,
-            images: images.length > 0 ? images : []
+            images: finalImages
           })
           .eq('id', productId)
       })
@@ -960,23 +986,28 @@ const AdminDashboard: React.FC = () => {
           .eq('product_id', editingProductData.id)
           .order('created_at', { ascending: false })
 
-        const images: string[] = []
+        const assetImages: string[] = []
 
-        if (assets) {
+        if (assets && assets.length > 0) {
           const mockups = assets.filter(a => a.kind === 'mockup').map(a => a.url)
           const upscaled = assets.filter(a => a.kind === 'upscaled').map(a => a.url)
           const nobg = assets.filter(a => a.kind === 'nobg').map(a => a.url)
           const source = assets.filter(a => a.kind === 'source').map(a => a.url)
 
-          images.push(...mockups, ...upscaled, ...nobg, ...source)
+          assetImages.push(...mockups, ...upscaled, ...nobg, ...source)
         }
+
+        // Use asset images if available, otherwise PRESERVE existing images
+        const finalImages = assetImages.length > 0
+          ? assetImages
+          : (editingProductData.images || [])
 
         // Update both status and images
         const { error } = await supabase
           .from('products')
           .update({
             status: value,
-            images: images.length > 0 ? images : [],
+            images: finalImages,
             is_active: true
           })
           .eq('id', editingProductData.id)
@@ -986,7 +1017,7 @@ const AdminDashboard: React.FC = () => {
         setEditingProductData({
           ...editingProductData,
           status: value,
-          images: images,
+          images: finalImages,
           is_active: true
         })
       } else if (field === 'sizes' || field === 'colors') {
