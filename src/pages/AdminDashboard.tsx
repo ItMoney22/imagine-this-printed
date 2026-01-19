@@ -234,6 +234,11 @@ const AdminDashboard: React.FC = () => {
     if (!files || files.length === 0) return
     setUploadingImages(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error('No auth session for upload')
+        return
+      }
       const newImages: { url: string; file?: File }[] = []
       for (const file of Array.from(files)) {
         if (!file.type.startsWith('image/')) continue
@@ -242,6 +247,9 @@ const AdminDashboard: React.FC = () => {
         formData.append('folder', 'products')
         const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/upload-product-image`, {
           method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          },
           body: formData
         })
         if (response.ok) {
@@ -285,11 +293,19 @@ const AdminDashboard: React.FC = () => {
     if (!file) return
     setUploadingDigitalFile(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.error('No auth session for upload')
+        return
+      }
       const formData = new FormData()
       formData.append('file', file)
       formData.append('folder', 'digital-products')
       const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/upload-digital-file`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        },
         body: formData
       })
       if (response.ok) {

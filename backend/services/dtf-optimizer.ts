@@ -355,6 +355,9 @@ async function createGrungeTexture(width: number, height: number): Promise<Buffe
 /**
  * Build DTF-aware prompt with shirt color and print style rules
  * DEFAULT: Hyper-realistic style unless user specifies otherwise
+ *
+ * CRITICAL: This generates ONLY the artwork/design graphic - NEVER a garment/shirt/clothing.
+ * The mockup phase (later) applies the design to clothing.
  */
 export function buildDTFPrompt(
   userPrompt: string,
@@ -375,25 +378,39 @@ export function buildDTFPrompt(
     styleInstruction = 'STYLE: Create in HYPER-REALISTIC style with photorealistic details, dramatic lighting, and professional quality. Make it look like a real photograph or 3D render.'
   }
 
+  // CRITICAL: Strong instructions against generating clothing - this MUST come first
+  const criticalInstruction = `⚠️ CRITICAL REQUIREMENT - READ FIRST:
+You are creating a GRAPHIC DESIGN / ARTWORK ONLY.
+DO NOT generate any clothing, t-shirts, hoodies, tanks, garments, or apparel.
+DO NOT show the design "on" anything - just the design itself.
+DO NOT create a mockup or product image.
+Generate ONLY the artwork/illustration/design as an isolated graphic.
+The design will be printed onto clothing LATER - that is NOT your job.`
+
   // Main prompt - user's request + style
-  const mainPrompt = `CREATE THIS DESIGN: ${userPrompt}
+  const mainPrompt = `DESIGN TO CREATE: ${userPrompt}
 
 ${styleInstruction}
 
-Generate EXACTLY what the user described above. Follow their description precisely without adding or changing elements.`
+Generate EXACTLY what the user described above as an isolated design/artwork.`
 
-  // Output format - keep it simple
-  const outputFormat = `OUTPUT: Isolated artwork on TRANSPARENT background. No t-shirt or mockup - just the design. Centered, high resolution.`
+  // Output format - explicit about no clothing
+  const outputFormat = `OUTPUT REQUIREMENTS:
+- Isolated artwork on TRANSPARENT/CLEAN background
+- NO t-shirts, NO hoodies, NO clothing, NO garments, NO fabric
+- NO mockups, NO product images
+- Just the pure design/artwork/graphic centered in frame
+- High resolution, print-ready quality`
 
   // Color rules based on shirt
   let colorRules = ''
   if (shirtColor === 'black') {
-    colorRules = `COLORS: Avoid pure black (won't show on black fabric). Use bright, vibrant colors.`
+    colorRules = `COLOR GUIDANCE: Avoid pure black in the design (it won't show on black fabric). Use bright, vibrant, saturated colors that pop.`
   } else if (shirtColor === 'white') {
-    colorRules = `COLORS: Avoid pure white. Use colors with good contrast.`
+    colorRules = `COLOR GUIDANCE: Avoid pure white in the design. Use colors with good contrast against white fabric.`
   }
 
-  const parts = [mainPrompt, outputFormat]
+  const parts = [criticalInstruction, mainPrompt, outputFormat]
   if (colorRules) parts.push(colorRules)
 
   const finalPrompt = parts.join('\n\n')
