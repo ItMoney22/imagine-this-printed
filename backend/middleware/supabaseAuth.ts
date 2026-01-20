@@ -118,7 +118,7 @@ export function requireRole(allowedRoles: string[]) {
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('role')
-        .eq('user_id', req.user.sub)
+        .eq('id', req.user.sub)  // user_profiles.id matches Supabase auth user id
         .single();
 
       if (profile?.role) {
