@@ -42,9 +42,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     console.log("[auth] ✅ JWT verified successfully");
 
-    // Extract role from user_metadata if available
+    // Extract app role from user_metadata if available
+    // NOTE: payload.role is the Supabase auth role ("authenticated"/"anon"), NOT the app role.
+    // Only use user_metadata.role; otherwise leave undefined so requireRole() does a DB lookup.
     const userMetadata = payload.user_metadata as any;
-    const role = userMetadata?.role || (typeof payload.role === "string" ? payload.role : undefined);
+    const role = userMetadata?.role || undefined;
 
     req.user = {
       sub: String(payload.sub ?? ""),
@@ -85,9 +87,11 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       issuer: `https://${new URL(SUPABASE_URL).host}/auth/v1`,
     });
 
-    // Extract role from user_metadata if available
+    // Extract app role from user_metadata if available
+    // NOTE: payload.role is the Supabase auth role ("authenticated"/"anon"), NOT the app role.
+    // Only use user_metadata.role; otherwise leave undefined so requireRole() does a DB lookup.
     const userMetadata = payload.user_metadata as any;
-    const role = userMetadata?.role || (typeof payload.role === "string" ? payload.role : undefined);
+    const role = userMetadata?.role || undefined;
 
     req.user = {
       sub: String(payload.sub ?? ""),

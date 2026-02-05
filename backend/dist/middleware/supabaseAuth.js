@@ -23,7 +23,7 @@ export async function requireAuth(req, res, next) {
         });
         console.log("[auth] ✅ JWT verified successfully");
         const userMetadata = payload.user_metadata;
-        const role = userMetadata?.role || (typeof payload.role === "string" ? payload.role : undefined);
+        const role = userMetadata?.role || undefined;
         req.user = {
             sub: String(payload.sub ?? ""),
             email: typeof payload.email === "string" ? payload.email : undefined,
@@ -53,7 +53,7 @@ export async function optionalAuth(req, res, next) {
             issuer: `https://${new URL(SUPABASE_URL).host}/auth/v1`,
         });
         const userMetadata = payload.user_metadata;
-        const role = userMetadata?.role || (typeof payload.role === "string" ? payload.role : undefined);
+        const role = userMetadata?.role || undefined;
         req.user = {
             sub: String(payload.sub ?? ""),
             email: typeof payload.email === "string" ? payload.email : undefined,
@@ -76,7 +76,7 @@ export function requireRole(allowedRoles) {
             const { data: profile } = await supabase
                 .from('user_profiles')
                 .select('role')
-                .eq('user_id', req.user.sub)
+                .eq('id', req.user.sub)
                 .single();
             if (profile?.role) {
                 req.user.role = profile.role;
