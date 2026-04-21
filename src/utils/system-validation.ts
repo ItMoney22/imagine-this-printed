@@ -90,30 +90,21 @@ export class SystemValidator {
   }
 
   async validateOpenAI(): Promise<ValidationResult> {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY
-    
-    if (!apiKey || apiKey.includes('your_openai')) {
-      return {
-        service: 'OpenAI',
-        status: 'error',
-        message: 'OpenAI API key not configured'
-      }
-    }
-
+    // OpenAI key is server-side only. Validate by probing the backend chat endpoint.
     try {
       const testMessage = await chatbotService.sendMessage('Hello, this is a test')
-      
+
       return {
         service: 'OpenAI',
         status: 'success',
-        message: 'OpenAI chatbot responding',
+        message: 'OpenAI backend responding',
         details: { testResponse: testMessage.content.substring(0, 50) + '...' }
       }
     } catch (error) {
       return {
         service: 'OpenAI',
         status: 'error',
-        message: 'OpenAI API call failed',
+        message: 'OpenAI backend call failed',
         details: String(error)
       }
     }

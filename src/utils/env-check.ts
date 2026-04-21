@@ -17,13 +17,11 @@ export const checkEnvironment = () => {
   // Database configuration
   const databaseUrl = import.meta.env.DATABASE_URL
   const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
-  const openaiKey = import.meta.env.VITE_OPENAI_API_KEY
-  
+
   console.log('🔧 Service Configuration:', {
     databaseUrl: databaseUrl ? '[CONFIGURED]' : '[NOT CONFIGURED]',
     hasStripeKey: !!stripeKey,
     stripeMode: stripeKey?.startsWith('pk_live_') ? 'LIVE' : stripeKey?.startsWith('pk_test_') ? 'TEST' : 'UNKNOWN',
-    hasOpenAIKey: !!openaiKey,
     hasAWSCredentials: !!(import.meta.env.AWS_ACCESS_KEY_ID && import.meta.env.AWS_SECRET_ACCESS_KEY)
   })
   

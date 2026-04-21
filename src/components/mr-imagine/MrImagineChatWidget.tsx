@@ -108,14 +108,6 @@ export const MrImagineChatWidget: React.FC = () => {
     setTimeout(() => setExpression('default'), 1000)
   }
 
-  // Don't render if no API key
-  if (
-    !import.meta.env.VITE_OPENAI_API_KEY ||
-    import.meta.env.VITE_OPENAI_API_KEY === 'your_openai_api_key_here'
-  ) {
-    return null
-  }
-
   return (
     <div className="fixed bottom-4 right-4 z-50">
       {/* Chat Panel */}

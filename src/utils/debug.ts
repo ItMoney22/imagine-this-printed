@@ -23,7 +23,6 @@ export const logEnvironmentInfo = () => {
     prod: import.meta.env.PROD,
     databaseUrl: import.meta.env.DATABASE_URL ? '[CONFIGURED]' : '[NOT CONFIGURED]',
     hasStripeKey: !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
-    hasOpenAIKey: !!import.meta.env.VITE_OPENAI_API_KEY,
     hasAWSCredentials: !!(import.meta.env.AWS_ACCESS_KEY_ID && import.meta.env.AWS_SECRET_ACCESS_KEY),
     userAgent: navigator.userAgent,
     url: window.location.href
