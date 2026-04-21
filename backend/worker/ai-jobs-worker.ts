@@ -3,8 +3,6 @@ import { generateProductImage, generateMockup, removeBackground, upscaleImage, g
 import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
-// Gemini mockup import removed - now using Replicate NanoBanana for all mockups
-// import { generateMockup as generateGeminiMockup } from '../services/vertex-ai-mockup.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
@@ -122,62 +120,6 @@ async function getProductSlug(productId: string): Promise<string> {
       .replace(/(^-|-$)/g, '')
   }
   return productId.substring(0, 8) // Fallback to short ID
-}
-
-// Helper to auto-queue mockup job after image generation
-async function autoQueueMockupJob(imageJob: any) {
-  try {
-    console.log('[worker] 🎭 Auto-queueing Mr. Imagine mockup job for product:', imageJob.product_id)
-
-    // Get product category for mockup type
-    const { data: product } = await supabase
-      .from('products')
-      .select('category')
-      .eq('id', imageJob.product_id)
-      .single()
-
-    // Check if mockup job already exists for this product
-    const { data: existingMockupJobs } = await supabase
-      .from('ai_jobs')
-      .select('id')
-      .eq('product_id', imageJob.product_id)
-      .eq('type', 'replicate_mockup')
-      .limit(1)
-
-    if (existingMockupJobs && existingMockupJobs.length > 0) {
-      console.log('[worker] ⏭️ Mockup job already exists, skipping auto-queue')
-      return
-    }
-
-    // Create mockup job with Mr. Imagine
-    const mockupJob = {
-      product_id: imageJob.product_id,
-      type: 'replicate_mockup',
-      status: 'queued',
-      input: {
-        template: 'flat_lay',
-        product_type: product?.category || 'shirts',
-        // Pass DTF settings from original image job
-        productType: imageJob.input?.productType || 'tshirt',
-        shirtColor: imageJob.input?.shirtColor || 'black',
-        printPlacement: imageJob.input?.printPlacement || 'front-center',
-      },
-    }
-
-    const { data: createdJob, error: jobError } = await supabase
-      .from('ai_jobs')
-      .insert(mockupJob)
-      .select()
-      .single()
-
-    if (jobError) {
-      console.error('[worker] ❌ Failed to auto-queue mockup job:', jobError)
-    } else {
-      console.log('[worker] ✅ Auto-queued Mr. Imagine mockup job:', createdJob.id)
-    }
-  } catch (error: any) {
-    console.error('[worker] ❌ Error auto-queueing mockup job:', error.message)
-  }
 }
 
 // Helper to apply DTF optimization and upload optimized PNG

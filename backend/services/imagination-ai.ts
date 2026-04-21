@@ -151,11 +151,17 @@ export class ImaginationAIService {
     // Check if prompt is already DTF-formatted (from MrImagineModal)
     // If it contains DTF critical requirements, use as-is
     // Otherwise, apply the legacy style enhancement
+    //
+    // NOTE: This endpoint is prompt-type-agnostic (DTF, sublimation, gang-sheet
+    // all share the same code path). Transparent background is ALWAYS required
+    // for printable graphics, so we append the hint unconditionally — even on
+    // the DTF-formatted branch — as defense-in-depth in case upstream prompt
+    // building ever drops it.
     let enhancedPrompt: string;
     if (prompt.includes('CRITICAL REQUIREMENTS') || prompt.includes('DO NOT include any t-shirt')) {
-      // DTF-formatted prompt from frontend - use as-is
+      // DTF-formatted prompt from frontend - use as-is, but still enforce transparency
       console.log('[imagination-ai] Using DTF-formatted prompt from frontend');
-      enhancedPrompt = prompt;
+      enhancedPrompt = `${prompt}\n\nMANDATORY: transparent background, PNG with alpha channel.`;
     } else {
       // Legacy prompt - add style suffix
       const styleConfig = AI_STYLES.find(s => s.key === style) || AI_STYLES[0];

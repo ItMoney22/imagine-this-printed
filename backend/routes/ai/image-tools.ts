@@ -44,9 +44,12 @@ router.post('/upscale', requireAuth, async (req: Request, res: Response): Promis
 
     res.json({
       ok: true,
+      processedUrl: output,
+      originalUrl: image_url,
+      scale,
+      // Legacy aliases — keep for one release to avoid breaking live callers
       upscaled_url: output,
       original_url: image_url,
-      scale
     })
   } catch (error: any) {
     console.error('[image-tools] ❌ Upscale error:', error)
@@ -84,6 +87,9 @@ router.post('/remove-background', requireAuth, async (req: Request, res: Respons
 
     res.json({
       ok: true,
+      processedUrl: output,
+      originalUrl: image_url,
+      // Legacy aliases — keep for one release to avoid breaking live callers
       result_url: output,
       original_url: image_url,
     })
@@ -123,6 +129,9 @@ router.post('/enhance', requireAuth, async (req: Request, res: Response): Promis
 
     res.json({
       ok: true,
+      processedUrl: output,
+      originalUrl: image_url,
+      // Legacy aliases — keep for one release to avoid breaking live callers
       enhanced_url: output,
       original_url: image_url,
     })

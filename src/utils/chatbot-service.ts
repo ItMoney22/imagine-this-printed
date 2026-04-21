@@ -1,10 +1,4 @@
-import OpenAI from 'openai'
 import { apiFetch } from '../lib/api'
-
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true
-})
 
 export interface ChatMessage {
   id: string
@@ -80,7 +74,7 @@ export class ChatbotService {
     this.addMessage({
       id: 'welcome',
       role: 'assistant',
-      content: "Hey! 👋 Need help with anything? I'm here to assist with orders, design tools, vendor questions, or anything else about ImagineThisPrinted!",
+      content: "Hey! Need help with anything? I'm here to assist with orders, design tools, vendor questions, or anything else about ImagineThisPrinted!",
       timestamp: new Date()
     })
   }
@@ -104,32 +98,25 @@ export class ChatbotService {
     this.addMessage(userMsg)
 
     try {
-      const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-        { role: 'system', content: SYSTEM_PROMPT }
-      ]
+      // Build history for the backend (exclude the system role messages)
+      const historyForBackend = this.conversationHistory
+        .filter(msg => msg.role !== 'system')
+        .map(msg => ({ role: msg.role, content: msg.content }))
 
-      this.conversationHistory.forEach(msg => {
-        if (msg.role !== 'system') {
-          messages.push({
-            role: msg.role as 'user' | 'assistant',
-            content: msg.content
-          })
-        }
-      })
-
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages,
-        max_tokens: 300,
-        temperature: 0.7,
-        presence_penalty: 0.1,
-        frequency_penalty: 0.1
+      const data = await apiFetch('/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          message: userMessage,
+          systemPrompt: SYSTEM_PROMPT,
+          model: 'gpt-3.5-turbo',
+          history: historyForBackend,
+        }),
       })
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: completion.choices[0].message.content || 'Sorry, I had trouble generating a response. Please try again!',
+        content: data.response || "Sorry, I had trouble generating a response. Please try again!",
         timestamp: new Date()
       }
 
@@ -141,19 +128,19 @@ export class ChatbotService {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "I'm having some technical difficulties right now. Let me connect you with our human support team who can help you out! 🔧",
+        content: "I'm having some technical difficulties right now. Let me connect you with our human support team who can help you out!",
         timestamp: new Date()
       }
-      
+
       this.addMessage(errorMessage)
-      
+
       await this.escalateToHuman({
         userName,
         originalQuestion: userMessage,
         conversationLog: this.conversationHistory,
         timestamp: new Date()
       })
-      
+
       return errorMessage
     }
   }
@@ -168,7 +155,7 @@ export class ChatbotService {
       'speak to someone', 'talk to human'
     ]
 
-    return escalationKeywords.some(keyword => 
+    return escalationKeywords.some(keyword =>
       message.toLowerCase().includes(keyword.toLowerCase())
     )
   }
@@ -180,7 +167,7 @@ export class ChatbotService {
       await apiFetch('/api/send-support-email', {
         method: 'POST',
         body: JSON.stringify({
-          to: import.meta.env.SUPPORT_EMAIL || 'support@imaginethisprinted.com',
+          to: 'support@imaginethisprinted.com',
           subject: `Customer Support Request - ${request.userName || 'Guest User'}`,
           body: emailBody,
           customerInfo: {
@@ -217,7 +204,7 @@ export class ChatbotService {
     })
 
     email += `\n\nPlease follow up with the customer as soon as possible.`
-    
+
     return email
   }
 
@@ -226,7 +213,7 @@ export class ChatbotService {
     this.addMessage({
       id: 'welcome-reset',
       role: 'assistant',
-      content: "Hey! 👋 Need help with anything? I'm here to assist with orders, design tools, vendor questions, or anything else about ImagineThisPrinted!",
+      content: "Hey! Need help with anything? I'm here to assist with orders, design tools, vendor questions, or anything else about ImagineThisPrinted!",
       timestamp: new Date()
     })
   }
