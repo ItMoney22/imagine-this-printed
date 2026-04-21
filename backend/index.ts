@@ -25,6 +25,7 @@ import voiceRouter from './routes/ai/voice.js'
 import conciergeAvatarRouter from './routes/ai/concierge-avatar.js'
 import transcribeRouter from './routes/ai/transcribe.js'
 import chatRouter from './routes/ai/chat.js'
+import designAssistantRouter from './routes/ai/design-assistant.js'
 import voiceChatRouter from './routes/ai/voice-chat.js'
 import mrImagineChatRouter from './routes/ai/mr-imagine-chat.js'
 import imageToolsRouter from './routes/ai/image-tools.js'
@@ -86,7 +87,6 @@ logger.info({
     JWT_SECRET: !!process.env.JWT_SECRET,
     REPLICATE_API_TOKEN: !!process.env.REPLICATE_API_TOKEN,
     REPLICATE_API_KEY: !!process.env.REPLICATE_API_KEY,
-    REPLICATE_PRODUCT_MODEL_ID: process.env.REPLICATE_PRODUCT_MODEL_ID,
     REPLICATE_TRYON_MODEL_ID: process.env.REPLICATE_TRYON_MODEL_ID,
     OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
     GCS_PROJECT_ID: process.env.GCS_PROJECT_ID,
@@ -165,6 +165,7 @@ app.use('/api/ai/voice', voiceRouter)
 app.use('/api/ai/concierge', conciergeAvatarRouter)
 app.use('/api/ai/transcribe', transcribeRouter)
 app.use('/api/ai/chat', chatRouter)
+app.use('/api/ai/design-assistant', designAssistantRouter)
 app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
 app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background, enhance
