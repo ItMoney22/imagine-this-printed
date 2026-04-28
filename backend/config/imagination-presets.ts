@@ -69,11 +69,17 @@ export const CANVAS_SETTINGS = {
   autoSaveCloudMs: 60000,  // 60 seconds
 };
 
+// Keep keys in sync with `STYLE_PRESETS` in src/components/CreateDesignModal.tsx.
+// Missing keys silently fall back to `realistic` (see imagination-ai.ts:168),
+// so adding a style on the frontend without adding it here defeats the
+// per-style prompt suffix. Always pair frontend + backend changes.
 export const AI_STYLES = [
   { key: 'realistic', label: 'Realistic', prompt_suffix: 'photorealistic, high detail, professional photography' },
   { key: 'cartoon', label: 'Cartoon', prompt_suffix: 'cartoon style, vibrant colors, bold outlines' },
-  { key: 'vintage', label: 'Vintage', prompt_suffix: 'vintage style, retro, aged paper texture, nostalgic' },
   { key: 'minimalist', label: 'Minimalist', prompt_suffix: 'minimalist design, clean lines, simple shapes' },
+  { key: 'vintage', label: 'Vintage', prompt_suffix: 'vintage style, retro, aged paper texture, nostalgic' },
+  { key: 'cyberpunk', label: 'Cyberpunk', prompt_suffix: 'cyberpunk style, neon glow, futuristic, dark atmosphere, holographic accents' },
+  { key: 'fantasy', label: 'Fantasy', prompt_suffix: 'fantasy art style, ethereal lighting, magical, mythical creatures, painterly detail' },
   { key: 'vaporwave', label: 'Vaporwave', prompt_suffix: 'vaporwave aesthetic, neon colors, 80s retro futurism' },
 ];
 

@@ -1,10 +1,44 @@
 import { Router, Request, Response } from 'express'
 import OpenAI from 'openai'
+import { requireAuth } from '../../middleware/supabaseAuth.js'
 
 const router = Router()
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+})
+
+// Per-user rate limit for the OpenAI-backed design assistant. All callers are
+// authenticated (frontend reaches these via apiFetch which attaches the JWT;
+// the design tool itself is behind ProtectedRoute) so we key by req.user.sub.
+// Without this, a buggy retry loop or a logged-in attacker could rack up
+// real OpenAI bills.
+const designAssistRateLimit = new Map<string, { count: number; resetAt: number }>()
+const DESIGN_LIMIT = 30 // requests per minute per user
+const DESIGN_WINDOW_MS = 60_000
+
+function checkDesignAssistRateLimit(userId: string): boolean {
+  const now = Date.now()
+  const state = designAssistRateLimit.get(userId)
+  if (!state || state.resetAt < now) {
+    designAssistRateLimit.set(userId, { count: 1, resetAt: now + DESIGN_WINDOW_MS })
+    return true
+  }
+  if (state.count >= DESIGN_LIMIT) return false
+  state.count++
+  return true
+}
+
+// Shared guard: requireAuth + rate-limit applied to every design-assistant
+// route below. Mounting at the router level keeps the per-route handlers
+// untouched and makes it impossible to forget on a new route.
+router.use(requireAuth, (req: Request, res: Response, next) => {
+  const userId = req.user?.sub
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+  if (!checkDesignAssistRateLimit(userId)) {
+    return res.status(429).json({ error: 'Too many design assistant requests — slow down' })
+  }
+  next()
 })
 
 const DESIGN_SYSTEM_PROMPT =

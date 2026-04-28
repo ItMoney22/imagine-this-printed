@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Sparkles, ShoppingCart, Zap } from 'lucide-react'
+import { Sparkles, ShoppingCart, Zap, Check } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
+import { getColorName, isLightSwatch } from '../utils/color-presets'
 import type { Product } from '../types'
 
 const ProductPage: React.FC = () => {
@@ -240,19 +241,20 @@ const ProductPage: React.FC = () => {
                   <div className="flex flex-wrap gap-2">
                     {displaySizes.map(size => {
                       const isPlusSize = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                      const isSelected = selectedSize === size
                       return (
                         <button
                           key={size}
                           onClick={() => setSelectedSize(size)}
-                          className={`px-4 py-2 rounded-md border transition-colors relative group ${selectedSize === size
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-gray-700 hover:border-gray-500 text-text'
+                          className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
+                            ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
+                            : 'border-gray-700 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
                             } ${isPlusSize ? 'pr-6' : ''}`}
                           title={isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
                         >
                           {size}
                           {isPlusSize && (
-                            <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-amber-400 font-medium">
+                            <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-amber-400'}`}>
                               +$
                             </span>
                           )}
@@ -266,20 +268,40 @@ const ProductPage: React.FC = () => {
 
             {product.colors && product.colors.length > 0 && (
               <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">Color</label>
+                <label className="block text-sm font-medium text-text mb-2">
+                  Color
+                  {selectedColor && (
+                    <span className="ml-2 text-muted font-normal">— {getColorName(selectedColor)}</span>
+                  )}
+                </label>
                 <div className="flex flex-wrap gap-2">
-                  {product.colors.map(color => (
-                    <button
-                      key={color}
-                      onClick={() => setSelectedColor(color)}
-                      className={`px-4 py-2 rounded-md border transition-colors ${selectedColor === color
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-gray-700 hover:border-gray-500 text-text'
+                  {product.colors.map(color => {
+                    const label = getColorName(color)
+                    const isSelected = selectedColor === color
+                    return (
+                      <button
+                        key={color}
+                        onClick={() => setSelectedColor(color)}
+                        title={label}
+                        aria-label={`Select ${label}`}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all ${
+                          isSelected
+                            ? 'border-primary bg-primary/10 text-text ring-2 ring-primary/30'
+                            : 'border-gray-700 hover:border-gray-500 text-text'
                         }`}
-                    >
-                      {color}
-                    </button>
-                  ))}
+                      >
+                        <span
+                          className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: color }}
+                        >
+                          {isSelected && (
+                            <Check className={`w-3.5 h-3.5 ${isLightSwatch(color) ? 'text-slate-800' : 'text-white'}`} />
+                          )}
+                        </span>
+                        <span className="text-sm">{label}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}

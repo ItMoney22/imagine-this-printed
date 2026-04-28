@@ -24,7 +24,7 @@ Legend: 🔴 Broken | 🟡 Confusing/UX | 🟢 Works well | ⚡ Speed issue
 | 13 | 3D Models & Printing | ✅ 2026-04-28 (re-audit) |
 | 14 | Mockup & Preview Generation | ✅ 2026-04-28 (re-audit) |
 | 15 | Wholesale Portal | ✅ 2026-04-28 (re-audit) |
-| 16 | AI & Voice Features | ✅ |
+| 16 | AI & Voice Features | ✅ 2026-04-28 (re-audit) |
 | 17 | Kiosk Mode | ✅ |
 | 18 | User Profiles & Accounts | ✅ |
 | 19 | Order Management | ✅ |
@@ -2095,5 +2095,55 @@ The headline win is the 5x speedup on `MockupPreview` initial paint — sequenti
 
 ### Verdict
 The wholesale portal is unchanged in substance since 2026-03-13 — still ~80% mock with a non-functional application form and four stub tabs. One real auth gap closed this cycle (`<ProtectedRoute>` wrapping). Everything else needs the backend to exist first; ordering work behind that dependency is correct.
+
+---
+
+## AI & Voice Features — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 13 findings from 2026-03-13 + scan for new bugs in `chatbot-service.ts`, `gpt-assistant.ts`, `MrImagineChatWidget.tsx`, `mr-imagine/*`, `VoiceConversationEnhanced.tsx`, `VoiceProductForm.tsx`, `admin/VoiceSettings.tsx`, `backend/routes/ai/*.ts`. Several of the original findings have already been fixed by deletes / earlier cycles — verified each.
+
+### Status of 2026-03-13 findings
+- 🟢 **PARTIALLY RESOLVED — OpenAI key in browser** — `chatbot-service.ts` no longer uses `dangerouslyAllowBrowser: true`. The remaining `'gpt-3.5-turbo'` literal at line 111 is a hardcoded model string but no longer a key-exposure issue.
+- ✅ **FIXED — `/api/ai/chat` now auth + allowlisted** — `backend/routes/ai/chat.ts` mounted with `optionalAuth` + `ALLOWED_MODELS = {gpt-4o, gpt-4o-mini}` + per-IP rate limit (20/min anon, 60/min authed). Closed earlier this session.
+- 🔴 **STILL OPEN — `/api/ai/voice/settings` 404** — Cycle #5 re-audit confirmed the route still doesn't exist. Frontend `AdminVoiceSettings` calls a missing endpoint. Carryover.
+- 🟡 **PARTIAL — Voice synthesis rate-limit** — `/api/ai/voice/synthesize` has `requireAuth` but no per-user throttle. 10K-char limit caps damage but a logged-in attacker could still rack up paid TTS.
+- ✅ **DELETED — `ChatBotWidget.tsx`** — Removed in cycle #30.
+- 🟡 **STILL OPEN — Duplicate avatar rendering** — `MrImagineAvatar`, `MrImagineHero`, chat widget all render the character. Cosmetic.
+- ✅ **DELETED — `VoiceConversation.tsx`** — Removed cycle #10 re-audit. Misleading "LISTENING…" UI gone.
+- 🟡 **STILL OPEN — Chat widget always visible** — `MrImagineChatWidget` mounts on every page; no per-page hide.
+- 🟡 **STILL OPEN — `gpt-assistant.ts` mock fallbacks** — 117 lines of hardcoded demo responses bundled even in prod.
+- ⚡ **STILL OPEN — Framer Motion always bundled** — `MrImagineChatWidget.tsx:3`. ~45KB.
+- ⚡ **STILL OPEN — 2s polling, no backoff** — `MrImagineChatWidget.tsx:208`. Same finding flagged in cycles #10 and #30.
+- ⚡ **STILL OPEN — `MrImagineAvatar` lazy loading** — `mr-imagine/MrImagineAvatar.tsx:94-111` no `loading="lazy"`.
+- ✅ **GONE — Wave animation array** — Lived in deleted `VoiceConversation.tsx`.
+
+### New issues found
+- 🔴 **WAS OPEN — `/api/ai/design-assistant/*` had NO auth** — `backend/routes/ai/design-assistant.ts` mounted FIVE routes (`/suggestions`, `/analyze`, `/color-palettes`, `/typography`, `/chat`) at lines 30, 78, 132, 165, 200 with zero middleware. Every endpoint hits OpenAI directly with the server's API key. Anyone discovering the path could spam them. Same cost-vector class as the original `/api/ai/chat` issue but on a separate router.
+  - **Fix applied:** Added `router.use(requireAuth, ...)` at the top of the file with a per-user rate limit (30 req/min keyed on `req.user.sub`, mirrors the `account.ts` pattern). Mounting at the router level means new routes added to this file inherit the guard automatically — can't forget it on the next endpoint.
+  - File: `backend/routes/ai/design-assistant.ts:1-43`
+- 🔴 **WAS OPEN — `mr-imagine/MrImagineChatWidget.tsx` was 315 lines of dead code** — Nested duplicate of the root `MrImagineChatWidget.tsx`. Confirmed via grep: zero imports across `src/`. Flagged in original 2026-03-13 audit, never deleted.
+  - **Fix applied:** Deleted. Total dead-code removal across audit cycles now: ChatBotWidget (210) + FloatingCart (125) + VoiceConversation (174) + nested MrImagineChatWidget (315) = **824 lines** of dead components removed.
+- 🟡 **STILL OPEN — `VoiceProductForm.tsx:43` hardcodes `'gpt-4o'`** — Earlier this cycle I changed it from invalid `'gpt-5.1'` to `'gpt-4o'`. The cleaner long-term fix is to drop the model field entirely so the backend allowlist is the single source of truth. Defer.
+- 🟡 **STILL OPEN — `replicate-callback.ts` auth check** — Webhook endpoint should be public but must verify a signature. Worth a focused review pass.
+
+### Fixes Applied
+- ✅ `backend/routes/ai/design-assistant.ts` — `requireAuth` + 30-req/min/user rate limit applied at router level; closes a 5-route cost vector.
+- ✅ Deleted `src/components/mr-imagine/MrImagineChatWidget.tsx` (315 lines, 0 imports).
+- API:200 Web:200 post-edits.
+
+### Deferred (carry forward)
+- Add `/api/ai/voice/settings` GET/POST routes (still 404 since 2026-03-13).
+- Per-user rate-limit on `/api/ai/voice/synthesize` (paid TTS).
+- Lazy-load Framer Motion in `MrImagineChatWidget` (only mount when chat opens).
+- Replace 2s polling with SSE/websocket OR exponential backoff + visibility-aware pause.
+- Add `loading="lazy"` to `MrImagineAvatar` `<img>` tags.
+- Remove `gpt-assistant.ts` 117-line mock fallback block from prod bundle (or gate behind a dev-only flag).
+- Hide chat widget on routes where it makes no sense (admin, kiosk, checkout success).
+- Drop hardcoded model field in `VoiceProductForm.tsx:43`; let backend default apply.
+- Audit `/api/ai/replicate-callback` signature verification.
+- Consolidate triple avatar renderers into one shared component.
+
+### Verdict
+The two security-class items (design-assistant auth, dead chat widget) are closed; with chat.ts already covered by the earlier cycle, all OpenAI-backed routes now have either `requireAuth` or `optionalAuth` plus a rate-limit. Dead-code total since the audit started: 824 lines across four components. Remaining work is performance polish (lazy Framer Motion, SSE for polling) and the long-pending `/voice/settings` endpoint.
 
 ---

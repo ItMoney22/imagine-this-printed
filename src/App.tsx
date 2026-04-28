@@ -15,6 +15,7 @@ import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
+import FloatingCart from './components/FloatingCart'
 import { MrImagineNotificationProvider } from './components/MrImagineNotification'
 import { ToastContainer } from './components/ToastContainer'
 import Home from './pages/Home'
@@ -106,6 +107,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
       {!isFullScreen && <MrImagineChatWidget />}
       <MrImagineCartNotification />
+      <FloatingCart />
       <ToastContainer />
       <CookieConsent />
     </div>

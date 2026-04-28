@@ -13,7 +13,7 @@ const router = Router()
 // Server-controlled allowlist. Mr. Imagine intentionally serves anonymous
 // visitors, but we cannot let the client pick the model — that's a wide-open
 // cost vector (e.g. someone passing 'o1-pro' on every request).
-const ALLOWED_MODELS = new Set(['gpt-4o', 'gpt-4o-mini'])
+const ALLOWED_MODELS = new Set(['gpt-4o', 'gpt-4.1-mini', 'gpt-4o-mini'])
 const DEFAULT_MODEL = 'gpt-4o'
 
 // Per-IP rate limit for anonymous callers. Authenticated users are

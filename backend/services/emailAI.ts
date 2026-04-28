@@ -127,7 +127,7 @@ ${context.itcAmount ? `ITC Purchased: ${context.itcAmount}` : ''}
 Make it personal, creative, and memorable. This should feel like it came from a friend, not a robot.`
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }

@@ -37,9 +37,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const colors: string[] = product.colors || product.metadata?.colors || []
   const hasColors = colors.length > 0
 
-  // Quick Add is satisfied when every required selection is made.
+  // Quick Add is satisfied when every visible picker has been answered.
+  // Size picker always shows during Quick Add (uses default sizes when the
+  // product has none explicit), so size always needs to be picked. Color
+  // picker only shows when the product has colors, so color is conditional.
   const colorSatisfied = !hasColors || !!selectedColor
-  const sizeSatisfied = !hasSizes || !!selectedSize
+  const sizeSatisfied = !!selectedSize
   const readyToAdd = colorSatisfied && sizeSatisfied
 
   useEffect(() => {
@@ -213,8 +216,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           )}
         </div>
 
-        {/* Quick Size Picker */}
-        {showSizePicker && hasSizes && (
+        {/* Quick Size Picker — always shown during Quick Add (uses default
+            sizes if the product has none explicitly set, matching prior UX). */}
+        {showSizePicker && (
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-muted font-medium">Select Size:</p>

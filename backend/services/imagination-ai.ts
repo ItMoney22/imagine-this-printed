@@ -177,16 +177,18 @@ export class ImaginationAIService {
         await pricingService.consumeFreeTrial(userId, 'generate');
       }
 
-      // Call Replicate Recraft V4 — design-first model with much less aggressive NSFW filter
-      // than Flux 1.1 Pro. Strong on graphic design, print-ready output.
-      console.log('[imagination-ai] generateImage using Recraft V4');
+      // Call Replicate Flux 1.1 Pro Ultra — current default across the platform
+      // (matches user-products.ts:608). Higher resolution and stronger artistic
+      // detail than Recraft V4; same model the admin product flow already uses
+      // so customer + admin output stays visually consistent.
+      console.log('[imagination-ai] generateImage using Flux 1.1 Pro Ultra');
       const output = await replicate.run(
-        "recraft-ai/recraft-v4" as `${string}/${string}`,
+        "black-forest-labs/flux-1.1-pro-ultra" as `${string}/${string}`,
         {
           input: {
             prompt: enhancedPrompt,
-            size: "1024x1024",
-            style: "any",
+            aspect_ratio: "1:1",
+            output_format: "png",
           }
         }
       );
@@ -220,7 +222,7 @@ export class ImaginationAIService {
           width: 100,
           height: 100,
           z_index: Date.now(),
-          metadata: { prompt, style, model: 'flux-1.1-pro' }
+          metadata: { prompt, style, model: 'black-forest-labs/flux-1.1-pro-ultra' }
         })
         .select()
         .single();

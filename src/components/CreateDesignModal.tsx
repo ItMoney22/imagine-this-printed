@@ -28,14 +28,24 @@ const ITC_COSTS = {
   reimagine: 10
 }
 
-// Style presets for quick selection
+// Style presets for quick selection. `previewUrl` images are pre-rendered
+// once via Flux 1.1 Pro Ultra (the same model the live /api/imagination-station/ai/generate
+// endpoint uses) so users see EXACTLY what each style produces, not an emoji
+// guess. Regenerate via: `cd backend && npx tsx --env-file=.env scripts/generate-style-previews.ts`
+//
+// Cache-bust suffix: bump `STYLE_PREVIEW_VERSION` whenever the script regenerates
+// the GCS PNGs. Same URL with a fresh ?v= forces every browser to refetch
+// instead of serving the previous cached version.
+const STYLE_PREVIEW_BASE = 'https://storage.googleapis.com/imagine-this-printed-main/style-previews'
+const STYLE_PREVIEW_VERSION = 'flux1.1pro-ultra-2026-04-28'
+const previewUrl = (key: string) => `${STYLE_PREVIEW_BASE}/${key}.png?v=${STYLE_PREVIEW_VERSION}`
 const STYLE_PRESETS = [
-  { id: 'realistic', label: 'Realistic', emoji: '📸' },
-  { id: 'cartoon', label: 'Cartoon', emoji: '🎨' },
-  { id: 'minimalist', label: 'Minimalist', emoji: '✨' },
-  { id: 'vintage', label: 'Vintage', emoji: '📻' },
-  { id: 'cyberpunk', label: 'Cyberpunk', emoji: '🌃' },
-  { id: 'fantasy', label: 'Fantasy', emoji: '🐉' },
+  { id: 'realistic',  label: 'Realistic',  emoji: '📸', previewUrl: previewUrl('realistic') },
+  { id: 'cartoon',    label: 'Cartoon',    emoji: '🎨', previewUrl: previewUrl('cartoon') },
+  { id: 'minimalist', label: 'Minimalist', emoji: '✨', previewUrl: previewUrl('minimalist') },
+  { id: 'vintage',    label: 'Vintage',    emoji: '📻', previewUrl: previewUrl('vintage') },
+  { id: 'cyberpunk',  label: 'Cyberpunk',  emoji: '🌃', previewUrl: previewUrl('cyberpunk') },
+  { id: 'fantasy',    label: 'Fantasy',    emoji: '🐉', previewUrl: previewUrl('fantasy') },
 ]
 
 // Category options
@@ -1480,21 +1490,46 @@ export function CreateDesignModal({
                   Art Style
                 </label>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                  {STYLE_PRESETS.map((style) => (
-                    <button
-                      key={style.id}
-                      onClick={() => setSelectedStyle(style.id)}
-                      disabled={isGenerating}
-                      className={`p-3 rounded-xl border text-center transition-all ${
-                        selectedStyle === style.id
-                          ? 'border-purple-500 bg-purple-500/20 ring-2 ring-purple-500/30'
-                          : 'border-white/10 bg-white/5 hover:border-purple-500/50'
-                      }`}
-                    >
-                      <div className="text-xl mb-1">{style.emoji}</div>
-                      <div className="text-xs text-white/80">{style.label}</div>
-                    </button>
-                  ))}
+                  {STYLE_PRESETS.map((style) => {
+                    const isSelected = selectedStyle === style.id
+                    return (
+                      <button
+                        key={style.id}
+                        onClick={() => setSelectedStyle(style.id)}
+                        disabled={isGenerating}
+                        title={`${style.label} — same subject rendered in this style`}
+                        className={`group relative overflow-hidden rounded-xl border-2 transition-all ${
+                          isSelected
+                            ? 'border-purple-500 ring-2 ring-purple-500/40 ring-offset-2 ring-offset-black/40 shadow-[0_0_20px_rgba(168,85,247,0.4)] scale-105'
+                            : 'border-white/10 hover:border-purple-500/60 hover:scale-[1.02]'
+                        } disabled:opacity-50`}
+                      >
+                        {/* Sample image — same prompt rendered via Recraft V4 */}
+                        <img
+                          src={style.previewUrl}
+                          alt={`${style.label} sample`}
+                          loading="lazy"
+                          className="w-full aspect-square object-cover"
+                          onError={(e) => {
+                            // Hide broken image; emoji fallback below stays visible
+                            ;(e.target as HTMLImageElement).style.display = 'none'
+                          }}
+                        />
+                        {/* Bottom label gradient overlay */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 py-1.5 flex items-center gap-1">
+                          <span className="text-sm">{style.emoji}</span>
+                          <span className="text-[11px] font-semibold text-white truncate">{style.label}</span>
+                        </div>
+                        {isSelected && (
+                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center shadow-lg">
+                            <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
