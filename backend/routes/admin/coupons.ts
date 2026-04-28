@@ -1,10 +1,15 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
+import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
 
 dotenv.config()
 
 const router = Router()
+
+// All admin coupon routes require authentication + admin role
+router.use(requireAuth)
+router.use(requireRole(['admin', 'manager']))
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY

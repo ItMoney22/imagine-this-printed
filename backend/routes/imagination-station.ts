@@ -10,6 +10,7 @@ import { pricingService } from '../services/imagination-pricing.js';
 import { aiService } from '../services/imagination-ai.js';
 import { layoutService } from '../services/imagination-layout.js';
 import gcsStorage from '../services/gcs-storage.js';
+import { uploadImageFromBase64 } from '../services/google-cloud-storage.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
@@ -1028,15 +1029,53 @@ router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): P
       prompt
     });
 
-    // Return with processedUrl key for frontend consistency
+    // Return all common keys for frontend compatibility
+    const url = result.layer.processed_url;
     res.json({
-      processedUrl: result.layer.processed_url,
+      processedUrl: url,
+      imageUrl: url,
+      url: url,
+      output: url,
       originalUrl: imageUrl,
       cost: result.cost,
       freeTrialUsed: result.freeTrialUsed
     });
   } catch (error: any) {
     console.error('[imagination-station] reimagine error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/imagination-station/ai/use-upload
+ * User uploaded an image and wants to use it AS the design (no AI transformation).
+ * Just uploads the data URL to GCS and returns a public URL ready for submission.
+ */
+router.post('/ai/use-upload', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const { dataUrl } = req.body;
+
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+      res.status(400).json({ error: 'dataUrl (data:image/...) is required' });
+      return;
+    }
+
+    const uploaded = await uploadImageFromBase64(
+      dataUrl,
+      `users/${user.id}/uploads/own-design-${Date.now()}.png`
+    );
+
+    console.log('[imagination-station] use-upload saved:', uploaded.publicUrl.substring(0, 100) + '...');
+
+    res.json({
+      url: uploaded.publicUrl,
+      imageUrl: uploaded.publicUrl,
+      output: uploaded.publicUrl,
+      processedUrl: uploaded.publicUrl,
+    });
+  } catch (error: any) {
+    console.error('[imagination-station] use-upload error:', error);
     res.status(500).json({ error: error.message });
   }
 });

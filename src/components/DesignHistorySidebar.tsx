@@ -49,6 +49,10 @@ export const DesignHistorySidebar = ({
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
+      if (!token) {
+        console.warn('[DesignHistorySidebar] No auth session, skipping fetch')
+        return
+      }
 
       const { data } = await axios.get('/api/user-products/design-sessions', {
         headers: { Authorization: `Bearer ${token}` }

@@ -84,15 +84,15 @@ export class ShippingCalculator {
       }
     }
 
-    // Default business address (this should be configurable)
+    // Use actual warehouse address for shipping origin
     const defaultFromAddress: ShippingAddress = {
       name: 'Imagine This Printed',
-      address1: '123 Business Ave',
-      city: 'Los Angeles',
-      state: 'CA',
-      zip: '90210',
+      address1: WAREHOUSE_ADDRESS.address,
+      city: WAREHOUSE_ADDRESS.city,
+      state: WAREHOUSE_ADDRESS.state,
+      zip: WAREHOUSE_ADDRESS.zip,
       country: 'US',
-      phone: '(555) 123-4567',
+      phone: '(770) 000-0000',
       email: 'shipping@imaginethisprinted.com'
     }
 
@@ -129,8 +129,14 @@ export class ShippingCalculator {
       description: `${WAREHOUSE_ADDRESS.address}, ${WAREHOUSE_ADDRESS.city}, ${WAREHOUSE_ADDRESS.state} ${WAREHOUSE_ADDRESS.zip} • Hours: ${PICKUP_HOURS}`
     })
 
-    // Check if address qualifies for local delivery using distance calculation
-    const deliveryInfo = await this.calculateLocalDelivery(toAddress)
+    // Check local delivery eligibility and fetch Shippo rates in parallel
+    const [deliveryInfo, shipmentResult] = await Promise.all([
+      this.calculateLocalDelivery(toAddress),
+      this.shippoApi.createShipment(shipFrom, toAddress, [parcel]).catch((err: any) => {
+        console.error('[ShippingCalc] Shippo API error:', err)
+        return null
+      })
+    ])
 
     // Always show local delivery option - but disable if too far
     if (deliveryInfo.eligible && deliveryInfo.deliveryFee !== null) {
@@ -167,7 +173,10 @@ export class ShippingCalculator {
     }
 
     try {
-      const shipment = await this.shippoApi.createShipment(shipFrom, toAddress, [parcel])
+      const shipment = shipmentResult
+      if (!shipment) {
+        throw new Error('Shippo API returned no shipment data')
+      }
 
       // Filter for specific carriers and services we want
       const desiredServices = [

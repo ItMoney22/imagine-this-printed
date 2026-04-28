@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { useNavigate } from 'react-router-dom'
 import type { WholesaleAccount, WholesaleProduct } from '../types'
 
 const WholesalePortal: React.FC = () => {
@@ -161,7 +160,7 @@ const WholesalePortal: React.FC = () => {
 
       {/* Tab Content */}
       {selectedTab === 'dashboard' && wholesaleAccount && (
-        <WholesaleDashboard account={wholesaleAccount} />
+        <WholesaleDashboard account={wholesaleAccount} onTabChange={(tab) => setSelectedTab(tab as any)} />
       )}
 
       {selectedTab === 'products' && wholesaleAccount && (
@@ -191,8 +190,7 @@ const WholesalePortal: React.FC = () => {
 }
 
 // Dashboard Component
-const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }) => {
-  const navigate = useNavigate()
+const WholesaleDashboard: React.FC<{ account: WholesaleAccount; onTabChange: (tab: string) => void }> = ({ account, onTabChange }) => {
 
   return (
     <div className="space-y-6">
@@ -261,8 +259,8 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-medium text-text">Recent Orders</h3>
             <button
-              onClick={() => navigate('/wholesale/orders')}
-              className="text-purple-600 hover:text-purple-700 font-medium text-sm"
+              onClick={() => onTabChange('orders')}
+              className="text-primary hover:text-primary/80 font-medium text-sm"
             >
               View All →
             </button>
@@ -302,7 +300,7 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
           <h3 className="text-lg font-medium text-text mb-4">Browse Products</h3>
           <p className="text-muted mb-4">Explore our wholesale catalog with exclusive pricing</p>
           <button
-            onClick={() => navigate('/wholesale/products')}
+            onClick={() => onTabChange('products')}
             className="btn-primary w-full"
           >
             View Catalog
@@ -321,7 +319,7 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount }> = ({ account }
           <h3 className="text-lg font-medium text-text mb-4">Find Vendors</h3>
           <p className="text-muted mb-4">Discover new suppliers and vendors</p>
           <button
-            onClick={() => navigate('/wholesale/vendors')}
+            onClick={() => onTabChange('vendors')}
             className="btn-secondary w-full"
           >
             Browse Vendors

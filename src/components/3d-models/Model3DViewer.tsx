@@ -24,7 +24,8 @@ export function Model3DViewer({
     if (!customElements.get('model-viewer')) {
       const script = document.createElement('script')
       script.type = 'module'
-      script.src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js'
+      script.src = 'https://unpkg.com/@google/model-viewer@3.1.1/dist/model-viewer.min.js'
+      script.onerror = () => console.error('[Model3DViewer] Failed to load model-viewer from CDN')
       document.head.appendChild(script)
     }
   }, [])

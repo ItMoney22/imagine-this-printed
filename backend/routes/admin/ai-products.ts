@@ -5,6 +5,120 @@ import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
 import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
+import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
+import { uploadImageFromUrl } from '../../services/google-cloud-storage.js'
+
+/**
+ * Process a multi-model image job inline (in the API process) instead of via the worker queue.
+ * Avoids the race condition where the production worker (running old code) grabs queued jobs.
+ */
+async function processImageJobInline(job: any): Promise<void> {
+  console.log('[ai-products] 🆕 INLINE MULTI-MODEL FAN-OUT — job:', job.id)
+  const promptInput = job.input?.prompt
+  if (!promptInput) throw new Error('job missing input.prompt')
+
+  // Look up product slug + category for prompt wrapping + storage paths
+  const { data: product } = await supabase
+    .from('products')
+    .select('slug, name, category')
+    .eq('id', job.product_id)
+    .single()
+
+  const productSlug = product?.slug || product?.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || job.product_id.substring(0, 8)
+
+  const updateProgress = async (message: string, step: number, total: number) => {
+    const { data: existing } = await supabase.from('ai_jobs').select('output').eq('id', job.id).single()
+    await supabase
+      .from('ai_jobs')
+      .update({
+        output: { ...(existing?.output || {}), message, step, total_steps: total, updated_at: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+  }
+
+  try {
+    await updateProgress('🎨 Generating with 4 models in parallel (Recraft V4, Grok Imagine, Imagen 4 Ultra, Wan 2.7 Pro)...', 1, 3)
+    const results = await runImageFlowMultiGenerate({
+      prompt: promptInput,
+      category: product?.category ?? job.input?.category,
+      shirtColor: job.input?.shirtColor,
+      printStyle: job.input?.printStyle,
+    })
+
+    const succeeded = results.filter((r) => r.status === 'succeeded' && r.url)
+    console.log('[ai-products] 🎨 Multi-model results:', results.map((r) => `${r.modelLabel}=${r.status}`).join(', '))
+
+    if (succeeded.length === 0) {
+      const errs = results.map((r) => `${r.modelLabel}: ${r.error}`).join('; ')
+      throw new Error(`All ${results.length} models failed: ${errs}`)
+    }
+
+    await updateProgress(`📤 Uploading ${succeeded.length} variants to cloud storage...`, 2, 3)
+
+    for (const r of succeeded) {
+      try {
+        const ts = Date.now()
+        const safeModel = r.modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+        const filename = `${productSlug}-${safeModel}-${ts}.png`
+        const gcsPath = `graphics/${productSlug}/original/${filename}`
+        const { publicUrl, path: storagePath } = await uploadImageFromUrl(r.url!, gcsPath)
+        await supabase.from('product_assets').insert({
+          product_id: job.product_id,
+          kind: 'source',
+          path: storagePath,
+          url: publicUrl,
+          width: 1024,
+          height: 1024,
+          asset_role: 'design',
+          is_primary: false,
+          display_order: 99,
+          metadata: {
+            model_id: r.modelId,
+            model_name: r.modelLabel,
+            provider: 'replicate',
+            original_prompt: promptInput,
+            multi_model: true,
+            generated_at: new Date().toISOString(),
+          },
+        })
+        console.log('[ai-products] ✅ Saved variant:', r.modelLabel, publicUrl)
+      } catch (e: any) {
+        console.error('[ai-products] ❌ Failed to save variant', r.modelLabel, e.message)
+      }
+    }
+
+    await updateProgress(`✅ ${succeeded.length}/${results.length} variants ready — pick your favorite`, 3, 3)
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'succeeded',
+        output: {
+          multiModel: true,
+          results: results.map((r) => ({
+            modelId: r.modelId,
+            modelLabel: r.modelLabel,
+            status: r.status,
+            error: r.error ?? null,
+          })),
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+
+    console.log('[ai-products] ✅ Inline generation completed:', job.id, succeeded.length, '/', results.length)
+  } catch (err: any) {
+    console.error('[ai-products] ❌ Inline generation failed:', err.message)
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: err.message,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+  }
+}
 
 const router = Router()
 
@@ -53,8 +167,8 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
       shirtColor = 'black',
       printPlacement = 'front-center',
       printStyle = 'clean',
-      // Model Selection - defaults to Imagen 4 Ultra
-      modelId = 'google/imagen-4-ultra'
+      // Model Selection - defaults to GPT Image 2 (image-flow)
+      modelId = 'openai/gpt-image-2'
     } = req.body
 
     if (!prompt || typeof prompt !== 'string') {
@@ -129,7 +243,10 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
         name: normalized.title,
         slug: uniqueSlug,
         description: normalized.description,
-        price: normalized.suggested_price_cents / 100,
+        // Defensive: GPT sometimes returns dollars in suggested_price_cents instead of cents.
+        price: normalized.suggested_price_cents < 100
+          ? normalized.suggested_price_cents
+          : normalized.suggested_price_cents / 100,
         status: 'draft',
         images: [],
         category: normalized.category_slug,
@@ -184,27 +301,31 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
         })))
     }
 
-    // Step 7: Create ONLY source image job (manual workflow)
+    // Step 7: Create source image job.
+    // Admin builder uses multi-model fan-out — 4 models in parallel, user picks the best.
+    // type: 'replicate_image_v2' so the production worker (running old compiled code that
+    // only handles 'replicate_image') won't race to process it. Local worker handles both.
+    //
+    // CRITICAL: Insert with status='running' (NOT 'queued'). Production worker filters
+    // queued jobs only — by inserting with status='running' from the get-go, production
+    // never sees it. Local API processes the job immediately in the background.
     const jobs = [
       {
         product_id: product.id,
-        type: 'replicate_image',
-        status: 'queued',
+        type: 'replicate_image_v2',
+        status: 'running', // pre-claimed so production worker won't race
         input: {
-          // Use GPT-generated detailed image prompt
           prompt: normalized.image_prompt,
           width: 1024,
           height: 1024,
           background: normalized.background,
-          // DTF Print Settings
           productType,
           shirtColor,
           printPlacement,
           printStyle,
-          // Art style for image generation
           imageStyle,
-          // Model selection
           modelId,
+          multiModel: true, // fan out to ADMIN_MULTI_MODEL_IDS
         },
       },
     ]
@@ -219,6 +340,16 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
     }
 
     req.log?.info({ count: createdJobs?.length }, '[ai-products] ✅ Jobs created')
+
+    // Fire-and-forget: process the job inline in this Node process so we don't
+    // depend on the worker's poll loop racing with production. The function
+    // resolves on its own; we don't await so the HTTP response returns immediately.
+    if (createdJobs && createdJobs.length > 0) {
+      const imageJob = createdJobs[0]
+      void processImageJobInline(imageJob).catch((err: any) => {
+        req.log?.error({ jobId: imageJob.id, err: err.message }, '[ai-products] ❌ inline job failed')
+      })
+    }
 
     res.json({
       productId: product.id,
@@ -387,7 +518,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       .from('ai_jobs')
       .delete()
       .eq('product_id', id)
-      .eq('type', 'replicate_mockup')  // All mockups now use unified replicate_mockup type
+      .in('type', ['replicate_mockup', 'replicate_mockup_v2'])  // delete BOTH legacy + v2 (clears prod-orphan dupes)
       .select('id')
 
     if (deleteJobsError) {
@@ -443,7 +574,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     const jobs: any[] = [
       {
         product_id: id,
-        type: 'replicate_mockup',
+        type: 'replicate_mockup_v2',
         status: 'queued',
         input: {
           ...baseInput,
@@ -459,7 +590,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       jobs.push({
         product_id: id,
-        type: 'replicate_mockup',  // Unified type - all mockups use replicate_mockup
+        type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
         status: 'queued',
         input: {
           ...baseInput,
@@ -472,7 +603,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     // Always add Mr. Imagine mockup
     jobs.push({
       product_id: id,
-      type: 'replicate_mockup',
+      type: 'replicate_mockup_v2',
       status: 'queued',
       input: {
         ...baseInput,
@@ -592,7 +723,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       .from('ai_jobs')
       .delete()
       .eq('product_id', id)
-      .eq('type', 'replicate_mockup')  // All mockups now use unified replicate_mockup type
+      .in('type', ['replicate_mockup', 'replicate_mockup_v2'])  // delete BOTH legacy + v2 (clears prod-orphan dupes)
       .select('id')
 
     if (deleteMockupJobsError) {
@@ -645,7 +776,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
     const mockupJobs: any[] = [
       {
         product_id: id,
-        type: 'replicate_mockup',
+        type: 'replicate_mockup_v2',
         status: 'queued',
         input: {
           ...baseInput,
@@ -661,7 +792,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       mockupJobs.push({
         product_id: id,
-        type: 'replicate_mockup',  // Unified type - all mockups use replicate_mockup
+        type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
         status: 'queued',
         input: {
           ...baseInput,
@@ -674,7 +805,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
     // Always add Mr. Imagine mockup
     mockupJobs.push({
       product_id: id,
-      type: 'replicate_mockup',
+      type: 'replicate_mockup_v2',
       status: 'queued',
       input: {
         ...baseInput,

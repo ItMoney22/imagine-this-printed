@@ -1,3 +1,5 @@
+// MUST be the first import — see backend/load-env.ts.
+import '../load-env.js'
 import { startWorker } from './ai-jobs-worker.js'
 
 console.log('=================================')

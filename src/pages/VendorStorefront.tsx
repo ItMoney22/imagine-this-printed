@@ -4,49 +4,13 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useCart } from '../context/CartContext'
 import { useToast } from '../hooks/useToast'
 import ProductRecommendations from '../components/ProductRecommendations'
-import type { WholesaleVendor, WholesaleProduct, Product } from '../types'
-
-interface VendorStorefrontTheme {
-  primaryColor: string
-  secondaryColor: string
-  backgroundColor: string
-  headerStyle: 'minimal' | 'bold' | 'classic'
-  layout: 'grid' | 'list' | 'masonry'
-  showPricing: boolean
-  showReviews: boolean
-  customCSS?: string
-}
-
-interface VendorStorefrontConfig {
-  id: string
-  vendorId: string
-  isPublic: boolean
-  customDomain?: string
-  customUrl: string
-  seoTitle: string
-  seoDescription: string
-  theme: VendorStorefrontTheme
-  featuredProducts: string[]
-  categories: string[]
-  socialLinks: {
-    website?: string
-    facebook?: string
-    instagram?: string
-    twitter?: string
-    linkedin?: string
-  }
-  contactInfo: {
-    showPhone: boolean
-    showEmail: boolean
-    showAddress: boolean
-    customMessage?: string
-  }
-  analytics: {
-    googleAnalyticsId?: string
-    facebookPixelId?: string
-  }
-  lastUpdated: string
-}
+import type {
+  WholesaleVendor,
+  WholesaleProduct,
+  Product,
+  VendorStorefrontTheme,
+  VendorStorefrontConfig,
+} from '../types'
 
 const VendorStorefront: React.FC = () => {
   const { vendorId, customUrl } = useParams<{ vendorId?: string; customUrl?: string }>()

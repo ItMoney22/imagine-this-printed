@@ -13,6 +13,7 @@ import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
 import AdminConnectManagement from '../components/AdminConnectManagement'
+import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 
 const AdminDashboard: React.FC = () => {
@@ -97,18 +98,9 @@ const AdminDashboard: React.FC = () => {
   }
 
   // Preset colors for products
-  const COLOR_PRESETS = [
-    { name: 'Black', hex: '#000000' },
-    { name: 'White', hex: '#FFFFFF' },
-    { name: 'Navy', hex: '#1E3A5F' },
-    { name: 'Red', hex: '#DC2626' },
-    { name: 'Royal Blue', hex: '#2563EB' },
-    { name: 'Forest Green', hex: '#166534' },
-    { name: 'Heather Grey', hex: '#9CA3AF' },
-    { name: 'Pink', hex: '#EC4899' },
-    { name: 'Orange', hex: '#EA580C' },
-    { name: 'Yellow', hex: '#EAB308' }
-  ]
+  // COLOR_PRESETS is imported from src/utils/color-presets so the same list
+  // powers the admin picker AND the customer Quick Add color picker. Keep it
+  // there so adding a new color updates both surfaces.
 
   // OTC/ITC Grant State
   const [showItcModal, setShowItcModal] = useState(false)
@@ -736,6 +728,7 @@ const AdminDashboard: React.FC = () => {
   }
 
   const handleRegenerateImages = async (productId: string) => {
+    if (!confirm('Regenerate images for this product? This consumes AI credits.')) return
     try {
       setLoadingAction(`regenerate-${productId}`)
       await aiProducts.regenerateImages(productId)
@@ -750,6 +743,7 @@ const AdminDashboard: React.FC = () => {
   }
 
   const handleRemoveBackground = async (productId: string) => {
+    if (!confirm('Run background removal on this product? This consumes AI credits.')) return
     try {
       setLoadingAction(`rembg-${productId}`)
       await aiProducts.removeBackground(productId)
@@ -2854,22 +2848,27 @@ const AdminDashboard: React.FC = () => {
                       </div>
                       {productForm.colors.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-3">
-                          {productForm.colors.map((hex) => (
-                            <span
-                              key={hex}
-                              className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-full text-xs"
-                            >
-                              <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: hex }} />
-                              {hex}
-                              <button
-                                type="button"
-                                onClick={() => toggleColor(hex)}
-                                className="text-slate-400 hover:text-red-500"
+                          {productForm.colors.map((hex) => {
+                            const label = getColorName(hex)
+                            return (
+                              <span
+                                key={hex}
+                                className="inline-flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200 rounded-full text-xs"
+                                title={`${label} (${hex})`}
                               >
-                                ×
-                              </button>
-                            </span>
-                          ))}
+                                <span className="w-4 h-4 rounded-full border border-slate-300" style={{ backgroundColor: hex }} />
+                                <span className="text-slate-700">{label}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleColor(hex)}
+                                  className="text-slate-400 hover:text-red-500"
+                                  aria-label={`Remove ${label}`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            )
+                          })}
                         </div>
                       )}
                     </div>

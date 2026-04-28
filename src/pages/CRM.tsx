@@ -28,21 +28,17 @@ const CRM: React.FC = () => {
       setError(null)
 
       try {
-        // Fetch customers from user_profiles
-        const { data: profiles, error: profilesError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .order('created_at', { ascending: false })
+        // Fetch customers and orders in parallel
+        const [profilesResult, ordersResult] = await Promise.all([
+          supabase.from('user_profiles').select('*').order('created_at', { ascending: false }),
+          supabase.from('orders').select('*').order('created_at', { ascending: false })
+        ])
 
-        if (profilesError) throw profilesError
+        if (profilesResult.error) throw profilesResult.error
+        if (ordersResult.error) throw ordersResult.error
 
-        // Fetch orders
-        const { data: ordersData, error: ordersError } = await supabase
-          .from('orders')
-          .select('*')
-          .order('created_at', { ascending: false })
-
-        if (ordersError) throw ordersError
+        const profiles = profilesResult.data
+        const ordersData = ordersResult.data
 
         // Calculate customer stats from orders
         const customerStats: Record<string, { totalSpent: number; totalOrders: number; lastOrderDate: string | null }> = {}
@@ -200,25 +196,40 @@ const CRM: React.FC = () => {
       return
     }
 
-    const headers = Object.keys(data[0]).join(',')
+    // Escape any value for CSV. Defends against:
+    //  1. Formula injection in Excel/Sheets — prefix `=`, `+`, `-`, `@`, tab, CR
+    //     with a single quote so spreadsheets don't evaluate user data as a formula.
+    //  2. Embedded quotes / commas / newlines — wrap in double quotes and double
+    //     up any internal quotes per RFC 4180.
+    const escapeCsv = (value: unknown): string => {
+      if (value === null || value === undefined) return ''
+      let s = String(value)
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s
+      if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`
+      return s
+    }
+
+    const headers = Object.keys(data[0]).map(escapeCsv).join(',')
     const csvContent = [
       headers,
-      ...data.map(row => 
-        Object.values(row).map(value => 
-          typeof value === 'string' && value.includes(',') ? `"${value}"` : value
-        ).join(',')
+      ...data.map(row =>
+        Object.values(row).map(escapeCsv).join(',')
       )
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
-    link.setAttribute('href', url)
-    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`)
-    link.style.visibility = 'hidden'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    try {
+      const link = document.createElement('a')
+      link.setAttribute('href', url)
+      link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   }
 
   const exportCustomers = () => {
@@ -767,7 +778,7 @@ const CRM: React.FC = () => {
                           {job.status === 'under_review' && (
                             <div className="flex space-x-2">
                               <button
-                                onClick={() => updateJobStatus(job.id, 'approved', 'founder1')}
+                                onClick={() => updateJobStatus(job.id, 'approved', user?.id || 'unknown')}
                                 className="text-green-600 hover:text-green-900"
                               >
                                 Approve
@@ -803,7 +814,7 @@ const CRM: React.FC = () => {
               <div className="space-y-3">
                 {allTags.map(tag => {
                   const count = customers.filter(c => c.tags.includes(tag)).length
-                  const percentage = (count / customers.length) * 100
+                  const percentage = customers.length > 0 ? (count / customers.length) * 100 : 0
                   return (
                     <div key={tag} className="flex items-center justify-between">
                       <span className="text-sm font-medium text-text">{tag}</span>

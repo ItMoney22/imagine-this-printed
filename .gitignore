@@ -33,3 +33,4 @@ backend/.env.local
 
 /src/generated/prisma
 nul
+.vercel

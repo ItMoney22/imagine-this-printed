@@ -252,6 +252,109 @@ export const aiProducts = {
   },
 }
 
+// Image Flow API — generic gen/edit/bg-remove via gpt-image-2 etc.
+export const imageFlow = {
+  edit: async (params: {
+    parentAssetId: string
+    prompt: string
+    refImageUrls?: string[]
+    forceModel?: string
+    enhance?: boolean
+    confirmedCost?: boolean
+  }): Promise<{
+    status: 'ok'
+    assetId: string | null
+    url: string
+    path: string
+    costUsd: number
+    modelId: string
+    provider: 'replicate' | 'fal'
+    parentAssetId: string | null
+    enhancedPrompt?: string
+  }> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const response = await fetch(`${API_BASE}/api/image-flow/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  generate: async (params: {
+    purpose: string
+    prompt: string
+    productId?: string
+    assetRole?: string
+    forceModel?: string
+    enhance?: boolean
+  }) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const response = await fetch(`${API_BASE}/api/image-flow/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  upscale: async (params: { parentAssetId: string; forceModel?: string }): Promise<{
+    status: 'ok'
+    assetId: string | null
+    url: string
+    path: string
+    costUsd: number
+    modelId: string
+    parentAssetId: string | null
+  }> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const response = await fetch(`${API_BASE}/api/image-flow/upscale`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  bgRemove: async (params: { parentAssetId: string; forceModel?: string }): Promise<{
+    status: 'ok'
+    assetId: string | null
+    url: string
+    path: string
+    costUsd: number
+    modelId: string
+    parentAssetId: string | null
+  }> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const response = await fetch(`${API_BASE}/api/image-flow/bg-remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+}
+
 // Imagination Station API
 export const imaginationApi = {
   // Presets & Pricing (pricing endpoint returns both pricing and freeTrials)

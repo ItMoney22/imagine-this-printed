@@ -105,11 +105,11 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
       <div className={`bg-card rounded-lg shadow-glow p-6 border border-white/10 ${className}`}>
         <h3 className="text-lg font-semibold text-text mb-4">{title}</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          {[...Array(6)].map((_, index) => (
+          {[...Array(context.limit || 6)].map((_, index) => (
             <div key={index} className="animate-pulse">
-              <div className="bg-gray-200 rounded-lg h-40 mb-2"></div>
-              <div className="bg-gray-200 rounded h-4 mb-1"></div>
-              <div className="bg-gray-200 rounded h-3 w-2/3"></div>
+              <div className="bg-muted/40 rounded-lg h-40 mb-2"></div>
+              <div className="bg-muted/40 rounded h-4 mb-1"></div>
+              <div className="bg-muted/40 rounded h-3 w-2/3"></div>
             </div>
           ))}
         </div>

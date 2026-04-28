@@ -57,6 +57,9 @@ export interface EarningsReport {
 }
 
 export class FounderEarningsService {
+  // KEEP IN SYNC with backend FOUNDER_PERCENTAGE = 35 (backend/routes/invoices.ts:15).
+  // This service is mock-only today; once it hits the DB the source of truth
+  // should move to the backend and the frontend should read from /api/config.
   private founderPercentage = 0.35 // 35% of profit goes to founder
   private stripeFeeRate = 0.035 // 3.5% Stripe processing fee
 

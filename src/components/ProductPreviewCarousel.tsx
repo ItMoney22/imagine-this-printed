@@ -176,6 +176,11 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
     setUnlocking(true)
     setMockups(prev => prev.map((m, i) => i === index ? { ...m, loading: true, locked: false } : m))
 
+    // Track whether we got past the deduct so the catch block knows when to
+    // issue a compensating refund. Without this, an API error after the
+    // deduct succeeded would silently burn the user's ITC.
+    let deducted = false
+
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
@@ -189,6 +194,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
       }, {
         headers: { Authorization: `Bearer ${token}` }
       })
+      deducted = true
 
       // Update local wallet
       const newBalance = wallet.itc_balance - product.cost
@@ -200,9 +206,48 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
       if (result) {
         setMockups(prev => prev.map((m, i) => i === index ? result : m))
         setActiveIndex(index) // Switch to the newly generated mockup
+      } else {
+        // generateMockup returned null/undefined — treat as failure so the
+        // catch-block refund path runs. (Without this throw the user would
+        // lose ITC silently because the deduct already succeeded.)
+        throw new Error('Mockup generation returned no result')
       }
     } catch (err: any) {
       console.error('[ProductPreviewCarousel] Error unlocking mockup:', err)
+
+      // Compensating refund — only when the deduct succeeded; otherwise there's
+      // nothing to refund. Best-effort: if the refund itself fails we log but
+      // don't surface a second error to the user (they're already seeing the
+      // mockup error). The transactions table still gets the deduct row, so
+      // an admin can manually reconcile if the refund silently failed.
+      if (deducted) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const token = session?.access_token
+          const refund = await axios.post('/api/wallet/refund-itc', {
+            amount: product.cost,
+            reason: `Refund: mockup gen failed for ${product.name}`,
+            reference_type: 'mockup_generation',
+            reference_id: product.id || product.name,
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          const refundedBalance = refund.data?.new_balance
+          if (typeof refundedBalance === 'number') {
+            setWallet({ itc_balance: refundedBalance })
+            onWalletUpdate?.(refundedBalance)
+          } else {
+            // Fallback: optimistically restore locally
+            const restored = wallet.itc_balance
+            setWallet({ itc_balance: restored })
+            onWalletUpdate?.(restored)
+          }
+          console.log('[ProductPreviewCarousel] ITC refunded after gen failure')
+        } catch (refundErr: any) {
+          console.error('[ProductPreviewCarousel] Refund failed after deduct succeeded — admin reconciliation may be needed:', refundErr?.message ?? refundErr)
+        }
+      }
+
       setMockups(prev => prev.map((m, i) => i === index ? { ...m, loading: false, locked: true, error: err.message } : m))
     } finally {
       setUnlocking(false)
@@ -248,6 +293,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
             src={activeProduct.mockupUrl}
             alt={`${designName || 'Design'} on ${activeProduct.name}`}
             className="w-full h-full object-contain"
+            loading="lazy"
           />
         ) : activeProduct.error ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
@@ -296,6 +342,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
                 src={mockup.mockupUrl}
                 alt={mockup.name}
                 className="w-full h-full object-cover"
+                loading="lazy"
               />
             ) : (
               <div className="w-full h-full bg-white/5 flex items-center justify-center text-2xl">

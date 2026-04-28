@@ -115,9 +115,12 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       updateData.sizes = sizes
     }
 
-    // Update price if provided (in cents)
+    // Update price if provided (in dollars — products.price column is dollars).
+    // Defensive: if a caller mistakenly sends a giant integer (e.g., legacy clients
+    // sending dollars * 100), normalize back to dollars by dividing by 100.
     if (price && typeof price === 'number' && price > 0) {
-      updateData.price = price
+      const priceDollars = price > 1000 ? price / 100 : price
+      updateData.price = priceDollars
     }
 
     // Update product status to active with configuration

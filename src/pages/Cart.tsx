@@ -58,9 +58,12 @@ const Cart: React.FC = () => {
               {state.items.map((item) => (
                 <div key={item.id} className="p-6 flex items-center space-x-4">
                   <img
-                    src={item.designData?.mockupUrl || item.customDesign || item.product.images[0]}
+                    src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
                     alt={item.product.name}
                     className="w-20 h-20 object-cover rounded-md"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+                    }}
                   />
 
                   <div className="flex-1">
@@ -132,7 +135,7 @@ const Cart: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Shipping</span>
-                <span>{freeShippingProgress.qualified ? 'Free' : '$9.99'}</span>
+                <span>{freeShippingProgress.qualified ? 'Free' : 'Calculated at checkout'}</span>
               </div>
               <div className="flex justify-between">
                 <span>Tax</span>
@@ -141,7 +144,7 @@ const Cart: React.FC = () => {
               <div className="border-t pt-3 flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span>
-                  ${(state.total + (freeShippingProgress.qualified ? 0 : 9.99) + state.total * 0.08).toFixed(2)}
+                  ${(state.total + state.total * 0.08).toFixed(2)}{!freeShippingProgress.qualified && '+'}
                 </span>
               </div>
             </div>
@@ -180,13 +183,6 @@ const Cart: React.FC = () => {
               </div>
             )}
 
-            {state.total < 50 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
-                <p className="text-sm text-blue-800">
-                  Add ${(50 - state.total).toFixed(2)} more for free shipping!
-                </p>
-              </div>
-            )}
 
             <div className="space-y-3">
               <button

@@ -40,7 +40,7 @@ export const VoiceProductForm = ({ onComplete }: VoiceProductFormProps) => {
             const token = session?.access_token
 
             const { data } = await axios.post('/api/ai/chat', {
-                model: 'gpt-5.1',
+                model: 'gpt-4o',
                 message: userInput,
                 context: context,
                 systemPrompt: "You are an expert AI design assistant for a print-on-demand site. Your goal is to help customers create amazing products. Be enthusiastic, helpful, and concise. Guide them through the creation process. Keep your responses short and conversational."

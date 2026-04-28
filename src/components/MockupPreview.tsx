@@ -175,7 +175,31 @@ const MockupPreview: React.FC<MockupPreviewProps> = ({
     ctx.strokeRect(printArea.x, printArea.y, printArea.width, printArea.height)
     ctx.restore()
 
-    // Draw design elements within print area
+    // Pre-load all image elements in parallel before the draw loop. The original
+    // implementation awaited each loadImage() inside the loop, serializing N
+    // network round-trips (5 images × ~500ms = ~2.5s). Loading in parallel keeps
+    // total time at the slowest image, not the sum.
+    const imageSrcs = Array.from(
+      new Set(
+        designElements
+          .filter((e) => e.type === 'image' && e.src)
+          .map((e) => e.src as string)
+      )
+    )
+    const loadedImages = new Map<string, HTMLImageElement>()
+    await Promise.all(
+      imageSrcs.map(async (src) => {
+        try {
+          loadedImages.set(src, await loadImage(src))
+        } catch (error) {
+          console.error('Failed to load design image:', error)
+          // leave unset; the draw loop falls back to a placeholder rectangle
+        }
+      })
+    )
+
+    // Draw design elements within print area. Iteration must remain sequential
+    // because ctx.save/restore + transforms are stateful per element.
     for (const element of designElements) {
       ctx.save()
 
@@ -196,14 +220,13 @@ const MockupPreview: React.FC<MockupPreviewProps> = ({
       }
 
       if (element.type === 'image' && element.src) {
-        try {
-          const img = await loadImage(element.src)
+        const img = loadedImages.get(element.src)
+        if (img) {
           const mappedWidth = (element.width || img.width) * scaleX
           const mappedHeight = (element.height || img.height) * scaleY
           ctx.drawImage(img, mappedX, mappedY, mappedWidth, mappedHeight)
-        } catch (error) {
-          console.error('Failed to load design image:', error)
-          // Draw placeholder rectangle
+        } else {
+          // Image failed to preload — draw placeholder rectangle
           ctx.fillStyle = '#e5e7eb'
           ctx.fillRect(
             mappedX,

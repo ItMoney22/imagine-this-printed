@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { kioskService } from '../utils/kiosk-service'
 import type { Kiosk, Product, CartItem, KioskOrder } from '../types'
@@ -28,10 +28,6 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
 
   // Cash payment state
   const [cashReceived, setCashReceived] = useState<number>(0)
-  const [_showCashInput, setShowCashInput] = useState(false)
-
-  // Session timeout
-  const [_sessionTimeout, setSessionTimeout] = useState<number>(0)
 
   useEffect(() => {
     if (previewData) {
@@ -56,9 +52,10 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
   }, [cart.length, kiosk?.settings.sessionTimeout])
 
   // Touch interaction tracking for session timeout
+  const lastActivityRef = React.useRef(Date.now())
   useEffect(() => {
     const resetSessionTimer = () => {
-      setSessionTimeout(Date.now())
+      lastActivityRef.current = Date.now()
     }
 
     const events = ['touchstart', 'touchmove', 'touchend', 'click', 'mousemove']
@@ -102,7 +99,6 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
     setCurrentView('products')
     setCustomerInfo({ name: '', email: '', phone: '' })
     setCashReceived(0)
-    setShowCashInput(false)
     setCurrentOrder(null)
   }, [])
 
@@ -135,21 +131,26 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
     }
   }
 
-  const getCartTotal = () => {
+  const cartTotal = useMemo(() => {
     return cart.reduce((total, item) => total + (item.product.price * item.quantity), 0)
-  }
+  }, [cart])
 
-  const getUniqueCategories = () => {
+  const uniqueCategories = useMemo(() => {
     const categories = [...new Set(products.map(p => p.category))]
     return ['all', ...categories]
-  }
+  }, [products])
 
-  const getFilteredProducts = () => {
+  const filteredProducts = useMemo(() => {
     if (selectedCategory === 'all') {
       return products
     }
     return products.filter(p => p.category === selectedCategory)
-  }
+  }, [products, selectedCategory])
+
+  // Keep function aliases for backward compatibility in JSX
+  const getCartTotal = () => cartTotal
+  const getUniqueCategories = () => uniqueCategories
+  const getFilteredProducts = () => filteredProducts
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {

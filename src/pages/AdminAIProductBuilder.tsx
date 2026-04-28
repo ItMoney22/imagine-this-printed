@@ -40,7 +40,7 @@ const AdminAIProductBuilder: React.FC = () => {
             AI Product Builder
           </h1>
           <p className="text-xl text-muted max-w-2xl mx-auto">
-            Create stunning products with the power of AI. Describe your vision, and we'll generate the artwork, mockups, and metadata instantly.
+            Describe a product, refine the design with prompts, and ship three production-ready mockups — all powered by GPT Image 2.
           </p>
         </div>
 

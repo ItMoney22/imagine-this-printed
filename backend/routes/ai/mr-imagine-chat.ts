@@ -8,6 +8,19 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 })
 
+// OpenRouter client for Gemini 2.5 Pro (vision-capable). Used for /chat which now
+// supports image uploads — Mr. Imagine can SEE the user's reference image and talk about it.
+const openrouter = new OpenAI({
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultHeaders: {
+        'HTTP-Referer': 'https://imaginethisprinted.com',
+        'X-Title': 'Mr. Imagine - Vision Brain',
+    },
+})
+
+const GEMINI_VISION_MODEL = 'google/gemini-2.5-pro'
+
 // Mr. Imagine's personality and site knowledge - customer-facing only
 const MR_IMAGINE_SYSTEM_PROMPT = `You are Mr. Imagine, the friendly and creative AI mascot of ImagineThisPrinted.com - a custom print-on-demand platform.
 
@@ -78,46 +91,70 @@ Remember: You're the creative companion who makes the design process fun and eas
  */
 router.post('/chat', requireAuth, async (req: Request, res: Response): Promise<any> => {
     try {
-        const { message, conversationHistory } = req.body
+        const { message, conversationHistory, imageUrl, imageUrls } = req.body
 
-        if (!message) {
-            return res.status(400).json({ error: 'Message is required' })
+        if (!message && !imageUrl && (!imageUrls || imageUrls.length === 0)) {
+            return res.status(400).json({ error: 'Message or image is required' })
         }
 
-        console.log('[mr-imagine] 💬 Chat message:', message.substring(0, 50) + '...')
+        const refs: string[] = []
+        if (Array.isArray(imageUrls)) refs.push(...imageUrls.filter(Boolean))
+        if (imageUrl && !refs.includes(imageUrl)) refs.push(imageUrl)
 
-        // Build messages array with conversation history
-        const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-            { role: 'system', content: MR_IMAGINE_SYSTEM_PROMPT }
-        ]
+        console.log('[mr-imagine] 💬 Chat message:', (message ?? '').substring(0, 50) + '...', 'refs:', refs.length)
 
-        // Add conversation history if provided
+        // Build messages with conversation history
+        const messages: any[] = [{ role: 'system', content: MR_IMAGINE_SYSTEM_PROMPT }]
+
         if (conversationHistory && Array.isArray(conversationHistory)) {
-            for (const msg of conversationHistory.slice(-10)) { // Keep last 10 messages for context
+            for (const msg of conversationHistory.slice(-10)) {
                 messages.push({
                     role: msg.role as 'user' | 'assistant',
-                    content: msg.content
+                    content: msg.content,
                 })
             }
         }
 
-        // Add current message
-        messages.push({ role: 'user', content: message })
+        // Current user message — multimodal if images attached
+        if (refs.length > 0) {
+            const parts: any[] = [
+                { type: 'text', text: message || 'Take a look at this — what do you think?' },
+            ]
+            for (const url of refs) {
+                parts.push({ type: 'image_url', image_url: { url } })
+            }
+            messages.push({ role: 'user', content: parts })
+        } else {
+            messages.push({ role: 'user', content: message })
+        }
 
-        const completion = await openai.chat.completions.create({
-            model: 'gpt-4o', // Using GPT-4o for best quality responses
-            messages,
-            temperature: 0.8, // Slightly more creative
-            max_tokens: 200, // Keep responses concise for voice
-        })
+        // Use Gemini 2.5 Pro (vision-capable) via OpenRouter when refs are present OR we have OPENROUTER_API_KEY.
+        // Falls back to OpenAI gpt-4o (which is also vision-capable) if OpenRouter not set.
+        const useGemini = !!process.env.OPENROUTER_API_KEY
+        const modelLabel = useGemini ? GEMINI_VISION_MODEL : 'gpt-4o'
+
+        const completion = useGemini
+            ? await openrouter.chat.completions.create({
+                  model: GEMINI_VISION_MODEL,
+                  messages,
+                  temperature: 0.8,
+                  max_tokens: 600, // Gemini 2.5 Pro reasoning + completion — give room for full sentences
+              })
+            : await openai.chat.completions.create({
+                  model: 'gpt-4o',
+                  messages,
+                  temperature: 0.8,
+                  max_tokens: 400,
+              })
 
         const responseText = completion.choices[0].message.content
 
-        console.log('[mr-imagine] ✅ Response:', responseText?.substring(0, 80) + '...')
+        console.log('[mr-imagine] ✅ Response (' + modelLabel + '):', responseText?.substring(0, 80) + '...')
 
         res.json({
             response: responseText,
-            model: 'gpt-4o'
+            model: modelLabel,
+            sawImages: refs.length,
         })
     } catch (error: any) {
         console.error('[mr-imagine] ❌ Chat error:', error)

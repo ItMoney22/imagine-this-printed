@@ -1,10 +1,12 @@
 import { supabase } from '../lib/supabase.js'
-import { generateProductImage, generateMockup, removeBackground, upscaleImage, getPrediction, generateGhostMannequin, generateFlatLay, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { generateMockup, removeBackground, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate } from '../services/image-flow/worker-helpers.js'
 import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
+import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
 import Replicate from 'replicate'
@@ -45,6 +47,58 @@ async function updateJobProgress(jobId: string, message: string, step?: number, 
 
 export async function processQueuedJobs() {
   try {
+    // Recover orphaned 'running' jobs: only when they've been stuck >12 min with no
+    // updates AND aren't 3D Tripo jobs (those legitimately run 2-10 min on fal).
+    // Skipping 3d_model_tripo prevents yanking an actively-running Tripo job mid-execution.
+    const twelveMinAgo = new Date(Date.now() - 12 * 60 * 1000).toISOString()
+    const { data: stuck } = await supabase
+      .from('ai_jobs')
+      .select('id, type, updated_at')
+      .eq('status', 'running')
+      .is('prediction_id', null)
+      .lt('updated_at', twelveMinAgo)
+      .neq('type', '3d_model_tripo')
+      .limit(20)
+    if (stuck && stuck.length > 0) {
+      console.log('[worker] 🔁 Resetting', stuck.length, 'stuck running jobs to queued')
+      for (const j of stuck) {
+        await supabase
+          .from('ai_jobs')
+          .update({ status: 'queued', updated_at: new Date().toISOString() })
+          .eq('id', j.id)
+      }
+    }
+
+    // Hard 30-min ceiling for 3D Tripo jobs. The 12-min sweep above intentionally
+    // skips these because Tripo legitimately runs 2-10 min, but a hung fal.ai
+    // task can squat in 'running' indefinitely. Past 30 min, mark FAILED (not
+    // requeued) so we don't trigger the fal.ai cost spiral that the auto-retry
+    // sweep used to cause. User can manually retry from the UI.
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const { data: hung3d } = await supabase
+      .from('ai_jobs')
+      .select('id, updated_at')
+      .eq('status', 'running')
+      .in('type', ['3d_model_tripo', '3d_model_tripo_v2'])
+      .lt('updated_at', thirtyMinAgo)
+      .limit(20)
+    if (hung3d && hung3d.length > 0) {
+      console.warn('[worker] ⏱️ Failing', hung3d.length, '3D Tripo jobs stuck >30 min')
+      for (const j of hung3d) {
+        await supabase
+          .from('ai_jobs')
+          .update({
+            status: 'failed',
+            error: 'Generation timed out after 30 minutes. The 3D service may be backed up — please try again.',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', j.id)
+      }
+    }
+
+    // (Auto-retry sweep removed — was looping due to fal.ai Tripo3D being slow.
+    //  User can manually retry from the UI if needed.)
+
     // Fetch queued jobs (not started yet)
     const { data: queuedJobs, error: queuedError } = await supabase
       .from('ai_jobs')
@@ -161,169 +215,183 @@ async function startJob(job: any) {
     })
     .eq('id', job.id)
 
-  if (job.type === 'replicate_image') {
-    // Generate product image with multiple models
-    await updateJobProgress(job.id, '🎨 Sending design to AI models (Flux Fast, Imagen 4, Lucid Origin)...', 1, 4)
-    const result = await generateProductImage(job.input)
+  if (job.type === 'replicate_image' || job.type === 'replicate_image_v2') {
+    const promptInput = job.input?.prompt
+    if (!promptInput) {
+      throw new Error('replicate_image job missing input.prompt')
+    }
 
-    // Check if this is a multi-model result
-    if (result.isMultiModel && result.outputs) {
-      console.log('[worker] 🎨 Multi-model generation result:', result.outputs.length, 'models')
+    const productSlug = await getProductSlug(job.product_id)
+    const isMulti = job.input?.multiModel === true
 
-      // Store the multi-model output metadata
+    if (isMulti) {
+      // Fan out to all admin models in parallel; user picks the best in the wizard.
+      // gpt-image-2 is reserved for editing (slower / pricier).
+      console.log('[worker] 🆕 NEW MULTI-MODEL FAN-OUT — job:', job.id)
+      await updateJobProgress(job.id, '🎨 Generating with 4 models in parallel (Recraft V4, Grok Imagine, Imagen 4 Ultra, Wan 2.7 Pro)...', 1, 3)
+
+      // Look up product category so DTF-aware prompt wrapping can kick in for garments.
+      const { data: productRow } = await supabase
+        .from('products')
+        .select('category')
+        .eq('id', job.product_id)
+        .single()
+
+      const results = await runImageFlowMultiGenerate({
+        prompt: promptInput,
+        category: productRow?.category ?? job.input?.category,
+        shirtColor: job.input?.shirtColor,
+        printStyle: job.input?.printStyle,
+      })
+
+      const succeeded = results.filter(r => r.status === 'succeeded' && r.url)
+      console.log('[worker] 🎨 Multi-model results:', results.map(r => `${r.modelLabel}=${r.status}`).join(', '))
+
+      if (succeeded.length === 0) {
+        const errs = results.map(r => `${r.modelLabel}: ${r.error}`).join('; ')
+        throw new Error(`All 4 models failed: ${errs}`)
+      }
+
+      await updateJobProgress(job.id, `📤 Uploading ${succeeded.length} variants to cloud storage...`, 2, 3)
+
+      // Upload each successful variant + insert asset row
+      for (const r of succeeded) {
+        try {
+          const ts = Date.now()
+          const safeModel = r.modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+          const filename = `${productSlug}-${safeModel}-${ts}.png`
+          const gcsPath = `graphics/${productSlug}/original/${filename}`
+          const { publicUrl, path: storagePath } = await uploadImageFromUrl(r.url!, gcsPath)
+
+          await supabase.from('product_assets').insert({
+            product_id: job.product_id,
+            kind: 'source',
+            path: storagePath,
+            url: publicUrl,
+            width: 1024,
+            height: 1024,
+            asset_role: 'design',
+            is_primary: false,
+            display_order: 99,
+            metadata: {
+              model_id: r.modelId,
+              model_name: r.modelLabel,
+              provider: 'replicate',
+              original_prompt: promptInput,
+              multi_model: true,
+              generated_at: new Date().toISOString(),
+            },
+          })
+          console.log('[worker] ✅ Saved variant:', r.modelLabel, publicUrl)
+        } catch (e: any) {
+          console.error('[worker] ❌ Failed to save variant', r.modelLabel, e.message)
+        }
+      }
+
+      await updateJobProgress(job.id, `✅ ${succeeded.length}/${results.length} variants ready — pick your favorite`, 3, 3)
       await supabase
         .from('ai_jobs')
         .update({
-          prediction_id: result.id,
+          status: 'succeeded',
           output: {
-            isMultiModel: true,
-            outputs: result.outputs,
+            multiModel: true,
+            results: results.map(r => ({
+              modelId: r.modelId,
+              modelLabel: r.modelLabel,
+              status: r.status,
+              error: r.error ?? null,
+            })),
           },
           updated_at: new Date().toISOString(),
         })
         .eq('id', job.id)
 
-      // Process synchronous results immediately (Imagen 4)
-      await updateJobProgress(job.id, '⚡ Processing AI model results...', 2, 4)
-      for (const modelOutput of result.outputs) {
-        if (modelOutput.isSynchronous && modelOutput.url) {
-          console.log(`[worker] 🚀 Processing synchronous result from ${modelOutput.modelName}`)
-          await updateJobProgress(job.id, `📥 Downloading image from ${modelOutput.modelName}...`, 2, 4)
+      console.log('[worker] ✅ Multi-model generation completed:', job.id, succeeded.length, '/', results.length)
+    } else {
+      // Single-model path (default for non-admin callers).
+      await updateJobProgress(job.id, '🎨 Generating design with GPT Image 2...', 1, 3)
 
-          // Upload immediately to GCS
-          const productSlug = await getProductSlug(job.product_id)
-          const timestamp = Date.now()
-          const modelSlug = modelOutput.modelName.toLowerCase().replace(/\s+/g, '-')
-          const filename = `${productSlug}-${modelSlug}-${timestamp}.png`
-          const gcsPath = `graphics/${productSlug}/original/${filename}`
+      const { url: temporaryUrl, modelId: usedModelId } = await runImageFlowGenerate({
+        prompt: promptInput,
+        modelId: job.input?.modelId,
+      })
 
-          console.log('[worker] 📤 Uploading synchronous image to GCS:', gcsPath)
+      const ts = Date.now()
+      const filename = `${productSlug}-${ts}.png`
+      const gcsPath = `graphics/${productSlug}/original/${filename}`
 
-          // Upload to Google Cloud Storage
-          const { publicUrl, path } = await uploadImageFromUrl(modelOutput.url, gcsPath)
+      await updateJobProgress(job.id, '📤 Uploading design to cloud storage...', 2, 3)
+      const { publicUrl, path: storagePath } = await uploadImageFromUrl(temporaryUrl, gcsPath)
 
-          console.log('[worker] ✅ Synchronous image uploaded to GCS:', publicUrl)
+      const { error: assetError } = await supabase.from('product_assets').insert({
+        product_id: job.product_id,
+        kind: 'source',
+        path: storagePath,
+        url: publicUrl,
+        width: 1024,
+        height: 1024,
+        asset_role: 'design',
+        is_primary: false,
+        display_order: 99,
+        metadata: {
+          model_id: usedModelId,
+          provider: 'replicate',
+          original_prompt: promptInput,
+          generated_at: new Date().toISOString(),
+        },
+      })
 
-          // Save to product_assets with model metadata
-          const { error: assetError } = await supabase
-            .from('product_assets')
-            .insert({
-              product_id: job.product_id,
-              kind: 'source',
-              path: path,
-              url: publicUrl,
-              width: 1024,
-              height: 1024,
-              asset_role: 'design',
-              is_primary: false,
-              display_order: 99,
-              metadata: {
-                model_id: modelOutput.modelId,
-                model_name: modelOutput.modelName,
-                generated_at: new Date().toISOString(),
-              },
-            })
+      if (assetError) {
+        console.error('[worker] ❌ Error saving design asset:', assetError)
+        throw assetError
+      }
 
-          if (assetError) {
-            console.error('[worker] ❌ Error saving synchronous asset:', assetError)
-          } else {
-            console.log(`[worker] ✅ Saved asset for ${modelOutput.modelName}:`, publicUrl)
+      // Apply DTF optimization if DTF parameters are present
+      if (job.input?.shirtColor || job.input?.printStyle) {
+        try {
+          const dtfOptions: DTFOptimizationOptions = {
+            shirtColor: job.input.shirtColor || 'black',
+            printStyle: job.input.printStyle || 'clean',
           }
-
-          // Apply DTF optimization if DTF parameters are present
-          if (job.input?.shirtColor || job.input?.printStyle) {
-            try {
-              const dtfOptions: DTFOptimizationOptions = {
-                shirtColor: job.input.shirtColor || 'black',
-                printStyle: job.input.printStyle || 'clean',
-              }
-
-              const { publicUrl: dtfUrl, path: dtfPath } = await optimizeAndUploadDTF(
-                publicUrl,
-                productSlug,
-                dtfOptions
-              )
-
-              // Save DTF-optimized asset
-              await supabase
-                .from('product_assets')
-                .insert({
-                  product_id: job.product_id,
-                  kind: 'dtf',
-                  path: dtfPath,
-                  url: dtfUrl,
-                  width: 1024,
-                  height: 1024,
-                  asset_role: 'design',
-                  is_primary: false,
-                  display_order: 99,
-                  metadata: {
-                    model_id: modelOutput.modelId,
-                    model_name: modelOutput.modelName,
-                    shirt_color: dtfOptions.shirtColor,
-                    print_style: dtfOptions.printStyle,
-                    optimized_at: new Date().toISOString(),
-                  },
-                })
-
-              console.log(`[worker] ✅ DTF-optimized asset saved for ${modelOutput.modelName}:`, dtfUrl)
-            } catch (dtfError: any) {
-              console.error('[worker] ❌ DTF optimization failed:', dtfError.message)
-              // Don't fail the job, just log the error
-            }
-          }
-        } else if (modelOutput.predictionId) {
-          console.log(`[worker] ⏳ Async prediction created for ${modelOutput.modelName}:`, modelOutput.predictionId)
+          const { publicUrl: dtfUrl, path: dtfPath } = await optimizeAndUploadDTF(
+            publicUrl,
+            productSlug,
+            dtfOptions
+          )
+          await supabase.from('product_assets').insert({
+            product_id: job.product_id,
+            kind: 'dtf',
+            path: dtfPath,
+            url: dtfUrl,
+            width: 1024,
+            height: 1024,
+            asset_role: 'design',
+            is_primary: false,
+            display_order: 99,
+            metadata: {
+              model_id: usedModelId,
+              shirt_color: dtfOptions.shirtColor,
+              print_style: dtfOptions.printStyle,
+              optimized_at: new Date().toISOString(),
+            },
+          })
+          console.log('[worker] ✅ DTF-optimized asset saved:', dtfUrl)
+        } catch (dtfError: any) {
+          console.error('[worker] ❌ DTF optimization failed:', dtfError.message)
         }
       }
 
-      // Check if all models completed (either succeeded or failed) - we don't want to hang if one fails
-      const allSyncProcessed = result.outputs.every((o: any) => o.isSynchronous && (o.status === 'succeeded' || o.status === 'failed'))
-      const successCount = result.outputs.filter((o: any) => o.status === 'succeeded').length
-
-      if (allSyncProcessed && successCount > 0) {
-        // At least one model succeeded - mark job as succeeded so flow can continue
-        console.log('[worker] ✅ Multi-model generation processed (Success:', successCount, '/', result.outputs.length, ')')
-        console.log('[worker] 🎨 User will now select from', successCount, 'images before mockup generation')
-
-        await supabase
-          .from('ai_jobs')
-          .update({
-            status: 'succeeded',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', job.id)
-
-        // NOTE: Do NOT auto-queue mockup job here!
-        // User must first select their preferred image from the 3 generated options.
-        // The frontend will call /api/admin/products/ai/:id/select-image
-        // which creates the mockup job with the selected asset.
-      } else if (allSyncProcessed && successCount === 0) {
-        // All failed
-        console.error('[worker] ❌ All models failed synchronous generation')
-        await supabase
-          .from('ai_jobs')
-          .update({
-            status: 'failed',
-            error: 'All models failed to generate images',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', job.id)
-      } else {
-        console.log('[worker] ⏳ Multi-model generation in progress - waiting for async models or user selection')
-      }
-    } else {
-      // Legacy single-model result (backward compatibility)
+      await updateJobProgress(job.id, '✅ Design generated', 3, 3)
       await supabase
         .from('ai_jobs')
         .update({
-          prediction_id: result.id,
-          output: { prediction_id: result.id },
+          status: 'succeeded',
+          output: { url: publicUrl, gcs_path: storagePath, model_id: usedModelId },
           updated_at: new Date().toISOString(),
         })
         .eq('id', job.id)
 
-      console.log('[worker] ✅ Image generation started:', result.id)
+      console.log('[worker] ✅ Design generation completed:', job.id, publicUrl)
     }
   } else if (job.type === 'replicate_rembg') {
     // Remove background from source image
@@ -436,7 +504,7 @@ async function startJob(job: any) {
         })
         .eq('id', job.id)
     }
-  } else if (job.type === 'replicate_mockup') {
+  } else if (job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') {
     // Check if source image job exists and its status
     const { data: sourceImageJob } = await supabase
       .from('ai_jobs')
@@ -699,84 +767,33 @@ async function startJob(job: any) {
     let mockupImageUrl: string
 
     try {
-      if (template === 'ghost_mannequin') {
-        // Ghost mannequin - floating garment with invisible mannequin effect
-        console.log('[worker] 👻 Generating ghost mannequin mockup...')
-        const ghostResult = await generateGhostMannequin({
-          designImage: garmentImageUrl!,
-          productType: productType as 'tshirt' | 'hoodie' | 'tank',
-          shirtColor: shirtColor,
-        })
-
-        if (!ghostResult.url) {
-          throw new Error('Ghost mannequin generation returned no URL')
-        }
-        mockupImageUrl = ghostResult.url
-        console.log('[worker] ✅ Ghost mannequin generated:', mockupImageUrl.substring(0, 80) + '...')
-
-      } else if (template === 'flat_lay') {
-        // Flat lay - simple product photo laid flat on white background (NO Mr. Imagine)
-        console.log('[worker] 📸 Generating flat lay mockup (NanoBanana)...')
-        const flatLayResult = await generateFlatLay({
-          designImage: garmentImageUrl!,
-          productType: productType as 'tshirt' | 'hoodie' | 'tank',
-          shirtColor: shirtColor,
-        })
-
-        if (!flatLayResult.url) {
-          throw new Error('Flat lay generation returned no URL')
-        }
-        mockupImageUrl = flatLayResult.url
-        console.log('[worker] ✅ Flat lay generated:', mockupImageUrl.substring(0, 80) + '...')
-
-      } else {
-        // mr_imagine - use generateMockup which handles Mr. Imagine character fusion
-        console.log('[worker] 🎭 Generating Mr. Imagine mockup...')
-        const mockupResult = await generateMockup({
-          garment_image: garmentImageUrl!,
-          template: 'mr_imagine', // Always Mr. Imagine for this branch
-          product_type: productCategory,
-          productType: productType,
-          shirtColor: shirtColor,
-          printPlacement: printPlacement,
-        })
-
-        // generateMockup returns a prediction - we need to poll for completion
-        console.log('[worker] ⏳ Waiting for Mr. Imagine mockup prediction to complete:', mockupResult.id)
-        await updateJobProgress(job.id, `⏳ Processing Mr. Imagine mockup...`, 1, 3)
-
-        // Poll for prediction completion
-        let prediction = mockupResult
-        let attempts = 0
-        const maxAttempts = 60 // 5 minutes max
-
-        while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
-          prediction = await getPrediction(prediction.id)
-          attempts++
-          console.log('[worker] 📊 Prediction status:', prediction.status, 'attempt:', attempts)
-        }
-
-        if (prediction.status === 'failed') {
-          const errorMsg = typeof prediction.error === 'string' ? prediction.error : JSON.stringify(prediction.error) || 'Mockup prediction failed'
-          throw new Error(errorMsg)
-        }
-
-        if (prediction.status !== 'succeeded') {
-          throw new Error('Mockup generation timed out')
-        }
-
-        // Get the output URL
-        if (Array.isArray(prediction.output) && prediction.output.length > 0) {
-          mockupImageUrl = prediction.output[0]
-        } else if (typeof prediction.output === 'string') {
-          mockupImageUrl = prediction.output
-        } else {
-          throw new Error('Unexpected prediction output format')
-        }
-
-        console.log('[worker] ✅ Mr. Imagine mockup generated:', mockupImageUrl.substring(0, 80) + '...')
+      // All three templates (flat_lay, ghost_mannequin, mr_imagine) now run through
+      // image-flow → gpt-image-2. mr_imagine composites two inputs (character + design);
+      // the others use the design alone.
+      let characterImageUrl: string | undefined
+      if (template === 'mr_imagine') {
+        const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
+        const side = printPlacement === 'back-only' ? 'back' : 'front'
+        const colorKey = shirtColor === 'grey' ? 'gray' : shirtColor
+        // Path mirrors the legacy MR_IMAGINE_MOCKUPS map in services/replicate.ts.
+        const path = `/mr-imagine/mockups/mr-imagine-${productType}-${colorKey}-${side}.png`
+        characterImageUrl = `${siteUrl}${path}`
       }
+
+      console.log('[worker] 🎭 Generating', template, 'with image-flow (gpt-image-2)')
+      await updateJobProgress(job.id, `🎭 Generating ${templateName} with GPT Image 2...`, 1, 3)
+
+      const mockupResult = await runImageFlowMockup({
+        template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine',
+        designImageUrl: garmentImageUrl!,
+        productType: productType as 'tshirt' | 'hoodie' | 'tank',
+        shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
+        characterImageUrl,
+        printPlacement: printPlacement as any,
+      })
+
+      mockupImageUrl = mockupResult.url
+      console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
     } catch (mockupError: any) {
       console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
       await supabase
@@ -843,7 +860,8 @@ async function startJob(job: any) {
         display_order: displayOrder,
         metadata: {
           template: template,
-          generated_with: 'replicate-nano-banana',
+          generated_with: 'image-flow',
+          model_id: 'openai/gpt-image-2',
           generated_at: new Date().toISOString(),
         },
       })
@@ -962,13 +980,14 @@ async function startJob(job: any) {
       console.log('[worker] 👻 Using source image for ghost mannequin:', designImageUrl)
     }
 
-    // Generate ghost mannequin with ITP Enhance Engine
+    // Generate ghost mannequin via image-flow (gpt-image-2)
     const shirtColor = job.input?.shirtColor || 'black'
-    await updateJobProgress(job.id, '🎨 Rendering invisible mannequin effect with ITP Enhance Engine AI...', 2, 4)
+    await updateJobProgress(job.id, '🎨 Rendering invisible mannequin effect with GPT Image 2...', 2, 4)
 
     try {
-      const result = await generateGhostMannequin({
-        designImage: designImageUrl!, // Safe: we would have returned early if not set
+      const result = await runImageFlowMockup({
+        template: 'ghost_mannequin',
+        designImageUrl: designImageUrl!, // Safe: we would have returned early if not set
         productType: productType as 'tshirt' | 'hoodie' | 'tank',
         shirtColor: shirtColor as 'black' | 'white' | 'gray',
       })
@@ -1085,8 +1104,11 @@ async function startJob(job: any) {
     // Generate 4 angle views for 3D model
     await process3DModelAngles(job)
   } else if (job.type === '3d_model_trellis') {
-    // Convert images to 3D model using TRELLIS
+    // Legacy: TRELLIS (kept for in-flight jobs from before the Tripo3D switch)
     await process3DModelTrellis(job)
+  } else if (job.type === '3d_model_tripo' || job.type === '3d_model_tripo_v2') {
+    // Tripo3D v2.5 — size-tier driven, image-to-3D in one shot
+    await process3DModelTripo(job)
   }
 }
 
@@ -1517,10 +1539,16 @@ async function process3DModelTrellis(job: any) {
 
     console.log('[worker] ✅ GLB uploaded:', glbPublicUrl.substring(0, 60) + '...')
 
-    // Convert GLB to STL
+    // Convert GLB to STL. Legacy TRELLIS path doesn't carry a size tier; default
+    // to 100mm (matches the "small" tier on the modern Tripo flow) and apply the
+    // same Z-up + ground-on-buildplate transforms.
     await updateJobProgress(job.id, '🔧 Converting GLB to STL for 3D printing...', 3, 3)
 
-    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl)
+    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl, {
+      targetHeightMm: 100,
+      yUpToZUp: true,
+      centerAndGround: true,
+    })
 
     console.log('[worker] ✅ STL converted:', triangleCount, 'triangles')
 
@@ -1581,6 +1609,142 @@ async function process3DModelTrellis(job: any) {
         status: 'failed',
         error: error.message,
         updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id)
+  }
+}
+
+/**
+ * Tripo3D v2.5 — single-image to 3D, with size-tier driven quality.
+ * Replaces the legacy concept→angles→TRELLIS pipeline. Faster + cleaner meshes.
+ */
+async function process3DModelTripo(job: any) {
+  const { model_id, user_id, source_image_url, size_tier } = job.input as {
+    model_id: string
+    user_id: string
+    source_image_url: string
+    size_tier: PrintSizeTier
+  }
+
+  const tier = SIZE_TIERS[size_tier] || SIZE_TIERS.small
+  console.log('[worker] 🎲 Tripo3D job —', tier.label, 'tier — model:', model_id)
+
+  try {
+    const deducted = await deductItc(user_id, tier.itcCost, `3D ${tier.label} conversion`)
+    if (!deducted) throw new Error('Insufficient ITC balance')
+
+    const { data: model } = await supabase
+      .from('user_3d_models')
+      .select('itc_charged')
+      .eq('id', model_id)
+      .single()
+
+    await updateJobProgress(job.id, `🎲 Tripo3D ${tier.label} — generating mesh (~${tier.approxSeconds}s)...`, 1, 4)
+
+    // Generate via Tripo3D
+    const { glbUrl: tripoGlbUrl, processingTimeSec, modelMetadata, pbrUrl, rendererPreviewUrl } = await generateTripo3D({
+      imageUrl: source_image_url,
+      tier: size_tier,
+      orientation: 'align_image',
+    })
+
+    console.log('[worker] ✅ Tripo3D mesh ready in', processingTimeSec.toFixed(1) + 's')
+
+    // Upload GLB to GCS for permanent hosting
+    await updateJobProgress(job.id, '📤 Uploading GLB to cloud storage...', 2, 4)
+    const glbPath = `3d-models/${model_id}/model.glb`
+    const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(tripoGlbUrl, glbPath)
+
+    // Convert to STL (print-ready). Pass tier height + Bambu-friendly options
+    // so the STL imports at the right size, oriented Z-up, sitting on the build plate.
+    await updateJobProgress(job.id, '🔧 Converting to STL for 3D printing...', 3, 4)
+    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl, {
+      targetHeightMm: tier.printHeightMm,
+      yUpToZUp: true,
+      centerAndGround: true,
+    })
+    const stlPath = `3d-models/${model_id}/model.stl`
+    const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+
+    console.log('[worker] ✅ STL ready —', triangleCount, 'triangles')
+
+    await updateJobProgress(job.id, '✅ Print-ready mesh complete', 4, 4)
+
+    // Update model row with full result + print metadata.
+    // Try the rich update first; fall back to a minimal one if optional columns are missing.
+    const updatedAt = new Date().toISOString()
+    const richUpdate = await supabase
+      .from('user_3d_models')
+      .update({
+        glb_url: glbPublicUrl,
+        stl_url: stlPublicUrl,
+        status: 'ready',
+        size_tier,
+        print_height_mm: tier.printHeightMm,
+        print_price_usd: tier.printPriceUsd,
+        triangle_count: triangleCount,
+        itc_charged: (model?.itc_charged || 0) + tier.itcCost,
+        metadata: {
+          provider: modelMetadata.provider,
+          face_limit: modelMetadata.faceLimit,
+          texture: modelMetadata.texture,
+          quad: modelMetadata.quad,
+          auto_sized: modelMetadata.autoSized,
+          pbr_url: pbrUrl,
+          preview_url: rendererPreviewUrl,
+          processing_time_sec: processingTimeSec,
+        },
+        updated_at: updatedAt,
+      })
+      .eq('id', model_id)
+    if (richUpdate.error) {
+      console.warn('[worker] tier columns missing on row — minimal update:', richUpdate.error.message)
+      await supabase
+        .from('user_3d_models')
+        .update({
+          glb_url: glbPublicUrl,
+          stl_url: stlPublicUrl,
+          status: 'ready',
+          itc_charged: (model?.itc_charged || 0) + tier.itcCost,
+          updated_at: updatedAt,
+        })
+        .eq('id', model_id)
+    }
+
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'succeeded',
+        output: {
+          glb_url: glbPublicUrl,
+          stl_url: stlPublicUrl,
+          tier: size_tier,
+          print_height_mm: tier.printHeightMm,
+          triangle_count: triangleCount,
+          processing_time_sec: processingTimeSec,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+
+    console.log('[worker] ✅ Tripo3D job completed:', model_id)
+  } catch (error: any) {
+    console.error('[worker] ❌ Tripo3D conversion failed:', error.message)
+    await refundItc(user_id, tier.itcCost, `3D ${tier.label} conversion failed`)
+    await supabase
+      .from('user_3d_models')
+      .update({
+        status: 'failed',
+        error_message: error.message,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', model_id)
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: error.message,
+        updated_at: new Date().toISOString(),
       })
       .eq('id', job.id)
   }

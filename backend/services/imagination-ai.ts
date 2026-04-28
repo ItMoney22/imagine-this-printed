@@ -6,6 +6,7 @@ import { pricingService } from './imagination-pricing.js';
 import { AI_STYLES } from '../config/imagination-presets.js';
 import { removeBackgroundWithRemoveBg } from './removebg.js';
 import * as gcsStorage from './gcs-storage.js';
+import { uploadImageFromBase64 } from './google-cloud-storage.js';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!
@@ -176,17 +177,16 @@ export class ImaginationAIService {
         await pricingService.consumeFreeTrial(userId, 'generate');
       }
 
-      // Call Replicate Flux model
+      // Call Replicate Recraft V4 — design-first model with much less aggressive NSFW filter
+      // than Flux 1.1 Pro. Strong on graphic design, print-ready output.
+      console.log('[imagination-ai] generateImage using Recraft V4');
       const output = await replicate.run(
-        "black-forest-labs/flux-1.1-pro" as `${string}/${string}`,
+        "recraft-ai/recraft-v4" as `${string}/${string}`,
         {
           input: {
             prompt: enhancedPrompt,
-            aspect_ratio: "1:1",
-            output_format: "png",
-            output_quality: 100,
-            safety_tolerance: 2,
-            prompt_upsampling: true
+            size: "1024x1024",
+            style: "any",
           }
         }
       );
@@ -316,13 +316,14 @@ export class ImaginationAIService {
 
       console.log('[imagination-ai] upscaleImage input:', imageUrl.substring(0, 100) + '...', 'scale:', scaleFactor);
 
+      // Recraft Crisp Upscale — top-rated for graphic design / illustration content (2026 benchmarks).
+      // Cheaper + faster than real-esrgan, better text preservation.
+      console.log('[imagination-ai] upscaleImage using Recraft Crisp Upscale');
       const output = await replicate.run(
-        "nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa" as `${string}/${string}`,
+        "recraft-ai/recraft-crisp-upscale" as `${string}/${string}`,
         {
           input: {
             image: imageUrl,
-            scale: scaleFactor,
-            face_enhance: false
           }
         }
       );
@@ -454,7 +455,21 @@ export class ImaginationAIService {
         await pricingService.consumeFreeTrial(userId, 'generate');
       }
 
-      console.log('[imagination-ai] reimagineImage using Nano-Banana, input:', imageUrl.substring(0, 100) + '...', 'prompt:', prompt.substring(0, 50));
+      // If client passed a data URL (uploaded from browser), upload to GCS first so
+      // Replicate can fetch it. Replicate's API has request-size limits that data URLs
+      // can blow past for larger images.
+      let inputUrl = imageUrl;
+      if (inputUrl.startsWith('data:')) {
+        console.log('[imagination-ai] reimagineImage uploading data URL to GCS...');
+        const uploaded = await uploadImageFromBase64(
+          inputUrl,
+          `users/${userId}/uploads/reference-${Date.now()}.png`
+        );
+        inputUrl = uploaded.publicUrl;
+        console.log('[imagination-ai] reimagineImage uploaded reference to:', inputUrl.substring(0, 100) + '...');
+      }
+
+      console.log('[imagination-ai] reimagineImage using Nano-Banana, input:', inputUrl.substring(0, 100) + '...', 'prompt:', prompt.substring(0, 50));
 
       // Use Google Nano-Banana for image-to-image generation
       const output = await replicate.run(
@@ -462,7 +477,7 @@ export class ImaginationAIService {
         {
           input: {
             prompt: prompt,
-            image_input: [imageUrl],
+            image_input: [inputUrl],
             aspect_ratio: "match_input_image",
             output_format: "png"
           }

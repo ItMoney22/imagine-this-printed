@@ -170,7 +170,7 @@ const CreatorLeaderboard: React.FC<CreatorLeaderboardProps> = ({
       {leaders.length >= limit && (
         <div className="px-4 pb-4">
           <Link
-            to="/community/leaderboard"
+            to="/community"
             className="block text-center text-sm text-primary hover:underline"
           >
             View Full Leaderboard →

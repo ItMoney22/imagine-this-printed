@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Box, Camera, Hexagon, Smile, Star, Loader2, Coins, AlertCircle } from 'lucide-react'
 import type { Model3DStyle, Model3DPricing, Model3DStyleInfo } from '../../types'
 import api from '../../lib/api'
@@ -51,7 +51,7 @@ export function Create3DModelForm({
   const [pricing, setPricing] = useState<Model3DPricing | null>(null)
 
   // Load pricing on mount
-  useState(() => {
+  useEffect(() => {
     api.get('/api/3d-models/pricing')
       .then(res => {
         if (res.data?.costs) {
@@ -59,7 +59,7 @@ export function Create3DModelForm({
         }
       })
       .catch(err => console.error('Failed to load pricing:', err))
-  })
+  }, [])
 
   const conceptCost = pricing?.concept || 20
   const totalCost = pricing?.total || 100

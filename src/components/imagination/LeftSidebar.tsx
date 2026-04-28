@@ -52,35 +52,41 @@ export default function LeftSidebar({
     setIsProcessing(true)
 
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        const reader = new FileReader()
-
-        reader.onload = (event) => {
-          const img = new Image()
-          img.onload = () => {
-            const newLayer: Layer = {
-              id: `layer-${Date.now()}-${i}`,
-              type: 'image',
-              name: file.name,
-              visible: true,
-              thumbnail: event.target?.result as string,
-              x: 50,
-              y: 50,
-              width: img.width,
-              height: img.height,
-              rotation: 0,
-              opacity: 1,
-              zIndex: layers.length,
-              imageUrl: event.target?.result as string
+      // Read + decode each file in parallel; await all so the loading state
+      // truly tracks completion (prior code resolved synchronously and turned
+      // off the spinner before any reader fired).
+      await Promise.all(
+        Array.from(files).map((file, i) => new Promise<void>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string
+            const img = new Image()
+            img.onload = () => {
+              const newLayer: Layer = {
+                id: `layer-${Date.now()}-${i}`,
+                type: 'image',
+                name: file.name,
+                visible: true,
+                thumbnail: dataUrl,
+                x: 50,
+                y: 50,
+                width: img.width,
+                height: img.height,
+                rotation: 0,
+                opacity: 1,
+                zIndex: layers.length,
+                imageUrl: dataUrl
+              }
+              onLayerAdded(newLayer)
+              resolve()
             }
-            onLayerAdded(newLayer)
+            img.onerror = () => resolve()
+            img.src = dataUrl
           }
-          img.src = event.target?.result as string
-        }
-
-        reader.readAsDataURL(file)
-      }
+          reader.onerror = () => resolve()
+          reader.readAsDataURL(file)
+        }))
+      )
     } catch (error) {
       console.error('Error uploading files:', error)
     } finally {

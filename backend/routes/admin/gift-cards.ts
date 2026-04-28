@@ -1,12 +1,17 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { nanoid } from 'nanoid'
+import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
 import { sendGiftCardEmail } from '../../utils/email.js'
 
 dotenv.config()
 
 const router = Router()
+
+// All admin gift card routes require authentication + admin role
+router.use(requireAuth)
+router.use(requireRole(['admin', 'manager']))
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY

@@ -132,12 +132,20 @@ router.post('/apply', async (req: Request, res: Response) => {
             coupon_id: couponId
         })
 
-        // If RPC doesn't exist, do it manually
+        // If RPC doesn't exist, do it manually with fetch-then-update
         if (updateError) {
-            await supabase
+            const { data: coupon } = await supabase
                 .from('discount_codes')
-                .update({ current_uses: supabase.rpc('current_uses', {}) })
+                .select('current_uses')
                 .eq('id', couponId)
+                .single()
+
+            if (coupon) {
+                await supabase
+                    .from('discount_codes')
+                    .update({ current_uses: (coupon.current_uses || 0) + 1 })
+                    .eq('id', couponId)
+            }
         }
 
         res.json({ success: true })

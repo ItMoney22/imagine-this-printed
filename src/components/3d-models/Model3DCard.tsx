@@ -45,6 +45,12 @@ const STATUS_CONFIG: Record<Model3DStatus, {
     bgColor: 'bg-amber-500/20',
     icon: Eye
   },
+  awaiting_3d_generation: {
+    label: 'Pick size to generate',
+    color: 'text-primary',
+    bgColor: 'bg-primary/20',
+    icon: Zap
+  },
   generating_angles: {
     label: 'Generating Views',
     color: 'text-purple-400',
@@ -79,37 +85,11 @@ const STYLE_LABELS: Record<string, string> = {
 }
 
 export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
-  const [isApproving, setIsApproving] = useState(false)
-  const [isGenerating3D, setIsGenerating3D] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
   const statusConfig = STATUS_CONFIG[model.status]
   const StatusIcon = statusConfig.icon
   const isProcessing = ['generating_concept', 'generating_angles', 'generating_3d'].includes(model.status)
-
-  const handleApprove = async () => {
-    setIsApproving(true)
-    try {
-      await api.post(`/api/3d-models/${model.id}/approve`)
-      onRefresh()
-    } catch (err) {
-      console.error('Failed to approve:', err)
-    } finally {
-      setIsApproving(false)
-    }
-  }
-
-  const handleGenerate3D = async () => {
-    setIsGenerating3D(true)
-    try {
-      await api.post(`/api/3d-models/${model.id}/generate-3d`)
-      onRefresh()
-    } catch (err) {
-      console.error('Failed to start 3D generation:', err)
-    } finally {
-      setIsGenerating3D(false)
-    }
-  }
 
   const handleDelete = async () => {
     if (!confirm('Delete this 3D model? This cannot be undone.')) return
@@ -124,9 +104,8 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
     }
   }
 
-  // Check if we have all angles for "Generate 3D" button
-  const hasAllAngles = model.angle_images?.front && model.angle_images?.back &&
-                       model.angle_images?.left && model.angle_images?.right
+  // Tripo3D works directly from concept; legacy TRELLIS path needed all 4 angles.
+  const hasConcept = !!model.concept_image_url
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden hover:border-purple-500/50 transition-all group">
@@ -158,6 +137,15 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
             {STYLE_LABELS[model.style]}
           </span>
         </div>
+
+        {/* Size tier badge — only when ready and tier is set */}
+        {model.status === 'ready' && model.size_tier && (
+          <div className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-primary/80 backdrop-blur-sm border border-primary/40">
+            <span className="text-[10px] text-white font-bold uppercase tracking-wider">
+              {model.size_tier} · {model.print_height_mm}mm
+            </span>
+          </div>
+        )}
 
         {/* Hover Actions Overlay */}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -201,44 +189,15 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
           <span>{model.itc_charged} ITC used</span>
         </div>
 
-        {/* Action Buttons based on status */}
-        {model.status === 'awaiting_approval' && (
+        {/* Action Buttons based on status — concept-ready states all route to the
+            detail modal where the user picks a size + generates in one click. */}
+        {hasConcept && (model.status === 'awaiting_approval' || model.status === 'awaiting_3d_generation') && (
           <button
-            onClick={handleApprove}
-            disabled={isApproving}
-            className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium text-sm flex items-center justify-center gap-2 transition-all"
+            onClick={() => onView(model)}
+            className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-medium text-sm flex items-center justify-center gap-2 transition-all"
           >
-            {isApproving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Approving...</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                <span>Approve & Continue</span>
-              </>
-            )}
-          </button>
-        )}
-
-        {hasAllAngles && model.status !== 'generating_3d' && model.status !== 'ready' && (
-          <button
-            onClick={handleGenerate3D}
-            disabled={isGenerating3D}
-            className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium text-sm flex items-center justify-center gap-2 transition-all"
-          >
-            {isGenerating3D ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Starting...</span>
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4" />
-                <span>Generate 3D Model</span>
-              </>
-            )}
+            <Zap className="w-4 h-4" />
+            <span>Pick size & generate</span>
           </button>
         )}
 

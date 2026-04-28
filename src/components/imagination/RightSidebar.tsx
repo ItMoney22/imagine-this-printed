@@ -15,10 +15,26 @@ const DEFAULT_AI_IMAGE_SIZE = 6;
  * Maintains aspect ratio while fitting within a default size
  */
 function loadImageAndGetDimensions(imageUrl: string): Promise<{ width: number; height: number; originalWidth: number; originalHeight: number }> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
+
+    const fallback = () => ({
+      width: DEFAULT_AI_IMAGE_SIZE,
+      height: DEFAULT_AI_IMAGE_SIZE,
+      originalWidth: 1024,
+      originalHeight: 1024
+    });
+
+    // Timeout after 15s to prevent infinite loading
+    const timeout = setTimeout(() => {
+      console.warn('[RightSidebar] Image load timed out, using defaults');
+      img.src = '';
+      resolve(fallback());
+    }, 15000);
+
     img.onload = () => {
+      clearTimeout(timeout);
       const { naturalWidth, naturalHeight } = img;
       const aspectRatio = naturalWidth / naturalHeight;
 
@@ -27,11 +43,9 @@ function loadImageAndGetDimensions(imageUrl: string): Promise<{ width: number; h
       let height: number;
 
       if (aspectRatio >= 1) {
-        // Landscape or square - width is the limiting factor
         width = DEFAULT_AI_IMAGE_SIZE;
         height = DEFAULT_AI_IMAGE_SIZE / aspectRatio;
       } else {
-        // Portrait - height is the limiting factor
         height = DEFAULT_AI_IMAGE_SIZE;
         width = DEFAULT_AI_IMAGE_SIZE * aspectRatio;
       }
@@ -44,14 +58,9 @@ function loadImageAndGetDimensions(imageUrl: string): Promise<{ width: number; h
       });
     };
     img.onerror = () => {
-      // Fallback to default size if image fails to load
+      clearTimeout(timeout);
       console.warn('[RightSidebar] Failed to load image dimensions, using defaults');
-      resolve({
-        width: DEFAULT_AI_IMAGE_SIZE,
-        height: DEFAULT_AI_IMAGE_SIZE,
-        originalWidth: 1024,
-        originalHeight: 1024
-      });
+      resolve(fallback());
     };
     img.src = imageUrl;
   });

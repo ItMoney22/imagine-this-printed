@@ -100,8 +100,7 @@ export default function AdminGiftCardManagement() {
       setSuccess('Gift card created successfully!')
       setShowCreateModal(false)
       setFormData(defaultFormData)
-      fetchGiftCards()
-      fetchStats()
+      await Promise.all([fetchGiftCards(), fetchStats()])
       setTimeout(() => setSuccess(null), 3000)
     } catch (err: any) {
       console.error('Error creating gift card:', err)
@@ -124,8 +123,7 @@ export default function AdminGiftCardManagement() {
       setSuccess(`Created ${response.data.count} gift cards successfully!`)
       setShowBulkModal(false)
       setBulkFormData(defaultBulkFormData)
-      fetchGiftCards()
-      fetchStats()
+      await Promise.all([fetchGiftCards(), fetchStats()])
       setTimeout(() => setSuccess(null), 3000)
     } catch (err: any) {
       console.error('Error bulk creating gift cards:', err)
@@ -145,8 +143,7 @@ export default function AdminGiftCardManagement() {
     try {
       await api.delete(`/api/admin/gift-cards/${giftCard.id}`)
       setSuccess('Gift card deleted successfully!')
-      fetchGiftCards()
-      fetchStats()
+      await Promise.all([fetchGiftCards(), fetchStats()])
       setTimeout(() => setSuccess(null), 3000)
     } catch (err: any) {
       console.error('Error deleting gift card:', err)

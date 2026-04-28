@@ -8,6 +8,7 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { validatePrompt, Style3D, STYLES } from '../services/nano-banana-3d.js'
+import { SIZE_TIERS, PrintSizeTier } from '../services/tripo3d.js'
 
 const router = Router()
 
@@ -238,6 +239,15 @@ router.get('/pricing', async (req: Request, res: Response) => {
 })
 
 /**
+ * GET /api/3d-models/size-tiers
+ * Public — returns the size tier catalog with ITC + print pricing.
+ * MUST be declared before the /:id route below to avoid matching as an ID.
+ */
+router.get('/size-tiers', async (_req: Request, res: Response): Promise<any> => {
+  res.json({ tiers: Object.values(SIZE_TIERS) })
+})
+
+/**
  * GET /api/3d-models/:id
  * Get single model details
  */
@@ -266,14 +276,15 @@ router.get('/:id', requireAuth, async (req: Request, res: Response): Promise<any
 
 /**
  * POST /api/3d-models/:id/approve
- * Approve concept image and trigger angle generation
+ * Approve concept image. Tripo3D works directly from the concept — no angles needed.
+ * After approval the model sits in `awaiting_3d_generation` so the user can pick a
+ * size tier and trigger the actual 3D conversion via /generate-3d.
  */
 router.post('/:id/approve', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const user = (req as any).user
     const { id } = req.params
 
-    // Get model
     const { data: model, error: fetchError } = await supabase
       .from('user_3d_models')
       .select('*')
@@ -288,51 +299,26 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response): Pr
     if (model.status !== 'awaiting_approval') {
       return res.status(400).json({
         error: 'Model not ready for approval',
-        currentStatus: model.status
+        currentStatus: model.status,
       })
     }
 
-    // Check ITC balance for angles
-    const { data: wallet } = await supabase
-      .from('user_wallets')
-      .select('itc_balance')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!wallet || wallet.itc_balance < ITC_COSTS.angles) {
-      return res.status(402).json({
-        error: 'Insufficient ITC for angle generation',
-        required: ITC_COSTS.angles,
-        current: wallet?.itc_balance || 0
-      })
-    }
-
-    // Update status
+    // No angle generation, no extra ITC charge — concept is enough for Tripo3D.
+    // Move to a holding state where the size picker is shown.
     await supabase
       .from('user_3d_models')
-      .update({ status: 'generating_angles', updated_at: new Date().toISOString() })
+      .update({
+        status: 'awaiting_3d_generation',
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
 
-    // Queue angle generation job
-    await supabase.from('ai_jobs').insert({
-      type: '3d_model_angles',
-      status: 'queued',
-      input: {
-        model_id: id,
-        user_id: user.id,
-        style: model.style,
-        concept_image_url: model.concept_image_url
-      },
-      output: {},
-      created_at: new Date().toISOString()
-    })
-
-    console.log('[3d-models] Approved model:', id, '- starting angle generation')
+    console.log('[3d-models] Approved model:', id, '- ready for size pick + Tripo3D conversion')
 
     res.json({
       ok: true,
-      message: 'Concept approved, generating angle views',
-      cost: ITC_COSTS.angles
+      message: 'Concept approved — pick a print size to start 3D generation',
+      cost: 0,
     })
   } catch (error: any) {
     console.error('[3d-models] Approve error:', error.message)
@@ -342,14 +328,25 @@ router.post('/:id/approve', requireAuth, async (req: Request, res: Response): Pr
 
 /**
  * POST /api/3d-models/:id/generate-3d
- * Trigger TRELLIS 3D conversion after angles are ready
+ * Trigger Tripo3D conversion at a chosen size tier.
+ * Body: { size: 'mini' | 'small' | 'medium' | 'large' }
  */
 router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const user = (req as any).user
     const { id } = req.params
+    const requestedTier = (req.body?.size || 'small') as PrintSizeTier
+    const tierConfig = SIZE_TIERS[requestedTier]
 
-    // Get model with angle images
+    if (!tierConfig) {
+      return res.status(400).json({
+        error: 'Invalid size tier',
+        validTiers: Object.keys(SIZE_TIERS),
+      })
+    }
+
+    // Get model — we now drive Tripo3D from the concept image directly,
+    // so angles are no longer required (saving 30 ITC and ~60s).
     const { data: model, error: fetchError } = await supabase
       .from('user_3d_models')
       .select('*')
@@ -361,58 +358,78 @@ router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response)
       return res.status(404).json({ error: 'Model not found' })
     }
 
-    // Verify angles are complete
-    const angles = model.angle_images || {}
-    const hasAllAngles = angles.front && angles.back && angles.left && angles.right
-
-    if (!hasAllAngles) {
+    // Need a concept image to feed Tripo3D
+    const sourceImage = model.concept_image_url || model.angle_images?.front
+    if (!sourceImage) {
       return res.status(400).json({
-        error: 'Angle views not ready',
-        currentAngles: Object.keys(angles),
-        required: ['front', 'back', 'left', 'right']
+        error: 'Concept image not ready',
+        currentStatus: model.status,
       })
     }
 
-    // Check ITC balance for 3D conversion
+    // Check ITC balance for the chosen tier
     const { data: wallet } = await supabase
       .from('user_wallets')
       .select('itc_balance')
       .eq('user_id', user.id)
       .single()
 
-    if (!wallet || wallet.itc_balance < ITC_COSTS.convert) {
+    if (!wallet || wallet.itc_balance < tierConfig.itcCost) {
       return res.status(402).json({
-        error: 'Insufficient ITC for 3D conversion',
-        required: ITC_COSTS.convert,
-        current: wallet?.itc_balance || 0
+        error: `Insufficient ITC for ${tierConfig.label} size (${tierConfig.itcCost} ITC required)`,
+        required: tierConfig.itcCost,
+        current: wallet?.itc_balance || 0,
       })
     }
 
-    // Update status
-    await supabase
+    // Update status + persist chosen tier on the row.
+    // size_tier / print_height_mm may not exist on older schemas — try, then fall back
+    // to status-only so the job still kicks off cleanly.
+    const updatedAt = new Date().toISOString()
+    const fullUpdate = await supabase
       .from('user_3d_models')
-      .update({ status: 'generating_3d', updated_at: new Date().toISOString() })
+      .update({
+        status: 'generating_3d',
+        size_tier: requestedTier,
+        print_height_mm: tierConfig.printHeightMm,
+        updated_at: updatedAt,
+      })
       .eq('id', id)
+    if (fullUpdate.error) {
+      console.warn('[3d-models] tier columns missing on row — falling back to status-only update:', fullUpdate.error.message)
+      await supabase
+        .from('user_3d_models')
+        .update({ status: 'generating_3d', updated_at: updatedAt })
+        .eq('id', id)
+    }
 
-    // Queue TRELLIS conversion job
+    // Queue Tripo3D conversion job.
+    // NOTE: Type is '3d_model_tripo_v2' so the production Render worker (which
+    // still has the old TRIPO_API_KEY 'tcli_*' Studio token) ignores it. Local
+    // worker recognizes both '3d_model_tripo' and '_v2'. Once Render's env is
+    // updated with a 'tsk_*' Platform key, this rename becomes unnecessary.
     await supabase.from('ai_jobs').insert({
-      type: '3d_model_trellis',
+      type: '3d_model_tripo_v2',
       status: 'queued',
       input: {
         model_id: id,
         user_id: user.id,
-        angle_images: angles
+        source_image_url: sourceImage,
+        size_tier: requestedTier,
       },
       output: {},
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     })
 
-    console.log('[3d-models] Starting TRELLIS conversion for model:', id)
+    console.log('[3d-models] Starting Tripo3D', requestedTier, 'conversion for model:', id)
 
     res.json({
       ok: true,
-      message: '3D conversion started',
-      cost: ITC_COSTS.convert
+      message: `${tierConfig.label} 3D conversion started (~${tierConfig.approxSeconds}s)`,
+      tier: requestedTier,
+      cost: tierConfig.itcCost,
+      printPriceUsd: tierConfig.printPriceUsd,
+      printHeightMm: tierConfig.printHeightMm,
     })
   } catch (error: any) {
     console.error('[3d-models] Generate-3d error:', error.message)

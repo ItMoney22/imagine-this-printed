@@ -273,8 +273,7 @@ const Wallet: React.FC = () => {
   // Load Connect status when cashout tab is selected
   useEffect(() => {
     if (selectedTab === 'cashout' && user?.id) {
-      loadConnectStatus()
-      loadCashoutHistory()
+      Promise.all([loadConnectStatus(), loadCashoutHistory()])
     }
   }, [selectedTab, user?.id])
 

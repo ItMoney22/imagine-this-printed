@@ -361,6 +361,10 @@ router.post('/set-step', requireAuth, async (req: Request, res: Response): Promi
  */
 router.post('/test', async (req: Request, res: Response): Promise<any> => {
   try {
+    // Dev-only — never exposed in production builds.
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ error: 'Not found' })
+    }
     const { text } = req.body
 
     if (!text) {

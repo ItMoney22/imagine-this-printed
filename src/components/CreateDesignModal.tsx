@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, Coins, Wand2, ArrowRight, RefreshCw, Save, Mic, MicOff, Loader2, Sparkles, Send, Volume2, Eraser, ZoomIn, Paintbrush, ChevronDown, ChevronUp, CheckCircle, PartyPopper } from 'lucide-react'
+import { X, Coins, Wand2, ArrowRight, RefreshCw, Save, Mic, MicOff, Loader2, Sparkles, Send, Volume2, Eraser, ZoomIn, Paintbrush, ChevronDown, ChevronUp, CheckCircle, PartyPopper, Image as ImageIcon, MessageCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import confetti from 'canvas-confetti'
 
@@ -116,6 +116,11 @@ export function CreateDesignModal({
   const [mrImagineMessage, setMrImagineMessage] = useState<string | null>(null)
   const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([])
 
+  // Reference image upload (Mr. Imagine sees it via vision)
+  const [referenceImage, setReferenceImage] = useState<string | null>(null) // data URL
+  const [isAskingMrImagine, setIsAskingMrImagine] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // Sync with prop changes
   useEffect(() => {
     setCurrentBalance(itcBalance)
@@ -125,6 +130,7 @@ export function CreateDesignModal({
   useEffect(() => {
     if (isOpen) {
       setPrompt('')
+      setReferenceImage(null)
       setSelectedStyle('realistic')
       setSelectedCategory('shirts')
       setColors('')
@@ -446,6 +452,127 @@ export function CreateDesignModal({
     }
   }, [])
 
+  // Reference image upload — converts to data URL so Gemini can see it via OpenRouter
+  const handleReferenceImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('Please upload an image file')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError('Image too large (max 8MB)')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      setReferenceImage(dataUrl)
+      setError(null)
+    }
+    reader.onerror = () => setError('Failed to read image')
+    reader.readAsDataURL(file)
+    // Allow re-selecting the same file later
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Use uploaded image AS the design (no AI transformation). Saves to GCS and adds
+  // it to the generated-designs grid so the user can submit it for approval like
+  // any other design.
+  const handleUseUploadAsDesign = async () => {
+    if (!referenceImage) return
+    setIsAskingMrImagine(true) // reuse spinner state
+    setError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Not authenticated')
+
+      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const response = await fetch(`${apiBase}/api/imagination-station/ai/use-upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ dataUrl: referenceImage }),
+      })
+      if (!response.ok) {
+        const e = await response.json().catch(() => ({}))
+        throw new Error(e.error || 'Failed to save your image')
+      }
+      const data = await response.json()
+      const url = data.url || data.imageUrl || data.processedUrl
+      if (!url) throw new Error('No URL returned from upload')
+
+      // Add as a generated design so user can pick it and submit
+      const designIndex = generatedDesigns.length
+      setGeneratedDesigns((prev) => [
+        ...prev,
+        {
+          modelId: `upload-${Date.now()}`,
+          modelName: 'Your Upload',
+          imageUrl: url,
+          status: 'succeeded' as const,
+        },
+      ])
+      setSelectedDesignIndex(designIndex)
+      setHasGeneratedOnce(true)
+      setReferenceImage(null) // clear thumb since it's now in the grid
+      getMrImagineResponse('selected', 'Looks great! Ready to submit for approval whenever you are.')
+    } catch (e: any) {
+      console.error('[CreateDesignModal] use-upload failed:', e)
+      setError(e.message || 'Failed to use upload as design')
+    } finally {
+      setIsAskingMrImagine(false)
+    }
+  }
+
+  // Ask Mr. Imagine — sends prompt + (optional) reference image to Gemini vision
+  const handleAskMrImagine = async () => {
+    const userMessage = prompt.trim() || (referenceImage ? 'What do you think of this design?' : '')
+    if (!userMessage && !referenceImage) return
+
+    setIsAskingMrImagine(true)
+    setError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Not authenticated')
+
+      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const response = await fetch(`${apiBase}/api/ai/mr-imagine/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          conversationHistory: conversationHistory.slice(-6),
+          imageUrl: referenceImage || undefined,
+        }),
+      })
+      if (!response.ok) {
+        const e = await response.json().catch(() => ({}))
+        throw new Error(e.error || 'Mr. Imagine could not respond')
+      }
+      const data = await response.json()
+      if (data.response) {
+        setMrImagineMessage(data.response)
+        setConversationHistory((prev) => [
+          ...prev,
+          { role: 'user', content: userMessage + (referenceImage ? ' [+ image attached]' : '') },
+          { role: 'assistant', content: data.response },
+        ])
+        speakMessage(data.response)
+      }
+    } catch (e: any) {
+      console.error('[CreateDesignModal] ask Mr. Imagine failed:', e)
+      setError(e.message || 'Failed to chat with Mr. Imagine')
+    } finally {
+      setIsAskingMrImagine(false)
+    }
+  }
+
   // Toggle voice input
   const toggleVoiceInput = () => {
     if (!recognitionRef.current) {
@@ -509,20 +636,25 @@ export function CreateDesignModal({
 - Avoid gradients that fade to nothing - they look like printing errors`
       }
 
-      // Call API to generate design
+      // Call API to generate design.
+      // If a reference image is attached, route to /reimagine (image-to-image with nano-banana)
+      // so the model uses the upload as a starting point. Otherwise text-to-image with Recraft V4.
       const apiBase = import.meta.env.VITE_API_BASE || ''
-      const response = await fetch(`${apiBase}/api/imagination-station/ai/generate`, {
+      const useReference = !!referenceImage
+      const endpoint = useReference
+        ? `${apiBase}/api/imagination-station/ai/reimagine`
+        : `${apiBase}/api/imagination-station/ai/generate`
+      const body = useReference
+        ? { imageUrl: referenceImage, prompt: enrichedPrompt }
+        : { prompt: enrichedPrompt, style: selectedStyle, category: selectedCategory, numImages: 2 }
+      console.log('[CreateDesignModal] Generating via', useReference ? 'reimagine (with reference image)' : 'generate (text-to-image)')
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({
-          prompt: enrichedPrompt,
-          style: selectedStyle,
-          category: selectedCategory,
-          numImages: 2
-        })
+        body: JSON.stringify(body),
       })
 
       if (!response.ok) {
@@ -1244,20 +1376,70 @@ export function CreateDesignModal({
                 <label className="block text-sm font-semibold text-white mb-2">
                   Describe Your Design *
                 </label>
+
+                {/* Reference image thumbnail (when attached) */}
+                {referenceImage && (
+                  <div className="mb-3 flex items-center gap-3 bg-white/5 border border-purple-400/30 rounded-xl p-3">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden border border-white/10 flex-shrink-0 bg-black/30">
+                      <img src={referenceImage} alt="Reference" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white/90 font-medium">Reference image attached</p>
+                      <p className="text-xs text-white/50">Mr. Imagine can see it. Use it as your design, or describe a transformation below.</p>
+                    </div>
+                    <button
+                      onClick={handleUseUploadAsDesign}
+                      disabled={isAskingMrImagine || isGenerating}
+                      className="px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-white text-xs font-semibold shadow-lg shadow-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                      title="Use this image as your design (skips AI, goes straight to approval)"
+                    >
+                      {isAskingMrImagine ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        'Use as design'
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setReferenceImage(null)}
+                      className="p-1.5 rounded-lg bg-white/10 hover:bg-red-500/30 text-white/70 hover:text-white transition-all"
+                      title="Remove reference"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
                 <div className="relative">
                   <textarea
                     ref={textareaRef}
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     rows={4}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-12 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
-                    placeholder="Example: A playful cartoon cat wearing sunglasses, riding a skateboard through a neon city at night..."
-                    disabled={isGenerating}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-24 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all resize-none"
+                    placeholder={referenceImage ? "Tell Mr. Imagine what to do with this image, or describe your own idea..." : "Example: A playful cartoon cat wearing sunglasses, riding a skateboard through a neon city at night..."}
+                    disabled={isGenerating || isAskingMrImagine}
                   />
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleReferenceImageUpload}
+                    className="hidden"
+                  />
+                  {/* Upload reference image */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isGenerating || isAskingMrImagine}
+                    className="absolute right-12 bottom-3 p-2 rounded-lg bg-white/10 text-white/60 hover:bg-purple-500/30 hover:text-white transition-all disabled:opacity-40"
+                    title="Upload a reference image — Mr. Imagine will see it"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                  </button>
                   {/* Voice input button */}
                   <button
                     onClick={toggleVoiceInput}
-                    disabled={isGenerating}
+                    disabled={isGenerating || isAskingMrImagine}
                     className={`absolute right-3 bottom-3 p-2 rounded-lg transition-all ${
                       isListening
                         ? 'bg-red-500 text-white animate-pulse'
@@ -1265,16 +1447,31 @@ export function CreateDesignModal({
                     }`}
                     title={isListening ? 'Stop listening' : 'Voice input'}
                   >
-                    {isListening ? (
-                      <MicOff className="w-4 h-4" />
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between mt-2 gap-2">
+                  <p className="text-xs text-white/50">
+                    Be descriptive — style, colors, mood, elements. Or upload a reference and ask Mr. Imagine for input.
+                  </p>
+                  <button
+                    onClick={handleAskMrImagine}
+                    disabled={isAskingMrImagine || isGenerating || (!prompt.trim() && !referenceImage)}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary to-secondary text-white text-xs font-semibold shadow-lg shadow-primary/30 hover:shadow-primary/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    {isAskingMrImagine ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Mr. Imagine thinking…
+                      </>
                     ) : (
-                      <Mic className="w-4 h-4" />
+                      <>
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        Ask Mr. Imagine
+                      </>
                     )}
                   </button>
                 </div>
-                <p className="text-xs text-white/50 mt-1">
-                  Be descriptive! Include style, colors, mood, and any specific elements you want.
-                </p>
               </div>
 
               {/* Style presets */}

@@ -71,6 +71,7 @@ export interface Order {
   total: number
   status: 'pending' | 'processing' | 'printed' | 'shipped' | 'delivered' | 'on_hold' | 'approved' | 'rejected'
   createdAt: string
+  updatedAt?: string
   assignedTo?: string
   profitMargin?: number
   materialCost?: number
@@ -1037,7 +1038,7 @@ export interface ProductAsset {
 export interface AIJob {
   id: string
   product_id: string
-  type: 'gpt_product' | 'replicate_image' | 'replicate_mockup' | 'replicate_rembg' | 'replicate_upscale' | 'ghost_mannequin'
+  type: 'gpt_product' | 'replicate_image' | 'replicate_image_v2' | 'replicate_mockup' | 'replicate_mockup_v2' | 'replicate_rembg' | 'replicate_upscale' | 'ghost_mannequin'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
   input: Record<string, any>
   output?: Record<string, any>
@@ -1533,10 +1534,26 @@ export type Model3DStatus =
   | 'queued'
   | 'generating_concept'
   | 'awaiting_approval'
+  | 'awaiting_3d_generation'
   | 'generating_angles'
   | 'generating_3d'
   | 'ready'
   | 'failed';
+
+export type PrintSizeTier = 'mini' | 'small' | 'medium' | 'large';
+
+export interface SizeTierConfig {
+  tier: PrintSizeTier;
+  label: string;
+  description: string;
+  printHeightMm: number;
+  faceLimit: number;
+  texture: 'standard' | 'HD';
+  quad: boolean;
+  itcCost: number;
+  printPriceUsd: number;
+  approxSeconds: number;
+}
 
 export interface User3DModel {
   id: string;
@@ -1556,6 +1573,13 @@ export interface User3DModel {
   itc_charged: number;
   error_message: string | null;
   idempotency_key?: string;
+  purchased_licenses?: ('personal' | 'commercial')[];
+  // Size-tier metadata (set when generate-3d is called)
+  size_tier?: PrintSizeTier | null;
+  print_height_mm?: number | null;
+  print_price_usd?: number | null;
+  triangle_count?: number | null;
+  metadata?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
 }

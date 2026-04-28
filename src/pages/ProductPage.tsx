@@ -35,16 +35,16 @@ const ProductPage: React.FC = () => {
       try {
         setLoading(true)
 
-        // Fetch product
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .eq('id', id)
-          .single()
+        // Fetch product and assets in parallel
+        const [productResult, assetsResult] = await Promise.all([
+          supabase.from('products').select('*').eq('id', id).single(),
+          supabase.from('product_assets').select('url, kind').eq('product_id', id).in('kind', ['source', 'nobg'])
+        ])
 
-        if (error) throw error
+        if (productResult.error) throw productResult.error
 
-        if (data) {
+        if (productResult.data) {
+          const data = productResult.data
           const mappedProduct: Product = {
             id: data.id,
             name: data.name,
@@ -62,16 +62,9 @@ const ProductPage: React.FC = () => {
           }
           setProduct(mappedProduct)
 
-          // Fetch source image from product_assets (the original Flux-generated image)
-          const { data: assetsData } = await supabase
-            .from('product_assets')
-            .select('url, kind')
-            .eq('product_id', id)
-            .in('kind', ['source', 'nobg']) // Prefer source, fallback to nobg
-            .order('kind', { ascending: true }) // 'nobg' comes before 'source' alphabetically, so we'll pick source first below
-
+          // Prefer 'source' (original Flux image), then 'nobg' (background removed)
+          const assetsData = assetsResult.data
           if (assetsData && assetsData.length > 0) {
-            // Prefer 'source' (original Flux image), then 'nobg' (background removed)
             const sourceAsset = assetsData.find(a => a.kind === 'source')
             const nobgAsset = assetsData.find(a => a.kind === 'nobg')
             setSourceImageUrl(sourceAsset?.url || nobgAsset?.url || null)

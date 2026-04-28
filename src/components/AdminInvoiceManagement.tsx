@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { FileText, DollarSign, CheckCircle, Send, XCircle, Plus, RefreshCw, ExternalLink, Clock } from 'lucide-react'
 import api from '../lib/api'
 import CreateInvoiceModal from './CreateInvoiceModal'
@@ -93,9 +93,9 @@ const AdminInvoiceManagement: React.FC = () => {
     }
   }
 
-  const filteredInvoices = selectedTab === 'all'
+  const filteredInvoices = useMemo(() => selectedTab === 'all'
     ? invoices
-    : invoices.filter(inv => inv.status === selectedTab)
+    : invoices.filter(inv => inv.status === selectedTab), [invoices, selectedTab])
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {

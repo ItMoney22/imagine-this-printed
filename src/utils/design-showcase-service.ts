@@ -21,59 +21,72 @@ export class DesignShowcaseService {
     try {
       const items: ShowcaseItem[] = []
 
-      // Fetch user-generated products with their mockups
-      const { data: products, error: productsError } = await supabase
-        .from('products')
-        .select(`
-          id,
-          name,
-          description,
-          category,
-          images,
-          created_at,
-          created_by_user_id
-        `)
-        .eq('is_user_generated', true)
-        .eq('approved', true)
-        .order('created_at', { ascending: false })
-        .limit(limit)
+      // Fetch products and 3D models in parallel
+      const [productsResult, modelsResult] = await Promise.all([
+        supabase
+          .from('products')
+          .select('id, name, description, category, images, created_at, created_by_user_id')
+          .eq('is_user_generated', true)
+          .eq('approved', true)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+        supabase
+          .from('three_d_models')
+          .select('id, title, description, preview_url, category, created_at, uploaded_by')
+          .eq('approved', true)
+          .order('created_at', { ascending: false })
+          .limit(limit)
+      ])
 
-      if (productsError) {
-        console.error('Error fetching user products:', productsError)
-      } else if (products && products.length > 0) {
-        // Fetch product assets for each product to get mockups
-        const productIds = products.map(p => p.id)
-        const { data: assets } = await supabase
-          .from('product_assets')
-          .select('*')
-          .in('product_id', productIds)
-          .in('kind', ['mockup', 'source'])
-          .order('display_order', { ascending: true })
+      const products = productsResult.data
+      const models = modelsResult.data
 
-        const assetsByProduct = (assets || []).reduce((acc, asset) => {
-          if (!acc[asset.product_id]) acc[asset.product_id] = []
-          acc[asset.product_id].push(asset)
-          return acc
-        }, {} as Record<string, ProductAsset[]>)
+      if (productsResult.error) console.error('Error fetching user products:', productsResult.error)
+      if (modelsResult.error) console.error('Error fetching 3D models:', modelsResult.error)
 
-        // Fetch user profiles for creators
-        const userIds = products.map(p => p.created_by_user_id).filter(Boolean)
-        let userProfiles: Record<string, any> = {}
+      // Collect all user IDs for a single profile fetch
+      const productUserIds = (products || []).map(p => p.created_by_user_id).filter(Boolean)
+      const modelUserIds = (models || []).map(m => m.uploaded_by).filter(Boolean)
+      const allUserIds = [...new Set([...productUserIds, ...modelUserIds])]
 
-        if (userIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('user_profiles')
-            .select('id, username, first_name, last_name, avatar_url')
-            .in('id', userIds)
+      // Fetch product assets and all user profiles in parallel
+      const productIds = (products || []).map(p => p.id)
+      const [assetsResult, profilesResult] = await Promise.all([
+        productIds.length > 0
+          ? supabase
+              .from('product_assets')
+              .select('*')
+              .in('product_id', productIds)
+              .in('kind', ['mockup', 'source'])
+              .order('display_order', { ascending: true })
+          : Promise.resolve({ data: null }),
+        allUserIds.length > 0
+          ? supabase
+              .from('user_profiles')
+              .select('id, username, first_name, last_name, avatar_url')
+              .in('id', allUserIds)
+          : Promise.resolve({ data: null })
+      ])
 
-          if (profiles) {
-            userProfiles = profiles.reduce((acc, p) => {
-              acc[p.id] = p
-              return acc
-            }, {} as Record<string, any>)
-          }
-        }
+      const assetsByProduct = (assetsResult.data || []).reduce((acc, asset) => {
+        if (!acc[asset.product_id]) acc[asset.product_id] = []
+        acc[asset.product_id].push(asset)
+        return acc
+      }, {} as Record<string, ProductAsset[]>)
 
+      const userProfiles = (profilesResult.data || []).reduce((acc, p) => {
+        acc[p.id] = p
+        return acc
+      }, {} as Record<string, any>)
+
+      const getCreatorName = (profile: any) =>
+        profile?.username ||
+        (profile?.first_name && profile?.last_name
+          ? `${profile.first_name} ${profile.last_name}`
+          : 'Community Creator')
+
+      // Process products
+      if (products && products.length > 0) {
         for (const product of products) {
           const productAssets = assetsByProduct[product.id] || []
           const mockup = productAssets.find((a: ProductAsset) => a.kind === 'mockup') || productAssets[0]
@@ -81,11 +94,6 @@ export class DesignShowcaseService {
 
           if (imageUrl) {
             const userProfile = product.created_by_user_id ? userProfiles[product.created_by_user_id] : null
-            const creatorName = userProfile?.username ||
-              (userProfile?.first_name && userProfile?.last_name
-                ? `${userProfile.first_name} ${userProfile.last_name}`
-                : 'Community Creator')
-
             items.push({
               id: `product_${product.id}`,
               type: 'product',
@@ -93,7 +101,7 @@ export class DesignShowcaseService {
               description: product.description || undefined,
               imageUrl,
               category: product.category,
-              creatorName,
+              creatorName: getCreatorName(userProfile),
               creatorAvatar: userProfile?.avatar_url,
               createdAt: product.created_at,
               productId: product.id
@@ -102,51 +110,11 @@ export class DesignShowcaseService {
         }
       }
 
-      // Fetch approved 3D models
-      const { data: models, error: modelsError } = await supabase
-        .from('three_d_models')
-        .select(`
-          id,
-          title,
-          description,
-          preview_url,
-          category,
-          created_at,
-          uploaded_by
-        `)
-        .eq('approved', true)
-        .order('created_at', { ascending: false })
-        .limit(limit)
-
-      if (modelsError) {
-        console.error('Error fetching 3D models:', modelsError)
-      } else if (models && models.length > 0) {
-        // Fetch user profiles for uploaders
-        const uploaderIds = models.map(m => m.uploaded_by).filter(Boolean)
-        let uploaderProfiles: Record<string, any> = {}
-
-        if (uploaderIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('user_profiles')
-            .select('id, username, first_name, last_name, avatar_url')
-            .in('id', uploaderIds)
-
-          if (profiles) {
-            uploaderProfiles = profiles.reduce((acc, p) => {
-              acc[p.id] = p
-              return acc
-            }, {} as Record<string, any>)
-          }
-        }
-
+      // Process 3D models
+      if (models && models.length > 0) {
         for (const model of models) {
           if (model.preview_url) {
-            const userProfile = model.uploaded_by ? uploaderProfiles[model.uploaded_by] : null
-            const creatorName = userProfile?.username ||
-              (userProfile?.first_name && userProfile?.last_name
-                ? `${userProfile.first_name} ${userProfile.last_name}`
-                : 'Community Creator')
-
+            const userProfile = model.uploaded_by ? userProfiles[model.uploaded_by] : null
             items.push({
               id: `model_${model.id}`,
               type: '3d_model',
@@ -154,7 +122,7 @@ export class DesignShowcaseService {
               description: model.description || undefined,
               imageUrl: model.preview_url,
               category: model.category,
-              creatorName,
+              creatorName: getCreatorName(userProfile),
               creatorAvatar: userProfile?.avatar_url,
               createdAt: model.created_at,
               modelId: model.id

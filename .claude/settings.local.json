@@ -71,7 +71,8 @@
       "mcp__stripe__list_coupons",
       "mcp__stripe__list_prices",
       "mcp__stripe__search_stripe_documentation",
-      "mcp__supabase__get_logs"
+      "mcp__supabase__get_logs",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

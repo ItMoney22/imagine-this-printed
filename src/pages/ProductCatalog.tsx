@@ -320,14 +320,6 @@ const ProductCatalog: React.FC = () => {
               </div>
             )}
 
-            {/* Load More / Pagination placeholder */}
-            {sortedProducts.length > 0 && sortedProducts.length >= 12 && (
-              <div className="mt-8 text-center">
-                <button className="px-8 py-3 bg-white text-purple-600 border-2 border-purple-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 font-medium transition-all">
-                  Load More Products
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>

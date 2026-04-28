@@ -35,8 +35,13 @@ export const SocialShareButtons = ({
     ? `Check out "${name}" created by @${creatorUsername} on ImagineThisPrinted!`
     : `Check out my custom "${name}" design on ImagineThisPrinted!`
 
-  const handleShare = (platform: string, url: string) => {
-    window.open(url, '_blank', 'width=600,height=500')
+  const handleShare = (_platform: string, url: string) => {
+    // Pass noopener,noreferrer so the share-dialog window can't reach
+    // window.opener and tabnab back to our origin. Belt-and-suspenders:
+    // also null out opener on the returned ref in case the popup blocker
+    // ignores the feature flag.
+    const win = window.open(url, '_blank', 'width=600,height=500,noopener,noreferrer')
+    if (win) win.opener = null
   }
 
   const handleCopyLink = async () => {

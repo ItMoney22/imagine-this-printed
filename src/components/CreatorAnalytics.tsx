@@ -93,15 +93,15 @@ export const CreatorAnalytics = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Creator Analytics</h2>
-          <p className="text-gray-500">Track your designs and earnings</p>
+          <h2 className="text-2xl font-bold text-text">Creator Analytics</h2>
+          <p className="text-muted">Track your designs and earnings</p>
         </div>
         <button
           onClick={fetchAnalytics}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 hover:bg-card rounded-lg transition-colors"
           title="Refresh"
         >
-          <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-5 h-5 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         </button>
@@ -159,8 +159,8 @@ export const CreatorAnalytics = () => {
       </div>
 
       {/* Monthly Trend Chart */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6">
-        <h3 className="font-semibold text-gray-800 mb-4">Royalties Earned (Last 6 Months)</h3>
+      <div className="bg-card rounded-xl border card-border p-6">
+        <h3 className="font-semibold text-text mb-4">Royalties Earned (Last 6 Months)</h3>
         <div className="h-48 flex items-end gap-2">
           {analytics.monthlyTrends.map((trend, index) => {
             const height = maxRoyalty > 0 ? (trend.royalties / maxRoyalty) * 100 : 0
@@ -170,17 +170,17 @@ export const CreatorAnalytics = () => {
                   className={`w-full rounded-t-lg transition-all duration-500 ${
                     trend.royalties > 0
                       ? 'bg-gradient-to-t from-purple-500 to-purple-400'
-                      : 'bg-gray-100'
+                      : 'bg-bg'
                   }`}
                   style={{ height: `${Math.max(height, 4)}%` }}
                   title={`${trend.royalties} ITC`}
                 />
-                <span className="text-xs text-gray-500">{trend.month}</span>
+                <span className="text-xs text-muted">{trend.month}</span>
               </div>
             )
           })}
         </div>
-        <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-500">
+        <div className="mt-4 flex items-center justify-center gap-6 text-xs text-muted">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-purple-500 rounded" />
             <span>ITC Earned</span>
@@ -191,11 +191,11 @@ export const CreatorAnalytics = () => {
       {/* Best Seller & Design Status */}
       <div className="grid md:grid-cols-2 gap-6">
         {/* Best Selling Product */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Best Selling Design</h3>
+        <div className="bg-card rounded-xl border card-border p-6">
+          <h3 className="font-semibold text-text mb-4">Best Selling Design</h3>
           {analytics.bestSellingProduct ? (
             <div className="flex gap-4">
-              <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+              <div className="w-24 h-24 rounded-lg overflow-hidden bg-bg flex-shrink-0">
                 <img
                   src={analytics.bestSellingProduct.generated_image}
                   alt={analytics.bestSellingProduct.name}
@@ -203,10 +203,10 @@ export const CreatorAnalytics = () => {
                 />
               </div>
               <div className="flex-1">
-                <p className="font-medium text-gray-800 line-clamp-2">
+                <p className="font-medium text-text line-clamp-2">
                   {analytics.bestSellingProduct.name}
                 </p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-muted mt-1">
                   {analytics.bestSellingProduct.totalSold} sold
                 </p>
                 <div className="mt-2 flex items-center gap-1 text-yellow-500">
@@ -216,7 +216,7 @@ export const CreatorAnalytics = () => {
               </div>
             </div>
           ) : (
-            <div className="text-center py-6 text-gray-400">
+            <div className="text-center py-6 text-muted">
               <span className="text-4xl mb-2 block">🏷️</span>
               <p className="text-sm">No sales yet</p>
               <p className="text-xs mt-1">Keep creating and promoting!</p>
@@ -225,27 +225,27 @@ export const CreatorAnalytics = () => {
         </div>
 
         {/* Design Status Breakdown */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Design Status</h3>
+        <div className="bg-card rounded-xl border card-border p-6">
+          <h3 className="font-semibold text-text mb-4">Design Status</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-green-500" />
-                <span className="text-sm text-gray-600">Approved</span>
+                <span className="text-sm text-muted">Approved</span>
               </div>
               <span className="font-medium">{analytics.designsByStatus.approved}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                <span className="text-sm text-gray-600">Pending Review</span>
+                <span className="text-sm text-muted">Pending Review</span>
               </div>
               <span className="font-medium">{analytics.designsByStatus.pending}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
-                <span className="text-sm text-gray-600">Rejected</span>
+                <span className="text-sm text-muted">Rejected</span>
               </div>
               <span className="font-medium">{analytics.designsByStatus.rejected}</span>
             </div>
@@ -254,7 +254,7 @@ export const CreatorAnalytics = () => {
           {/* Progress bar */}
           {analytics.totalDesigns > 0 && (
             <div className="mt-4">
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+              <div className="h-2 bg-bg rounded-full overflow-hidden flex">
                 <div
                   className="bg-green-500 transition-all"
                   style={{ width: `${(analytics.designsByStatus.approved / analytics.totalDesigns) * 100}%` }}
@@ -275,12 +275,12 @@ export const CreatorAnalytics = () => {
 
       {/* Recent Designs */}
       {analytics.recentDesigns.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Recent Designs</h3>
+        <div className="bg-card rounded-xl border card-border p-6">
+          <h3 className="font-semibold text-text mb-4">Recent Designs</h3>
           <div className="grid grid-cols-5 gap-3">
             {analytics.recentDesigns.map(design => (
               <div key={design.id} className="relative group">
-                <div className="aspect-square rounded-lg overflow-hidden bg-gray-100">
+                <div className="aspect-square rounded-lg overflow-hidden bg-bg">
                   <img
                     src={design.generated_image}
                     alt={design.name}
@@ -303,8 +303,8 @@ export const CreatorAnalytics = () => {
         <div className="flex items-start gap-4">
           <span className="text-3xl">💎</span>
           <div>
-            <h3 className="font-semibold text-gray-800">Earn 10% on Every Sale</h3>
-            <p className="text-sm text-gray-600 mt-1">
+            <h3 className="font-semibold text-text">Earn 10% on Every Sale</h3>
+            <p className="text-sm text-muted mt-1">
               Every time someone purchases a product with your design, you automatically earn 10% of the sale in ITC credits.
               Use your ITC to pay for products or generate more AI designs!
             </p>

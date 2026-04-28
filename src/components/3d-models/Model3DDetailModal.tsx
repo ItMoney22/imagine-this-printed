@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Box,
   CheckCircle,
@@ -9,9 +9,10 @@ import {
   Zap,
   Image as ImageIcon,
   Palette,
-  Lock
+  Lock,
+  Ruler
 } from 'lucide-react'
-import type { User3DModel } from '../../types'
+import type { User3DModel, PrintSizeTier, SizeTierConfig } from '../../types'
 import { Model3DViewer, Model3DFallbackViewer } from './Model3DViewer'
 import { Model3DStatusProgress } from './Model3DStatusProgress'
 import api from '../../lib/api'
@@ -45,49 +46,62 @@ export function Model3DDetailModal({
   const { addToCart } = useCart()
 
   const [activeTab, setActiveTab] = useState<'preview' | 'order' | 'download'>('preview')
-  const [isApproving, setIsApproving] = useState(false)
   const [isGenerating3D, setIsGenerating3D] = useState(false)
   const [isOrdering, setIsOrdering] = useState(false)
   const [isPurchasingLicense, setIsPurchasingLicense] = useState(false)
+
+  // Size tier picker (loaded from /api/3d-models/size-tiers)
+  const [sizeTiers, setSizeTiers] = useState<SizeTierConfig[]>([])
+  const [selectedTier, setSelectedTier] = useState<PrintSizeTier>('small')
+
+  useEffect(() => {
+    if (!isOpen) return
+    api.get('/api/3d-models/size-tiers')
+      .then((res) => {
+        const tiers: SizeTierConfig[] = res.data?.tiers ?? []
+        if (tiers.length) setSizeTiers(tiers)
+      })
+      .catch((err) => console.warn('[3d-detail] size-tiers fetch failed', err))
+  }, [isOpen])
 
   // Order options - simplified to paint kit addon only
   const [includePaintKit, setIncludePaintKit] = useState(false)
 
   if (!isOpen) return null
 
-  const hasAllAngles = model.angle_images?.front && model.angle_images?.back &&
-                       model.angle_images?.left && model.angle_images?.right
+  // Tripo3D works directly from the concept image — no angles required.
+  // Show the size picker once the concept is approved and we're ready to convert.
+  const hasConcept = !!model.concept_image_url
   const isReady = model.status === 'ready'
-  const canGenerate3D = hasAllAngles && !['generating_3d', 'ready'].includes(model.status)
+  const canGenerate3D = hasConcept && (
+    model.status === 'awaiting_3d_generation' ||
+    model.status === 'awaiting_approval' || // pre-approval too — admin/owner can pick early
+    model.status === 'failed'                // allow retry from a failed state
+  )
+  const selectedTierConfig = sizeTiers.find((t) => t.tier === selectedTier)
 
   // Check purchased licenses
-  const purchasedLicenses = (model as any).purchased_licenses || []
+  const purchasedLicenses = model.purchased_licenses || []
   const hasPersonalLicense = purchasedLicenses.includes('personal')
   const hasCommercialLicense = purchasedLicenses.includes('commercial')
   const hasAnyLicense = hasPersonalLicense || hasCommercialLicense
 
-  // Calculate price - simplified
-  const totalPrice = PRINT_PRICING.base_price + (includePaintKit ? PRINT_PRICING.paint_kit_addon : 0)
+  // Calculate price — prefer the size-tier price stored on the model row,
+  // falls back to the legacy flat $25 for old models created before tiering shipped.
+  const basePrintPrice = model.print_price_usd ?? PRINT_PRICING.base_price
+  const totalPrice = basePrintPrice + (includePaintKit ? PRINT_PRICING.paint_kit_addon : 0)
 
-  const handleApprove = async () => {
-    setIsApproving(true)
-    try {
-      await api.post(`/api/3d-models/${model.id}/approve`)
-      onRefresh()
-    } catch (err) {
-      console.error('Failed to approve:', err)
-    } finally {
-      setIsApproving(false)
-    }
-  }
+  // (Approve handler removed — generate-3d implicitly approves)
 
   const handleGenerate3D = async () => {
     setIsGenerating3D(true)
     try {
-      await api.post(`/api/3d-models/${model.id}/generate-3d`)
+      await api.post(`/api/3d-models/${model.id}/generate-3d`, { size: selectedTier })
       onRefresh()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to start 3D generation:', err)
+      const msg = err?.response?.data?.error || err?.message || 'Failed to start 3D generation'
+      alert(msg)
     } finally {
       setIsGenerating3D(false)
     }
@@ -227,6 +241,61 @@ export function Model3DDetailModal({
             </div>
           )}
 
+          {/* Size tier picker — visible when ready to convert (concept exists, not yet 3D) */}
+          {canGenerate3D && sizeTiers.length > 0 && (
+            <div className="mb-6 p-4 rounded-xl bg-bg/40 border border-primary/20">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-text font-semibold flex items-center gap-2">
+                  <Ruler className="w-4 h-4 text-primary" />
+                  Pick a print size
+                </h3>
+                <span className="text-xs text-muted">Drives mesh detail + print pricing</span>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                {sizeTiers.map((tier) => {
+                  const active = tier.tier === selectedTier
+                  return (
+                    <button
+                      key={tier.tier}
+                      onClick={() => setSelectedTier(tier.tier)}
+                      disabled={isGenerating3D}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        active
+                          ? 'border-primary bg-primary/15 shadow-[0_0_20px_rgba(168,85,247,0.2)]'
+                          : 'border-white/10 bg-bg/40 hover:border-primary/40'
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      <div className="flex items-baseline justify-between mb-1">
+                        <span className={`font-bold text-sm ${active ? 'text-primary' : 'text-text'}`}>
+                          {tier.label}
+                        </span>
+                        <span className="text-[10px] text-muted">{tier.printHeightMm}mm</span>
+                      </div>
+                      <p className="text-[11px] text-muted leading-snug mb-2 line-clamp-2">
+                        {tier.description}
+                      </p>
+                      <div className="flex items-baseline gap-2">
+                        <span className={`text-sm font-semibold ${active ? 'text-primary' : 'text-text/80'}`}>
+                          {tier.itcCost} ITC
+                        </span>
+                        <span className="text-[10px] text-muted">+ ${tier.printPriceUsd} print</span>
+                      </div>
+                      <p className="text-[10px] text-muted/70 mt-1">~{tier.approxSeconds}s gen</p>
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedTierConfig && (
+                <p className="text-[11px] text-muted mt-3">
+                  Mesh quality: <span className="text-text/80">{selectedTierConfig.faceLimit.toLocaleString()} faces</span>
+                  {' · '}Texture: <span className="text-text/80">{selectedTierConfig.texture}</span>
+                  {selectedTierConfig.quad && <span className="text-text/80"> · quad mesh</span>}
+                  {' · '}<span className="text-text/80">auto-scaled to mm</span> for slicer
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Preview Tab */}
           {(activeTab === 'preview' || !isReady) && (
             <div className="grid md:grid-cols-2 gap-4">
@@ -316,7 +385,7 @@ export function Model3DDetailModal({
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted">Material</span>
-                      <span className="text-text font-medium">PLA</span>
+                      <span className="text-text font-medium">PLA <span className="text-xs text-muted">(more materials coming soon)</span></span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted">Color</span>
@@ -325,9 +394,27 @@ export function Model3DDetailModal({
                         <span className="text-text font-medium">Grey</span>
                       </div>
                     </div>
+                    {model.print_height_mm && (
+                      <div className="flex justify-between">
+                        <span className="text-muted">Print height</span>
+                        <span className="text-text font-medium">{model.print_height_mm}mm tall</span>
+                      </div>
+                    )}
+                    {model.size_tier && (
+                      <div className="flex justify-between">
+                        <span className="text-muted">Size tier</span>
+                        <span className="text-text font-medium capitalize">{model.size_tier}</span>
+                      </div>
+                    )}
+                    {model.triangle_count && (
+                      <div className="flex justify-between">
+                        <span className="text-muted">Mesh detail</span>
+                        <span className="text-text font-medium">{model.triangle_count.toLocaleString()} triangles</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-muted">Base Price</span>
-                      <span className="text-text font-medium">${PRINT_PRICING.base_price}</span>
+                      <span className="text-text font-medium">${basePrintPrice}</span>
                     </div>
                   </div>
                 </div>
@@ -364,8 +451,8 @@ export function Model3DDetailModal({
                 <div className="p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20">
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted">Grey PLA Print</span>
-                      <span className="text-text">${PRINT_PRICING.base_price}</span>
+                      <span className="text-muted">Grey PLA Print {model.print_height_mm ? `(${model.print_height_mm}mm)` : ''}</span>
+                      <span className="text-text">${basePrintPrice}</span>
                     </div>
                     {includePaintKit && (
                       <div className="flex justify-between text-sm">
@@ -501,43 +588,29 @@ export function Model3DDetailModal({
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-border flex flex-wrap gap-2 justify-end">
-          {model.status === 'awaiting_approval' && (
-            <button
-              onClick={handleApprove}
-              disabled={isApproving}
-              className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium flex items-center gap-2 transition-all"
-            >
-              {isApproving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Approving...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4" />
-                  <span>Approve Concept</span>
-                </>
-              )}
-            </button>
-          )}
+        {/* Footer Actions — note: explicit "Approve Concept" was removed. Picking a size
+            and clicking Generate IS the approval. Saves a click and avoids the legacy
+            DB-state flip that the schema doesn't support. */}
+        <div className="p-4 border-t border-border flex flex-wrap gap-2 justify-end">{/* approve button removed */}
 
           {canGenerate3D && (
             <button
               onClick={handleGenerate3D}
-              disabled={isGenerating3D}
-              className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-medium flex items-center gap-2 transition-all"
+              disabled={isGenerating3D || !selectedTierConfig}
+              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold flex items-center gap-2 transition-all shadow-lg shadow-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating3D ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Starting...</span>
+                  <span>Starting…</span>
                 </>
               ) : (
                 <>
                   <Zap className="w-4 h-4" />
-                  <span>Generate 3D Model</span>
+                  <span>
+                    Generate {selectedTierConfig?.label ?? 'Small'} (
+                    {selectedTierConfig?.itcCost ?? '…'} ITC)
+                  </span>
                 </>
               )}
             </button>

@@ -4,10 +4,36 @@ import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { sendNewSupportTicketEmail, sendTicketConfirmationEmail } from '../../utils/email.js'
 import { createNotification, checkAgentAvailability } from '../admin/support.js'
+import { optionalAuth } from '../../middleware/supabaseAuth.js'
 
 dotenv.config()
 
 const router = Router()
+
+// Server-controlled allowlist. Mr. Imagine intentionally serves anonymous
+// visitors, but we cannot let the client pick the model — that's a wide-open
+// cost vector (e.g. someone passing 'o1-pro' on every request).
+const ALLOWED_MODELS = new Set(['gpt-4o', 'gpt-4o-mini'])
+const DEFAULT_MODEL = 'gpt-4o'
+
+// Per-IP rate limit for anonymous callers. Authenticated users are
+// rate-limited at a higher tier (their JWT also gives us an audit trail).
+const anonChatRateLimit = new Map<string, { count: number; resetAt: number }>()
+const ANON_LIMIT = 20 // requests per window
+const AUTH_LIMIT = 60
+const RATE_WINDOW_MS = 60_000 // 1 minute
+
+function checkChatRateLimit(key: string, limit: number): boolean {
+  const now = Date.now()
+  const state = anonChatRateLimit.get(key)
+  if (!state || state.resetAt < now) {
+    anonChatRateLimit.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS })
+    return true
+  }
+  if (state.count >= limit) return false
+  state.count++
+  return true
+}
 
 // Initialize Supabase client for Ticket Creation
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -24,15 +50,39 @@ const openai = new OpenAI({
 
 /**
  * POST /api/ai/chat
- * Generate conversational AI response using GPT-4o with Tool Calling
+ * Generate conversational AI response using GPT-4o with Tool Calling.
+ * optionalAuth: works for anonymous browsing visitors (Mr. Imagine on the
+ * landing page) AND authenticated users; the body-supplied userId is ONLY
+ * trusted when there's no authenticated session.
  */
-router.post('/', async (req: Request, res: Response): Promise<any> => {
+router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any> => {
     try {
-        const { message, context, systemPrompt, model, history, userId, userEmail: providedEmail } = req.body
+        const { message, context, systemPrompt, model, history, userId: bodyUserId, userEmail: providedEmail } = req.body
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' })
         }
+
+        // Rate-limit. Authenticated users keyed by sub (JWT subject); anonymous
+        // by IP. Authenticated users get a higher cap because we have an audit trail.
+        const isAuthed = !!req.user?.sub
+        const rateKey = isAuthed ? `u:${req.user!.sub}` : `ip:${req.ip || 'unknown'}`
+        const limit = isAuthed ? AUTH_LIMIT : ANON_LIMIT
+        if (!checkChatRateLimit(rateKey, limit)) {
+            return res.status(429).json({ error: 'Too many requests' })
+        }
+
+        // userId / userEmail used by the create_support_ticket tool. Prefer
+        // values from the JWT when authenticated; only fall back to body-
+        // supplied values for anonymous callers (and the support-ticket flow
+        // already requires the user to confirm their email).
+        const userId = req.user?.sub ?? bodyUserId ?? null
+
+        // Resolve model: only allow values from the server-side allowlist.
+        // Anything else (including a missing/invalid client-supplied value)
+        // falls back to DEFAULT_MODEL. Closes the cost-vector hole.
+        const requestedModel = typeof model === 'string' ? model : ''
+        const resolvedModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : DEFAULT_MODEL
 
         console.log('[chat] 💬 Processing message:', message.substring(0, 50) + '...')
 
@@ -126,7 +176,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
 
         // First API call
         const completion = await openai.chat.completions.create({
-            model: model || 'gpt-4o',
+            model: resolvedModel,
             messages,
             tools,
             tool_choice: 'auto',
@@ -334,7 +384,7 @@ router.post('/', async (req: Request, res: Response): Promise<any> => {
 
             // Second API call
             const secondResponse = await openai.chat.completions.create({
-                model: model || 'gpt-4o',
+                model: resolvedModel,
                 messages,
                 tools: [],
                 temperature: 0.7,

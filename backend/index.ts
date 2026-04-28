@@ -1,3 +1,7 @@
+// MUST be the very first import — loads .env with override:true before any
+// service module constructs its OpenAI/SDK client at module-load time.
+import './load-env.js'
+
 import express from 'express'
 import cors from 'cors'
 import type { CorsOptions } from 'cors'
@@ -49,12 +53,14 @@ import threeDModelsRouter from './routes/3d-models.js'
 import adminProductsRouter from './routes/admin/products.js'
 import shippingRouter from './routes/shipping.js'
 import invoicesRouter from './routes/invoices.js'
+import imageFlowRouter from './routes/image-flow.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
 
-// Load environment variables
-dotenv.config()
+// .env already loaded via ./load-env.js at the top of this file (must run before
+// service imports that construct SDK clients at module-load time).
+console.log('[boot] OPENAI_API_KEY suffix: ...' + (process.env.OPENAI_API_KEY?.slice(-6) ?? 'unset'))
 
 // Setup logger
 const logger = pino({
@@ -156,6 +162,7 @@ app.use('/api/wallet', walletRoutes)
 app.use('/api/stripe', stripeRoutes)
 app.use('/api/orders', ordersRouter)
 app.use('/api/admin/products/ai', aiProductsRouter)
+app.use('/api/image-flow', imageFlowRouter)
 app.use('/api/admin/wallet', adminWalletRouter)
 app.use('/api/ai/replicate', replicateCallbackRouter)
 app.use('/api/mockups', mockupsRouter)

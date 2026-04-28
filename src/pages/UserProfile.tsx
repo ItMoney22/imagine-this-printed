@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
@@ -143,19 +143,15 @@ const UserProfilePage = () => {
       // userId is guaranteed to be defined at this point
       if (!userId) return
 
-      // Load designs (real data from products table)
-      await loadDesigns(userId, isOwn)
-
-      // Load stats
-      await loadStats(userId, isOwn)
-
-      // Load additional data if own profile
-      if (isOwn && userId) {
-        await Promise.all([
-          loadOrders(userId),
-          loadReviews(userId)
-        ])
+      // Load designs, stats, and additional data in parallel
+      const parallelLoads: Promise<void>[] = [
+        loadDesigns(userId, isOwn),
+        loadStats(userId, isOwn)
+      ]
+      if (isOwn) {
+        parallelLoads.push(loadOrders(userId), loadReviews(userId))
       }
+      await Promise.all(parallelLoads)
 
     } catch (err: any) {
       console.error('Error loading profile:', err)
@@ -452,8 +448,8 @@ const UserProfilePage = () => {
     )
   }
 
-  // Map profile for header
-  const headerProfile = {
+  // Map profile for header (memoized to avoid re-creating object on every render)
+  const headerProfile = useMemo(() => ({
     id: profile.id,
     username: profile.username,
     display_name: profile.display_name || '',
@@ -469,7 +465,7 @@ const UserProfilePage = () => {
       instagram: profile.social_instagram || undefined,
       tiktok: profile.social_tiktok || undefined
     }
-  }
+  }), [profile])
 
   // Tabs configuration
   const tabs: { id: TabType; label: string; icon: React.ReactNode; hidden?: boolean }[] = [

@@ -327,7 +327,7 @@ const Checkout: React.FC = () => {
 
   // Calculate max ITC that can be applied (user's balance, capped at order total in ITC)
   const userItcBalance = user?.wallet?.itcBalance || 0
-  const maxItcCredit = Math.min(userItcBalance, Math.floor((usdTotal + shipping + tax) / 0.01))
+  const maxItcCredit = Math.min(userItcBalance, Math.ceil((usdTotal + shipping + tax) / 0.01))
 
   useEffect(() => {
     if (state.items.length > 0) {
@@ -460,46 +460,22 @@ const Checkout: React.FC = () => {
     }
   }
 
+  // Mixed-cart ITC checkout is currently unwired. The original implementation
+  // POSTed to /api/wallet/process-itc-payment, which doesn't exist on the
+  // backend (verified by grep across 3 audit cycles). Worse: nothing in the
+  // codebase ever sets `paymentMethod: 'itc'` on a cart item, so this branch
+  // is dead today regardless. Rather than silently 404, surface a clear error
+  // until product decides whether to (a) wire a backend route OR (b) remove
+  // the mixed-cart UI scaffolding entirely. Full-cart ITC checkout still works
+  // through handleProductITCPayment + /api/wallet/process-full-itc-payment.
   const handleITCPayment = async () => {
-    if (!user) {
-      setPaymentError('Please sign in to use ITC wallet')
-      return
-    }
-
-    if ((user.wallet?.itcBalance || 0) < totalITC) {
-      setPaymentError(`Insufficient ITC balance. You need ${totalITC.toFixed(2)} ITC but have ${(user.wallet?.itcBalance || 0).toFixed(2)} ITC`)
-      return
-    }
-
-    setProcessingITCPayment(true)
-    setPaymentError(null)
-
-    try {
-      // Call backend to process ITC payment
-      const response = await apiFetch('/api/wallet/process-itc-payment', {
-        method: 'POST',
-        body: JSON.stringify({
-          items: itcItems,
-          amount: totalITC,
-          shipping: formData,
-        }),
-      })
-
-      if (response.success) {
-        // If there are no USD items, complete the order
-        if (!requiresUSDPayment) {
-          clearCart()
-          navigate(`/order-success?order_id=${response.orderId || 'itc'}`)
-        }
-        // Otherwise, wait for USD payment to complete
-      } else {
-        setPaymentError(response.error || 'Failed to process ITC payment')
-      }
-    } catch (error: any) {
-      setPaymentError(error.message || 'Failed to process ITC payment')
-    } finally {
-      setProcessingITCPayment(false)
-    }
+    setPaymentError(
+      'Mixed-cart ITC checkout is not currently available. To pay with ITC, please ensure all items in your cart support ITC payment, or use a card.'
+    )
+    console.warn(
+      '[checkout] handleITCPayment invoked but mixed-cart ITC is unwired. ' +
+      'No paymentMethod==="itc" items should exist; investigate cart state.'
+    )
   }
 
   // Calculate product cost in ITC (1 ITC = $0.01) - ITC only covers product cost, NOT shipping/tax

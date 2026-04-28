@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
@@ -258,11 +258,13 @@ const OrderManagement: React.FC = () => {
     ? orders
     : orders.filter(order => order.status === selectedTab)
 
-  // Stats
-  const pendingCount = orders.filter(o => o.status === 'pending').length
-  const processingCount = orders.filter(o => o.status === 'processing').length
-  const shippedCount = orders.filter(o => o.status === 'shipped').length
-  const onHoldCount = orders.filter(o => o.status === 'on_hold').length
+  // Stats (memoized to avoid filtering on every render)
+  const { pendingCount, processingCount, shippedCount, onHoldCount } = useMemo(() => ({
+    pendingCount: orders.filter(o => o.status === 'pending').length,
+    processingCount: orders.filter(o => o.status === 'processing').length,
+    shippedCount: orders.filter(o => o.status === 'shipped').length,
+    onHoldCount: orders.filter(o => o.status === 'on_hold').length
+  }), [orders])
   const totalRevenue = orders.reduce((sum, o) => sum + (o.total || 0), 0)
 
   if (user?.role !== 'admin' && user?.role !== 'manager' && user?.role !== 'founder') {

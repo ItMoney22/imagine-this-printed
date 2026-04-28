@@ -14,6 +14,30 @@ export interface ConversionResult {
   vertexCount: number
   triangleCount: number
   processingTime: number
+  /** Final mesh bounding box in millimeters (after scale + axis transform). */
+  bboxMm?: { x: number; y: number; z: number }
+  /** True if the converter applied Y-up → Z-up rotation. */
+  zUpApplied?: boolean
+}
+
+export interface ConversionOptions {
+  /**
+   * Scale the mesh so its post-rotation Z (height) axis equals this many
+   * millimeters. STL has no unit metadata; Bambu / OrcaSlicer / Cura all read
+   * raw STL coordinates as mm. Without this, a Tripo3D GLB (typically ~1m in
+   * GLB units) imports as a 1mm speck.
+   */
+  targetHeightMm?: number
+  /**
+   * Convert glTF's Y-up convention to FDM's Z-up. Default true.
+   * Without this, figurines import lying on their side in Bambu Studio.
+   */
+  yUpToZUp?: boolean
+  /**
+   * Center the mesh on XY at origin and rest its lowest point at Z=0 so it
+   * sits flat on the build plate. Default true.
+   */
+  centerAndGround?: boolean
 }
 
 // Flag to track if polyfills have been set up
@@ -57,7 +81,7 @@ function setupThreeJsPolyfills() {
  * @param glbUrl - URL to the GLB file
  * @returns Buffer containing binary STL data
  */
-export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult> {
+export async function convertGlbToStl(glbUrl: string, options: ConversionOptions = {}): Promise<ConversionResult> {
   // Setup browser polyfills BEFORE importing three.js
   setupThreeJsPolyfills()
 
@@ -125,6 +149,54 @@ export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult>
       finalMesh = new THREE.Mesh(mergedGeometry)
     }
 
+    // === Print-prep transform pipeline ===
+    // 1) Y-up → Z-up (FDM convention; figurines stand vertically in Bambu Studio)
+    // 2) Scale to target height in mm (without this, STL imports as 1mm speck)
+    // 3) Center on XY, ground at Z=0 (sits flat on build plate)
+    // All transforms are baked into the geometry so STLExporter sees the final
+    // coords directly — STL has no concept of nodes/transforms.
+    const yUpToZUp = options.yUpToZUp !== false
+    const centerAndGround = options.centerAndGround !== false
+    const targetHeightMm = options.targetHeightMm
+
+    if (yUpToZUp) {
+      const yToZ = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
+      finalMesh.geometry.applyMatrix4(yToZ)
+    }
+
+    // After (optional) rotation, height is along Z. Compute bbox to drive scale.
+    finalMesh.geometry.computeBoundingBox()
+    let bbox = finalMesh.geometry.boundingBox!
+    let bboxSize = new THREE.Vector3()
+    bbox.getSize(bboxSize)
+
+    if (targetHeightMm && targetHeightMm > 0 && bboxSize.z > 0) {
+      // Scale uniformly so the Z extent matches targetHeightMm exactly.
+      const factor = targetHeightMm / bboxSize.z
+      finalMesh.geometry.scale(factor, factor, factor)
+      console.log('[glb-to-stl] scaled by', factor.toFixed(4), 'so Z-height =', targetHeightMm, 'mm')
+      finalMesh.geometry.computeBoundingBox()
+      bbox = finalMesh.geometry.boundingBox!
+      bbox.getSize(bboxSize)
+    }
+
+    if (centerAndGround) {
+      const center = new THREE.Vector3()
+      bbox.getCenter(center)
+      // Translate so XY center is at origin and Z minimum (lowest point) is at 0
+      finalMesh.geometry.translate(-center.x, -center.y, -bbox.min.z)
+      finalMesh.geometry.computeBoundingBox()
+      bbox = finalMesh.geometry.boundingBox!
+      bbox.getSize(bboxSize)
+    }
+
+    console.log(
+      '[glb-to-stl] final bbox (mm):',
+      bboxSize.x.toFixed(1) + ' ×',
+      bboxSize.y.toFixed(1) + ' ×',
+      bboxSize.z.toFixed(1)
+    )
+
     // Export to STL
     const exporter = new STLExporter()
     const stlResult = exporter.parse(finalMesh, { binary: true })
@@ -154,7 +226,9 @@ export async function convertGlbToStl(glbUrl: string): Promise<ConversionResult>
       stlBuffer,
       vertexCount: totalVertices,
       triangleCount,
-      processingTime
+      processingTime,
+      bboxMm: { x: bboxSize.x, y: bboxSize.y, z: bboxSize.z },
+      zUpApplied: yUpToZUp,
     }
   } catch (error: any) {
     console.error('[glb-to-stl] Conversion failed:', error.message)

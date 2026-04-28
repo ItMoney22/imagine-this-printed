@@ -25,12 +25,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // Load jose dynamically
     const { jwtVerify, decodeJwt } = await jose();
 
-    // Decode token to check algorithm and issuer
+    // Decode token to check algorithm and issuer (silent on success)
     const decoded = decodeJwt(token);
-    console.log("[auth] Token algorithm:", decoded.alg);
-    console.log("[auth] Token issuer:", decoded.iss);
-    console.log("[auth] Expected issuer:", `https://${new URL(SUPABASE_URL).host}/auth/v1`);
-    console.log("[auth] JWT_SECRET length:", SUPABASE_JWT_SECRET?.length);
 
     // Create secret key for HS256 verification
     const secret = new TextEncoder().encode(SUPABASE_JWT_SECRET);
@@ -39,8 +35,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       algorithms: ["HS256"],
       issuer: `https://${new URL(SUPABASE_URL).host}/auth/v1`,
     });
-
-    console.log("[auth] ✅ JWT verified successfully");
+    void decoded; // referenced for tooling, not logged on the happy path
 
     // Extract app role from user_metadata if available
     // NOTE: payload.role is the Supabase auth role ("authenticated"/"anon"), NOT the app role.

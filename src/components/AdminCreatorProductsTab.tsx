@@ -114,7 +114,7 @@ export const AdminCreatorProductsTab: React.FC = () => {
       await api.post(`/api/admin/user-products/${productId}/approve`, {
         colors: approvalConfig.colors,
         sizes: approvalConfig.sizes,
-        price: Math.round(approvalConfig.price * 100)
+        price: approvalConfig.price, // dollars — products.price column is dollars
       })
       setProducts(products.filter(p => p.id !== productId))
       setShowApproveModal(null)

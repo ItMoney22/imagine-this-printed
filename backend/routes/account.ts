@@ -254,8 +254,9 @@ router.get('/profile', async (req: Request, res: Response) => {
       showDesigns: true,
       showModels: true,
       joinedDate: profileData.createdAt.toISOString(),
-      totalOrders,
-      totalSpent,
+      // CRM stats: only expose to the profile owner. Public viewers see 0.
+      totalOrders: isOwnProfile ? totalOrders : 0,
+      totalSpent: isOwnProfile ? totalSpent : 0,
       favoriteCategories: [],
       badges: [],
       isOwnProfile
@@ -379,6 +380,31 @@ router.get('/wallet', async (req: Request, res: Response) => {
 // SEND WELCOME EMAIL (for Supabase Auth signups)
 // ===========================================
 
+// Anti-spam: cap by destination email AND by source IP. The endpoint is
+// unauthenticated because it's called immediately after signUp, before the
+// session token exists when email confirmation is enabled.
+const welcomeEmailLimitByAddress = new Map<string, number>() // email -> last send (ms)
+const welcomeEmailLimitByIp = new Map<string, { count: number; resetAt: number }>()
+
+function checkWelcomeEmailLimit(email: string, ip: string): boolean {
+  const now = Date.now()
+
+  // 60s cooldown per email address (blocks bombing one inbox)
+  const lastSent = welcomeEmailLimitByAddress.get(email)
+  if (lastSent && now - lastSent < 60_000) return false
+  welcomeEmailLimitByAddress.set(email, now)
+
+  // 5 sends per IP per 5 minutes (blocks scripted enumeration)
+  const ipState = welcomeEmailLimitByIp.get(ip)
+  if (!ipState || ipState.resetAt < now) {
+    welcomeEmailLimitByIp.set(ip, { count: 1, resetAt: now + 300_000 })
+    return true
+  }
+  if (ipState.count >= 5) return false
+  ipState.count++
+  return true
+}
+
 /**
  * POST /api/account/send-welcome-email
  * Send welcome email to a new user after Supabase signup
@@ -390,6 +416,11 @@ router.post('/send-welcome-email', async (req: Request, res: Response) => {
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' })
+    }
+
+    const ip = (req.ip || req.headers['x-forwarded-for'] || 'unknown') as string
+    if (!checkWelcomeEmailLimit(email, ip)) {
+      return res.status(429).json({ error: 'Too many requests' })
     }
 
     const displayName = username || email.split('@')[0] || 'Friend'

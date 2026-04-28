@@ -13,7 +13,6 @@ import { Sidebar, MobileMenuButton } from './components/Sidebar'
 import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
-// import ChatBotWidget from './components/ChatBotWidget' // Replaced with Mr. Imagine
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
 import { MrImagineNotificationProvider } from './components/MrImagineNotification'
@@ -226,10 +225,24 @@ function App() {
                   <Route path="/kiosk/:kioskId" element={<KioskRoute />} />
 
                   {/* Business Routes */}
-                  <Route path="/wholesale" element={<WholesalePortal />} />
+                  <Route path="/wholesale" element={<ProtectedRoute><WholesalePortal /></ProtectedRoute>} />
 
                   {/* Debug Route */}
                   <Route path="/debug/images" element={<ImageDebug />} />
+
+                  {/* 404 Catch-all */}
+                  <Route path="*" element={
+                    <div className="min-h-screen bg-bg flex items-center justify-center">
+                      <div className="text-center px-4">
+                        <h1 className="text-6xl font-bold text-primary mb-4">404</h1>
+                        <p className="text-xl text-text mb-2">Page Not Found</p>
+                        <p className="text-muted mb-8">The page you're looking for doesn't exist or has been moved.</p>
+                        <a href="/" className="inline-block px-6 py-3 bg-primary text-bg font-medium rounded-lg hover:bg-primary/90 transition-colors">
+                          Go Home
+                        </a>
+                      </div>
+                    </div>
+                  } />
                   </Routes>
                   </AppLayout>
                 </Router>

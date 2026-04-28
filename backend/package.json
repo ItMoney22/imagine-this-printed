@@ -6,11 +6,13 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "prestart": "node ./scripts/check-jose.js",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker/index.js",
     "dev": "tsx --env-file=.env index.ts",
     "watch": "tsx watch --env-file=.env index.ts",
+    "dev:once": "tsx --env-file=.env index.ts",
     "worker": "tsx --env-file=.env worker/index.ts",
     "worker:dev": "tsx watch --env-file=.env worker/index.ts",
     "dev:full": "concurrently \"npm:watch\" \"npm:worker:dev\" --names \"API,Worker\" --prefix-colors \"blue,magenta\"",

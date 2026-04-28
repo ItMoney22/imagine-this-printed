@@ -1,49 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useNavigate } from 'react-router-dom'
-import type { WholesaleVendor } from '../types'
-
-interface VendorStorefrontConfig {
-  id: string
-  vendorId: string
-  isPublic: boolean
-  customDomain?: string
-  customUrl: string
-  seoTitle: string
-  seoDescription: string
-  theme: VendorStorefrontTheme
-  featuredProducts: string[]
-  categories: string[]
-  socialLinks: {
-    website?: string
-    facebook?: string
-    instagram?: string
-    twitter?: string
-    linkedin?: string
-  }
-  contactInfo: {
-    showPhone: boolean
-    showEmail: boolean
-    showAddress: boolean
-    customMessage?: string
-  }
-  analytics: {
-    googleAnalyticsId?: string
-    facebookPixelId?: string
-  }
-  lastUpdated: string
-}
-
-interface VendorStorefrontTheme {
-  primaryColor: string
-  secondaryColor: string
-  backgroundColor: string
-  headerStyle: 'minimal' | 'bold' | 'classic'
-  layout: 'grid' | 'list' | 'masonry'
-  showPricing: boolean
-  showReviews: boolean
-  customCSS?: string
-}
+import type {
+  WholesaleVendor,
+  VendorStorefrontTheme,
+  VendorStorefrontConfig,
+} from '../types'
 
 const VendorStorefrontManager: React.FC = () => {
   const { user } = useAuth()

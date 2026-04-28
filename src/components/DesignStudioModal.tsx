@@ -408,7 +408,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
         productTemplate = 'tumblers'
       }
 
-      const response = await apiFetch('/api/designer/generate-mockup', {
+      const response = await apiFetch('/api/mockups/itp-enhance', {
         method: 'POST',
         body: JSON.stringify({
           designImageUrl: canvasDataUrl,

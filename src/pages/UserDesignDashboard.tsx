@@ -154,13 +154,21 @@ export default function UserDesignDashboard() {
     }
   }
 
-  // Fetch 3D models
+  // Fetch 3D models — also re-syncs the open modal with the latest model row
+  // so approve/generate state changes are visible immediately.
   const fetch3DModels = useCallback(async () => {
     setLoading3D(true)
     try {
       const response = await api.get('/api/3d-models/list')
       if (response.data?.models) {
-        setModels3D(response.data.models)
+        const fresh: User3DModel[] = response.data.models
+        setModels3D(fresh)
+        // Keep the detail modal in sync with the latest version of its model
+        setSelectedModel3D((prev) => {
+          if (!prev) return prev
+          const updated = fresh.find((m) => m.id === prev.id)
+          return updated ?? prev
+        })
       }
     } catch (error) {
       console.error('[Dashboard] Error fetching 3D models:', error)
@@ -183,9 +191,9 @@ export default function UserDesignDashboard() {
     const hasProcessing = models3D.some(m =>
       ['queued', 'generating_concept', 'generating_angles', 'generating_3d'].includes(m.status)
     )
-
+    // Poll faster while a model is processing so the status bar feels alive.
     if (hasProcessing) {
-      const interval = setInterval(fetch3DModels, 5000) // Poll every 5 seconds
+      const interval = setInterval(fetch3DModels, 3000)
       return () => clearInterval(interval)
     }
   }, [activeTab, models3D, fetch3DModels])
@@ -343,7 +351,7 @@ export default function UserDesignDashboard() {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-12 h-12 border-4 border-primary/30 border-t-purple-600 rounded-full animate-spin mx-auto mb-4" />
           <p className="text-muted">Loading your designs...</p>
         </div>
       </div>
@@ -353,23 +361,24 @@ export default function UserDesignDashboard() {
   return (
     <div className="min-h-screen bg-bg">
       {/* Hero Header Section */}
-      <section className="relative py-12 sm:py-16 bg-gradient-to-br from-purple-50 via-bg to-pink-50 overflow-hidden">
+      <section className="relative py-12 sm:py-16 overflow-hidden border-b border-white/5">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-bg to-secondary/5" />
         {/* Background decoration */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -right-24 w-96 h-96 bg-purple-200/30 rounded-full blur-3xl" />
-          <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-pink-200/30 rounded-full blur-3xl" />
+          <div className="absolute -top-24 -right-24 w-96 h-96 bg-primary/15 rounded-full blur-3xl" />
+          <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-secondary/15 rounded-full blur-3xl" />
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 sm:gap-8">
             {/* Left: Title & Description */}
             <div>
-              <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-sm font-medium mb-4">
+              <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/15 text-primary text-sm font-medium mb-4 border border-primary/30">
                 <Sparkles className="w-4 h-4" />
                 Creator Dashboard
               </span>
-              <h1 className="font-display text-3xl sm:text-4xl md:text-5xl text-text mb-3">
-                My <span className="text-gradient">Designs</span>
+              <h1 className="font-display text-3xl sm:text-4xl md:text-5xl mb-3 bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+                My Designs
               </h1>
               <p className="text-muted text-base sm:text-lg max-w-xl">
                 Manage your creations, track sales, and earn royalties from your designs.
@@ -379,7 +388,7 @@ export default function UserDesignDashboard() {
             {/* Right: Balance & CTA */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
               <div className="card-editorial p-4 sm:p-5 flex items-center gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-200">
+                <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/30">
                   <DollarSign className="w-6 h-6 text-white" />
                 </div>
                 <div>
@@ -402,8 +411,8 @@ export default function UserDesignDashboard() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8 sm:mt-10">
               <div className="card-editorial p-4 sm:p-5 group">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Palette className="w-5 h-5 text-purple-600" />
+                  <div className="w-10 h-10 bg-primary/15 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Palette className="w-5 h-5 text-primary" />
                   </div>
                   <p className="text-sm text-muted font-medium">Total Designs</p>
                 </div>
@@ -412,8 +421,8 @@ export default function UserDesignDashboard() {
 
               <div className="card-editorial p-4 sm:p-5 group">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <ShoppingCart className="w-5 h-5 text-emerald-600" />
+                  <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <ShoppingCart className="w-5 h-5 text-emerald-400" />
                   </div>
                   <p className="text-sm text-muted font-medium">Total Sales</p>
                 </div>
@@ -422,18 +431,18 @@ export default function UserDesignDashboard() {
 
               <div className="card-editorial p-4 sm:p-5 group">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <TrendingUp className="w-5 h-5 text-amber-600" />
+                  <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <TrendingUp className="w-5 h-5 text-amber-300" />
                   </div>
                   <p className="text-sm text-muted font-medium">Royalties Earned</p>
                 </div>
-                <p className="text-2xl sm:text-3xl font-display font-bold text-emerald-600">${(stats.totalRoyalties ?? 0).toFixed(2)}</p>
+                <p className="text-2xl sm:text-3xl font-display font-bold text-emerald-400">${(stats.totalRoyalties ?? 0).toFixed(2)}</p>
               </div>
 
               <div className="card-editorial p-4 sm:p-5 group">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Clock className="w-5 h-5 text-orange-600" />
+                  <div className="w-10 h-10 bg-orange-500/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Clock className="w-5 h-5 text-orange-400" />
                   </div>
                   <p className="text-sm text-muted font-medium">Pending Review</p>
                 </div>
@@ -448,7 +457,7 @@ export default function UserDesignDashboard() {
       <section className="py-8 sm:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Tab Navigation */}
-          <div className="flex gap-1 sm:gap-2 border-b border-border mb-8 overflow-x-auto pb-px">
+          <div className="flex gap-1 sm:gap-2 border-b border-white/10 mb-8 overflow-x-auto pb-px">
             {[
               { key: 'designs', label: 'My Designs', icon: Palette, tooltip: null },
               { key: 'drafts', label: 'Drafts', icon: FileText, tooltip: 'Drafts expire after 2 weeks' },
@@ -461,15 +470,15 @@ export default function UserDesignDashboard() {
                 onClick={() => setActiveTab(tab.key as Tab)}
                 title={tab.tooltip || undefined}
                 className={`relative flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 font-medium transition-all border-b-2 -mb-px whitespace-nowrap rounded-t-lg group ${activeTab === tab.key
-                  ? 'text-purple-600 border-purple-600 bg-purple-50'
-                  : 'text-muted border-transparent hover:text-text hover:bg-gray-50'
+                  ? 'text-primary border-primary bg-primary/10 shadow-[0_0_15px_rgba(168,85,247,0.2)]'
+                  : 'text-muted border-transparent hover:text-text hover:bg-bg/40'
                   }`}
               >
-                <tab.icon className={`w-4 h-4 ${activeTab === tab.key ? 'text-purple-600' : ''}`} />
+                <tab.icon className={`w-4 h-4 ${activeTab === tab.key ? 'text-primary' : ''}`} />
                 <span className="hidden sm:inline">{tab.label}</span>
                 <span className="sm:hidden">{tab.label.split(' ')[0]}</span>
                 {tab.tooltip && (
-                  <Info className="w-3.5 h-3.5 text-amber-500 ml-1" />
+                  <Info className="w-3.5 h-3.5 text-amber-300 ml-1" />
                 )}
               </button>
             ))}
@@ -479,9 +488,9 @@ export default function UserDesignDashboard() {
           {activeTab === 'designs' && (
             <div className="space-y-6">
               {designs.length === 0 ? (
-                <div className="text-center py-16 sm:py-20 card-editorial border-2 border-dashed border-purple-200">
-                  <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <Palette className="w-10 h-10 text-purple-400" />
+                <div className="text-center py-16 sm:py-20 card-editorial border-2 border-dashed border-primary/30">
+                  <div className="w-20 h-20 bg-primary/15 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Palette className="w-10 h-10 text-primary/70" />
                   </div>
                   <h3 className="text-xl font-display font-semibold text-text mb-2">No designs yet</h3>
                   <p className="text-muted mb-8 max-w-sm mx-auto">
@@ -500,10 +509,10 @@ export default function UserDesignDashboard() {
                   {designs.map(design => (
                     <div
                       key={design.id}
-                      className="card-editorial group cursor-pointer"
+                      className="bg-card/30 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden group cursor-pointer transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] hover:-translate-y-1"
                       onClick={() => setSelectedDesign(design)}
                     >
-                      <div className="aspect-square bg-gray-100 relative overflow-hidden">
+                      <div className="aspect-square bg-bg/60 relative overflow-hidden">
                         {design.images?.[0] ? (
                           <img
                             src={design.images[0]}
@@ -511,23 +520,23 @@ export default function UserDesignDashboard() {
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <div className="w-full h-full flex items-center justify-center text-muted/50">
                             <ImageIcon className="w-12 h-12" />
                           </div>
                         )}
 
                         {/* Overlay on hover */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-6">
-                          <span className="px-4 py-2 bg-white rounded-full text-sm font-medium text-text flex items-center gap-2 shadow-lg">
-                            <Eye className="w-4 h-4" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-6">
+                          <span className="px-4 py-2 bg-bg/80 backdrop-blur-md border border-white/10 rounded-full text-sm font-medium text-text flex items-center gap-2 shadow-lg">
+                            <Eye className="w-4 h-4 text-primary" />
                             View Details
                           </span>
                         </div>
 
                         {/* Status badge */}
-                        <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold shadow-md ${design.status === 'approved' ? 'bg-emerald-500 text-white' :
-                          design.status === 'pending_approval' ? 'bg-amber-500 text-white' :
-                            'bg-gray-500 text-white'
+                        <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold shadow-lg backdrop-blur-md ${design.status === 'approved' ? 'bg-emerald-500/80 text-white border border-emerald-400/40' :
+                          design.status === 'pending_approval' ? 'bg-amber-500/80 text-white border border-amber-400/40' :
+                            'bg-bg/70 text-text border border-white/15'
                           }`}>
                           {design.status === 'approved' ? 'Live' :
                             design.status === 'pending_approval' ? 'Pending' :
@@ -541,9 +550,9 @@ export default function UserDesignDashboard() {
                           <span className="text-sm text-muted">
                             {new Date(design.created_at).toLocaleDateString()}
                           </span>
-                          <div className="flex items-center gap-1.5 text-sm font-medium px-2.5 py-1 bg-purple-50 rounded-lg">
-                            <Eye className="w-3.5 h-3.5 text-purple-500" />
-                            <span className="text-purple-700">{design.view_count || 0}</span>
+                          <div className="flex items-center gap-1.5 text-sm font-medium px-2.5 py-1 bg-primary/10 rounded-lg">
+                            <Eye className="w-3.5 h-3.5 text-primary" />
+                            <span className="text-primary">{design.view_count || 0}</span>
                           </div>
                         </div>
                       </div>
@@ -557,22 +566,22 @@ export default function UserDesignDashboard() {
           {activeTab === 'drafts' && (
             <div className="space-y-4">
               {/* Expiration Warning Banner */}
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-amber-800 font-medium text-sm">
+                  <p className="text-amber-200 font-medium text-sm">
                     Drafts expire after 2 weeks
                   </p>
-                  <p className="text-amber-700 text-xs mt-0.5">
+                  <p className="text-amber-200/80 text-xs mt-0.5">
                     Drafts, pending designs, and incomplete orders that aren't submitted or purchased will be automatically deleted after 14 days. Save your work by completing your designs!
                   </p>
                 </div>
               </div>
 
               {sessions.length === 0 ? (
-                <div className="text-center py-16 sm:py-20 card-editorial border-2 border-dashed border-purple-200">
-                  <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <FileText className="w-10 h-10 text-purple-400" />
+                <div className="text-center py-16 sm:py-20 card-editorial border-2 border-dashed border-primary/30">
+                  <div className="w-20 h-20 bg-primary/15 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <FileText className="w-10 h-10 text-primary/70" />
                   </div>
                   <h3 className="text-xl font-display font-semibold text-text mb-2">No drafts</h3>
                   <p className="text-muted">Your in-progress designs will appear here</p>
@@ -589,9 +598,9 @@ export default function UserDesignDashboard() {
                   return (
                     <div
                       key={session.id}
-                      className={`card-editorial p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 group ${isExpiringSoon ? 'border-amber-300 bg-amber-50/30' : ''}`}
+                      className={`card-editorial p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 group ${isExpiringSoon ? 'border-amber-500/40 bg-amber-500/5' : ''}`}
                     >
-                      <div className="w-full sm:w-20 h-32 sm:h-20 bg-gray-100 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden relative">
+                      <div className="w-full sm:w-20 h-32 sm:h-20 bg-bg/60 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden relative">
                         {session.selected_image_url ? (
                           <img
                             src={session.selected_image_url}
@@ -599,7 +608,7 @@ export default function UserDesignDashboard() {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <FileText className="w-8 h-8 text-gray-300" />
+                          <FileText className="w-8 h-8 text-muted/50" />
                         )}
                         {/* Expiration badge */}
                         {isExpiringSoon && (
@@ -613,7 +622,7 @@ export default function UserDesignDashboard() {
                           {session.prompt || 'Untitled Draft'}
                         </p>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-                          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium uppercase tracking-wider">
+                          <span className="px-2 py-0.5 bg-primary/15 text-primary rounded text-xs font-medium uppercase tracking-wider">
                             Step: {session.step}
                           </span>
                           <span className="hidden sm:inline">•</span>
@@ -625,7 +634,7 @@ export default function UserDesignDashboard() {
                           <p className="text-xs text-muted">
                             Last edited: {new Date(session.updated_at).toLocaleDateString()}
                           </p>
-                          <span className={`text-xs font-medium flex items-center gap-1 ${isExpiringSoon ? 'text-amber-600' : 'text-muted'}`}>
+                          <span className={`text-xs font-medium flex items-center gap-1 ${isExpiringSoon ? 'text-amber-300' : 'text-muted'}`}>
                             <Clock className="w-3 h-3" />
                             {daysLeft === 0 ? 'Expires today!' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`}
                           </span>
@@ -640,7 +649,7 @@ export default function UserDesignDashboard() {
                         </button>
                         <button
                           onClick={() => handleDeleteSession(session.id)}
-                          className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                          className="p-2.5 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
                         >
                           <Trash2 className="w-5 h-5" />
                         </button>
@@ -680,9 +689,9 @@ export default function UserDesignDashboard() {
                   </div>
 
                   {models3D.length === 0 && !loading3D ? (
-                    <div className="text-center py-16 card-editorial border-2 border-dashed border-purple-200 rounded-xl">
-                      <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Box className="w-8 h-8 text-purple-400" />
+                    <div className="text-center py-16 card-editorial border-2 border-dashed border-primary/30 rounded-xl">
+                      <div className="w-16 h-16 bg-primary/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Box className="w-8 h-8 text-primary/70" />
                       </div>
                       <h4 className="text-lg font-display font-semibold text-text mb-2">
                         No 3D models yet
@@ -712,10 +721,10 @@ export default function UserDesignDashboard() {
             <div className="space-y-6">
               <div className="card-editorial p-6 sm:p-8 relative overflow-hidden">
                 {/* Background decoration */}
-                <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-purple-100 to-pink-100 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary/15 to-secondary/15 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2" />
 
                 <div className="relative">
-                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium mb-4">
+                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/15 text-primary text-xs font-medium mb-4">
                     <Wand2 className="w-3 h-3" />
                     AI Powered
                   </span>
@@ -749,14 +758,14 @@ export default function UserDesignDashboard() {
                     </div>
 
                     {/* Background Removal */}
-                    <div className="card-editorial p-5 sm:p-6 border border-pink-100 hover:border-pink-300 transition-colors group">
+                    <div className="card-editorial p-5 sm:p-6 border border-secondary/20 hover:border-secondary/40 transition-colors group">
                       <div className="flex items-center gap-4 mb-4">
-                        <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-pink-200 group-hover:scale-110 transition-transform">
+                        <div className="w-12 h-12 bg-gradient-to-br from-secondary to-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-secondary/30 group-hover:scale-110 transition-transform">
                           <Scissors className="w-6 h-6 text-white" />
                         </div>
                         <div>
                           <h4 className="font-display font-semibold text-text">Remove Background</h4>
-                          <p className="text-sm text-pink-600 font-medium">{BG_REMOVE_COST} ITC</p>
+                          <p className="text-sm text-secondary font-medium">{BG_REMOVE_COST} ITC</p>
                         </div>
                       </div>
                       <p className="text-sm text-muted mb-6 leading-relaxed">
@@ -765,7 +774,7 @@ export default function UserDesignDashboard() {
                       <button
                         onClick={() => selectedDesign && handleBgRemove(selectedDesign.images?.[0])}
                         disabled={!selectedDesign || toolProcessing === 'bg-remove'}
-                        className="w-full py-3 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-pink-200"
+                        className="w-full py-3 bg-gradient-to-r from-secondary to-rose-500 hover:from-secondary hover:to-rose-600 text-white font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-secondary/30"
                       >
                         {toolProcessing === 'bg-remove' ? 'Processing...' : 'Remove BG Selected'}
                       </button>
@@ -774,7 +783,7 @@ export default function UserDesignDashboard() {
 
                   {/* Selected Design Preview */}
                   {selectedDesign && (
-                    <div className="mt-8 p-4 sm:p-5 bg-purple-50 rounded-2xl border border-purple-100 flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+                    <div className="mt-8 p-4 sm:p-5 bg-primary/10 rounded-2xl border border-primary/20 flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
                       <div className="relative w-full sm:w-auto">
                         <img
                           src={selectedDesign.images?.[0]}
@@ -789,7 +798,7 @@ export default function UserDesignDashboard() {
                         </button>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-1">Selected Design</p>
+                        <p className="text-xs font-bold text-primary uppercase tracking-wider mb-1">Selected Design</p>
                         <p className="text-lg font-display font-semibold text-text">{selectedDesign.name}</p>
                         <p className="text-sm text-muted mt-1">Ready to apply AI tools</p>
                       </div>
@@ -798,18 +807,18 @@ export default function UserDesignDashboard() {
 
                   {/* Tool Result */}
                   {toolResult && (
-                    <div className="mt-8 p-5 sm:p-6 bg-emerald-50 rounded-2xl border border-emerald-200">
+                    <div className="mt-8 p-5 sm:p-6 bg-emerald-500/10 rounded-2xl border border-emerald-500/30">
                       <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-emerald-100 rounded-lg">
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        <div className="p-2 bg-emerald-500/20 rounded-lg">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                         </div>
-                        <p className="font-display font-semibold text-emerald-700">
+                        <p className="font-display font-semibold text-emerald-300">
                           {toolResult.type === 'upscale' ? 'Upscaled Image Ready!' : 'Background Removed!'}
                         </p>
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-6">
-                        <div className="w-full sm:w-48 aspect-square bg-white rounded-xl overflow-hidden border border-emerald-100 shadow-inner">
+                        <div className="w-full sm:w-48 aspect-square bg-white rounded-xl overflow-hidden border border-emerald-500/20 shadow-inner">
                           <img
                             src={toolResult.url}
                             alt="Result"
@@ -820,14 +829,14 @@ export default function UserDesignDashboard() {
                           <a
                             href={toolResult.url}
                             download
-                            className="btn-primary bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-200"
+                            className="btn-primary bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-500/30"
                           >
                             <Download className="w-4 h-4" />
                             Download Result
                           </a>
                           <button
                             onClick={() => setToolResult(null)}
-                            className="px-6 py-3 border border-gray-200 text-text font-medium rounded-xl hover:bg-gray-50 transition-colors"
+                            className="px-6 py-3 border border-white/15 text-text font-medium rounded-xl hover:bg-bg/40 transition-colors"
                           >
                             Done
                           </button>
@@ -842,7 +851,7 @@ export default function UserDesignDashboard() {
               {!selectedDesign && designs.length > 0 && (
                 <div className="mt-8">
                   <h4 className="font-display font-medium text-text mb-4 flex items-center gap-2">
-                    <Palette className="w-4 h-4 text-purple-500" />
+                    <Palette className="w-4 h-4 text-primary" />
                     Select a design to process:
                   </h4>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
@@ -850,7 +859,7 @@ export default function UserDesignDashboard() {
                       <button
                         key={design.id}
                         onClick={() => setSelectedDesign(design)}
-                        className="aspect-square bg-gray-100 rounded-xl overflow-hidden hover:ring-2 hover:ring-purple-500 transition-all hover:scale-105 shadow-sm"
+                        className="aspect-square bg-bg/60 rounded-xl overflow-hidden hover:ring-2 hover:ring-primary transition-all hover:scale-105 shadow-sm"
                       >
                         {design.images?.[0] ? (
                           <img
@@ -859,7 +868,7 @@ export default function UserDesignDashboard() {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <div className="w-full h-full flex items-center justify-center text-muted/50">
                             <ImageIcon className="w-6 h-6" />
                           </div>
                         )}
@@ -875,10 +884,10 @@ export default function UserDesignDashboard() {
             <div className="space-y-6 sm:space-y-8">
               <div className="card-editorial p-6 sm:p-8 relative overflow-hidden">
                 {/* Background decoration */}
-                <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-emerald-500/15 to-teal-100 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2" />
 
                 <div className="relative">
-                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium mb-4">
+                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium mb-4">
                     <TrendingUp className="w-3 h-3" />
                     Creator Earnings
                   </span>
@@ -888,15 +897,15 @@ export default function UserDesignDashboard() {
                   </p>
 
                   <div className="grid md:grid-cols-3 gap-4 sm:gap-6">
-                    <div className="card-editorial p-5 sm:p-6 border border-emerald-100">
+                    <div className="card-editorial p-5 sm:p-6 border border-emerald-500/20">
                       <p className="text-sm text-muted font-medium mb-2">Total Earned</p>
-                      <p className="text-3xl sm:text-4xl font-display font-bold text-emerald-600">${(stats?.totalRoyalties ?? 0).toFixed(2)}</p>
+                      <p className="text-3xl sm:text-4xl font-display font-bold text-emerald-400">${(stats?.totalRoyalties ?? 0).toFixed(2)}</p>
                     </div>
-                    <div className="card-editorial p-5 sm:p-6 border border-emerald-100">
+                    <div className="card-editorial p-5 sm:p-6 border border-emerald-500/20">
                       <p className="text-sm text-muted font-medium mb-2">Products Sold</p>
                       <p className="text-3xl sm:text-4xl font-display font-bold text-text">{stats?.totalSales || 0}</p>
                     </div>
-                    <div className="card-editorial p-5 sm:p-6 border border-emerald-100">
+                    <div className="card-editorial p-5 sm:p-6 border border-emerald-500/20">
                       <p className="text-sm text-muted font-medium mb-2">Active Designs</p>
                       <p className="text-3xl sm:text-4xl font-display font-bold text-text">{stats?.designsByStatus?.approved ?? 0}</p>
                     </div>
@@ -909,11 +918,11 @@ export default function UserDesignDashboard() {
                 <h4 className="font-display font-semibold text-text mb-8 text-lg">How Royalties Work</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 relative">
                   {/* Connecting Line (Desktop) */}
-                  <div className="hidden md:block absolute top-7 left-1/2 -translate-x-1/2 w-3/4 h-0.5 bg-gradient-to-r from-purple-200 via-blue-200 to-emerald-200" />
+                  <div className="hidden md:block absolute top-7 left-1/2 -translate-x-1/2 w-3/4 h-0.5 bg-gradient-to-r from-primary/25 via-blue-200 to-emerald-200" />
 
                   <div className="text-center relative z-10 group">
-                    <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-purple-100">
-                      <Palette className="w-6 h-6 text-purple-600" />
+                    <div className="w-14 h-14 bg-primary/15 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-primary/20">
+                      <Palette className="w-6 h-6 text-primary" />
                     </div>
                     <p className="font-display font-semibold text-text mb-1">Create</p>
                     <p className="text-sm text-muted">Design with Mr. Imagine</p>
@@ -928,16 +937,16 @@ export default function UserDesignDashboard() {
                   </div>
 
                   <div className="text-center relative z-10 group">
-                    <div className="w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-pink-100">
-                      <ShoppingCart className="w-6 h-6 text-pink-600" />
+                    <div className="w-14 h-14 bg-secondary/15 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-secondary/20">
+                      <ShoppingCart className="w-6 h-6 text-secondary" />
                     </div>
                     <p className="font-display font-semibold text-text mb-1">Someone Buys</p>
                     <p className="text-sm text-muted">Customer purchases</p>
                   </div>
 
                   <div className="text-center relative z-10 group">
-                    <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-emerald-100">
-                      <DollarSign className="w-6 h-6 text-emerald-600" />
+                    <div className="w-14 h-14 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-emerald-500/20">
+                      <DollarSign className="w-6 h-6 text-emerald-400" />
                     </div>
                     <p className="font-display font-semibold text-text mb-1">You Earn 10%</p>
                     <p className="text-sm text-muted">ITC credited to wallet</p>
@@ -946,7 +955,7 @@ export default function UserDesignDashboard() {
               </div>
 
               {/* ITC Usage info */}
-              <div className="card-editorial p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-purple-100">
+              <div className="card-editorial p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border border-primary/20">
                 <div>
                   <h4 className="font-display font-semibold text-text mb-2 text-lg">Use Your ITC</h4>
                   <p className="text-muted max-w-xl">
@@ -956,7 +965,7 @@ export default function UserDesignDashboard() {
                 </div>
                 <Link
                   to="/wallet"
-                  className="btn-primary bg-gradient-to-r from-purple-500 to-pink-500 shadow-purple-200 whitespace-nowrap"
+                  className="btn-primary bg-gradient-to-r from-primary to-secondary shadow-primary/30 whitespace-nowrap"
                 >
                   Go to Wallet
                   <ArrowRight className="w-4 h-4" />
@@ -984,7 +993,7 @@ export default function UserDesignDashboard() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="aspect-video bg-gray-100 relative flex items-center justify-center">
+            <div className="aspect-video bg-bg/60 relative flex items-center justify-center">
               {selectedDesign.images?.[0] ? (
                 <img
                   src={selectedDesign.images[0]}
@@ -992,7 +1001,7 @@ export default function UserDesignDashboard() {
                   className="w-full h-full object-contain"
                 />
               ) : (
-                <div className="text-gray-300">
+                <div className="text-muted/50">
                   <ImageIcon className="w-20 h-20" />
                 </div>
               )}
@@ -1001,9 +1010,9 @@ export default function UserDesignDashboard() {
             <div className="p-6 sm:p-8">
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
                 <h2 className="text-2xl sm:text-3xl font-display font-bold text-text">{selectedDesign.name}</h2>
-                <div className={`px-3 py-1 rounded-full text-xs font-bold ${selectedDesign.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
-                    selectedDesign.status === 'pending_approval' ? 'bg-amber-100 text-amber-700' :
-                      'bg-gray-100 text-gray-700'
+                <div className={`px-3 py-1 rounded-full text-xs font-bold ${selectedDesign.status === 'approved' ? 'bg-emerald-500/20 text-emerald-300' :
+                    selectedDesign.status === 'pending_approval' ? 'bg-amber-500/20 text-amber-200/80' :
+                      'bg-bg/60 text-text'
                   }`}>
                   {selectedDesign.status === 'approved' ? 'Live on Marketplace' :
                     selectedDesign.status === 'pending_approval' ? 'Pending Review' :
@@ -1013,14 +1022,14 @@ export default function UserDesignDashboard() {
 
               <p className="text-muted mb-6">{selectedDesign.description}</p>
 
-              <div className="flex items-center gap-2 mb-8 text-sm text-purple-600 bg-purple-50 px-4 py-2 rounded-lg w-fit">
+              <div className="flex items-center gap-2 mb-8 text-sm text-primary bg-primary/10 px-4 py-2 rounded-lg w-fit">
                 <Eye className="w-4 h-4" />
                 <span>{selectedDesign.view_count || 0} views</span>
               </div>
 
               {selectedDesign.metadata?.original_prompt && (
-                <div className="mb-8 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                  <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2">Original Prompt</p>
+                <div className="mb-8 p-4 bg-bg/40 rounded-xl border border-white/10">
+                  <p className="text-xs font-bold text-primary uppercase tracking-wider mb-2">Original Prompt</p>
                   <p className="text-sm text-text italic leading-relaxed">"{selectedDesign.metadata.original_prompt}"</p>
                 </div>
               )}
@@ -1038,7 +1047,7 @@ export default function UserDesignDashboard() {
                 <button
                   onClick={() => selectedDesign.images?.[0] && handleDownload(selectedDesign.images[0], selectedDesign.name)}
                   disabled={toolProcessing === 'download' || !selectedDesign.images?.[0]}
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold rounded-full shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-600 text-white font-semibold rounded-full shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   {toolProcessing === 'download' ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1049,7 +1058,7 @@ export default function UserDesignDashboard() {
                 </button>
                 <button
                   onClick={() => setSelectedDesign(null)}
-                  className="px-8 py-3 border border-gray-200 text-text font-medium rounded-full hover:bg-gray-50 transition-colors"
+                  className="px-8 py-3 border border-white/15 text-text font-medium rounded-full hover:bg-bg/40 transition-colors"
                 >
                   Close
                 </button>

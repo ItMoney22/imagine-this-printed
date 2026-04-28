@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
 import ProtectedImage from './ProtectedImage'
 import { useCart } from '../context/CartContext'
+import { getColorName, isLightSwatch } from '../utils/color-presets'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -21,6 +22,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const [isAddingToSheet, setIsAddingToSheet] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [selectedSize, setSelectedSize] = useState<string | null>(null)
+  const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [addedToCart, setAddedToCart] = useState(false)
 
   // Get sizes from product metadata
@@ -30,6 +32,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // Common apparel sizes for fallback
   const defaultSizes = ['S', 'M', 'L', 'XL', '2XL']
   const displaySizes = hasSizes ? sizes : defaultSizes
+
+  // Get colors from product (admin saves them as hex strings on product.colors / metadata.colors)
+  const colors: string[] = product.colors || product.metadata?.colors || []
+  const hasColors = colors.length > 0
+
+  // Quick Add is satisfied when every required selection is made.
+  const colorSatisfied = !hasColors || !!selectedColor
+  const sizeSatisfied = !hasSizes || !!selectedSize
+  const readyToAdd = colorSatisfied && sizeSatisfied
 
   useEffect(() => {
     if (showSocialBadges) {
@@ -203,7 +214,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         </div>
 
         {/* Quick Size Picker */}
-        {showSizePicker && (
+        {showSizePicker && hasSizes && (
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-muted font-medium">Select Size:</p>
@@ -240,6 +251,44 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </div>
         )}
 
+        {/* Quick Color Picker — same trigger flag as size; appears whenever the
+            product has color options. Selecting is required before Add. */}
+        {showSizePicker && hasColors && (
+          <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted font-medium">Select Color:</p>
+              {selectedColor && (
+                <span className="text-[10px] text-muted">{getColorName(selectedColor)}</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {colors.map((hex) => {
+                const label = getColorName(hex)
+                const isSelected = selectedColor === hex
+                return (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setSelectedColor(hex)}
+                    title={label}
+                    aria-label={`Select ${label}`}
+                    className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center ${
+                      isSelected
+                        ? 'border-primary ring-2 ring-primary/40 ring-offset-1 ring-offset-bg'
+                        : 'border-white/20 hover:border-white/40'
+                    }`}
+                    style={{ backgroundColor: hex }}
+                  >
+                    {isSelected && (
+                      <Check className={`w-4 h-4 ${isLightSwatch(hex) ? 'text-slate-800' : 'text-white'}`} />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
           {/* Add to Cart Button */}
           <button
@@ -248,27 +297,28 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 setShowSizePicker(true)
                 return
               }
-              if (!selectedSize) {
-                // Flash the size picker to indicate selection needed
+              if (!readyToAdd) {
+                // Picker(s) already visible; user still needs to make required selections
                 return
               }
-              addToCart(product, 1, selectedSize)
+              addToCart(product, 1, selectedSize ?? undefined, selectedColor ?? undefined)
               setAddedToCart(true)
               // Dispatch custom event for cart notification
               window.dispatchEvent(new CustomEvent('cart-item-added', {
-                detail: { product, size: selectedSize }
+                detail: { product, size: selectedSize, color: selectedColor }
               }))
               setTimeout(() => {
                 setAddedToCart(false)
                 setShowSizePicker(false)
                 setSelectedSize(null)
+                setSelectedColor(null)
               }, 2000)
             }}
             disabled={!product.inStock}
             className={`w-full font-bold py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider ${
               addedToCart
                 ? 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.5)]'
-                : showSizePicker && !selectedSize
+                : showSizePicker && !readyToAdd
                 ? 'bg-amber-500/80 hover:bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]'
                 : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] hover:shadow-[0_0_20px_rgba(34,197,94,0.5)]'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -278,10 +328,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 <Check className="w-4 h-4" />
                 Added to Cart!
               </>
-            ) : showSizePicker && !selectedSize ? (
+            ) : showSizePicker && !readyToAdd ? (
               <>
                 <ShoppingCart className="w-4 h-4" />
-                Pick a Size
+                {!sizeSatisfied && !colorSatisfied
+                  ? 'Pick Size & Color'
+                  : !sizeSatisfied
+                  ? 'Pick a Size'
+                  : 'Pick a Color'}
               </>
             ) : (
               <>

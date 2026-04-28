@@ -1,6 +1,6 @@
 import type { ReferralCode, ReferralTransaction } from '../types'
 import { apiFetch } from '../lib/api'
-// Removed direct Prisma import - using API endpoints for referral operations
+import { hasAcceptedCookies } from '../components/CookieConsent'
 
 export interface ReferralReward {
   referrerBonus: number // Points for the person who referred
@@ -51,10 +51,11 @@ export class ReferralSystem {
   // Create a new referral code in the database
   async createReferralCode(userId: string, userName: string): Promise<ReferralCode | null> {
     try {
-      return await apiFetch('/api/referral/create-code', {
+      const result = await apiFetch('/api/wallet/referral/create', {
         method: 'POST',
-        body: JSON.stringify({ userId, userName })
+        body: JSON.stringify({ description: `${userName}'s referral code` })
       })
+      return result?.code || null
     } catch (error) {
       console.error('Error creating referral code:', error)
       return null
@@ -78,7 +79,11 @@ export class ReferralSystem {
   // Check if a referral code is valid
   async validateReferralCode(code: string): Promise<{ valid: boolean, referralCode?: ReferralCode, error?: string }> {
     try {
-      return await apiFetch(`/api/referral/validate?code=${code}`)
+      const result = await apiFetch('/api/wallet/referral/validate', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      })
+      return { valid: result?.valid || false, error: result?.error }
     } catch (error) {
       console.error('Error validating referral code:', error)
       return { valid: false, error: 'Error validating referral code' }
@@ -87,51 +92,64 @@ export class ReferralSystem {
 
   // Process a successful referral when someone signs up
   async processReferral(
-    referralCode: string, 
-    newUserId: string, 
-    newUserEmail: string
+    referralCode: string,
+    _newUserId: string,
+    _newUserEmail: string
   ): Promise<ReferralTransaction | null> {
-    // TODO: This function needs to be moved to an API endpoint
-    // For now, returning null to prevent build errors
-    console.warn('processReferral function needs to be moved to API endpoint', { referralCode, newUserId, newUserEmail })
-    return null
+    try {
+      const result = await apiFetch('/api/wallet/referral/apply', {
+        method: 'POST',
+        body: JSON.stringify({ code: referralCode })
+      })
+      if (result?.ok) {
+        return result.rewards || null
+      }
+      return null
+    } catch (error) {
+      console.error('Error processing referral:', error)
+      return null
+    }
   }
 
   // Process additional referral rewards for purchases
   async processReferralPurchase(
-    referrerId: string,
-    refereeId: string,
-    orderValue: number
+    _referrerId: string,
+    _refereeId: string,
+    _orderValue: number
   ): Promise<ReferralTransaction | null> {
-    // TODO: This function needs to be moved to an API endpoint
-    // For now, returning null to prevent build errors
-    console.warn('processReferralPurchase function needs to be moved to API endpoint', { referrerId, refereeId, orderValue })
+    // First purchase bonus is handled server-side via order completion webhook
+    // No frontend call needed — backend processes this automatically
     return null
   }
 
   // Get referral statistics for a user
-  async getUserReferralStats(userId: string): Promise<{
+  async getUserReferralStats(_userId: string): Promise<{
     referralCode: ReferralCode | null,
     transactions: ReferralTransaction[],
     totalEarnings: number,
     totalReferrals: number
   }> {
-    // TODO: This function needs to be moved to an API endpoint
-    // For now, returning empty stats to prevent build errors
-    console.warn('getUserReferralStats function needs to be moved to API endpoint', { userId })
-    return {
-      referralCode: null,
-      transactions: [],
-      totalEarnings: 0,
-      totalReferrals: 0
+    try {
+      const result = await apiFetch('/api/wallet/referral/stats')
+      if (result?.ok && result.stats) {
+        return {
+          referralCode: result.stats.referralCode || null,
+          transactions: result.stats.transactions || [],
+          totalEarnings: result.stats.totalEarnings || 0,
+          totalReferrals: result.stats.totalReferrals || 0
+        }
+      }
+      return { referralCode: null, transactions: [], totalEarnings: 0, totalReferrals: 0 }
+    } catch (error) {
+      console.error('Error fetching referral stats:', error)
+      return { referralCode: null, transactions: [], totalEarnings: 0, totalReferrals: 0 }
     }
   }
 
   // Get platform-wide referral statistics (for admin dashboard)
   async getPlatformReferralStats(): Promise<ReferralStats> {
-    // TODO: This function needs to be moved to an API endpoint
-    // For now, returning empty stats to prevent build errors
-    console.warn('getPlatformReferralStats function needs to be moved to API endpoint')
+    // Platform-wide stats endpoint not yet implemented on backend
+    // Returns empty stats as a safe default
     return {
       totalReferrals: 0,
       totalEarnings: 0,
@@ -187,11 +205,14 @@ export class ReferralSystem {
   storeReferralCode(code: string): void {
     if (typeof window === 'undefined') return
     const timestamp = Date.now().toString()
+    // Always store in localStorage (not a cookie, no consent needed)
     localStorage.setItem('pending_referral', code)
     localStorage.setItem('referral_timestamp', timestamp)
-    // Also set 90-day tracking cookies
-    this.setCookie('itp_referral', code, 90)
-    this.setCookie('itp_referral_ts', timestamp, 90)
+    // Only set tracking cookies if user has accepted cookie consent
+    if (hasAcceptedCookies()) {
+      this.setCookie('itp_referral', code, 90)
+      this.setCookie('itp_referral_ts', timestamp, 90)
+    }
   }
 
   // Retrieve stored referral code (and clear it)

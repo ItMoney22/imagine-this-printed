@@ -6,7 +6,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/SupabaseAuthContext';
 import { useCart } from '../context/CartContext';
 import { imaginationApi } from '../lib/api';
-import toast, { Toaster } from 'react-hot-toast';
+// Notifications come from the app-level ToastProvider (see App.tsx) — no second toast lib.
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import type {
   ImaginationSheet,
@@ -75,32 +75,6 @@ import ImaginationStationOriginal from './ImaginationStation';
 const ImaginationStationEnhanced: React.FC = () => {
   return (
     <ImaginationErrorBoundary>
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          duration: 3000,
-          style: {
-            background: '#fff',
-            color: '#1c1917',
-            border: '1px solid #e7e5e4',
-            borderRadius: '12px',
-            padding: '12px 16px',
-          },
-          success: {
-            iconTheme: {
-              primary: '#9333ea',
-              secondary: '#fff',
-            },
-          },
-          error: {
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-            duration: 5000,
-          },
-        }}
-      />
       <ImaginationStationOriginal />
     </ImaginationErrorBoundary>
   );

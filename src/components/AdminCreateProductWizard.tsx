@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import confetti from 'canvas-confetti'
-import { aiProducts } from '../lib/api'
+import {
+  Sparkles,
+  Wand2,
+  Scissors,
+  ArrowRight,
+  ArrowLeft,
+  Loader2,
+  History,
+  Check,
+  Download,
+} from 'lucide-react'
+import { aiProducts, imageFlow } from '../lib/api'
 import type { AIProductCreationRequest, AIProductCreationResponse, AIJob } from '../types'
 import { supabase } from '../lib/supabase'
 
@@ -51,7 +62,7 @@ export default function AdminCreateProductWizard() {
   const [printPlacement, setPrintPlacement] = useState<'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'>('front-center')
   const [printStyle, setPrintStyle] = useState<'clean' | 'halftone' | 'grunge'>('clean')
 
-  // Note: AI now generates from all 3 models in parallel - no model selection needed
+  // Note: Generation, edits, and all 3 mockup variants run through openai/gpt-image-2 (Replicate)
 
   // Step 2: Review (normalized product from GPT)
   const [normalized, setNormalized] = useState<NormalizedProduct | null>(null)
@@ -67,6 +78,12 @@ export default function AdminCreateProductWizard() {
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
   const [imageWaitCount, setImageWaitCount] = useState(0) // Track polling cycles while waiting for 3rd image
   const mockupsTriggeredRef = useRef(false) // Prevent duplicate mockup API calls
+
+  // Prompt-edit (gpt-image-2 by default; user can switch to gemini-3 in the studio)
+  const [editPrompt, setEditPrompt] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editModel, setEditModel] = useState<'openai/gpt-image-2' | 'fal-ai/gemini-3-pro-image-preview/edit'>('openai/gpt-image-2')
+  const [upscaling, setUpscaling] = useState(false)
 
   // Step 4: Success
   const [finalProduct, setFinalProduct] = useState<any>(null)
@@ -93,8 +110,8 @@ export default function AdminCreateProductWizard() {
           setProductAssets(response.assets || [])
 
           // Check if image generation is complete with multiple source images
-          const imageJob = jobs.find((j: any) => j.type === 'replicate_image')
-          const mockupJob = jobs.find((j: any) => j.type === 'replicate_mockup')
+          const imageJob = jobs.find((j: any) => (j.type === 'replicate_image' || j.type === 'replicate_image_v2'))
+          const mockupJob = jobs.find((j: any) => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2'))
           const sourceAssets = (response.assets || []).filter((a: any) => a.kind === 'source')
 
           console.log('[Wizard] 📸 Source assets count:', sourceAssets.length, 'Image job status:', imageJob?.status, 'Mockup job status:', mockupJob?.status, 'Selected:', selectedImageId)
@@ -105,7 +122,7 @@ export default function AdminCreateProductWizard() {
 
             // Find all mockup jobs (replicate_mockup and ghost_mannequin)
             const mockupJobs = jobs.filter((j: any) =>
-              j.type === 'replicate_mockup' || j.type === 'ghost_mannequin'
+              (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2') || j.type === 'ghost_mannequin'
             )
 
             if (mockupJobs.length > 0) {
@@ -132,30 +149,35 @@ export default function AdminCreateProductWizard() {
             return // Don't run other checks
           }
 
-          // CASE 2: Source images ready - auto-select single image and trigger mockups
-          // With single Flux model, we only expect 1 image - skip selection step
+          // CASE 2: Source images ready
           if (imageJob?.status === 'succeeded' && sourceAssets.length >= 1 && !mockupsTriggeredRef.current) {
-            console.log('[Wizard] 🎨 Source image ready (' + sourceAssets.length + '), auto-selecting and triggering mockups')
-            setImageWaitCount(0) // Reset counter
+            const isMulti = imageJob?.input?.multiModel === true || imageJob?.output?.multiModel === true
+            console.log('[Wizard] 🎨 Source images ready:', sourceAssets.length, 'multiModel:', isMulti)
+            setImageWaitCount(0)
             setSourceImages(sourceAssets)
 
-            // Mark mockups as triggered IMMEDIATELY to prevent duplicate calls
-            mockupsTriggeredRef.current = true
-
-            // Auto-select the single image and trigger mockup generation
-            const singleImage = sourceAssets[0]
-            console.log('[Wizard] 🎯 Auto-selecting image:', singleImage.id)
-            setSelectedImageId(singleImage.id)
-
-            // Trigger mockup generation directly
-            try {
-              const response = await aiProducts.selectImage(productId, singleImage.id)
-              console.log('[Wizard] ✅ Auto-triggered mockup generation:', response.mockupJobs?.length, 'jobs')
-            } catch (err: any) {
-              console.error('[Wizard] ❌ Error auto-triggering mockups:', err)
-              setError(err.message || 'Failed to auto-trigger mockups')
-              // Reset the flag so user can retry
-              mockupsTriggeredRef.current = false
+            if (isMulti && sourceAssets.length > 1) {
+              // Multi-model fan-out: send user to selection step to pick the best variant
+              console.log('[Wizard] 🎯 Multi-model — routing to select-image step')
+              setCurrentStep('select-image')
+            } else if (isMulti && sourceAssets.length === 1) {
+              // Multi-model but only one model succeeded — still let user confirm
+              console.log('[Wizard] 🎯 Multi-model with single survivor — routing to select-image step')
+              setCurrentStep('select-image')
+            } else {
+              // Single-model path: auto-select and trigger mockups
+              mockupsTriggeredRef.current = true
+              const singleImage = sourceAssets[0]
+              console.log('[Wizard] 🎯 Single-model — auto-selecting:', singleImage.id)
+              setSelectedImageId(singleImage.id)
+              try {
+                const response = await aiProducts.selectImage(productId, singleImage.id)
+                console.log('[Wizard] ✅ Auto-triggered mockup generation:', response.mockupJobs?.length, 'jobs')
+              } catch (err: any) {
+                console.error('[Wizard] ❌ Error auto-triggering mockups:', err)
+                setError(err.message || 'Failed to auto-trigger mockups')
+                mockupsTriggeredRef.current = false
+              }
             }
           }
         } catch (err: any) {
@@ -199,7 +221,7 @@ export default function AdminCreateProductWizard() {
         shirtColor,
         printPlacement,
         printStyle,
-        // Note: AI generates from all 3 models in parallel automatically
+        // Note: Backend routes generation through GPT Image 2 by default
       }
 
       const response: AIProductCreationResponse = await aiProducts.create(request)
@@ -239,18 +261,28 @@ export default function AdminCreateProductWizard() {
 
     setApproving(true)
     try {
-      // Update product status from 'draft' to 'active' and set is_active to true
+      // Build the images[] from mockup + selected source asset (mockups first, ghost mannequin primary).
+      const orderedAssets = [...productAssets].sort((a, b) => (a.display_order ?? 99) - (b.display_order ?? 99))
+      const imageUrls: string[] = []
+      // Ghost mannequin / mockups first (display_order 1-3)
+      for (const a of orderedAssets) {
+        if (a.kind === 'mockup' && a.url) imageUrls.push(a.url)
+      }
+      // Then the chosen source design as the design reference
+      const selectedSource = orderedAssets.find(a => a.id === selectedImageId && a.kind === 'source')
+      if (selectedSource?.url) imageUrls.push(selectedSource.url)
+
       const { error } = await supabase
         .from('products')
         .update({
           status: 'active',
-          is_active: true
+          is_active: true,
+          images: imageUrls,
         })
         .eq('id', finalProduct.id)
 
       if (error) throw error
 
-      // Show success message
       confetti({
         particleCount: 150,
         spread: 100,
@@ -262,6 +294,7 @@ export default function AdminCreateProductWizard() {
         navigate('/admin?tab=products')
       }, 1500)
     } catch (error: any) {
+      console.error('[Wizard] ❌ Approve failed:', error)
       setError(error.message || 'Failed to approve product')
       setApproving(false)
     }
@@ -368,6 +401,99 @@ export default function AdminCreateProductWizard() {
     } catch (error: any) {
       console.error('[Wizard] ❌ Error removing background:', error)
       setError(error.message || 'Failed to remove background')
+    } finally {
+      setRemovingBackground(false)
+    }
+  }
+
+  const handleEditWithPrompt = async () => {
+    if (!productId || !selectedImageId || !editPrompt.trim()) return
+
+    setEditing(true)
+    setError(null)
+    try {
+      const modelLabel = editModel === 'openai/gpt-image-2' ? 'GPT Image 2' : 'Gemini 3 Pro Image'
+      console.log('[Wizard] 🖌️ Editing image with', modelLabel, ':', selectedImageId, '→', editPrompt)
+      const result = await imageFlow.edit({
+        parentAssetId: selectedImageId,
+        prompt: editPrompt,
+        forceModel: editModel,
+        confirmedCost: editModel === 'fal-ai/gemini-3-pro-image-preview/edit', // Gemini 3 is gated at $0.15
+      })
+      console.log('[Wizard] ✅ Edited:', result.assetId, result.url)
+
+      // Append edited image to source list and select it
+      if (result.assetId) {
+        setSourceImages((prev) => [
+          ...prev,
+          {
+            id: result.assetId,
+            url: result.url,
+            width: 1024,
+            height: 1024,
+            metadata: { model_name: `${modelLabel} (edit)` },
+          },
+        ])
+        setSelectedImageId(result.assetId)
+      }
+      setEditPrompt('')
+    } catch (error: any) {
+      console.error('[Wizard] ❌ Edit failed:', error)
+      setError(error.message || 'Failed to edit image')
+    } finally {
+      setEditing(false)
+    }
+  }
+
+  const handleUpscale = async () => {
+    if (!productId || !selectedImageId) return
+    setUpscaling(true)
+    setError(null)
+    try {
+      const result = await imageFlow.upscale({ parentAssetId: selectedImageId })
+      if (result.assetId) {
+        setSourceImages((prev) => [
+          ...prev,
+          {
+            id: result.assetId,
+            url: result.url,
+            width: 2048,
+            height: 2048,
+            metadata: { model_name: 'Recraft Crisp Upscale (2x)' },
+          },
+        ])
+        setSelectedImageId(result.assetId)
+      }
+    } catch (e: any) {
+      console.error('[Wizard] ❌ Upscale failed:', e)
+      setError(e.message || 'Failed to upscale')
+    } finally {
+      setUpscaling(false)
+    }
+  }
+
+  const handleBgRemoveFlow = async () => {
+    if (!productId || !selectedImageId) return
+    setRemovingBackground(true)
+    setError(null)
+    try {
+      const result = await imageFlow.bgRemove({ parentAssetId: selectedImageId })
+      if (result.assetId) {
+        setSourceImages((prev) => [
+          ...prev,
+          {
+            id: result.assetId,
+            url: result.url,
+            width: 1024,
+            height: 1024,
+            metadata: { model_name: 'Bria BG Remove (transparent)' },
+          },
+        ])
+        setSelectedImageId(result.assetId)
+      }
+    } catch (e: any) {
+      console.error('[Wizard] ❌ BG remove failed:', e)
+      setError(e.message || 'Failed to remove background')
     } finally {
       setRemovingBackground(false)
     }
@@ -590,22 +716,6 @@ export default function AdminCreateProductWizard() {
 
               <div>
                 <label className="block text-sm font-semibold text-text mb-2">
-                  Number of Images
-                </label>
-                <select
-                  value={numImages}
-                  onChange={(e) => setNumImages(parseInt(e.target.value))}
-                  className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-text cursor-pointer"
-                >
-                  <option value="1">1 Image</option>
-                  <option value="2">2 Images</option>
-                  <option value="3">3 Images</option>
-                  <option value="4">4 Images</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-text mb-2">
                   Mockup Style
                 </label>
                 <select
@@ -737,40 +847,54 @@ export default function AdminCreateProductWizard() {
               </div>
             </div>
 
-            {/* Multi-Model AI Generation Info */}
+            {/* Process card — GPT Image 2 pipeline */}
             <div className="bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 rounded-2xl p-6 border border-cyan-500/20 shadow-xl backdrop-blur-sm">
               <div className="flex items-start space-x-4">
                 <div className="flex-shrink-0">
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-lg">
-                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
+                    <Sparkles className="w-6 h-6 text-white" />
                   </div>
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-bold text-text mb-2 flex items-center">
-                    Multi-Model AI Generation
-                    <span className="ml-2 px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-xs font-semibold rounded-full">NEW</span>
+                    Multi-model generation pipeline
+                    <span className="ml-2 px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] font-semibold rounded-full uppercase tracking-wider">4 models in parallel</span>
                   </h3>
-                  <p className="text-muted text-sm mb-3">
-                    Your design will be generated by <strong className="text-text">3 different AI models</strong> simultaneously:
+                  <p className="text-muted text-sm mb-4">
+                    Four image models race in parallel — you pick the best result. Edits and mockups run on a separate dedicated edit model (your choice in the next step).
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2">
-                      <span className="text-lg">🌟</span>
-                      <span className="text-sm font-medium text-text">Google Imagen 4 Ultra</span>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2 border border-white/5">
+                      <span className="text-base">🎨</span>
+                      <div className="text-xs">
+                        <p className="font-semibold text-text leading-tight">Recraft V4</p>
+                        <p className="text-muted leading-tight">design-first, print-ready</p>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2">
-                      <span className="text-lg">⚡</span>
-                      <span className="text-sm font-medium text-text">Flux 1.1 Pro Ultra</span>
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2 border border-white/5">
+                      <span className="text-base">🌀</span>
+                      <div className="text-xs">
+                        <p className="font-semibold text-text leading-tight">Grok Imagine</p>
+                        <p className="text-muted leading-tight">stylized, fast</p>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2">
-                      <span className="text-lg">✨</span>
-                      <span className="text-sm font-medium text-text">Lucid Origin</span>
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2 border border-white/5">
+                      <span className="text-base">🌟</span>
+                      <div className="text-xs">
+                        <p className="font-semibold text-text leading-tight">Imagen 4 Ultra</p>
+                        <p className="text-muted leading-tight">photoreal</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-card/30 rounded-lg px-3 py-2 border border-white/5">
+                      <span className="text-base">🔬</span>
+                      <div className="text-xs">
+                        <p className="font-semibold text-text leading-tight">Wan 2.7 Pro</p>
+                        <p className="text-muted leading-tight">4K, reasoning</p>
+                      </div>
                     </div>
                   </div>
-                  <p className="text-muted text-xs mt-3">
-                    After generation, you'll select your favorite image, and it will be mocked up on Mr. Imagine.
+                  <p className="text-muted text-xs">
+                    For shirt/hoodie/tank categories the prompt is auto-wrapped with DTF rules: transparent background, isolated artwork, no clothing in the design.
                   </p>
                 </div>
               </div>
@@ -783,7 +907,7 @@ export default function AdminCreateProductWizard() {
                 <span>DTF Print Settings</span>
               </h3>
               <p className="text-muted text-sm mb-6">
-                Configure your product mockup. Mr. Imagine will model your design on the selected product!
+                These settings tune the prompt for DTF print quality and shape the three generated mockups.
               </p>
 
               {/* Product Type Selection */}
@@ -969,16 +1093,29 @@ export default function AdminCreateProductWizard() {
                 </p>
               </div>
 
-              {/* Mr. Imagine Preview Note */}
+              {/* Mockup preview note — 3 variants from the same design */}
               <div className="mt-6 bg-primary/10 border border-primary/30 rounded-xl p-4">
                 <div className="flex items-start space-x-3">
-                  <span className="text-2xl">🎭</span>
-                  <div>
-                    <p className="font-semibold text-text">Mr. Imagine Mockup</p>
-                    <p className="text-sm text-muted">
-                      Your design will be modeled by Mr. Imagine wearing a {shirtColor} {productType}.
-                      The AI will fuse your design onto the {printPlacement.replace(/-/g, ' ')} position.
+                  <span className="text-2xl">🖼️</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-text">Three mockups, one click</p>
+                    <p className="text-sm text-muted mb-3">
+                      A {shirtColor} {productType} with the design at the {printPlacement.replace(/-/g, ' ')} position will be rendered as:
                     </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-bg/40 rounded-lg px-2 py-1.5 border border-white/5 text-center">
+                        <p className="text-xs font-semibold text-text">👻 Ghost mannequin</p>
+                        <p className="text-[10px] text-muted">primary image</p>
+                      </div>
+                      <div className="bg-bg/40 rounded-lg px-2 py-1.5 border border-white/5 text-center">
+                        <p className="text-xs font-semibold text-text">📸 Flat lay</p>
+                        <p className="text-[10px] text-muted">studio shot</p>
+                      </div>
+                      <div className="bg-bg/40 rounded-lg px-2 py-1.5 border border-white/5 text-center">
+                        <p className="text-xs font-semibold text-text">🎭 Mr. Imagine</p>
+                        <p className="text-[10px] text-muted">lifestyle</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1143,7 +1280,39 @@ export default function AdminCreateProductWizard() {
       )}
 
       {/* Step 3: Generate */}
-      {currentStep === 'generate' && (
+      {currentStep === 'generate' && (() => {
+        // Live progress: derive from job statuses + per-job step/total_steps
+        const imageJob = jobs.find(j => (j.type === 'replicate_image' || j.type === 'replicate_image_v2'))
+        const mockupJobs = jobs.filter(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2') || j.type === 'ghost_mannequin')
+        const stages = [
+          { key: 'image', label: 'Generating designs', weight: 50, job: imageJob },
+          { key: 'mockup', label: 'Rendering mockups', weight: 50, jobs: mockupJobs },
+        ]
+        let percent = 0
+        // Image stage (50%)
+        if (imageJob) {
+          if (imageJob.status === 'succeeded') {
+            percent += 50
+          } else if (imageJob.status === 'running') {
+            const step = imageJob.output?.step ?? 0
+            const total = imageJob.output?.total_steps ?? 3
+            percent += Math.min(50, (step / total) * 50)
+          }
+        }
+        // Mockup stage (50%) — proportional to completed
+        if (mockupJobs.length > 0) {
+          const done = mockupJobs.filter(j => j.status === 'succeeded' || j.status === 'failed' || j.status === 'skipped').length
+          percent += (done / mockupJobs.length) * 50
+        }
+        const progressMessage =
+          imageJob?.status === 'running' && imageJob.output?.message
+            ? imageJob.output.message
+            : mockupJobs.some(j => j.status === 'running')
+              ? mockupJobs.find(j => j.status === 'running')?.output?.message ?? 'Rendering mockups…'
+              : imageJob?.status === 'queued'
+                ? 'Queued — waiting for worker…'
+                : 'Working…'
+        return (
         <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
           <div className="mb-8">
             <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
@@ -1153,8 +1322,22 @@ export default function AdminCreateProductWizard() {
               Generating Assets
             </h2>
             <p className="text-muted text-lg">
-              Our AI is working through multiple steps to create your product. This process typically takes 2-5 minutes.
+              4 models race in parallel for the design (~30–60s), you pick a favorite, then 3 mockups render (~30s).
             </p>
+          </div>
+
+          {/* Live progress bar — driven by job.output.step / total_steps + mockup completion */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-text">{progressMessage}</span>
+              <span className="text-xs text-muted font-mono">{Math.round(percent)}%</span>
+            </div>
+            <div className="h-2.5 rounded-full bg-bg/60 border border-white/5 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-primary via-purple-400 to-secondary transition-all duration-500 ease-out shadow-[0_0_10px_rgba(168,85,247,0.5)]"
+                style={{ width: `${Math.min(100, Math.max(2, percent))}%` }}
+              />
+            </div>
           </div>
 
           {/* Progress Timeline */}
@@ -1185,31 +1368,44 @@ export default function AdminCreateProductWizard() {
                 </div>
               </div>
               <div className="flex items-start space-x-4 relative z-10">
-                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all duration-500 ${jobs.some(j => j.type === 'replicate_image' && j.status === 'running') ? 'bg-primary animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.6)]' : jobs.some(j => j.type === 'replicate_image' && j.status === 'succeeded') ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-white/10 border border-white/20'}`}>
-                  {jobs.some(j => j.type === 'replicate_image' && j.status === 'succeeded') ? '✓' : '3'}
+                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all duration-500 ${jobs.some(j => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && j.status === 'running') ? 'bg-primary animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.6)]' : jobs.some(j => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && j.status === 'succeeded') ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-white/10 border border-white/20'}`}>
+                  {jobs.some(j => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && j.status === 'succeeded') ? '✓' : '3'}
                 </div>
                 <div>
-                  <p className={`font-medium transition-colors ${jobs.some(j => j.type === 'replicate_image' && j.status === 'running') ? 'text-primary' : 'text-text'}`}>Step 3: Generate Product Image</p>
-                  <p className="text-muted text-sm mt-1">Flux Fast creates high-quality product artwork based on GPT's detailed visual description</p>
+                  <p className={`font-medium transition-colors ${jobs.some(j => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && j.status === 'running') ? 'text-primary' : 'text-text'}`}>Step 3: Generate the design</p>
+                  <p className="text-muted text-sm mt-1">GPT Image 2 renders the design from the GPT-enhanced prompt (~10 seconds)</p>
                 </div>
               </div>
               <div className="flex items-start space-x-4 relative z-10">
-                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all duration-500 ${jobs.some(j => j.type === 'replicate_rembg' && j.status === 'running') ? 'bg-primary animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.6)]' : jobs.some(j => j.type === 'replicate_rembg' && j.status === 'succeeded') ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-white/10 border border-white/20'}`}>
-                  {jobs.some(j => j.type === 'replicate_rembg' && j.status === 'succeeded') ? '✓' : '3.5'}
-                </div>
+                <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold bg-white/10 border border-white/20">3.5</div>
                 <div>
-                  <p className={`font-medium transition-colors ${jobs.some(j => j.type === 'replicate_rembg' && j.status === 'running') ? 'text-primary' : 'text-text'}`}>Step 3.5: Remove Background</p>
-                  <p className="text-muted text-sm mt-1">Preparing clean product image for mockup generation (removes background for better mockup quality)</p>
+                  <p className="font-medium text-text">Step 3.5: Refine <span className="text-xs text-muted font-normal">(optional)</span></p>
+                  <p className="text-muted text-sm mt-1">Iterate on the design with prompt edits, then continue when you're happy</p>
                 </div>
               </div>
               <div className="flex items-start space-x-4 relative z-10">
-                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all duration-500 ${jobs.some(j => j.type === 'replicate_mockup' && j.status === 'running') ? 'bg-primary animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.6)]' : jobs.filter(j => j.type === 'replicate_mockup' && j.status === 'succeeded').length === 2 ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-white/10 border border-white/20'}`}>
-                  {jobs.filter(j => j.type === 'replicate_mockup' && j.status === 'succeeded').length === 2 ? '✓' : '4'}
-                </div>
-                <div>
-                  <p className={`font-medium transition-colors ${jobs.some(j => j.type === 'replicate_mockup' && j.status === 'running') ? 'text-primary' : 'text-text'}`}>Step 4: Generate Product Mockups (2x)</p>
-                  <p className="text-muted text-sm mt-1">ITP Enhance Engine applies the product image to realistic mockup templates (flat lay + lifestyle)</p>
-                </div>
+                {(() => {
+                  const mockupSucceededCount = jobs.filter(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2') && j.status === 'succeeded').length
+                  const mockupTotal = jobs.filter(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2')).length
+                  const allDone = mockupTotal > 0 && mockupSucceededCount === mockupTotal
+                  const running = jobs.some(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2') && j.status === 'running')
+                  return (
+                    <>
+                      <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all duration-500 ${running ? 'bg-primary animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.6)]' : allDone ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-white/10 border border-white/20'}`}>
+                        {allDone ? '✓' : '4'}
+                      </div>
+                      <div>
+                        <p className={`font-medium transition-colors ${running ? 'text-primary' : 'text-text'}`}>
+                          Step 4: Generate mockups
+                          {mockupTotal > 0 && (
+                            <span className="ml-2 text-xs text-muted font-normal">({mockupSucceededCount}/{mockupTotal})</span>
+                          )}
+                        </p>
+                        <p className="text-muted text-sm mt-1">GPT Image 2 composites the design onto a ghost mannequin, flat lay, and Mr. Imagine — in parallel</p>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>
@@ -1247,33 +1443,33 @@ export default function AdminCreateProductWizard() {
                     </div>
                     <div>
                       <p className="font-bold text-text text-xl mb-1">
-                        {job.type === 'replicate_image' && '🎨 Product Image Generation'}
+                        {(job.type === 'replicate_image' || job.type === 'replicate_image_v2') && '🎨 Product Image Generation'}
                         {job.type === 'replicate_rembg' && '✂️ Background Removal'}
                         {job.type === 'ghost_mannequin' && '👻 Ghost Mannequin Mockup'}
-                        {job.type === 'replicate_mockup' && job.input?.template === 'flat_lay' && '🖼️ Flat Lay Mockup'}
-                        {job.type === 'replicate_mockup' && job.input?.template === 'mr_imagine' && '🎭 Mr. Imagine Mockup'}
-                        {job.type === 'replicate_mockup' && !job.input?.template && '🖼️ Mockup Generation'}
+                        {(job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') && job.input?.template === 'flat_lay' && '🖼️ Flat Lay Mockup'}
+                        {(job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') && job.input?.template === 'mr_imagine' && '🎭 Mr. Imagine Mockup'}
+                        {(job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') && !job.input?.template && '🖼️ Mockup Generation'}
                       </p>
                       <p className="text-sm text-muted font-medium">
                         {/* Show real-time progress message from worker if available */}
-                        {job.status === 'running' && job.output?.progress?.message ? (
+                        {job.status === 'running' && job.output?.message ? (
                           <span className="flex items-center gap-2">
-                            <span className="animate-pulse">{job.output.progress.message}</span>
-                            {job.output.progress.step && job.output.progress.total_steps && (
+                            <span className="animate-pulse">{job.output.message}</span>
+                            {job.output.step && job.output.total_steps && (
                               <span className="text-xs text-primary">
-                                ({job.output.progress.step}/{job.output.progress.total_steps})
+                                ({job.output.step}/{job.output.total_steps})
                               </span>
                             )}
                           </span>
                         ) : (
                           <>
-                            {job.status === 'queued' && job.type === 'replicate_image' && 'Waiting to start generation...'}
+                            {job.status === 'queued' && (job.type === 'replicate_image' || job.type === 'replicate_image_v2') && 'Waiting to start generation...'}
                             {job.status === 'queued' && job.type === 'replicate_rembg' && 'Waiting for source image...'}
-                            {job.status === 'queued' && job.type === 'replicate_mockup' && 'Waiting for background removal...'}
+                            {job.status === 'queued' && (job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') && 'Waiting for background removal...'}
                             {job.status === 'queued' && job.type === 'ghost_mannequin' && 'Waiting for design image...'}
-                            {job.status === 'running' && job.type === 'replicate_image' && 'Generating artwork with AI models...'}
+                            {job.status === 'running' && (job.type === 'replicate_image' || job.type === 'replicate_image_v2') && 'Generating with GPT Image 2...'}
                             {job.status === 'running' && job.type === 'replicate_rembg' && 'Removing background with AI...'}
-                            {job.status === 'running' && job.type === 'replicate_mockup' && 'Applying design to mockup...'}
+                            {job.status === 'running' && (job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') && 'Applying design to mockup...'}
                             {job.status === 'running' && job.type === 'ghost_mannequin' && 'Creating ghost mannequin mockup...'}
                             {job.status === 'succeeded' && 'Complete! Image ready.'}
                             {job.status === 'skipped' && 'Skipped (not applicable)'}
@@ -1301,7 +1497,7 @@ export default function AdminCreateProductWizard() {
           </div>
 
           {/* Manual Workflow: Source Image Preview + Remove Background OR Skip Button */}
-          {productAssets.some(asset => asset.kind === 'source') && !jobs.some(j => j.type === 'replicate_rembg') && !jobs.some(j => j.type === 'replicate_mockup') && (
+          {productAssets.some(asset => asset.kind === 'source') && !jobs.some(j => j.type === 'replicate_rembg') && !jobs.some(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2')) && (
             <div className="mt-10 bg-card/30 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl">
               <h3 className="font-bold text-text text-2xl mb-4 text-center">Source Image Generated!</h3>
               <div className="bg-bg/50 rounded-xl p-6 mb-6 border border-white/5">
@@ -1344,7 +1540,7 @@ export default function AdminCreateProductWizard() {
           )}
 
           {/* Manual Workflow: Background Removed Preview + Create Mockups Button */}
-          {productAssets.some(asset => asset.kind === 'nobg') && !jobs.some(j => j.type === 'replicate_mockup') && (
+          {productAssets.some(asset => asset.kind === 'nobg') && !jobs.some(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2')) && (
             <div className="mt-10 bg-card/30 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl">
               <h3 className="font-bold text-text text-2xl mb-4 text-center">Background Removed!</h3>
               <div className="grid grid-cols-2 gap-6 mb-6">
@@ -1386,7 +1582,7 @@ export default function AdminCreateProductWizard() {
           )}
 
           {/* Manual Workflow: Mockups Complete + View Product Button */}
-          {jobs.filter(j => j.type === 'replicate_mockup' && j.status === 'succeeded').length === 2 && (
+          {jobs.filter(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2') && j.status === 'succeeded').length === 2 && (
             <div className="mt-10 text-center bg-card/30 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl">
               <svg className="w-16 h-16 mx-auto mb-4 text-green-500 animate-bounce drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1418,298 +1614,101 @@ export default function AdminCreateProductWizard() {
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
 
-      {/* Step 3.5: Select Image (Multi-Model) */}
-      {currentStep === 'select-image' && (
+      {/* Step 3.5: Confirm generated design — pick from 4-model fan-out */}
+      {currentStep === 'select-image' && (() => {
+        const imageJob = jobs.find(j => (j.type === 'replicate_image' || j.type === 'replicate_image_v2'))
+        const allModelResults: Array<{ modelId: string; modelLabel: string; status: string; error?: string | null }> =
+          imageJob?.output?.results ?? []
+        const failed = allModelResults.filter(r => r.status === 'failed')
+        const totalAttempted = allModelResults.length || sourceImages.length
+        return (
         <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
-          <div className="mb-8">
+          <div className="mb-6">
             <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-              <svg className="w-8 h-8 mr-3 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Choose Your AI-Generated Image
+              <Sparkles className="w-8 h-8 mr-3 text-primary" />
+              Pick your favorite
             </h2>
-            <p className="text-muted text-lg">
-              Our AI generated images using multiple models. Select the one you prefer for your product.
+            <p className="text-muted">
+              {sourceImages.length} of {totalAttempted} models delivered. Pick one to refine — your edits will use GPT Image 2 from there.
             </p>
           </div>
 
-          {/* Image Selection Grid - 3 columns for 3 AI models */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {sourceImages.map((image, index) => (
-              <div
-                key={image.id}
-                className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl p-6 border transition-all duration-300 shadow-xl ${selectedImageId === image.id
-                    ? 'border-primary/70 ring-2 ring-primary/50 shadow-[0_0_30px_rgba(168,85,247,0.3)]'
-                    : 'border-white/10 hover:border-primary/30'
-                  }`}
-              >
-                {/* Model Badge */}
-                <div className="absolute top-4 left-4 z-10 bg-gradient-to-r from-primary/90 to-purple-600/90 backdrop-blur-sm text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  <span className="font-semibold text-sm">
-                    {image.metadata?.model_name || `Model ${index + 1}`}
-                  </span>
-                </div>
-
-                {/* Image Preview */}
-                <div className="bg-bg/60 rounded-xl overflow-hidden mb-4 border border-white/5">
-                  <img
-                    src={image.url}
-                    alt={`AI generated image from ${image.metadata?.model_name}`}
-                    className="w-full h-auto object-cover"
-                  />
-                </div>
-
-                {/* Image Metadata */}
-                <div className="bg-card/30 rounded-lg p-4 mb-4 border border-white/5">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-muted font-medium">Model:</p>
-                      <p className="text-text">{image.metadata?.model_name || 'Unknown'}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted font-medium">Generated:</p>
-                      <p className="text-text">
-                        {image.metadata?.generated_at
-                          ? new Date(image.metadata.generated_at).toLocaleTimeString()
-                          : 'Unknown'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted font-medium">Size:</p>
-                      <p className="text-text">
-                        {image.width}x{image.height}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted font-medium">Format:</p>
-                      <p className="text-text">PNG</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex flex-col space-y-3">
-                  <button
-                    onClick={() => handleSelectImage(image.id)}
-                    disabled={loading}
-                    className="group bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-6 py-4 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="flex items-center justify-center space-x-2">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span>Use This Image</span>
-                      <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                      </svg>
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => handleDownloadImage(image.url, `${image.metadata?.model_name?.replace(/\s+/g, '-').toLowerCase() || 'image'}-${image.id}.png`)}
-                    disabled={loading}
-                    className="group bg-card/50 hover:bg-card/70 text-text border border-white/20 hover:border-primary/50 font-semibold px-6 py-3 rounded-xl transition-all shadow-md hover:shadow-lg transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="flex items-center justify-center space-x-2">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      <span>Download Image</span>
-                    </span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Info Notice */}
-          <div className="bg-primary/10 border border-primary/30 rounded-xl p-6 backdrop-blur-sm">
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="text-text font-semibold mb-1">How it works:</p>
-                <p className="text-muted text-sm">
-                  All 3 images are saved to storage. Select the one you want to use for the product mockup.
-                  The selected image will be placed on Mr. Imagine and become your product's main image.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {error && (
-            <div className="mt-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-              <p className="text-red-400">{error}</p>
+          {failed.length > 0 && (
+            <div className="mb-6 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-sm">
+              <p className="text-amber-300 font-semibold mb-1">
+                {failed.length} model{failed.length > 1 ? 's' : ''} declined or timed out
+              </p>
+              <ul className="text-amber-200/80 text-xs space-y-0.5">
+                {failed.map(f => (
+                  <li key={f.modelId}>
+                    <span className="font-mono text-amber-300/90">{f.modelLabel}</span>
+                    {f.error ? <span className="text-amber-200/60"> — {f.error.slice(0, 120)}</span> : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-amber-200/70 text-xs mt-2">
+                Common causes: content moderation flagged the prompt, or the model was overloaded. Try rewording or proceed with the survivors below.
+              </p>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Step 3.75: Enhance Image (Remove BG / Upscale / Skip to Mockup) */}
-      {currentStep === 'enhance-image' && selectedImageId && (
-        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-              <svg className="w-8 h-8 mr-3 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-              </svg>
-              Enhance Your Image
-            </h2>
-            <p className="text-muted text-lg">
-              Optionally enhance your selected image before creating mockups
-            </p>
-          </div>
-
-          {/* Selected Image Preview */}
-          <div className="bg-bg/40 backdrop-blur-sm rounded-2xl p-6 mb-8 border border-white/10">
-            <h3 className="font-semibold text-text mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Selected Image
-            </h3>
-            {(() => {
-              const selectedImage = sourceImages.find(img => img.id === selectedImageId)
-              return selectedImage ? (
-                <div className="flex items-start space-x-6">
-                  <div className="w-64 h-64 bg-bg/60 rounded-xl overflow-hidden border border-white/10 flex-shrink-0">
+          <div className={`grid gap-6 mb-8 ${sourceImages.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : sourceImages.length === 2 ? 'grid-cols-1 md:grid-cols-2' : sourceImages.length === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
+            {sourceImages.map((image, index) => {
+              const isSelected = selectedImageId === image.id
+              const modelLabel = image.metadata?.model_name ?? 'AI Generated'
+              return (
+                <div
+                  key={image.id}
+                  className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl border transition-all overflow-hidden ${
+                    isSelected
+                      ? 'border-primary/70 ring-2 ring-primary/50 shadow-[0_0_30px_rgba(168,85,247,0.3)]'
+                      : 'border-white/10 hover:border-primary/40'
+                  }`}
+                >
+                  <div className="aspect-square bg-bg/60 overflow-hidden">
                     <img
-                      src={selectedImage.url}
-                      alt="Selected image"
+                      src={image.url}
+                      alt={`Generated design ${index + 1}`}
                       className="w-full h-full object-contain"
                     />
                   </div>
-                  <div className="flex-1">
-                    <div className="bg-primary/10 border border-primary/30 rounded-lg px-4 py-2 mb-3 inline-block">
-                      <span className="font-semibold text-primary">
-                        {selectedImage.metadata?.model_name || 'AI Generated'}
-                      </span>
+                  <div className="p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-semibold text-primary truncate" title={modelLabel}>{modelLabel}</span>
+                      <span className="text-[11px] text-text/70 flex-shrink-0">{image.width}×{image.height}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <p className="text-muted">Size:</p>
-                        <p className="text-text">{selectedImage.width}x{selectedImage.height}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted">Format:</p>
-                        <p className="text-text">PNG</p>
-                      </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSelectImage(image.id)}
+                        disabled={loading}
+                        className="flex-1 bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+                      >
+                        Refine this
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </button>
+                      <button
+                        onClick={() => handleDownloadImage(image.url, `design-v${index + 1}-${image.id}.png`)}
+                        disabled={loading}
+                        className="bg-bg/60 hover:bg-bg/80 border border-white/10 hover:border-white/20 text-text/80 hover:text-text px-3 py-2.5 rounded-xl transition-all"
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
-              ) : (
-                <p className="text-muted">Loading selected image...</p>
               )
-            })()}
+            })}
           </div>
 
-          {/* Enhancement Options */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {/* Remove Background */}
-            <button
-              onClick={handleEnhanceRemoveBackground}
-              disabled={removingBackground || loading}
-              className="group bg-gradient-to-br from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/30 hover:border-purple-400/50 rounded-2xl p-6 transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mr-4 shadow-lg group-hover:shadow-purple-500/30 transition-shadow">
-                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="font-bold text-text text-lg">Remove Background</h4>
-                  <p className="text-muted text-sm">Clean transparent PNG</p>
-                </div>
-              </div>
-              <p className="text-muted text-sm">
-                Remove the background for cleaner mockups and DTF printing. Best for designs with solid backgrounds.
-              </p>
-              {removingBackground && (
-                <div className="mt-4 flex items-center text-primary">
-                  <svg className="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span className="text-sm">Processing...</span>
-                </div>
-              )}
-            </button>
-
-            {/* Upscale Image - Coming Soon */}
-            <button
-              disabled={true}
-              className="group bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-500/20 rounded-2xl p-6 transition-all duration-300 text-left opacity-50 cursor-not-allowed"
-            >
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center mr-4 shadow-lg">
-                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="font-bold text-text text-lg">Upscale Image</h4>
-                  <p className="text-muted text-sm">Coming Soon</p>
-                </div>
-              </div>
-              <p className="text-muted text-sm">
-                Increase resolution for larger print sizes. Great for oversized prints and banners.
-              </p>
-            </button>
-
-            {/* Skip to Mockups */}
-            <button
-              onClick={handleGenerateMockups}
-              disabled={loading}
-              className="group bg-gradient-to-br from-emerald-500/20 to-green-500/20 hover:from-emerald-500/30 hover:to-green-500/30 border border-emerald-500/30 hover:border-emerald-400/50 rounded-2xl p-6 transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-500 rounded-xl flex items-center justify-center mr-4 shadow-lg group-hover:shadow-emerald-500/30 transition-shadow">
-                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="font-bold text-text text-lg">Generate Mockups</h4>
-                  <p className="text-muted text-sm">Skip enhancements</p>
-                </div>
-              </div>
-              <p className="text-muted text-sm">
-                Proceed directly to Mr. Imagine mockup generation with the current image.
-              </p>
-              {loading && (
-                <div className="mt-4 flex items-center text-emerald-400">
-                  <svg className="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span className="text-sm">Starting...</span>
-                </div>
-              )}
-            </button>
-          </div>
-
-          {/* Back Button */}
-          <div className="flex justify-between items-center">
-            <button
-              onClick={() => setCurrentStep('select-image')}
-              className="text-muted hover:text-text transition-colors flex items-center"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Choose Different Image
-            </button>
-
-            <div className="text-muted text-sm">
-              Step 3.5 of 4
-            </div>
+          <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 backdrop-blur-sm flex items-start gap-3">
+            <Sparkles className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+            <p className="text-muted text-sm">
+              Click <span className="text-text font-semibold">Refine this</span> to open the studio editor. You can iterate with prompts there — every edit becomes a new version you can flip back to.
+            </p>
           </div>
 
           {error && (
@@ -1718,7 +1717,313 @@ export default function AdminCreateProductWizard() {
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
+
+      {/* Step 3.5: Refine — studio layout with prompt-based editing */}
+      {currentStep === 'enhance-image' && selectedImageId && (() => {
+        const currentImage = sourceImages.find(img => img.id === selectedImageId)
+        const versions = sourceImages
+        const QUICK_EDITS = [
+          { label: 'Bolder colors', prompt: 'Boost color saturation and contrast for a punchier look. Keep the design composition exactly the same.' },
+          { label: 'Cleaner lines', prompt: 'Sharpen and clean up the line work. Keep the design composition, colors, and subject identical.' },
+          { label: 'Halftone style', prompt: 'Apply a halftone print style with visible dot patterns. Keep all subjects and colors the same.' },
+          { label: 'Vintage / retro', prompt: 'Apply a vintage retro screen-print aesthetic with slight texture and faded colors. Preserve the subject.' },
+          { label: 'Brighter highlights', prompt: 'Brighten the highlights and add a subtle glow. Keep all colors and composition the same.' },
+        ]
+        return (
+          <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl border border-white/10 ring-1 ring-white/5 overflow-hidden">
+            {/* Header */}
+            <div className="px-8 pt-8 pb-6 border-b border-white/10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-2 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+                    <Sparkles className="w-8 h-8 mr-3 text-primary" />
+                    Refine Your Design
+                  </h2>
+                  <p className="text-muted">
+                    Iterate with GPT Image 2 — describe a change in plain English. Each edit becomes a new version.
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted uppercase tracking-wider mb-1">Step 3 of 4</p>
+                  <p className="text-text/70 text-sm">Powered by GPT Image 2</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Studio: preview (left) + actions (right) */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-0">
+              {/* Preview pane */}
+              <div className="lg:col-span-3 p-8 border-r border-white/10">
+                <div className="relative aspect-square bg-gradient-to-br from-bg/60 via-bg/40 to-bg/60 rounded-2xl overflow-hidden border border-white/10 shadow-inner">
+                  {currentImage ? (
+                    <>
+                      <img
+                        src={currentImage.url}
+                        alt="Current design"
+                        className="w-full h-full object-contain"
+                      />
+                      {editing && (
+                        <div className="absolute inset-0 bg-bg/80 backdrop-blur-sm flex flex-col items-center justify-center">
+                          <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                          <p className="text-text font-medium">Editing with GPT Image 2…</p>
+                          <p className="text-muted text-sm mt-1">~10 seconds</p>
+                        </div>
+                      )}
+                      {removingBackground && (
+                        <div className="absolute inset-0 bg-bg/80 backdrop-blur-sm flex flex-col items-center justify-center">
+                          <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                          <p className="text-text font-medium">Removing background…</p>
+                        </div>
+                      )}
+                      {/* Floating download */}
+                      <button
+                        onClick={() => handleDownloadImage(currentImage.url, `design-${currentImage.id}.png`)}
+                        className="absolute top-3 right-3 w-10 h-10 rounded-full bg-bg/70 backdrop-blur-md border border-white/10 flex items-center justify-center text-text/70 hover:text-text hover:bg-bg/90 transition-all"
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center text-muted">Loading…</div>
+                  )}
+                </div>
+
+                {/* Version history strip */}
+                {versions.length > 1 && (
+                  <div className="mt-6">
+                    <div className="flex items-center text-xs uppercase tracking-wider text-muted mb-3">
+                      <History className="w-3.5 h-3.5 mr-1.5" />
+                      Versions ({versions.length})
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+                      {versions.map((v, i) => {
+                        const isActive = v.id === selectedImageId
+                        return (
+                          <button
+                            key={v.id}
+                            onClick={() => setSelectedImageId(v.id)}
+                            className={`relative flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border-2 transition-all ${
+                              isActive
+                                ? 'border-primary shadow-[0_0_20px_rgba(168,85,247,0.4)]'
+                                : 'border-white/10 hover:border-white/30'
+                            }`}
+                            title={v.metadata?.model_name || `Version ${i + 1}`}
+                          >
+                            <img src={v.url} alt={`Version ${i + 1}`} className="w-full h-full object-cover" />
+                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-bg/90 to-transparent px-1 py-0.5">
+                              <p className="text-[10px] text-text font-medium truncate">v{i + 1}</p>
+                            </div>
+                            {isActive && (
+                              <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                                <Check className="w-3 h-3 text-white" />
+                              </div>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Action panel */}
+              <div className="lg:col-span-2 p-8 bg-bg/20 flex flex-col">
+                {/* Edit-model picker */}
+                <div className="mb-4">
+                  <p className="text-xs uppercase tracking-wider text-muted mb-2">Edit model</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setEditModel('openai/gpt-image-2')}
+                      disabled={editing}
+                      className={`px-3 py-2 rounded-lg text-left text-xs transition-all border ${
+                        editModel === 'openai/gpt-image-2'
+                          ? 'bg-primary/15 border-primary/50 text-text shadow-[0_0_15px_rgba(168,85,247,0.2)]'
+                          : 'bg-bg/40 border-white/10 text-text/70 hover:text-text hover:border-white/20'
+                      } disabled:opacity-40`}
+                    >
+                      <p className="font-semibold">GPT Image 2</p>
+                      <p className="text-[10px] text-muted/80 mt-0.5">~25s · $0.04</p>
+                    </button>
+                    <button
+                      onClick={() => setEditModel('fal-ai/gemini-3-pro-image-preview/edit')}
+                      disabled={editing}
+                      className={`px-3 py-2 rounded-lg text-left text-xs transition-all border ${
+                        editModel === 'fal-ai/gemini-3-pro-image-preview/edit'
+                          ? 'bg-primary/15 border-primary/50 text-text shadow-[0_0_15px_rgba(168,85,247,0.2)]'
+                          : 'bg-bg/40 border-white/10 text-text/70 hover:text-text hover:border-white/20'
+                      } disabled:opacity-40`}
+                    >
+                      <p className="font-semibold">Gemini 3 Pro</p>
+                      <p className="text-[10px] text-muted/80 mt-0.5">~8s · $0.15</p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Prompt-edit (primary) */}
+                <div className="mb-6">
+                  <label className="flex items-center text-sm font-semibold text-text mb-2">
+                    <Wand2 className="w-4 h-4 mr-2 text-primary" />
+                    Describe an edit
+                  </label>
+                  <p className="text-muted text-xs mb-3">
+                    Say what changes <span className="text-text/80">and</span> what stays the same.
+                  </p>
+                  <textarea
+                    value={editPrompt}
+                    onChange={(e) => setEditPrompt(e.target.value)}
+                    placeholder="e.g., Recolor the lettering to neon teal, keep everything else the same"
+                    className="w-full bg-bg/60 border border-white/10 rounded-xl p-3.5 text-text placeholder-muted/60 resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/40 transition-all text-sm"
+                    rows={4}
+                    disabled={editing}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        e.preventDefault()
+                        if (editPrompt.trim() && !editing) handleEditWithPrompt()
+                      }
+                    }}
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-[11px] text-muted/70">⌘/Ctrl + Enter to apply</p>
+                    <button
+                      onClick={handleEditWithPrompt}
+                      disabled={editing || !editPrompt.trim()}
+                      className="bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold px-5 py-2 rounded-xl shadow-lg shadow-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center"
+                    >
+                      {editing ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Editing
+                        </>
+                      ) : (
+                        <>
+                          Apply edit
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick edits */}
+                <div className="mb-6">
+                  <p className="text-xs uppercase tracking-wider text-muted mb-2">Quick edits</p>
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK_EDITS.map((q) => (
+                      <button
+                        key={q.label}
+                        onClick={() => setEditPrompt(q.prompt)}
+                        disabled={editing}
+                        className="text-xs px-3 py-1.5 rounded-full bg-bg/60 border border-white/10 text-text/80 hover:text-text hover:bg-primary/10 hover:border-primary/40 disabled:opacity-40 transition-all"
+                      >
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="flex items-center my-2">
+                  <div className="flex-1 h-px bg-white/10" />
+                  <span className="px-3 text-xs uppercase tracking-wider text-muted/60">Other tools</span>
+                  <div className="flex-1 h-px bg-white/10" />
+                </div>
+
+                {/* Remove BG */}
+                <button
+                  onClick={handleBgRemoveFlow}
+                  disabled={removingBackground || upscaling || loading || editing}
+                  className="w-full bg-bg/40 hover:bg-bg/60 border border-white/10 hover:border-white/20 rounded-xl p-4 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between mt-4"
+                >
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/30 to-pink-500/30 border border-purple-400/30 flex items-center justify-center mr-3">
+                      <Scissors className="w-5 h-5 text-purple-300" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-text text-sm">Remove background</p>
+                      <p className="text-muted text-xs">Clean transparent PNG (Bria) — $0.018</p>
+                    </div>
+                  </div>
+                  {removingBackground ? (
+                    <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                  ) : (
+                    <ArrowRight className="w-4 h-4 text-muted" />
+                  )}
+                </button>
+
+                {/* Upscale */}
+                <button
+                  onClick={handleUpscale}
+                  disabled={upscaling || removingBackground || loading || editing}
+                  className="w-full bg-bg/40 hover:bg-bg/60 border border-white/10 hover:border-white/20 rounded-xl p-4 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between mt-3"
+                >
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/30 to-blue-500/30 border border-cyan-400/30 flex items-center justify-center mr-3">
+                      <svg className="w-5 h-5 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-text text-sm">Upscale 2x</p>
+                      <p className="text-muted text-xs">Recraft Crisp Upscale — $0.006</p>
+                    </div>
+                  </div>
+                  {upscaling ? (
+                    <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                  ) : (
+                    <ArrowRight className="w-4 h-4 text-muted" />
+                  )}
+                </button>
+
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* Continue CTA */}
+                <button
+                  onClick={handleGenerateMockups}
+                  disabled={loading || editing || removingBackground}
+                  className="mt-6 w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Starting mockups…
+                    </>
+                  ) : (
+                    <>
+                      Continue to mockups
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Footer: back link + error */}
+            <div className="px-8 py-5 border-t border-white/10 bg-bg/20">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentStep('select-image')}
+                  className="text-muted hover:text-text transition-colors flex items-center text-sm"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back to image selection
+                </button>
+                <p className="text-xs text-muted">
+                  Edits are non-destructive — switch versions any time
+                </p>
+              </div>
+              {error && (
+                <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3.5 flex items-start">
+                  <p className="text-red-400 text-sm">{error}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Step 4: Success */}
       {currentStep === 'success' && finalProduct && (
@@ -1775,9 +2080,20 @@ export default function AdminCreateProductWizard() {
             </h3>
 
             {(() => {
-              // Filter for display assets: primary design + mockups only
-              const displayAssets = productAssets
+              // Filter for display assets: primary design + mockups only.
+              // Dedupe by asset_role — keep the LATEST per role (defensive against prod-orphan duplicates).
+              const filtered = productAssets
                 .filter((a: any) => a.is_primary || a.asset_role?.startsWith('mockup_'))
+              const seen = new Set<string>()
+              const displayAssets = filtered
+                .slice()
+                .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+                .filter((a: any) => {
+                  const key = a.asset_role ?? a.kind
+                  if (seen.has(key)) return false
+                  seen.add(key)
+                  return true
+                })
                 .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99))
 
               // Helper to get display label for asset

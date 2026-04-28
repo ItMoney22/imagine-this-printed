@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
@@ -30,6 +30,12 @@ const MarketingTools: React.FC = () => {
     facebookPixelId: '',
     isEnabled: false
   })
+
+  // Memoize campaign metrics to avoid recalculating on every render
+  const activeCampaigns = useMemo(() => campaigns.filter(c => c.status === 'active').length, [campaigns])
+  const totalImpressions = useMemo(() => campaigns.reduce((sum, c) => sum + (c.metrics?.impressions || 0), 0), [campaigns])
+  const totalClicks = useMemo(() => campaigns.reduce((sum, c) => sum + (c.metrics?.clicks || 0), 0), [campaigns])
+  const totalSpend = useMemo(() => campaigns.reduce((sum, c) => sum + (c.metrics?.spend || 0), 0), [campaigns])
 
   // Fetch real data from Supabase
   useEffect(() => {
@@ -274,7 +280,7 @@ const MarketingTools: React.FC = () => {
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Active</span>
-                <p className="text-white text-xl font-bold">{campaigns.filter(c => c.status === 'active').length}</p>
+                <p className="text-white text-xl font-bold">{activeCampaigns}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Products</span>
@@ -297,7 +303,7 @@ const MarketingTools: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Active Campaigns</p>
-                <p className="text-2xl font-bold text-text">{campaigns.filter(c => c.status === 'active').length}</p>
+                <p className="text-2xl font-bold text-text">{activeCampaigns}</p>
               </div>
             </div>
           </div>
@@ -312,7 +318,7 @@ const MarketingTools: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Impressions</p>
-                <p className="text-2xl font-bold text-text">{campaigns.reduce((sum, c) => sum + (c.metrics?.impressions || 0), 0).toLocaleString()}</p>
+                <p className="text-2xl font-bold text-text">{totalImpressions.toLocaleString()}</p>
               </div>
             </div>
           </div>
@@ -326,7 +332,7 @@ const MarketingTools: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Clicks</p>
-                <p className="text-2xl font-bold text-text">{campaigns.reduce((sum, c) => sum + (c.metrics?.clicks || 0), 0).toLocaleString()}</p>
+                <p className="text-2xl font-bold text-text">{totalClicks.toLocaleString()}</p>
               </div>
             </div>
           </div>
@@ -340,7 +346,7 @@ const MarketingTools: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Spend</p>
-                <p className="text-2xl font-bold text-text">${campaigns.reduce((sum, c) => sum + (c.metrics?.spend || 0), 0).toFixed(2)}</p>
+                <p className="text-2xl font-bold text-text">${totalSpend.toFixed(2)}</p>
               </div>
             </div>
           </div>
@@ -356,7 +362,7 @@ const MarketingTools: React.FC = () => {
                 className={`flex items-center px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
                   selectedTab === tab.id
                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
-                    : 'text-muted hover:text-text hover:bg-gray-100 dark:hover:bg-gray-800'
+                    : 'text-muted hover:text-text hover:bg-bg'
                 }`}
               >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

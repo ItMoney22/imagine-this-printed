@@ -22,22 +22,22 @@ export function Footer() {
             <h4 className="font-semibold text-text mb-4">Products</h4>
             <ul className="space-y-2">
               <li>
-                <Link to="/products/dtf" className="text-sm text-muted hover:text-secondary transition-colors">
+                <Link to="/catalog/dtf" className="text-sm text-muted hover:text-secondary transition-colors">
                   DTF Transfers
                 </Link>
               </li>
               <li>
-                <Link to="/products/apparel" className="text-sm text-muted hover:text-secondary transition-colors">
+                <Link to="/catalog/apparel" className="text-sm text-muted hover:text-secondary transition-colors">
                   Custom Apparel
                 </Link>
               </li>
               <li>
-                <Link to="/products/3d" className="text-sm text-muted hover:text-secondary transition-colors">
+                <Link to="/catalog/3d" className="text-sm text-muted hover:text-secondary transition-colors">
                   3D Printing
                 </Link>
               </li>
               <li>
-                <Link to="/products/stickers" className="text-sm text-muted hover:text-secondary transition-colors">
+                <Link to="/catalog/stickers" className="text-sm text-muted hover:text-secondary transition-colors">
                   Stickers & Decals
                 </Link>
               </li>
@@ -49,18 +49,13 @@ export function Footer() {
             <h4 className="font-semibold text-text mb-4">Company</h4>
             <ul className="space-y-2">
               <li>
-                <Link to="/about" className="text-sm text-muted hover:text-secondary transition-colors">
-                  About Us
-                </Link>
-              </li>
-              <li>
                 <Link to="/community" className="text-sm text-muted hover:text-secondary transition-colors">
                   Community
                 </Link>
               </li>
               <li>
-                <Link to="/blog" className="text-sm text-muted hover:text-secondary transition-colors">
-                  Blog
+                <Link to="/referrals" className="text-sm text-muted hover:text-secondary transition-colors">
+                  Referral Program
                 </Link>
               </li>
               <li>

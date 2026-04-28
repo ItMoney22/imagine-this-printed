@@ -189,7 +189,7 @@ export const stripeITCBridge = {
     const pkg = ITC_PACKAGES.find(p => p.priceUSD === usdAmount)
     return pkg?.itcAmount || 0
   },
-  getExchangeRate: () => 0.10,
-  calculateUSDAmount: (itcAmount: number) => itcAmount * 0.10
+  getExchangeRate: () => 0.01,
+  calculateUSDAmount: (itcAmount: number) => itcAmount * 0.01
 }
 

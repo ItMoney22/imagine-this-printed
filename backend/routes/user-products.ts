@@ -157,6 +157,12 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
     const uniqueSlug = generateUniqueSlug(baseSlug, existingSlugs)
 
     // Step 4: Create product with USER-SUBMITTED metadata
+    // Defensive: GPT sometimes returns dollars in suggested_price_cents instead of cents.
+    // If the value is < 100 (e.g., 25), assume it's already dollars and skip the /100 divide.
+    // This prevents storing $0.25 for what should be $25.
+    const rawPrice = normalized.suggested_price_cents
+    const priceDollars = rawPrice < 100 ? rawPrice : rawPrice / 100
+
     const { data: product, error: productError } = await supabase
       .from('products')
       .insert({
@@ -164,7 +170,7 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
         name: normalized.title,
         slug: uniqueSlug,
         description: normalized.description,
-        price: normalized.suggested_price_cents / 100,
+        price: priceDollars,
         status: 'pending_approval', // User products need admin approval
         images: [],
         category: normalized.category_slug,

@@ -149,7 +149,7 @@ const FounderEarningsPage: React.FC = () => {
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value as any)}
-              className="form-select"
+              className="bg-card text-text border card-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
               <option value="week">Last Week</option>
               <option value="month">Last Month</option>
@@ -388,7 +388,7 @@ const FounderEarningsPage: React.FC = () => {
                 <select
                   value={filter}
                   onChange={(e) => setFilter(e.target.value as any)}
-                  className="form-select"
+                  className="bg-card text-text border card-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="all">All Earnings ({earnings.length})</option>
                   <option value="pending">Pending ({earnings.filter(e => e.status === 'pending').length})</option>

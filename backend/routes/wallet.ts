@@ -629,7 +629,128 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
       return res.status(400).json({ error: 'Reason is required for ITC deduction' })
     }
 
-    // Check wallet balance
+    // Atomic debit via the decrement_itc RPC (migration:
+    // supabase/migrations/20260428_decrement_itc_atomic.sql). The RPC does the
+    // balance check + UPDATE in a single statement, closing the TOCTOU race
+    // that the previous read-then-write pattern had. Returns:
+    //   * NEW balance on success
+    //   * NULL when insufficient funds OR wallet missing
+    // We fall back to the legacy read-then-write path if the RPC isn't
+    // installed yet (PGRST202 = "function not found" from PostgREST), so the
+    // server keeps working between code deploy and migration apply.
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('decrement_itc', {
+      p_user_id: userId,
+      p_amount: amount,
+    })
+
+    let newBalance: number | null = null
+    let usedFallback = false
+
+    if (rpcError) {
+      // PGRST202 = function not in schema cache (migration not yet applied)
+      const fnMissing = rpcError.code === 'PGRST202' || /function .*decrement_itc.* does not exist/i.test(rpcError.message ?? '')
+      if (!fnMissing) {
+        console.error('[wallet/deduct-itc] RPC error:', rpcError)
+        return res.status(500).json({ error: rpcError.message })
+      }
+      console.warn('[wallet/deduct-itc] decrement_itc RPC not yet installed — falling back to legacy read-then-write (TOCTOU window present until migration is applied)')
+      usedFallback = true
+
+      // Legacy path. Same code as before; race window narrowed only by Postgres
+      // row-level write contention. Apply the migration to close it fully.
+      const { data: wallet, error: walletError } = await supabase
+        .from('user_wallets')
+        .select('itc_balance')
+        .eq('user_id', userId)
+        .single()
+      if (walletError || !wallet) {
+        return res.status(404).json({ error: 'Wallet not found' })
+      }
+      if (wallet.itc_balance < amount) {
+        return res.status(400).json({
+          error: 'Insufficient ITC balance',
+          required: amount,
+          current: wallet.itc_balance,
+        })
+      }
+      newBalance = wallet.itc_balance - amount
+      const { error: updateError } = await supabase
+        .from('user_wallets')
+        .update({ itc_balance: newBalance })
+        .eq('user_id', userId)
+      if (updateError) {
+        console.error('[wallet/deduct-itc] Update error:', updateError)
+        return res.status(500).json({ error: 'Failed to deduct ITC' })
+      }
+    } else {
+      // RPC returns NULL when the wallet is missing OR the balance was
+      // insufficient. Distinguish so the user gets the right error.
+      if (rpcResult === null || rpcResult === undefined) {
+        const { data: existing } = await supabase
+          .from('user_wallets')
+          .select('itc_balance')
+          .eq('user_id', userId)
+          .single()
+        if (!existing) {
+          return res.status(404).json({ error: 'Wallet not found' })
+        }
+        return res.status(400).json({
+          error: 'Insufficient ITC balance',
+          required: amount,
+          current: existing.itc_balance,
+        })
+      }
+      newBalance = Number(rpcResult)
+    }
+
+    // Log the transaction
+    await supabase.from('itc_transactions').insert({
+      user_id: userId,
+      type: 'usage',
+      amount: -amount,
+      balance_after: newBalance,
+      reference_type: 'feature_usage',
+      description: reason,
+    })
+
+    console.log('[wallet/deduct-itc] ✅ ITC deducted', usedFallback ? '(legacy fallback)' : '(atomic RPC)', '— user:', userId, 'amount:', amount, 'new balance:', newBalance)
+
+    return res.json({
+      ok: true,
+      message: `Deducted ${amount} ITC`,
+      deducted: amount,
+      new_balance: newBalance,
+      reason,
+    })
+  } catch (error: any) {
+    console.error('[wallet/deduct-itc] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/refund-itc
+ * Credit ITC back to the authenticated user's wallet. Used by client flows
+ * where ITC was deducted up-front but the paid action then failed (e.g. the
+ * Replicate mockup endpoint errored after we already debited the user). The
+ * refund only ever lands in `req.user.sub`'s own wallet so there's no transfer-
+ * to-other-user vector here. Logged as a 'refund' row in itc_transactions.
+ */
+router.post('/refund-itc', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { amount, reason, reference_type, reference_id } = req.body
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount - must be positive' })
+    }
+    if (!reason) {
+      return res.status(400).json({ error: 'Reason is required for refund' })
+    }
+
     const { data: wallet, error: walletError } = await supabase
       .from('user_wallets')
       .select('itc_balance')
@@ -640,52 +761,37 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
       return res.status(404).json({ error: 'Wallet not found' })
     }
 
-    if (wallet.itc_balance < amount) {
-      return res.status(402).json({
-        error: 'Insufficient ITC balance',
-        required: amount,
-        current: wallet.itc_balance
-      })
-    }
-
-    // Deduct ITC
-    const newBalance = wallet.itc_balance - amount
+    const newBalance = (wallet.itc_balance || 0) + amount
     const { error: updateError } = await supabase
       .from('user_wallets')
       .update({ itc_balance: newBalance })
       .eq('user_id', userId)
 
     if (updateError) {
-      console.error('[wallet/deduct-itc] Update error:', updateError)
-      return res.status(500).json({ error: 'Failed to deduct ITC' })
+      console.error('[wallet/refund-itc] Update error:', updateError)
+      return res.status(500).json({ error: 'Failed to refund ITC' })
     }
 
-    // Log the transaction
     await supabase.from('itc_transactions').insert({
       user_id: userId,
-      type: 'usage',
-      amount: -amount,
+      type: 'refund',
+      amount,
       balance_after: newBalance,
-      reference_type: 'feature_usage',
-      description: reason
+      reference_type: reference_type || 'feature_refund',
+      reference_id: reference_id || null,
+      description: reason,
     })
 
-    console.log('[wallet/deduct-itc] ✅ ITC deducted:', {
-      userId,
-      amount,
-      reason,
-      newBalance
-    })
+    console.log('[wallet/refund-itc] ✅ ITC refunded:', { userId, amount, reason, newBalance })
 
     return res.json({
       ok: true,
-      message: `Deducted ${amount} ITC`,
-      deducted: amount,
+      refunded: amount,
       new_balance: newBalance,
-      reason
+      reason,
     })
   } catch (error: any) {
-    console.error('[wallet/deduct-itc] Error:', error)
+    console.error('[wallet/refund-itc] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })
@@ -964,7 +1070,7 @@ router.post('/connect/onboarding-link', requireAuth, async (req: Request, res: R
       return res.status(404).json({ error: 'No Stripe Connect account found. Create one first.' })
     }
 
-    const baseUrl = process.env.VITE_SITE_URL || 'https://imaginethisprinted.com'
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
     const onboardingUrl = await createOnboardingLink(
       connectAccount.stripe_account_id,
       returnUrl || `${baseUrl}/wallet?connect=success`,

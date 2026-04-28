@@ -76,7 +76,6 @@ export const AdminVoiceSettings = () => {
                         value={settings.emotion}
                         onChange={(e) => setSettings({ ...settings, emotion: e.target.value as any })}
                         className="w-full bg-bg/50 border border-primary/20 rounded-lg p-3 text-text"
-                        style={{ color: 'black' }} // Ensure text is visible if bg is light
                     >
                         <option value="neutral">Neutral</option>
                         <option value="happy">Happy</option>
