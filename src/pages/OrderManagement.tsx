@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
 import { shippoAPI } from '../utils/shippo'
@@ -41,6 +42,7 @@ interface DBOrder {
 
 const OrderManagement: React.FC = () => {
   const { user } = useAuth()
+  const toast = useToast()
   const [selectedTab, setSelectedTab] = useState<'pending' | 'processing' | 'shipped' | 'on_hold' | 'all'>('pending')
   const [orders, setOrders] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -183,7 +185,7 @@ const OrderManagement: React.FC = () => {
 
   const generateShippingLabel = async (order: Order) => {
     if (!order.shippingAddress) {
-      alert('No shipping address found for this order')
+      toast.error('Missing shipping address', `Order ${order.id.slice(0, 8)} has no shipping address — can't generate a label.`)
       return
     }
 
@@ -225,12 +227,12 @@ const OrderManagement: React.FC = () => {
           : o
       ))
 
-      alert(`Shipping label generated! Tracking: ${label.trackingNumber}`)
+      toast.success('Shipping label generated', `Tracking #${label.trackingNumber}`)
       setShowShippingModal(false)
 
     } catch (error) {
       console.error('Error generating shipping label:', error)
-      alert('Failed to generate shipping label. Please try again.')
+      toast.error('Label generation failed', 'Please try again. If it keeps failing, check the order shipping address.')
     } finally {
       setIsGeneratingLabel(false)
     }

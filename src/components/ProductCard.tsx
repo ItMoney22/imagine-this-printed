@@ -7,6 +7,7 @@ import SocialBadge from './SocialBadge'
 import ProtectedImage from './ProtectedImage'
 import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
+import { getPromoBadge } from '../utils/product-promo'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -208,7 +209,21 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         )}
 
         <div className="flex justify-between items-center mb-4">
-          <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+          <span className="flex items-baseline gap-2">
+            <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+            {(() => {
+              const promo = getPromoBadge(product)
+              if (!promo) return null
+              return (
+                <>
+                  <span className="text-sm text-muted line-through">${promo.originalPrice.toFixed(2)}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500 text-slate-900 shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+                    {promo.percentOff}% off
+                  </span>
+                </>
+              )
+            })()}
+          </span>
           {selectedSize && (
             <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">
               Size: {selectedSize}

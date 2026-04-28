@@ -9,6 +9,7 @@ import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
+import { getPromoBadge } from '../utils/product-promo'
 import type { Product } from '../types'
 
 const ProductPage: React.FC = () => {
@@ -169,7 +170,11 @@ const ProductPage: React.FC = () => {
                 ? product.images[selectedImage]
                 : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
               alt={product.name}
-              className="w-full h-96 object-cover rounded-lg shadow-lg"
+              // object-contain (was object-cover) — mockups have varying
+              // aspect ratios and the previous "cover" was cropping the top
+              // off taller designs. The bg-bg/40 fills any letterbox area
+              // with a subtle backdrop instead of leaving raw white space.
+              className="w-full h-96 object-contain bg-bg/40 rounded-lg shadow-lg"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
               }}
@@ -188,7 +193,7 @@ const ProductPage: React.FC = () => {
                   <img
                     src={image}
                     alt={`${product.name} ${index + 1}`}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain bg-bg/40"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
                     }}
@@ -202,7 +207,21 @@ const ProductPage: React.FC = () => {
         <div className="space-y-6">
           <div>
             <h1 className="text-3xl font-bold text-text mb-2">{product.name}</h1>
-            <p className="text-3xl font-bold text-primary">${product.price}</p>
+            <div className="flex items-baseline gap-3 flex-wrap">
+              <p className="text-3xl font-bold text-primary">${product.price}</p>
+              {(() => {
+                const promo = getPromoBadge(product)
+                if (!promo) return null
+                return (
+                  <>
+                    <span className="text-lg text-muted line-through">${promo.originalPrice.toFixed(2)}</span>
+                    <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-amber-500 text-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.6)]">
+                      {promo.percentOff}% off
+                    </span>
+                  </>
+                )
+              })()}
+            </div>
           </div>
 
           <div>

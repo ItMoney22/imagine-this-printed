@@ -27,7 +27,7 @@ Legend: 🔴 Broken | 🟡 Confusing/UX | 🟢 Works well | ⚡ Speed issue
 | 16 | AI & Voice Features | ✅ 2026-04-28 (re-audit) |
 | 17 | Kiosk Mode | ✅ 2026-04-28 (re-audit) |
 | 18 | User Profiles & Accounts | ✅ 2026-04-28 (re-audit) |
-| 19 | Order Management | ✅ |
+| 19 | Order Management | ✅ 2026-04-28 (re-audit) |
 | 20 | Invoicing & Payments | ✅ |
 | 21 | Shipping & Logistics | ✅ |
 | 22 | Coupons & Gift Cards | ✅ |
@@ -2236,5 +2236,61 @@ The headline fix is the long-running event-listener leak — kiosks left up for 
 
 ### Verdict
 Profile area is in better shape than most: 3 originals fixed (type cast, privacy copy, error state) and 2 closed this cycle (route protection, username UX). The remaining work is split between bigger features (Follow), backend hardening (image MIME validation), and cosmetic polish (theme tokens, lazy loading). Auth surface is now consistent across `/account/*` routes — last unwrapped page in that family is closed.
+
+---
+
+## Order Management — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 3 findings from 2026-03-13 + regression check on the 3 fixes from that cycle + scan for new bugs in `OrderManagement.tsx`, `shipping-calculator.ts`, `backend/routes/orders.ts`, `backend/routes/stripe.ts` (webhook → order state).
+
+### Status of 2026-03-13 findings
+- ✅ **FIXED — Order detail expand/modal** — `OrderManagement.tsx:529-728` now has a full detail modal with status management and editable notes.
+- 🟡 **PARTIAL — Free shipping threshold messaging** — `shipping-calculator.ts:47` still hardcodes `$50.00`; method `calculateFreeShippingProgress()` exists at `:433-447` but isn't surfaced on the order management page (only in cart). Defer.
+- 🔴 **STILL OPEN — Hardcoded supplemental shipping rates** — `shipping-calculator.ts:218-237` (USPS $7.34, UPS $12.59 etc) and the parallel fallback at `:270-326`. Carrier rates have likely drifted since March; no update mechanism. Defer to a focused shipping-pricing pass.
+
+### Regression check on 2026-03-13 fixes
+- ✅ **`useMemo` on order status counts** — `OrderManagement.tsx:262-267` properly memoized on `[orders]`. No regression.
+- ✅ **Promise.all parallelizing local-delivery + Shippo** — `shipping-calculator.ts:133-139` intact with proper `.catch()` error handling.
+- ✅ **Double `createShipment` eliminated** — `:206` shows the single canonical call. No regression.
+
+### New issues found
+- 🔴 **Sequential ITC + order updates in Stripe webhook** — `stripe.ts:483-547`. The webhook handler runs (1) wallet read → (2) wallet update → (3) `itc_transactions` insert → (4) order update sequentially. Wallet operations and order-row update target different tables and are independent — they could be parallelized via `Promise.all`. Saves ~50-100ms per webhook hit on average.
+  - **Deferred:** Need to verify Stripe webhook idempotency before parallelizing (see next item) — order-of-operations matters less if duplicate-protection is in place.
+- 🔴 **No idempotency check on `handleCheckoutOrderPayment` webhook** — `stripe.ts:462-577`. Stripe retries failed deliveries; if a webhook fires twice for the same `payment_intent.succeeded`, the order status flips to `processing` twice (idempotent on its own) BUT ITC store credit is deducted twice (NOT idempotent — wallet drops below intended balance).
+  - **Deferred:** Add `payment_intent_id` lookup against `itc_transactions.reference` before deducting; bail early if found. Same family of fixes as the cycle #8 wallet TOCTOU work.
+- 🟡 **WAS OPEN — `alert()` in `OrderManagement`** — `:186, 228, 233`. Three `alert()` calls for shipping-label success/failure feedback. Carryover from #27.
+  - **Fix applied:** Migrated all three to `useToast` (`toast.error('Missing shipping address', …)` / `toast.success('Shipping label generated', …)` / `toast.error('Label generation failed', …)`). Already had `useToast` available in the codebase; just needed importing.
+  - File: `src/pages/OrderManagement.tsx:1-7,44-46,184-237`
+- 🟡 **Order item images missing `loading="lazy"`** — `OrderManagement.tsx`. The `images` array on the local DB-order shape is empty by default (`:85`), so this is moot for current data — but if/when item thumbnails are populated, eager loading in a long order list is a perf hit.
+  - **Deferred:** Add when images are wired up.
+- 🟡 **No optimistic-locking on order status updates** — `stripe.ts:534-542` and admin update paths don't include an `updated_at` WHERE clause. Two concurrent admin updates to the same order can clobber each other.
+  - **Deferred:** Add `eq('updated_at', currentUpdatedAt)` to update queries; add a friendly conflict message.
+
+### Fixes Applied
+- ✅ Migrated 3 `alert()` calls in `OrderManagement.tsx` to `useToast` (type-discriminated success/error with descriptive titles + bodies). One step closer to the #27 alert-→-toast carryover being fully resolved.
+
+### Deferred (carry forward)
+- Add idempotency check on `handleCheckoutOrderPayment` webhook (look up `payment_intent_id` in `itc_transactions.reference` before re-deducting ITC store credit).
+- Parallelize wallet + order updates via `Promise.all` once idempotency is in place.
+- Refresh hardcoded supplemental shipping rates against current Shippo pricing OR move to a config table with a `last_synced_at` heartbeat.
+- Surface free-shipping progress on the order management page (the helper exists; just needs UI).
+- Add optimistic-locking (`eq('updated_at', …)`) on order status updates.
+- Add `loading="lazy"` to order-item thumbnails when image URLs land in the DB.
+
+### Verdict
+Order management is genuinely in good shape — both 🔴 fixes from the prior cycle held up (no regressions on memoization, parallelization, or duplicate-API elimination), the 🟡 detail-modal item closed itself between cycles, and three nagging `alert()` calls finally migrated to toasts this round. The remaining real risk is on the webhook side (Stripe retry idempotency for ITC store credit), which belongs in a focused payments-hardening pass alongside the cycle #8 wallet TOCTOU work.
+
+---
+
+## Promo Pricing — New feature (2026-04-28)
+
+Out-of-band feature work, not a re-audit. Added a bulk promo-pricing flow:
+
+- Backend `POST /api/admin/products/ai/promo/bulk` with `action: 'apply'|'clear'` semantics. Apply mode preserves the original price into `metadata.original_price` and overwrites `products.price` with the promo. Clear mode restores from metadata. Capped at 200 products per request.
+- New `PromoPricingModal` admin component with category filter, search, "active only" toggle, multi-select with "Select all visible", and a flat-promo-price input. Defaults to $15.
+- Mounted on `/admin/dashboard` Products tab next to "Create Product" as a 🏷️ button.
+- New `src/utils/product-promo.ts` `getPromoBadge()` helper. Reads `metadata.original_price`, returns `{originalPrice, promoPrice, percentOff}` only when active (and tolerates the case where admin manually edited price upward post-promo without clearing metadata — treats that as inactive).
+- ProductCard + ProductPage display: original price strikethrough + bold promo price + amber "X% OFF" badge.
+- Cart/checkout/payment-intent code unchanged — they already read `product.price` which is now the promo'd value, so the discount carries through automatically with zero plumbing churn.
 
 ---

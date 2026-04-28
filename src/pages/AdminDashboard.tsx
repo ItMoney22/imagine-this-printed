@@ -14,6 +14,7 @@ import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
 import AdminConnectManagement from '../components/AdminConnectManagement'
 import { MockupProgressPanel } from '../components/MockupProgressPanel'
+import { PromoPricingModal } from '../components/PromoPricingModal'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 
@@ -40,6 +41,8 @@ const AdminDashboard: React.FC = () => {
     failed: number
     polling: boolean
   }>>({})
+  // Promo-pricing modal — admin sets/clears flat promo prices in bulk.
+  const [promoModalOpen, setPromoModalOpen] = useState(false)
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
   const [showEnhancedEditModal, setShowEnhancedEditModal] = useState(false)
   const [editingProductData, setEditingProductData] = useState<any>(null)
@@ -2006,12 +2009,21 @@ const AdminDashboard: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-200">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-display font-bold text-slate-900">Product Management</h3>
-                <button
-                  onClick={openCreateProductModal}
-                  className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl transition-colors shadow-lg shadow-purple-500/25"
-                >
-                  + Create Product
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPromoModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-medium px-4 py-2.5 rounded-xl transition-colors shadow-lg shadow-amber-500/25"
+                    title="Bulk-apply or clear a flat promo price across products"
+                  >
+                    🏷️ Promo Pricing
+                  </button>
+                  <button
+                    onClick={openCreateProductModal}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl transition-colors shadow-lg shadow-purple-500/25"
+                  >
+                    + Create Product
+                  </button>
+                </div>
               </div>
               {selectedProducts.size > 0 && (
                 <div className="flex items-center space-x-3 bg-purple-50 border border-purple-100 p-4 rounded-xl">
@@ -3725,6 +3737,11 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
         )}
+        <PromoPricingModal
+          open={promoModalOpen}
+          onClose={() => setPromoModalOpen(false)}
+          onApplied={loadProducts}
+        />
       </div>
     </div>
   )

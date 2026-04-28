@@ -705,6 +705,119 @@ router.post('/bulk', requireAuth, requireAdmin, async (req: Request, res: Respon
 })
 
 /**
+ * POST /api/admin/products/ai/promo/bulk
+ *
+ * Set or clear a flat promo price across many products. Admin-only.
+ *
+ * Apply mode: stash the current `price` into `metadata.original_price` (only
+ * if not already set — re-running an apply doesn't trample the original) and
+ * set `price = promoPrice`. All existing cart/checkout code continues to read
+ * `product.price` and automatically picks up the discount.
+ *
+ * Clear mode: restore `price = metadata.original_price` and remove the
+ * `original_price` key. Products with no `original_price` are skipped (they
+ * were never on promo).
+ *
+ * Body: {
+ *   action: 'apply' | 'clear',
+ *   productIds: string[],   // up to 200 per request
+ *   promoPrice?: number,    // required when action === 'apply'
+ * }
+ *
+ * Returns: { applied: number, cleared: number, skipped: number, errors: [] }
+ */
+router.post('/promo/bulk', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { action, productIds, promoPrice } = req.body
+    if (action !== 'apply' && action !== 'clear') {
+      return res.status(400).json({ error: "action must be 'apply' or 'clear'" })
+    }
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ error: 'productIds must be a non-empty array' })
+    }
+    if (productIds.length > 200) {
+      return res.status(400).json({ error: 'Max 200 products per bulk promo request' })
+    }
+    if (action === 'apply') {
+      if (typeof promoPrice !== 'number' || promoPrice <= 0) {
+        return res.status(400).json({ error: 'promoPrice must be a positive number' })
+      }
+    }
+
+    // Pull current rows so we know the existing price + metadata before we
+    // mutate. Doing this in one query is much faster than N round trips.
+    const { data: products, error: fetchError } = await supabase
+      .from('products')
+      .select('id, price, metadata')
+      .in('id', productIds)
+    if (fetchError) {
+      req.log?.error({ err: fetchError.message }, '[promo/bulk] fetch error')
+      return res.status(500).json({ error: fetchError.message })
+    }
+
+    let applied = 0
+    let cleared = 0
+    let skipped = 0
+    const errors: { id: string; reason: string }[] = []
+
+    for (const p of products ?? []) {
+      const meta = (p.metadata as any) ?? {}
+      try {
+        if (action === 'apply') {
+          // If price is already AT promoPrice and original_price already saved,
+          // the request is a no-op — skip without writing.
+          if (p.price === promoPrice && typeof meta.original_price === 'number') {
+            skipped++
+            continue
+          }
+          // Preserve the FIRST seen original_price across repeated applies so
+          // a second promo doesn't overwrite it with the previously-discounted
+          // value. If meta.original_price is missing OR <= promoPrice (stale),
+          // refresh it to the current live price.
+          const newOriginal =
+            typeof meta.original_price === 'number' && meta.original_price > p.price
+              ? meta.original_price
+              : p.price
+          const { error } = await supabase
+            .from('products')
+            .update({
+              price: promoPrice,
+              metadata: { ...meta, original_price: newOriginal },
+            })
+            .eq('id', p.id)
+          if (error) throw error
+          applied++
+        } else {
+          // clear
+          if (typeof meta.original_price !== 'number') {
+            skipped++ // never had a promo
+            continue
+          }
+          const { original_price, ...metaRest } = meta
+          const { error } = await supabase
+            .from('products')
+            .update({
+              price: original_price,
+              metadata: metaRest,
+            })
+            .eq('id', p.id)
+          if (error) throw error
+          cleared++
+        }
+      } catch (err: any) {
+        errors.push({ id: p.id, reason: err?.message ?? 'unknown' })
+      }
+    }
+
+    req.log?.info({ action, applied, cleared, skipped, errors: errors.length }, '[promo/bulk] ✅ Done')
+    return res.json({ applied, cleared, skipped, errors })
+  } catch (error: any) {
+    req.log?.error({ error: error?.message ?? error }, '[promo/bulk] ❌ Error')
+    return res.status(500).json({ error: error?.message ?? 'Bulk promo update failed' })
+  }
+})
+
+/**
  * DELETE /api/admin/products/ai/:id
  *
  * Hard-delete a draft product. Used by the bulk-generation modal to discard
