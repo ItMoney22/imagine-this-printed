@@ -997,11 +997,16 @@ router.post('/layout/smart-fill', requireAuth, async (req: Request, res: Respons
   }
 });
 
-// Reimagine Image (Nano Banana) - Add elements to existing images using AI
+// Reimagine Image — tiered:
+//   * standard (1 ITC)  → google/nano-banana (fast, cheap)
+//   * premium  (50 ITC) → openai/gpt-image-2 (high fidelity, multi-ref)
+// Tier comes from req.body.tier and defaults to 'standard'. Validated server-
+// side; clients can't unilaterally request the cheap tier and run premium.
 router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { imageUrl, prompt, useTrial } = req.body;
+    const { imageUrl, prompt, tier: rawTier } = req.body;
+    const tier: 'standard' | 'premium' = rawTier === 'premium' ? 'premium' : 'standard';
 
     if (!imageUrl) {
       res.status(400).json({ error: 'imageUrl is required' });
@@ -1026,7 +1031,8 @@ router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): P
       layerId: 'standalone',
       imageUrl,
       itcBalance: wallet?.itc_balance || 0,
-      prompt
+      prompt,
+      tier,
     });
 
     // Return all common keys for frontend compatibility
@@ -1038,6 +1044,7 @@ router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): P
       output: url,
       originalUrl: imageUrl,
       cost: result.cost,
+      tier: result.tier,
       freeTrialUsed: result.freeTrialUsed
     });
   } catch (error: any) {

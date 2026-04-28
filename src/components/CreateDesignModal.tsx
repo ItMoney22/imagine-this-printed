@@ -128,6 +128,9 @@ export function CreateDesignModal({
 
   // Reference image upload (Mr. Imagine sees it via vision)
   const [referenceImage, setReferenceImage] = useState<string | null>(null) // data URL
+  // Reimagine tier: 'standard' (1 ITC, nano-banana) or 'premium' (50 ITC, gpt-image-2).
+  // Only meaningful when a referenceImage is attached; ignored on pure text-to-image.
+  const [reimagineTier, setReimagineTier] = useState<'standard' | 'premium'>('standard')
   const [isAskingMrImagine, setIsAskingMrImagine] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -647,17 +650,18 @@ export function CreateDesignModal({
       }
 
       // Call API to generate design.
-      // If a reference image is attached, route to /reimagine (image-to-image with nano-banana)
-      // so the model uses the upload as a starting point. Otherwise text-to-image with Recraft V4.
+      // With a reference image: /reimagine, tiered (standard=nano-banana 1 ITC,
+      // premium=gpt-image-2 50 ITC). Without a reference: text-to-image via
+      // Flux 1.1 Pro Ultra at the standard generate price.
       const apiBase = import.meta.env.VITE_API_BASE || ''
       const useReference = !!referenceImage
       const endpoint = useReference
         ? `${apiBase}/api/imagination-station/ai/reimagine`
         : `${apiBase}/api/imagination-station/ai/generate`
       const body = useReference
-        ? { imageUrl: referenceImage, prompt: enrichedPrompt }
+        ? { imageUrl: referenceImage, prompt: enrichedPrompt, tier: reimagineTier }
         : { prompt: enrichedPrompt, style: selectedStyle, category: selectedCategory, numImages: 2 }
-      console.log('[CreateDesignModal] Generating via', useReference ? 'reimagine (with reference image)' : 'generate (text-to-image)')
+      console.log('[CreateDesignModal] Generating via', useReference ? `reimagine tier=${reimagineTier}` : 'generate (text-to-image)')
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -1415,6 +1419,47 @@ export function CreateDesignModal({
                       title="Remove reference"
                     >
                       <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Reimagine tier picker — only when a reference image is
+                    attached (this UI only matters for image-to-image flow). */}
+                {referenceImage && (
+                  <div className="mb-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReimagineTier('standard')}
+                      disabled={isGenerating}
+                      className={`relative p-3 rounded-xl border-2 text-left transition-all ${
+                        reimagineTier === 'standard'
+                          ? 'border-purple-500 bg-purple-500/15 ring-2 ring-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+                          : 'border-white/10 bg-white/5 hover:border-purple-500/50'
+                      } disabled:opacity-50`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-bold text-white">Quick</span>
+                        <span className="text-[10px] font-semibold text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded">1 ITC</span>
+                      </div>
+                      <p className="text-[11px] text-white/60 leading-tight">Nano-Banana — fast, good for tweaks</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReimagineTier('premium')}
+                      disabled={isGenerating}
+                      className={`relative p-3 rounded-xl border-2 text-left transition-all ${
+                        reimagineTier === 'premium'
+                          ? 'border-amber-400 bg-amber-500/15 ring-2 ring-amber-400/30 shadow-[0_0_15px_rgba(251,191,36,0.4)]'
+                          : 'border-white/10 bg-white/5 hover:border-amber-400/50'
+                      } disabled:opacity-50`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-bold text-white flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Premium
+                        </span>
+                        <span className="text-[10px] font-semibold text-amber-200 bg-amber-500/30 px-1.5 py-0.5 rounded">50 ITC</span>
+                      </div>
+                      <p className="text-[11px] text-white/60 leading-tight">GPT Image 2 — highest fidelity edits</p>
                     </button>
                   </div>
                 )}

@@ -25,8 +25,8 @@ Legend: 🔴 Broken | 🟡 Confusing/UX | 🟢 Works well | ⚡ Speed issue
 | 14 | Mockup & Preview Generation | ✅ 2026-04-28 (re-audit) |
 | 15 | Wholesale Portal | ✅ 2026-04-28 (re-audit) |
 | 16 | AI & Voice Features | ✅ 2026-04-28 (re-audit) |
-| 17 | Kiosk Mode | ✅ |
-| 18 | User Profiles & Accounts | ✅ |
+| 17 | Kiosk Mode | ✅ 2026-04-28 (re-audit) |
+| 18 | User Profiles & Accounts | ✅ 2026-04-28 (re-audit) |
 | 19 | Order Management | ✅ |
 | 20 | Invoicing & Payments | ✅ |
 | 21 | Shipping & Logistics | ✅ |
@@ -785,7 +785,7 @@ The AI & Voice system has **two critical security issues**: the OpenAI API key e
 
 ---
 
-## 17. Kiosk Mode (2026-03-13)
+## 17. Kiosk Mode (2026-03-13) — re-audit 2026-04-28
 
 **What was checked:** KioskInterface.tsx, KioskManagement.tsx, KioskAnalytics.tsx, KioskRoute.tsx, KioskAuthContext.tsx, kiosk-service.ts, App.tsx kiosk routes, types/index.ts kiosk types
 
@@ -2145,5 +2145,96 @@ The wholesale portal is unchanged in substance since 2026-03-13 — still ~80% m
 
 ### Verdict
 The two security-class items (design-assistant auth, dead chat widget) are closed; with chat.ts already covered by the earlier cycle, all OpenAI-backed routes now have either `requireAuth` or `optionalAuth` plus a rate-limit. Dead-code total since the audit started: 824 lines across four components. Remaining work is performance polish (lazy Framer Motion, SSE for polling) and the long-pending `/voice/settings` endpoint.
+
+---
+
+## Kiosk Mode — Re-audit (2026-04-28)
+
+**What was checked:** All 13 findings from 2026-03-13 + scan for new bugs in `KioskAuthContext.tsx`, `KioskRoute.tsx`, `KioskInterface.tsx`, `kiosk-service.ts`, admin `KioskManagement.tsx`/`KioskAnalytics.tsx`, backend routes.
+
+### Status of 2026-03-13 findings
+- 🔴 **STILL OPEN — Mock data only** — `kiosk-service.ts:14-50,52-111,306-349`. Zero `backend/routes/kiosk*.ts` confirmed via glob.
+- 🔴 **STILL OPEN — Faked payment** — `kiosk-service.ts:181-207` `Math.random() > 0.1` 90% success simulation.
+- 🔴 **WAS CRITICAL — Event listener memory leak** — `KioskAuthContext.tsx:118-125,171-176`. `addEventListener` and `removeEventListener` referenced different anonymous-function instances → cleanup was a no-op → listeners accumulated on every session reset. Also: keydown handler was added but NEVER removed.
+  - **Fix applied:** Promoted handler functions to a `useRef<{...}>` so add/remove see the same Function objects. `initializeKiosk` cleans any prior session's listeners before attaching new ones (defends against double-init), then writes the new refs. `resetKioskSession` reads the refs and removes — including the keydown handler that was previously never cleaned up. Refs reset to `{}` after removal.
+  - File: `src/context/KioskAuthContext.tsx:1,28-46,118-159,182-200`
+- 🔴 **STILL OPEN — Hardcoded vendor ID `'vendor_123'`** — `KioskInterface.tsx:81`.
+- 🔴 **STILL OPEN — `alert()` for payment errors** — `KioskInterface.tsx:254`. Carryover from #27 toast migration.
+- 🔴 **STILL OPEN — Commission split no validation** — `kiosk-service.ts:120-135`. 7% + 25% + 5% = 37%, leaves 63% unaccounted; no sum check.
+- 🔴 **STILL OPEN — Session timeout 3× implementation** — `KioskAuthContext.tsx`, `KioskRoute.tsx:116-168`, `KioskInterface.tsx:44-71`. Three independent timers, no coordination.
+- 🔴 **STILL OPEN — Duplicate activity listeners** — `KioskRoute.tsx:145-154` (6 events on document) AND `KioskInterface.tsx:61-71` (5 events on document) fire on the same DOM events.
+- 🔴 **STILL OPEN — Two init paths race** — `KioskRoute.initializeKiosk` + `KioskInterface.loadKioskData` both fetch on mount.
+- 🔴 **STILL OPEN — Session warning console-only** — `KioskRoute.tsx:133-136`. Kiosk users never see the 1-min warning.
+- 🔴 **STILL OPEN — No empty state for filtered products** — `KioskInterface.tsx:366-393`.
+- 🔴 **STILL OPEN — Analytics hardcoded commission rates** — `KioskAnalytics.tsx:85-87,135-139`.
+- 🟡 **PARTIAL — Pickup code label** — `KioskInterface.tsx:619-622` displays "Pickup Code" label correctly; the comment in `kiosk-service.ts:140-144` still calls it "customer identifier" but user-facing copy is fine.
+
+### New issues found
+- 🔴 **Cascade of `alert()` in `KioskManagement.tsx`** — `:80,83,146` admin kiosk-create flows. Carryover from #27. Defer.
+- 🟡 **Race between `loadKioskData()` and `initializeKiosk()`** — Both fetch the same kiosk + products data; no de-duplication. Likely causes a stale-state flicker on first load.
+  - **Deferred:** Funnel both through the context (single source of truth for kiosk data).
+
+### Fixes Applied
+- ✅ **`KioskAuthContext.tsx` event-listener memory leak** — Refs now keep stable function references for `contextmenu`, `selectstart`, `dragstart`, AND `keydown` handlers across session lifecycle. Previous code leaked all four on every reset; long-running kiosks accumulated dozens of phantom listeners over a day. The keydown handler was particularly bad because it was never removed at all on the old code path.
+
+### Deferred (carry forward)
+- Build `backend/routes/kiosk*.ts` and replace `kiosk-service.ts` mock data with real Supabase queries.
+- Wire Stripe Terminal SDK (or document that physical Stripe Terminal hardware is out-of-scope and use Stripe Connect with QR-code flow instead).
+- Replace `alert()` calls in kiosk + KioskManagement (carryover #27).
+- Validate commission split sums (assert platform + vendor + partner = 100%).
+- Consolidate the three session-timeout implementations into ONE owned by KioskAuthContext.
+- Single set of activity listeners (move from both KioskRoute + KioskInterface to KioskAuthContext).
+- Surface session-expiry warning as a toast/modal, not a console.log.
+- Replace hardcoded `'vendor_123'` with `kiosk.vendorId`.
+- Empty-state UI when filter yields zero products.
+- Drive analytics commission rates from kiosk settings.
+
+### Verdict
+The headline fix is the long-running event-listener leak — kiosks left up for a day were stacking phantom keyboard / context-menu / drag listeners every time a session reset, which over time is exactly the kind of bug that produces "the kiosk got slow / weird after running for hours" complaints. Everything else in this area is still mock or unhardened: 11 of 13 originals open, plus the alert cascade and init race added this cycle. The kiosk feature needs a focused backend + UX pass before it's deployable to physical terminals.
+
+---
+
+## User Profiles & Accounts — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 9 findings from 2026-03-13 + scan for new bugs in `UserProfile.tsx`, `ProfileEdit.tsx`, `ProfileHeader.tsx`, `ProfileEditPanel.tsx`, `DesignGrid.tsx`, `App.tsx` profile routes, `backend/routes/account.ts`.
+
+### Status of 2026-03-13 findings
+- 🟡 **STILL OPEN — Follow button non-functional** — `ProfileHeader.tsx:296-298`. Button still has no `onClick`. Needs a parent-supplied handler + a backend follow/unfollow route.
+  - **Deferred:** Bigger feature, not a quick fix.
+- 🔴 **WAS OPEN — Profile routes not protected** — `App.tsx:165-166,168` had `/account/profile`, `/account/profile/edit`, and `/account/messages` rendering without `<ProtectedRoute>` while every neighbor (`/account/media`, `/account/designs`, `/account/orders`) IS wrapped. Auth check happens inside the components, which produces a flash of the protected UI before the redirect. Same gap I closed on `/wholesale` in cycle #15.
+  - **Fix applied:** Wrapped `/account/profile`, `/account/profile/edit`, and `/account/messages` in `<ProtectedRoute>`. Left `/profile/:username` UNwrapped on purpose — that's the public profile-viewing path (anyone can look up `@creator` by username) and protecting it would break public sharing.
+  - File: `src/App.tsx:164-171`
+- ✅ **FIXED — `(r.product as any)?.name` cast** — Type properly enforced in current `UserProfile.tsx`.
+- 🟡 **PARTIAL — Two edit UIs** — Inline `ProfileEditPanel` (slide-in) is the canonical surface; `ProfileEdit.tsx` page still exists but is no longer the primary entry. Acceptable; would need a route-table audit to fully remove.
+- 🟡 **WAS OPEN — Username input silently strips characters** — `ProfileEditPanel.tsx:265` `replace(/[^a-z0-9_]/g, '')` happens on every keystroke. User types "John-Doe", sees "johndoe", no explanation.
+  - **Fix applied:** Added a hint paragraph below the input: "Lowercase letters, numbers, and underscores only — other characters are stripped automatically." User now knows why their input changed.
+  - File: `src/components/profile/ProfileEditPanel.tsx:269-275`
+- ✅ **FIXED — Privacy controls now explained** — `ProfileEditPanel.tsx:364-415` now has explanatory copy under each privacy toggle.
+- ✅ **IMPROVED — Error state now distinguishes** — `UserProfile.tsx:432-438` differentiates "Profile Not Found" vs "Something went wrong" cases.
+- ⚡ **STILL OPEN — 100+ hardcoded colors** — `UserProfile.tsx` still has 57+ slate-* / white-* refs. Multi-file sweep, defer.
+- ⚡ **STILL OPEN — `loading="lazy"` missing** — `UserProfile.tsx:558-562` featured-design `<img>` tags load eagerly.
+
+### New issues found
+- 🟡 **Profile-image upload size/MIME validation is frontend-only** — `ProfileEditPanel.tsx:67-96` checks `<5MB` and `accept="image/*"` in the browser. Backend `/api/profile/upload-image` should validate `Content-Type` + magic bytes — accepting `image/svg+xml` opens an XSS vector since SVG can contain `<script>`.
+  - **Deferred:** Backend route audit; reject non-bitmap MIME types (`image/png|jpeg|webp` only) and verify magic bytes.
+- 🟡 **`alert()` in `ProfileEdit.tsx`** — `:232` `alert('Profile updated successfully!')`. Carryover from #27 toast migration; rest of the app uses `useToast`.
+  - **Deferred:** Switch to `toast.success(...)`.
+- 🟢 **Bio / display_name rendered as plain text** — `UserProfile.tsx:218,456-458` use `{profile.bio}`. No `dangerouslySetInnerHTML`, no XSS.
+- 🟢 **Auth callback (PKCE) still solid** — Verified imports + redirect handling unchanged from cycle #1 re-audit.
+
+### Fixes Applied
+- ✅ `src/App.tsx:164-171` — `/account/profile`, `/account/profile/edit`, `/account/messages` now wrapped in `<ProtectedRoute>`. Closes the same auth-gap class addressed in #15 wholesale and the original #1 auth audit. `/profile/:username` intentionally left public.
+- ✅ `src/components/profile/ProfileEditPanel.tsx:269-275` — Username input now displays the input-stripping rule below the field so the silent transformation is explained.
+
+### Deferred (carry forward)
+- Wire the Follow button (handler + backend `/follow` + `/unfollow` routes + RLS-gated `follows` table).
+- Validate uploaded profile image MIME type and magic bytes on the backend; reject SVG.
+- Migrate `alert()` in `ProfileEdit.tsx:232` to `useToast` (#27 carryover).
+- Sweep `UserProfile.tsx` to replace hardcoded slate-* / white-* with theme tokens.
+- Add `loading="lazy"` to design-grid and featured-design images.
+- Decide whether to retire the standalone `ProfileEdit.tsx` page now that the slide-in panel is canonical.
+
+### Verdict
+Profile area is in better shape than most: 3 originals fixed (type cast, privacy copy, error state) and 2 closed this cycle (route protection, username UX). The remaining work is split between bigger features (Follow), backend hardening (image MIME validation), and cosmetic polish (theme tokens, lazy loading). Auth surface is now consistent across `/account/*` routes — last unwrapped page in that family is closed.
 
 ---

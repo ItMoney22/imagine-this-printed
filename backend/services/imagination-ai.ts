@@ -95,7 +95,7 @@ const supabase = createClient(
  * Helper to persist temporary Replicate URLs to GCS.
  * Returns the permanent GCS URL, or the original URL if persistence fails.
  */
-async function persistToGCS(url: string, userId: string, folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined'): Promise<string> {
+async function persistToGCS(url: string, userId: string, folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed'): Promise<string> {
   // Skip if not a temporary Replicate URL
   const isTemporaryUrl = url.includes('replicate.delivery') ||
                          url.includes('replicate.com') ||
@@ -262,12 +262,27 @@ export class ImaginationAIService {
         await pricingService.consumeFreeTrial(userId, 'bg_remove');
       }
 
-      console.log('[imagination-ai] removeBackground using Remove.bg API, input:', imageUrl.substring(0, 100) + '...');
+      console.log('[imagination-ai] removeBackground using Replicate 851-labs/background-remover, input:', imageUrl.substring(0, 100) + '...');
 
-      // Use Remove.bg API for better quality background removal
-      const processedUrl = await removeBackgroundWithRemoveBg(imageUrl);
+      // Use Replicate's 851-labs/background-remover (synchronous, high quality
+      // edges, alpha channel). Replaces the previous Remove.bg API call which
+      // was failing because the Remove.bg account had zero credits across
+      // subscription/payg/enterprise/free tiers — every call returned 402.
+      // Replicate is already in the bill, marginal cost ~$0.001/call.
+      const replicateOutput = await replicate.run(
+        '851-labs/background-remover' as `${string}/${string}`,
+        {
+          input: { image: imageUrl, format: 'png', background_type: 'rgba' },
+        }
+      );
+      let processedUrl = extractUrlString(replicateOutput);
+      if (!processedUrl) {
+        throw new Error('Background remover returned no image URL');
+      }
+      // Persist Replicate output to GCS so the URL doesn't expire.
+      processedUrl = await persistToGCS(processedUrl, userId, 'bg-removed');
 
-      console.log('[imagination-ai] removeBackground processedUrl (data URL):', processedUrl.substring(0, 50) + '...');
+      console.log('[imagination-ai] removeBackground processedUrl:', processedUrl.substring(0, 100) + '...');
 
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
@@ -440,22 +455,23 @@ export class ImaginationAIService {
    * Reimagine an existing image with a prompt (Reimagine It feature)
    * Uses Google Nano-Banana for image-to-image generation
    */
-  async reimagineImage(params: ProcessImageParams & { prompt: string; strength?: number }) {
+  async reimagineImage(params: ProcessImageParams & { prompt: string; strength?: number; tier?: 'standard' | 'premium' }) {
     const { userId, sheetId, layerId, imageUrl, itcBalance, prompt, strength = 0.75 } = params;
+    const tier = params.tier === 'premium' ? 'premium' : 'standard';
     const isStandalone = layerId === 'standalone';
 
-    // Use the same pricing as generate for reimagine
-    const costCheck = await pricingService.checkCost(userId, 'generate', itcBalance);
-    if (!costCheck.canProceed) {
-      throw new Error(costCheck.reason || 'Cannot proceed');
+    // Tiered reimagine pricing — explicit per-tier costs replace the prior
+    // pricingService.checkCost('generate') lookup. Standard = nano-banana
+    // (fast, cheap, the original behavior at a lower price). Premium = openai
+    // gpt-image-2 (multi-ref capable, much higher fidelity, hence 50 ITC).
+    const cost = tier === 'premium' ? 50 : 1;
+    const balance = itcBalance ?? 0;
+    if (balance < cost) {
+      throw new Error(`Insufficient ITC for ${tier} reimagine (need ${cost} ITC, have ${balance}).`);
     }
 
     try {
-      if (costCheck.cost > 0) {
-        await pricingService.deductITC(userId, costCheck.cost, 'reimagine');
-      } else if (costCheck.useFreeTrial) {
-        await pricingService.consumeFreeTrial(userId, 'generate');
-      }
+      await pricingService.deductITC(userId, cost, `reimagine_${tier}`);
 
       // If client passed a data URL (uploaded from browser), upload to GCS first so
       // Replicate can fetch it. Replicate's API has request-size limits that data URLs
@@ -471,20 +487,36 @@ export class ImaginationAIService {
         console.log('[imagination-ai] reimagineImage uploaded reference to:', inputUrl.substring(0, 100) + '...');
       }
 
-      console.log('[imagination-ai] reimagineImage using Nano-Banana, input:', inputUrl.substring(0, 100) + '...', 'prompt:', prompt.substring(0, 50));
+      console.log(`[imagination-ai] reimagineImage tier=${tier} input:`, inputUrl.substring(0, 100) + '...', 'prompt:', prompt.substring(0, 50));
 
-      // Use Google Nano-Banana for image-to-image generation
-      const output = await replicate.run(
-        "google/nano-banana" as `${string}/${string}`,
-        {
-          input: {
-            prompt: prompt,
-            image_input: [inputUrl],
-            aspect_ratio: "match_input_image",
-            output_format: "png"
-          }
-        }
-      );
+      // Branch on tier. Standard uses Google Nano-Banana (image_input array,
+      // match aspect to input). Premium uses openai/gpt-image-2 which expects
+      // input_images and produces edits with much better composition / detail.
+      const output = tier === 'premium'
+        ? await replicate.run(
+            'openai/gpt-image-2' as `${string}/${string}`,
+            {
+              input: {
+                prompt,
+                input_images: [inputUrl],
+                aspect_ratio: '1:1',
+                quality: 'high',
+                output_format: 'png',
+                background: 'auto',
+              },
+            }
+          )
+        : await replicate.run(
+            'google/nano-banana' as `${string}/${string}`,
+            {
+              input: {
+                prompt,
+                image_input: [inputUrl],
+                aspect_ratio: 'match_input_image',
+                output_format: 'png',
+              },
+            }
+          );
 
       console.log('[imagination-ai] reimagineImage output:', output);
 
@@ -499,27 +531,28 @@ export class ImaginationAIService {
       if (isStandalone) {
         return {
           layer: { processed_url: processedUrl, source_url: imageUrl },
-          cost: costCheck.cost,
-          freeTrialUsed: costCheck.useFreeTrial
+          cost,
+          freeTrialUsed: false,
+          tier,
         };
       }
 
       // Update layer for sheet-based operations
       const { data: layer, error } = await supabase
         .from('imagination_layers')
-        .update({ processed_url: processedUrl, metadata: { reimagined: true, reimaginePrompt: prompt } })
+        .update({ processed_url: processedUrl, metadata: { reimagined: true, reimaginePrompt: prompt, tier } })
         .eq('id', layerId)
         .select()
         .single();
 
       if (error) throw error;
 
-      return { layer, cost: costCheck.cost, freeTrialUsed: costCheck.useFreeTrial };
+      return { layer, cost, freeTrialUsed: false, tier };
 
     } catch (error: any) {
-      if (costCheck.cost > 0) {
-        await pricingService.refundITC(userId, costCheck.cost, 'reimagine_failed');
-      }
+      // Refund the actual amount we deducted for this tier (1 or 50 ITC)
+      // so the user isn't charged for a failed run.
+      await pricingService.refundITC(userId, cost, `reimagine_${tier}_failed`);
       throw error;
     }
   }

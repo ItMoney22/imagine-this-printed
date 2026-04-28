@@ -138,13 +138,20 @@ router.post('/chat', requireAuth, async (req: Request, res: Response): Promise<a
                   model: GEMINI_VISION_MODEL,
                   messages,
                   temperature: 0.8,
-                  max_tokens: 600, // Gemini 2.5 Pro reasoning + completion — give room for full sentences
+                  // Gemini 2.5 Pro silently uses some of max_tokens for internal
+                  // reasoning before completion. Previous values (600 → reported
+                  // truncation, then 1200 here) keep responses from cutting off
+                  // mid-sentence. Worth-the-cost: ~$0.001 extra per response.
+                  max_tokens: 1200,
               })
             : await openai.chat.completions.create({
                   model: 'gpt-4o',
                   messages,
                   temperature: 0.8,
-                  max_tokens: 400,
+                  // gpt-4o doesn't have hidden reasoning tokens, but 400 was
+                  // tight on longer answers. 800 gives full sentences in every
+                  // observed case.
+                  max_tokens: 800,
               })
 
         const responseText = completion.choices[0].message.content
@@ -194,7 +201,10 @@ router.post('/design-guidance', requireAuth, async (req: Request, res: Response)
                 }
             ],
             temperature: 0.8,
-            max_tokens: 150,
+            // Was 150 — too tight for design-guidance prompts that include a
+            // suggestion + question. 350 keeps replies short but doesn't
+            // truncate mid-sentence.
+            max_tokens: 350,
         })
 
         const responseText = completion.choices[0].message.content

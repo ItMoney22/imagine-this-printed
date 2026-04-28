@@ -1,4 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express'
+import Replicate from 'replicate'
+import OpenAI from 'openai'
 import { supabase } from '../../lib/supabase.js'
 import { normalizeProduct } from '../../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
@@ -6,7 +8,10 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
 import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
-import { uploadImageFromUrl } from '../../services/google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBase64 } from '../../services/google-cloud-storage.js'
+
+const replicateClient = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
+const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 /**
  * Process a multi-model image job inline (in the API process) instead of via the worker queue.
@@ -362,6 +367,378 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
   } catch (error: any) {
     req.log?.error({ error }, '[ai-products] ❌ Error')
     res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/products/ai/one-shot
+ *
+ * Lightweight 1-click product image generation. Bypasses the multi-model
+ * fan-out, SerpAPI search, and GPT prompt-normalization steps in /create —
+ * just takes a raw user prompt, wraps it with the DTF-shirt design rules,
+ * runs a single openai/gpt-image-2 call, persists to GCS, and creates a
+ * draft `products` row the admin can edit afterward.
+ *
+ * Body: {
+ *   prompt: string,                          // user-supplied subject ("a wolf howling at the moon")
+ *   productType?: 'tshirt' | 'hoodie' | …    // shapes the system prompt (default 'tshirt')
+ *   shirtColor?: string,                     // 'black' | 'white' | etc — for safe-contrast hint
+ * }
+ *
+ * Returns: { product: { id, name, image_url }, processingTimeSec }
+ */
+router.post('/one-shot', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  const t0 = Date.now()
+  try {
+    const { prompt, productType = 'tshirt', shirtColor = 'black', style } = req.body
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 3) {
+      return res.status(400).json({ error: 'Prompt must be at least 3 characters' })
+    }
+
+    req.log?.info({ promptLen: prompt.length, productType, style }, '[ai-products/one-shot] 🎯 Starting 1-shot generation (OpenAI direct)')
+
+    const product = await generateOneShotViaOpenAI(prompt, productType, shirtColor, style)
+    const processingTimeSec = (Date.now() - t0) / 1000
+    req.log?.info({ productId: product.id, processingTimeSec }, '[ai-products/one-shot] ✅ Done')
+
+    return res.json({ product, processingTimeSec })
+  } catch (error: any) {
+    req.log?.error({ error: error?.message ?? error }, '[ai-products/one-shot] ❌ Error')
+    return res.status(500).json({ error: error?.message ?? 'One-shot generation failed' })
+  }
+})
+
+// Style suffix lookup. Keep keys in sync with the frontend OneShot/Bulk
+// modals' STYLE_OPTIONS list. Missing keys silently mean "no extra style
+// hint" — base DTF constraints still apply.
+const STYLE_SUFFIXES: Record<string, string> = {
+  realistic:  'photorealistic, high detail, professional photography',
+  cartoon:    'cartoon style, vibrant colors, bold outlines',
+  minimalist: 'minimalist design, clean lines, simple shapes',
+  vintage:    'vintage style, retro, aged paper texture, nostalgic',
+  cyberpunk:  'cyberpunk style, neon glow, futuristic, dark atmosphere, holographic accents',
+  fantasy:    'fantasy art style, ethereal lighting, magical, mythical creatures, painterly detail',
+  vaporwave:  'vaporwave aesthetic, neon colors, 80s retro futurism',
+  tattoo:     'traditional tattoo flash, bold blackwork outlines, limited palette, classic Americana',
+  streetwear: 'streetwear graphic, bold typography vibes, modern urban illustration',
+}
+
+/**
+ * Build the shared DTF-shirt system prompt. Phrased with POSITIVE descriptors
+ * (image models follow "do this" much better than "don't do that"). The
+ * transparent-background hint stays in the prompt text because OpenAI's
+ * images.generate API rejects `background:'transparent'` as a top-level param
+ * for gpt-image-2 ("Transparent background is not supported for this model.").
+ *
+ * Optional `style` adds a style-suffix lookup at the end, so admin selections
+ * in the UI map directly through.
+ */
+function buildDtfPrompt(prompt: string, productType: string, shirtColor: string, style?: string): string {
+  const styleHint = style && STYLE_SUFFIXES[style] ? ` ${STYLE_SUFFIXES[style]}.` : ''
+  return [
+    `${prompt.trim()}.`,
+    `Standalone graphic illustration on a fully transparent background, isolated artwork only — no t-shirt, no hoodie, no garment, no mockup, no model wearing it.`,
+    `Bold, high-contrast, screen-print-ready style with sharp clean edges and a limited palette.`,
+    `Vivid colors that pop against a ${shirtColor} shirt; avoid colors that match the shirt color.`,
+    `Square 1:1 composition, centered subject with clear silhouette, edges fully transparent.${styleHint}`,
+  ].join(' ')
+}
+
+/**
+ * Persist a generated image (already uploaded to GCS) to a fresh draft
+ * `products` row. Returns the slim shape the modals consume.
+ */
+async function saveDraftProductRow(opts: {
+  prompt: string
+  productType: string
+  shirtColor: string
+  gcsUrl: string
+  modelId: string
+  dtfSystemPrompt: string
+}): Promise<{ id: string; name: string; slug: string; image_url: string }> {
+  const { prompt, productType, shirtColor, gcsUrl, modelId, dtfSystemPrompt } = opts
+  const baseSlug = slugify(prompt.slice(0, 60))
+  // generateUniqueSlug expects (baseSlug, existingSlugs[]) — passing the
+  // supabase client by mistake here was triggering "Converting circular
+  // structure to JSON" via the SupabaseAuthClient.mfa.webauthn.client cycle
+  // when something tried to coerce the client to a primitive. Always query
+  // the existing slugs explicitly, mirror the /create flow at line 235.
+  const { data: existingProducts } = await supabase
+    .from('products')
+    .select('slug')
+    .like('slug', `${baseSlug}%`)
+  const existingSlugs = existingProducts?.map((p: any) => p.slug).filter(Boolean) || []
+  const uniqueSlug = generateUniqueSlug(baseSlug, existingSlugs)
+  const draftName = prompt.split(/[.\n]/)[0].slice(0, 80).trim() || 'Untitled AI Design'
+
+  const { data: product, error } = await supabase
+    .from('products')
+    .insert({
+      name: draftName,
+      slug: uniqueSlug,
+      description: prompt.trim(),
+      price: 25.00,
+      status: 'draft',
+      images: [gcsUrl],
+      category: productType === 'tshirt' ? 't-shirts' : productType,
+      metadata: {
+        ai_generated: true,
+        one_shot: true,
+        original_prompt: prompt,
+        model_id: modelId,
+        product_type: productType,
+        shirt_color: shirtColor,
+        dtf_system_prompt: dtfSystemPrompt,
+      },
+    })
+    .select()
+    .single()
+  if (error) throw error
+  return { id: product.id, name: product.name, slug: product.slug, image_url: gcsUrl }
+}
+
+/**
+ * One-shot path — OpenAI Images API direct (gpt-image-2). Replaces the prior
+ * Replicate-hosted call which was throwing "Converting circular structure to
+ * JSON" errors via the Replicate SDK. Direct OpenAI returns base64 in
+ * `data[0].b64_json`; we upload it to GCS so the public URL is stable.
+ *
+ * If gpt-image-2 isn't available on the account, falls back to gpt-image-1.
+ */
+async function generateOneShotViaOpenAI(
+  prompt: string,
+  productType: string,
+  shirtColor: string,
+  style?: string
+): Promise<{ id: string; name: string; slug: string; image_url: string }> {
+  const dtfSystemPrompt = buildDtfPrompt(prompt, productType, shirtColor, style)
+
+  // Note: OpenAI's images.generate doesn't accept `background: 'transparent'`
+  // for gpt-image-2 — returns "400 Transparent background is not supported for
+  // this model." The transparent-bg constraint is enforced via the prompt text
+  // itself (buildDtfPrompt → "isolated artwork on transparent background").
+  let response: any
+  let usedModel = 'gpt-image-2'
+  try {
+    response = await openaiClient.images.generate({
+      model: 'gpt-image-2',
+      prompt: dtfSystemPrompt,
+      size: '1024x1024',
+      quality: 'high',
+      n: 1,
+    } as any)
+  } catch (err: any) {
+    const msg = err?.error?.message || err?.message || ''
+    // Fall back to gpt-image-1 if 2 isn't accessible (model-not-found,
+    // pre-release access required, etc).
+    if (/gpt-image-2|model.*not.*found|does not exist|invalid model/i.test(msg)) {
+      console.warn('[ai-products/one-shot] gpt-image-2 unavailable, falling back to gpt-image-1:', msg)
+      response = await openaiClient.images.generate({
+        model: 'gpt-image-1',
+        prompt: dtfSystemPrompt,
+        size: '1024x1024',
+        quality: 'high',
+        n: 1,
+      } as any)
+      usedModel = 'gpt-image-1'
+    } else {
+      throw err
+    }
+  }
+
+  const item = response?.data?.[0]
+  if (!item?.b64_json) throw new Error('OpenAI images.generate returned no b64_json payload')
+
+  const dataUrl = `data:image/png;base64,${item.b64_json}`
+  const objectPath = `ai-products/one-shot/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+  const { publicUrl: gcsUrl } = await uploadImageFromBase64(dataUrl, objectPath)
+
+  return saveDraftProductRow({
+    prompt,
+    productType,
+    shirtColor,
+    gcsUrl,
+    modelId: `openai/${usedModel}`,
+    dtfSystemPrompt,
+  })
+}
+
+/**
+ * Bulk path — Replicate google/imagen-4-ultra. Imagen 4 Ultra is faster
+ * and cheaper than gpt-image-2 for parallel fan-out, and Replicate's URL
+ * output works with `uploadImageFromUrl` directly (no b64 round-trip).
+ * Input shape mirrors backend/services/image-flow/input-builder.ts:84.
+ */
+async function generateBulkViaImagen4Ultra(
+  prompt: string,
+  productType: string,
+  shirtColor: string,
+  style?: string
+): Promise<{ id: string; name: string; slug: string; image_url: string }> {
+  const dtfSystemPrompt = buildDtfPrompt(prompt, productType, shirtColor, style)
+
+  const output = await replicateClient.run(
+    'google/imagen-4-ultra' as `${string}/${string}`,
+    { input: { prompt: dtfSystemPrompt, aspect_ratio: '1:1' } }
+  )
+
+  let replicateUrl = ''
+  if (typeof output === 'string') {
+    replicateUrl = output
+  } else if (Array.isArray(output) && output[0]) {
+    const first: any = output[0]
+    replicateUrl = typeof first === 'string'
+      ? first
+      : (typeof first?.url === 'function' ? String(first.url()) : (first?.href ?? ''))
+  } else if (output && typeof (output as any).url === 'function') {
+    const u = (output as any).url()
+    replicateUrl = typeof u === 'string' ? u : String(u?.href ?? u)
+  }
+  if (!replicateUrl) throw new Error('imagen-4-ultra returned no image URL')
+
+  const objectPath = `ai-products/bulk/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+  const { publicUrl: gcsUrl } = await uploadImageFromUrl(replicateUrl, objectPath)
+
+  return saveDraftProductRow({
+    prompt,
+    productType,
+    shirtColor,
+    gcsUrl,
+    modelId: 'google/imagen-4-ultra',
+    dtfSystemPrompt,
+  })
+}
+
+/**
+ * Run an array of async tasks with a concurrency cap. Replicate has per-account
+ * rate limits and gpt-image-2 is the priciest model in the stack — firing 20
+ * parallel calls would saturate the queue and balloon cost spikes. 5 at a time
+ * is a sweet spot: ~4 batches for a 20-prompt run = ~2 min wallclock.
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+  async function next(): Promise<void> {
+    while (true) {
+      const i = cursor++
+      if (i >= items.length) return
+      results[i] = await worker(items[i], i)
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => next())
+  await Promise.all(workers)
+  return results
+}
+
+/**
+ * POST /api/admin/products/ai/bulk
+ *
+ * Run the same DTF-shirt 1-shot pipeline on a list of prompts in parallel.
+ * Capped at 20 prompts per request so a typo can't 4-figure-spend the budget.
+ * Concurrency limited to 5 so we don't slam Replicate's queue.
+ *
+ * Body: {
+ *   prompts: string[],          // one design idea per item, 1-20 entries
+ *   productType?: string,       // applied to all (default 'tshirt')
+ *   shirtColor?: string,        // applied to all (default 'black')
+ * }
+ *
+ * Returns: {
+ *   results: Array<
+ *     { ok: true,  prompt: string, product: { id, name, slug, image_url } }
+ *   | { ok: false, prompt: string, error: string }
+ *   >,
+ *   succeeded: number,
+ *   failed: number,
+ *   processingTimeSec: number,
+ * }
+ *
+ * Partial failures don't fail the whole request — failed rows come back with
+ * `ok: false` so the admin sees which prompts hit OpenAI safety filters / rate
+ * limits / etc and can retry just those.
+ */
+router.post('/bulk', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  const t0 = Date.now()
+  try {
+    const { prompts, productType = 'tshirt', shirtColor = 'black', style } = req.body
+    if (!Array.isArray(prompts) || prompts.length === 0) {
+      return res.status(400).json({ error: 'prompts must be a non-empty array' })
+    }
+    const cleaned = prompts
+      .map((p: unknown) => (typeof p === 'string' ? p.trim() : ''))
+      .filter((p: string) => p.length >= 3)
+    if (cleaned.length === 0) {
+      return res.status(400).json({ error: 'No valid prompts (each must be at least 3 characters)' })
+    }
+    if (cleaned.length > 20) {
+      return res.status(400).json({ error: 'Max 20 prompts per bulk request' })
+    }
+
+    req.log?.info({ count: cleaned.length, productType, style }, '[ai-products/bulk] 🎯 Starting bulk generation (Imagen 4 Ultra)')
+
+    const results = await runWithConcurrency(cleaned, 5, async (prompt, i) => {
+      try {
+        const product = await generateBulkViaImagen4Ultra(prompt, productType, shirtColor, style)
+        req.log?.info({ i, promptLen: prompt.length, productId: product.id }, '[ai-products/bulk] ✓')
+        return { ok: true as const, prompt, product }
+      } catch (err: any) {
+        const msg = err?.message ?? 'generation failed'
+        req.log?.warn({ i, promptLen: prompt.length, err: msg }, '[ai-products/bulk] ✗')
+        return { ok: false as const, prompt, error: msg }
+      }
+    })
+
+    const succeeded = results.filter((r) => r.ok).length
+    const failed = results.length - succeeded
+    const processingTimeSec = (Date.now() - t0) / 1000
+    req.log?.info({ succeeded, failed, processingTimeSec }, '[ai-products/bulk] ✅ Done')
+
+    return res.json({ results, succeeded, failed, processingTimeSec })
+  } catch (error: any) {
+    req.log?.error({ error: error?.message ?? error }, '[ai-products/bulk] ❌ Error')
+    return res.status(500).json({ error: error?.message ?? 'Bulk generation failed' })
+  }
+})
+
+/**
+ * DELETE /api/admin/products/ai/:id
+ *
+ * Hard-delete a draft product. Used by the bulk-generation modal to discard
+ * unwanted 1-shots without leaving stranded `status='draft'` rows. Admin-only.
+ * Cascades: products row + product_assets rows for that id.
+ */
+router.delete('/:id', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    if (!id) return res.status(400).json({ error: 'product id required' })
+
+    // Drop child assets first to avoid FK orphans (products has product_assets refs).
+    const { error: assetsError } = await supabase
+      .from('product_assets')
+      .delete()
+      .eq('product_id', id)
+    if (assetsError) {
+      // Not fatal — products may not have any assets — but log it.
+      req.log?.warn({ id, err: assetsError.message }, '[ai-products/delete] asset cleanup warning')
+    }
+
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', id)
+    if (error) {
+      req.log?.error({ id, err: error.message }, '[ai-products/delete] failed')
+      return res.status(500).json({ error: error.message })
+    }
+
+    req.log?.info({ id }, '[ai-products/delete] ✅ Deleted')
+    return res.json({ ok: true, id })
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message ?? 'Delete failed' })
   }
 })
 

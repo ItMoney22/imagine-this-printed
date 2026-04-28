@@ -1,9 +1,14 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { Wand2, Layers } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
+import OneShotProductModal from '../components/OneShotProductModal'
+import BulkProductModal from '../components/BulkProductModal'
 
 const AdminAIProductBuilder: React.FC = () => {
   const { user } = useAuth()
+  const [oneShotOpen, setOneShotOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   // Check if user is admin or manager
   if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
@@ -42,6 +47,30 @@ const AdminAIProductBuilder: React.FC = () => {
           <p className="text-xl text-muted max-w-2xl mx-auto">
             Describe a product, refine the design with prompts, and ship three production-ready mockups — all powered by GPT Image 2.
           </p>
+
+          {/* Quick-lane buttons.
+              1-Shot: single prompt, single GPT Image 2 design with DTF
+              constraints baked in. ~30s.
+              Bulk: paste a list (one design per line, up to 20), fans out
+              with concurrency=5. ~2 min for 20 designs. */}
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button
+              onClick={() => setOneShotOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-white text-sm font-bold shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] hover:scale-105 transition-all"
+            >
+              <Wand2 className="w-4 h-4" />
+              1-Shot Product
+              <span className="text-[10px] px-1.5 py-0.5 bg-white/20 rounded">FAST</span>
+            </button>
+            <button
+              onClick={() => setBulkOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-bold shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_30px_rgba(16,185,129,0.6)] hover:scale-105 transition-all"
+            >
+              <Layers className="w-4 h-4" />
+              Bulk Generate
+              <span className="text-[10px] px-1.5 py-0.5 bg-white/20 rounded">UP TO 20</span>
+            </button>
+          </div>
         </div>
 
         {/* Main Content */}
@@ -51,6 +80,9 @@ const AdminAIProductBuilder: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <OneShotProductModal open={oneShotOpen} onClose={() => setOneShotOpen(false)} />
+      <BulkProductModal open={bulkOpen} onClose={() => setBulkOpen(false)} />
     </div>
   )
 }

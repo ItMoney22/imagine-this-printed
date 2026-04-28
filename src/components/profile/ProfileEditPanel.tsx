@@ -267,6 +267,12 @@ export function ProfileEditPanel({
                     placeholder="username"
                   />
                 </div>
+                {/* Surface the silent input transformation. Without this hint
+                    a user types "John-Doe" and watches it become "johndoe"
+                    with no explanation. */}
+                <p className="text-xs text-slate-500 mt-1">
+                  Lowercase letters, numbers, and underscores only — other characters are stripped automatically.
+                </p>
               </div>
 
               <div>

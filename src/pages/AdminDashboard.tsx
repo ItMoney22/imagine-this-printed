@@ -13,6 +13,7 @@ import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
 import AdminConnectManagement from '../components/AdminConnectManagement'
+import { MockupProgressPanel } from '../components/MockupProgressPanel'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 
@@ -28,6 +29,17 @@ const AdminDashboard: React.FC = () => {
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
   const [productJobs, setProductJobs] = useState<Record<string, any[]>>({})
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
+  // Per-product mockup-generation progress. Drives the inline progress bar
+  // that appears under the Create Mockups buttons. `polling=true` while at
+  // least one job is still queued/running; flips to false on completion or
+  // 5-min timeout. `succeeded`/`failed` are live counts updated by the
+  // polling loop.
+  const [mockupProgress, setMockupProgress] = useState<Record<string, {
+    total: number
+    succeeded: number
+    failed: number
+    polling: boolean
+  }>>({})
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
   const [showEnhancedEditModal, setShowEnhancedEditModal] = useState(false)
   const [editingProductData, setEditingProductData] = useState<any>(null)
@@ -760,13 +772,85 @@ const AdminDashboard: React.FC = () => {
   const handleCreateMockups = async (productId: string) => {
     try {
       setLoadingAction(`mockups-${productId}`)
-      await aiProducts.createMockups(productId)
-      alert('Mockup jobs created! The worker will process them shortly.')
-      await loadProductJobs(productId)
+      // Backend creates 1-3 'replicate_mockup_v2' jobs (flat_lay + optional
+      // ghost_mannequin + mr_imagine). Returns the created rows so we know
+      // how many to wait for.
+      const result = await aiProducts.createMockups(productId)
+      const total = Array.isArray(result?.jobs) ? result.jobs.length : 3
+
+      setMockupProgress(prev => ({
+        ...prev,
+        [productId]: { total, succeeded: 0, failed: 0, polling: true },
+      }))
+      // Free the button immediately — progress bar communicates status now.
+      setLoadingAction(null)
+
+      // Poll the ai_jobs table directly for live counts. Worker may be local
+      // OR the production Render worker — either way we just watch the
+      // status field on the job rows. Cap at 5 min so a hung job can't pin
+      // the spinner forever.
+      const startedAt = Date.now()
+      const MAX_DURATION_MS = 5 * 60 * 1000
+      const POLL_INTERVAL_MS = 3000
+
+      const poll = async () => {
+        try {
+          const { data: jobs, error } = await supabase
+            .from('ai_jobs')
+            .select('id, status, type')
+            .eq('product_id', productId)
+            .eq('type', 'replicate_mockup_v2')
+            .order('created_at', { ascending: false })
+            .limit(10)
+
+          if (error) throw error
+
+          const seen = jobs ?? []
+          const succeeded = seen.filter(j => j.status === 'succeeded').length
+          const failed = seen.filter(j => j.status === 'failed').length
+          const finished = succeeded + failed
+          // Use the actual job row count if it's >= what we expected; if for
+          // some reason fewer rows came back (DB lag), fall back to the
+          // initial `total`.
+          const observedTotal = Math.max(seen.length, total)
+          const stillRunning = finished < observedTotal && (Date.now() - startedAt) < MAX_DURATION_MS
+
+          setMockupProgress(prev => ({
+            ...prev,
+            [productId]: { total: observedTotal, succeeded, failed, polling: stillRunning },
+          }))
+
+          if (stillRunning) {
+            setTimeout(poll, POLL_INTERVAL_MS)
+          } else {
+            // Done (or timed out) — refresh product list so the new mockup
+            // assets show on the product card. Then auto-clear the progress
+            // panel after a few seconds so it doesn't stick around.
+            await loadProductJobs(productId)
+            await loadProducts()
+            setTimeout(() => {
+              setMockupProgress(prev => {
+                const next = { ...prev }
+                delete next[productId]
+                return next
+              })
+            }, 5000)
+          }
+        } catch (e: any) {
+          console.error('[mockup-poll] error:', e?.message ?? e)
+          setMockupProgress(prev => ({
+            ...prev,
+            [productId]: { ...(prev[productId] ?? { total, succeeded: 0, failed: 0 }), polling: false },
+          }))
+        }
+      }
+
+      // Tiny initial delay so the worker has a chance to flip the first job
+      // from 'queued' to 'running'.
+      setTimeout(poll, 1500)
     } catch (error: any) {
       console.error('Error creating mockups:', error)
       alert('Failed to create mockups: ' + error.message)
-    } finally {
       setLoadingAction(null)
     }
   }
@@ -2173,12 +2257,20 @@ const AdminDashboard: React.FC = () => {
                                           </button>
                                           <button
                                             onClick={() => handleCreateMockups(product.id)}
-                                            disabled={loadingAction === `mockups-${product.id}`}
+                                            disabled={loadingAction === `mockups-${product.id}` || mockupProgress[product.id]?.polling}
                                             className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
                                           >
-                                            {loadingAction === `mockups-${product.id}` ? 'Creating Jobs...' : 'Create Mockups'}
+                                            {loadingAction === `mockups-${product.id}`
+                                              ? 'Creating Jobs...'
+                                              : mockupProgress[product.id]?.polling
+                                              ? `Generating ${mockupProgress[product.id].succeeded + mockupProgress[product.id].failed}/${mockupProgress[product.id].total}…`
+                                              : 'Create Mockups'}
                                           </button>
                                         </div>
+                                        {/* Mockup-generation progress (live polling against ai_jobs). */}
+                                        {mockupProgress[product.id] && (
+                                          <MockupProgressPanel progress={mockupProgress[product.id]} />
+                                        )}
                                       </div>
                                     )}
 
@@ -3272,11 +3364,19 @@ const AdminDashboard: React.FC = () => {
                     </div>
                     <button
                       onClick={() => handleCreateMockups(editingProductData.id)}
-                      disabled={loadingAction === `mockups-${editingProductData.id}`}
+                      disabled={loadingAction === `mockups-${editingProductData.id}` || mockupProgress[editingProductData.id]?.polling}
                       className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
                     >
-                      {loadingAction === `mockups-${editingProductData.id}` ? '⏳ Creating...' : '🎨 Create Mockups'}
+                      {loadingAction === `mockups-${editingProductData.id}`
+                        ? '⏳ Creating...'
+                        : mockupProgress[editingProductData.id]?.polling
+                        ? `🎨 Generating ${mockupProgress[editingProductData.id].succeeded + mockupProgress[editingProductData.id].failed}/${mockupProgress[editingProductData.id].total}…`
+                        : '🎨 Create Mockups'}
                     </button>
+                    {/* Mockup-generation progress for the product editor. */}
+                    {mockupProgress[editingProductData.id] && (
+                      <MockupProgressPanel progress={mockupProgress[editingProductData.id]} />
+                    )}
                   </div>
 
                   {/* Editable Fields */}

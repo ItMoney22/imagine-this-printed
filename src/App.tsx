@@ -161,11 +161,14 @@ function App() {
                   <Route path="/shipping" element={<ShippingPolicy />} />
                   <Route path="/returns" element={<ReturnsPolicy />} />
 
-                  {/* Account & Profile Routes */}
-                  <Route path="/account/profile" element={<UserProfile />} />
-                  <Route path="/account/profile/edit" element={<ProfileEdit />} />
+                  {/* Account & Profile Routes.
+                      `/account/*` paths are user-owned data and need auth;
+                      `/profile/:username` is public profile viewing (anyone
+                      can look up a creator), so intentionally NOT wrapped. */}
+                  <Route path="/account/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+                  <Route path="/account/profile/edit" element={<ProtectedRoute><ProfileEdit /></ProtectedRoute>} />
                   <Route path="/profile/:username" element={<UserProfile />} />
-                  <Route path="/account/messages" element={<CustomerMessages />} />
+                  <Route path="/account/messages" element={<ProtectedRoute><CustomerMessages /></ProtectedRoute>} />
                   <Route path="/account/media" element={<ProtectedRoute><UserMediaGallery /></ProtectedRoute>} />
                   <Route path="/account/designs" element={<ProtectedRoute><UserDesignDashboard /></ProtectedRoute>} />
                   <Route path="/my-designs" element={<ProtectedRoute><UserDesignDashboard /></ProtectedRoute>} />
