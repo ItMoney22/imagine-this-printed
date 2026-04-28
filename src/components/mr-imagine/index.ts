@@ -2,7 +2,9 @@
 // Export all Mr. Imagine components for easy importing
 
 export { MrImagineAvatar, type MrImagineAvatarProps } from './MrImagineAvatar'
-export { MrImagineChatWidget } from './MrImagineChatWidget'
+// MrImagineChatWidget (nested) was a 315-line dead duplicate of the active
+// /src/components/MrImagineChatWidget.tsx. Removed in cycle #16 re-audit.
+// Confirmed via grep: nothing imports it from this barrel.
 export { MrImagineHero } from './MrImagineHero'
 export { MrImagineMockup, type MrImagineMockupProps } from './MrImagineMockup'
 export { MrImagineCartNotification } from './MrImagineCartNotification'
