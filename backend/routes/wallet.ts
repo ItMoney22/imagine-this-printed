@@ -20,6 +20,25 @@ import {
 
 const router = Router()
 
+// Per-IP rate limit for the public referral-code validate endpoint. The
+// endpoint is intentionally pre-auth (signup flow validates a code before
+// the user has an account), so requireAuth would break the legitimate
+// flow. Rate-limiting prevents brute-force enumeration of the 36^6 ~= 2.2B
+// referral-code space — at 10 attempts/min, exhausting the space would
+// take ~419 years. Same in-memory pattern used in account.ts:378-410.
+const referralValidateRateLimit = new Map<string, { count: number; resetAt: number }>()
+function checkReferralValidateLimit(ip: string): boolean {
+  const now = Date.now()
+  const state = referralValidateRateLimit.get(ip)
+  if (!state || state.resetAt < now) {
+    referralValidateRateLimit.set(ip, { count: 1, resetAt: now + 60_000 })
+    return true
+  }
+  if (state.count >= 10) return false
+  state.count++
+  return true
+}
+
 // GET /api/wallet/get - Get user wallet data
 router.get('/get', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -193,12 +212,18 @@ router.get('/referral/stats', requireAuth, async (req: Request, res: Response): 
 })
 
 // POST /api/wallet/referral/validate - Validate a referral code
+// Public (no requireAuth) by design — called during signup before the user
+// has a JWT. Rate-limited per IP to prevent enumeration of valid codes.
 router.post('/referral/validate', async (req: Request, res: Response): Promise<any> => {
   try {
     const { code } = req.body
-
     if (!code) {
       return res.status(400).json({ error: 'Referral code is required' })
+    }
+
+    const ip = (req.ip || req.headers['x-forwarded-for'] || 'unknown') as string
+    if (!checkReferralValidateLimit(ip)) {
+      return res.status(429).json({ error: 'Too many validation attempts, slow down' })
     }
 
     const result = await validateReferralCode(code)

@@ -62,7 +62,11 @@ router.post('/calculate-distance', async (req: Request, res: Response) => {
 
     const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&units=imperial&key=${apiKey}`
 
-    console.log('[shipping] Calculating distance from warehouse to:', address)
+    // Don't log the full destination address — it's PII (street + name + zip
+    // can identify a household). Log just the destination ZIP for ops
+    // visibility; full address is only sent to Google Maps over TLS.
+    const destZip = address.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] ?? '(no zip)'
+    console.log('[shipping] Calculating distance from warehouse to ZIP', destZip)
 
     const response = await fetch(url)
     const data = await response.json() as {

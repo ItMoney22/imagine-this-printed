@@ -17,6 +17,28 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl!, supabaseKey!)
 
+// Per-IP rate limit on public ticket creation. The endpoint is intentionally
+// unauthenticated so anyone can use the contact form, but that also makes it a
+// spam/abuse target. 5 tickets per hour per IP is well above legit use (a user
+// reporting an order issue tops out at maybe 2 tickets) and below what a bot
+// can do damage with before tripping. In-memory is fine: support traffic is
+// low and a restart-clearing window is acceptable for a soft cap.
+const ticketCreateRateLimit = new Map<string, { count: number; resetAt: number }>()
+const TICKET_RATE_LIMIT_PER_HOUR = 5
+const TICKET_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000
+
+function checkTicketCreateLimit(ip: string): boolean {
+  const now = Date.now()
+  const state = ticketCreateRateLimit.get(ip)
+  if (!state || state.resetAt < now) {
+    ticketCreateRateLimit.set(ip, { count: 1, resetAt: now + TICKET_RATE_LIMIT_WINDOW_MS })
+    return true
+  }
+  if (state.count >= TICKET_RATE_LIMIT_PER_HOUR) return false
+  state.count++
+  return true
+}
+
 /**
  * Create an admin notification for new ticket
  */
@@ -46,6 +68,14 @@ const createNotification = async (
  */
 router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
   try {
+    const ip = (req.ip || req.socket.remoteAddress || 'unknown').toString()
+    if (!checkTicketCreateLimit(ip)) {
+      res.status(429).json({
+        error: 'Too many tickets submitted. Please wait an hour before submitting another, or email wecare@imaginethisprinted.com directly.'
+      })
+      return
+    }
+
     const {
       name,
       email,

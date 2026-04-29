@@ -28,9 +28,16 @@ dist-ssr
 .env.local
 .env.*.local
 .env.admin
+.env.tmp
 backend/.env
 backend/.env.local
+backend/.env.tmp
 
 /src/generated/prisma
 nul
 .vercel
+
+# Local agent + scratch outputs (never commit these)
+.watchtower/
+scripts/image_storage_report_*.json
+.claude/scheduled_tasks.lock

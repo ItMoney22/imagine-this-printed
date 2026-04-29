@@ -9,16 +9,16 @@ Legend: 🔴 Broken | 🟡 Confusing/UX | 🟢 Works well | ⚡ Speed issue
 
 | # | Feature Area | Status |
 |---|-------------|--------|
-| 1 | Authentication & Authorization | ✅ 2026-04-27 (re-audit) |
-| 2 | Products & Catalog | ✅ 2026-04-27 (re-audit) |
-| 3 | Shopping Cart & Checkout | ✅ 2026-04-28 (re-audit) |
-| 4 | Product Design & Customization | ✅ 2026-04-28 (re-audit) |
-| 5 | Admin Dashboard | ✅ 2026-04-28 (re-audit) |
-| 6 | Vendor Dashboard & Storefront | ✅ 2026-04-28 (re-audit) |
-| 7 | Founder Dashboard & Earnings | ✅ 2026-04-28 (re-audit) |
-| 8 | Wallet & Points System | ✅ 2026-04-28 (re-audit) |
-| 9 | CRM & Customer Management | ✅ 2026-04-28 (re-audit) |
-| 10 | Messaging & Communications | ✅ 2026-04-28 (re-audit) |
+| 1 | Authentication & Authorization | ✅ 2026-04-29 (re-audit) |
+| 2 | Products & Catalog | ✅ 2026-04-29 (re-audit) |
+| 3 | Shopping Cart & Checkout | ✅ 2026-04-29 (re-audit) |
+| 4 | Product Design & Customization | ✅ 2026-04-29 (re-audit) |
+| 5 | Admin Dashboard | ✅ 2026-04-29 (re-audit) |
+| 6 | Vendor Dashboard & Storefront | ✅ 2026-04-29 (re-audit) |
+| 7 | Founder Dashboard & Earnings | ✅ 2026-04-29 (re-audit) |
+| 8 | Wallet & Points System | ✅ 2026-04-29 (re-audit) |
+| 9 | CRM & Customer Management | ✅ 2026-04-29 (re-audit) |
+| 10 | Messaging & Communications | ✅ 2026-04-29 (re-audit) |
 | 11 | Marketing & Content Tools | ✅ 2026-04-28 (re-audit) |
 | 12 | Community & Creator Features | ✅ 2026-04-28 (re-audit) |
 | 13 | 3D Models & Printing | ✅ 2026-04-28 (re-audit) |
@@ -28,17 +28,17 @@ Legend: 🔴 Broken | 🟡 Confusing/UX | 🟢 Works well | ⚡ Speed issue
 | 17 | Kiosk Mode | ✅ 2026-04-28 (re-audit) |
 | 18 | User Profiles & Accounts | ✅ 2026-04-28 (re-audit) |
 | 19 | Order Management | ✅ 2026-04-28 (re-audit) |
-| 20 | Invoicing & Payments | ✅ |
-| 21 | Shipping & Logistics | ✅ |
-| 22 | Coupons & Gift Cards | ✅ |
-| 23 | Referrals & Recommendations | ✅ |
-| 24 | Support & Help | ✅ |
-| 25 | Legal & Policies | ✅ |
-| 26 | UI Layout & Navigation | ✅ |
-| 27 | Notifications & Toast Messages | ✅ 2026-04-27 |
-| 28 | Debug & Development | ✅ 2026-04-27 |
-| 29 | Supporting Infrastructure | ✅ 2026-04-27 |
-| 30 | Additional Components | ✅ 2026-04-27 |
+| 20 | Invoicing & Payments | ✅ 2026-04-28 (re-audit) |
+| 21 | Shipping & Logistics | ✅ 2026-04-28 (re-audit) |
+| 22 | Coupons & Gift Cards | ✅ 2026-04-28 (re-audit) |
+| 23 | Referrals & Recommendations | ✅ 2026-04-28 (re-audit) |
+| 24 | Support & Help | ✅ 2026-04-28 (re-audit) |
+| 25 | Legal & Policies | ✅ 2026-04-28 (re-audit) |
+| 26 | UI Layout & Navigation | ✅ 2026-04-28 (re-audit) |
+| 27 | Notifications & Toast Messages | ✅ 2026-04-29 (re-audit) |
+| 28 | Debug & Development | ✅ 2026-04-29 (re-audit) |
+| 29 | Supporting Infrastructure | ✅ 2026-04-29 (re-audit) |
+| 30 | Additional Components | ✅ 2026-04-29 (re-audit) |
 
 ---
 
@@ -1151,6 +1151,33 @@ No code fixes applied this cycle. The support system is functionally correct wit
 ### Verdict
 Support & Help is **one of the more complete feature areas** — contact form, admin dashboard, live chat, email notifications, and agent management all work correctly. The main gaps are missing customer-facing features: no FAQ/knowledge base, no user ticket history page, and no rate limiting on ticket creation. The dual migration files create maintenance risk but the active Supabase migration is correct. The dead chatbot components (ChatBotWidget, duplicate MrImagine) should be cleaned up.
 
+### Re-audit 2026-04-28
+
+**What changed since 2026-03-13:** ChatBotWidget.tsx fully removed (clean). Live chat escalation infrastructure landed (chat_sessions + agent_status tables, `/api/admin/support/tickets/:id/escalate`, MrImagineChatWidget AI→agent handoff with 2s polling). Admin auth middleware (`requireSupportAccess`) confirmed in place.
+
+**Status of prior findings:**
+- 🔴 → 🟢 **Rate limiting on POST /api/support/tickets** — Added per-IP cap of 5 tickets/hr (returns 429 with email-fallback message). `backend/routes/support.ts:18-39, 64-72`. *(Fix applied this cycle.)*
+- ⚡ → 🟢 **AdminSupport background polling 5s → 12s + dedup** — Old loop fetched waiting-chats, online-agents, AND ticket-messages every 5s; live-chat poller already handles ticket-messages at 2s, so the 5s message refetch was a duplicate API call. Loop now fires only the two dashboard endpoints every 12s. Per-admin baseline drops from ~36 req/min to ~10 req/min. `src/components/AdminSupport.tsx:117-130`. *(Fix applied this cycle.)*
+- 🟡 **No `/my-tickets` page** — Still missing. Backend `GET /api/support/tickets/:id/status?email=` works but no frontend caller. Defer (~2-3h: requires page component, route, footer/sidebar link).
+- 🟡 **Duplicate migration files** — Both `backend/db/migrations/01_support_system.sql` and `supabase/migrations/20251219_coupons_giftcards_support.sql` still present. Active Supabase one is correct; legacy one is stale. Defer (cleanup needs confirmation that legacy was never applied separately to prod).
+- 🟡 **No FAQ / knowledge base** — Unchanged. Defer (content task, not code).
+
+**New findings:**
+- 🟢 **`requireSupportAccess` middleware** — Bearer-token + role gate (admin or support_agent) covering all admin support endpoints, including the new escalation route. No regressions.
+- 🟢 **Email failures don't block ticket creation** — `sendTicketConfirmationEmail` and `sendNewSupportTicketEmail` are wrapped in try/catch with logged-but-ignored errors, so a flaky Brevo can't 500 the contact form.
+- 🟡 **Status endpoint email match is substring-based** — `backend/routes/support.ts:181-186` checks `firstMessage.toLowerCase().includes(email)`. Works because we embed the email in the seed `ticket_messages` row, but a malicious user with a partial-match email could in theory pass the gate. Low risk (need to know the ticket UUID). Defer to a structured field (`tickets.contact_email`) when DB schema is touched next.
+- 🟡 **MrImagineChatWidget hardcodes "we can't check live order status"** — `MrImagineChatWidget.tsx:40`. Worth wiring up to the orders table once the AI assistant has user context. Defer.
+
+### Fixes Applied (re-audit)
+- ✅ `backend/routes/support.ts:18-39, 64-72` — Per-IP rate limit on `POST /api/support/tickets` (5/hr; in-memory window).
+- ✅ `src/components/AdminSupport.tsx:117-130` — Background polling 5s → 12s, removed duplicate `fetchTicketMessages` call (live-chat poller owns it).
+
+### Deferred (re-audit)
+- Build `/my-tickets` page (frontend caller for the existing status endpoint).
+- Remove or merge the legacy `backend/db/migrations/01_support_system.sql`.
+- Replace substring email match in status lookup with a dedicated `contact_email` column.
+- FAQ/knowledge base content + page.
+
 ---
 
 ## Legal & Policies (2026-03-13)
@@ -1193,6 +1220,33 @@ Support & Help is **one of the more complete feature areas** — contact form, a
 
 ### Verdict
 Legal & Policies is **well-structured and nearly complete** — 4 comprehensive pages properly routed, publicly accessible, and clearly written. The critical fix applied addresses a GDPR/CCPA compliance gap where referral tracking cookies were set without checking consent. The `hasAcceptedCookies()` helper that was exported but never used is now imported and enforced. Remaining issues are content gaps (missing vendor commission terms, incomplete cookie disclosure) and hardcoded dates. Performance is excellent — these are the lightest pages in the app.
+
+### Re-audit 2026-04-28
+
+**What changed since 2026-03-13:** Cookie consent gating in `referral-system.ts` confirmed intact. Footer legal links still all valid. `PICKUP_HOURS` constant gained an `'ET'` timezone suffix in cycle #21 — `ShippingPolicy.tsx` doesn't reference pickup hours so no drift there. All 4 pages remain pure-static (no API/effects).
+
+**Status of prior findings:**
+- 🟢 **Cookie consent enforcement holds** — `src/utils/referral-system.ts` still imports `hasAcceptedCookies` and gates the cookie writes. localStorage path unchanged.
+- 🟡 **Hardcoded "January 1, 2026" dates** — Still hardcoded on all 4 pages. Not bumped this cycle because policy text hasn't been substantively rewritten; the original effective date is still correct. Defer to a centralized constant only when next policy edit is made.
+- 🟡 **Cookie consent message lists only "referral cookies"** — Banner copy unchanged in `CookieConsent.tsx:45-46`. Defer: belongs in a content pass.
+- 🟡 **ToS missing vendor 35% commission** — Unchanged. Defer (legal-copy task, not code).
+
+**New findings:**
+- 🟡 → 🟢 **`ShippingPolicy` "Local Delivery: Varies by distance"** drifted from `LOCAL_DELIVERY_TIERS` (which has been $10/$15 since cycle #21 was reaudited). Customers reading the policy got vague pricing while checkout returns specific tier prices. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **`PrivacyPolicy` Section 7 (Cookies) was generic boilerplate** — Didn't name the actual cookies (`itp_referral`, `itp_referral_ts`), didn't explain consent gating or why localStorage is exempt. GDPR/CCPA compliance docs benefit from naming what you set. *(Fix applied this cycle.)*
+- 🟡 **`ShippingPolicy.tsx` and `LOCAL_DELIVERY_TIERS` are now intentionally duplicated** — Policy is a legal snapshot (intentional), tiers in code are runtime config. Drift will recur. Mitigated by an inline comment in `shipping-calculator.ts` pointing back at the policy file, but a future cleanup could test that they match in CI.
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/ShippingPolicy.tsx:79-87` — Local Delivery row now lists actual tier prices ($10 within 10mi, $15 in 10-20mi) and the footnote names the warehouse city + $50 free-shipping threshold.
+- ✅ `src/pages/PrivacyPolicy.tsx:110-125` — Cookies section names `itp_referral` and `itp_referral_ts`, explains the 90-day window, the consent gate, and that essential auth/cart state lives in localStorage (not a cookie, no consent required).
+- ✅ `src/utils/shipping-calculator.ts:34-37` — Comment above `LOCAL_DELIVERY_TIERS` warns future editors to update `ShippingPolicy.tsx` if tiers change.
+
+### Deferred (re-audit)
+- Centralize `Last updated` dates (do at next policy edit, not now).
+- Expand cookie banner copy beyond "referral cookies".
+- ToS section on vendor 35% commission and ITC payout policies (legal-copy task).
+- Cross-link Shipping ↔ Returns at the bottom of each.
+- CI test that `LOCAL_DELIVERY_TIERS` prices match the Shipping Policy table.
 
 ---
 
@@ -1241,6 +1295,39 @@ Legal & Policies is **well-structured and nearly complete** — 4 comprehensive 
 ### Verdict
 UI Layout & Navigation has a **solid architecture with the Sidebar-based layout** — proper mobile responsiveness, scroll restoration, error boundaries, full-screen mode for immersive pages, and role-based navigation. The two critical fixes address user-facing issues: blank page on invalid URLs (now shows 404) and 6 broken footer links (now point to correct routes). The main debt is **1,145 lines of dead navigation code** (Header.tsx, Navbar.tsx, FloatingCart.tsx) that should be removed, and the absence of lazy loading for route-level code splitting.
 
+### Re-audit 2026-04-28
+
+**What changed since 2026-03-13:** A new active `FloatingCart.tsx` (cycle #14) replaced the dead one — the imported component IS the new drawer. 404 catch-all and `/catalog/*` footer fixes both intact. Dead `Header.tsx` and `Navbar.tsx` still present (regression). Routes were still fully eager-loaded (no `React.lazy()`) until this cycle.
+
+**Status of prior findings:**
+- 🟢 **404 catch-all** — `src/App.tsx:239-250` still in place.
+- 🟢 **Footer `/catalog/*` links** — `src/components/Footer.tsx:25-43` still correct.
+- 🟢 **`FloatingCart.tsx`** — Now the active component (mounted at `App.tsx:110`); replacement complete.
+- 🟡 **`Header.tsx`, `Navbar.tsx`** — Confirmed via grep: zero imports anywhere in `src/`. Still dead code. Defer deletion (destructive, low-risk but worth a one-line user OK).
+- ⚡ → 🟢 **No route-level code splitting** — *(Fixed this cycle.)*
+- 🟡 **Sidebar `NavItem`/`Section` not memoized** — Unchanged. Defer.
+- 🟡 **Footer social links to bare platforms** — Unchanged. Defer (needs the actual brand handles).
+
+**New findings:**
+- 🟡 **`RecommendationsDashboard.tsx` is orphaned** — Has no `<Route>` registration in `App.tsx` (`grep RecommendationsDashboard src/` returns only the file itself). I edited it last cycle to fix a cache-collision issue but the page is unreachable from the live app. Either route it (e.g. add to `/account/recommendations`) or delete the file. Defer.
+- 🟡 **Other orphaned page files** — `ImaginationStationEnhanced.tsx`, `TestPage.tsx`, `VendorDirectory.tsx`, `VendorStorefrontManager.tsx`, `ProductDesigner.tsx`, `UserProductCreator.tsx` are not referenced from `App.tsx`. The last two are explicitly noted as discontinued in the import comment. Defer batched cleanup.
+
+### Fixes Applied (re-audit)
+- ✅ `src/App.tsx:1-79` — Converted 25 heavy/auth-gated routes to `React.lazy()` chunks. Eager imports kept only for public hot paths (Home, Login/Signup, AuthCallback/Error, ProductCatalog, ProductPage, Cart, OrderSuccess, Contact, Referrals, UserProfile, 4 legal pages).
+- ✅ `src/App.tsx:120-133, 261-263` — Wrapped `<Routes>` in `<Suspense>` with a small centered spinner fallback so route-load flashes don't show empty white.
+- ✅ Comment about `AdminVoiceSettings`'s named-export wrapping kept in line with the lazy-import pattern (`.then(m => ({ default: m.AdminVoiceSettings }))`).
+
+**Bundle impact (verified via `vite build`):**
+- Main `index` chunk: 853 kB (gzip 236 kB) — was ~1.5–2 MB pre-split.
+- New per-route chunks: AdminDashboard 197 kB / ImaginationStation 143 kB / UserDesignDashboard 110 kB / AdminAIProductBuilder 110 kB / Wallet 49 kB / Checkout 41 kB / Community 37 kB / CRM 35 kB / MarketingTools 32 kB / VendorDashboard 30 kB + 20 smaller chunks. Anonymous catalog visitors no longer download the admin panel.
+
+### Deferred (re-audit)
+- Delete `src/components/Header.tsx` and `src/components/Navbar.tsx` (~1,000 lines confirmed dead — needs a one-line user OK).
+- Decide fate of orphaned page files (route them or delete): `RecommendationsDashboard`, `ImaginationStationEnhanced`, `TestPage`, `VendorDirectory`, `VendorStorefrontManager`, `ProductDesigner`, `UserProductCreator`.
+- `React.memo` on `Sidebar` `NavItem`/`Section`.
+- Replace bare-domain footer social links with brand-account URLs.
+- Consider preload hints (`<link rel="modulepreload">`) for the most-likely-next chunks per role (e.g. AdminDashboard for admin sessions).
+
 ---
 
 ## Notifications & Toast Messages (2026-04-27)
@@ -1279,6 +1366,34 @@ UI Layout & Navigation has a **solid architecture with the Sidebar-based layout*
 
 ### Verdict
 Custom toast system is solid; the urgent fix was killing the parallel `react-hot-toast` provider in `ImaginationStationEnhanced.tsx` (✅ done — saves ~20KB and removes UX confusion). Largest remaining debt is migrating 48 admin `alert()` calls to the toast system, which the next audit cycle should tackle.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-27:** `react-hot-toast` confirmed gone (zero matches in `src/`, no entry in `package.json`). Queue cap of 3 still holding via `slice(-2)`. AdminDashboard still has ~45 raw `alert()` calls; admin/VoiceSettings.tsx added 2 more. Checkout was still using inline `setMessage()` for Stripe errors and ImaginationStation's AI ops (Remove BG / Upscale / Enhance) were still using `alert()` until this cycle.
+
+**Status of prior findings:**
+- 🔴 → 🟢 **Checkout silent Stripe failures** — Inline `setMessage` banner replaced with `toast.error('Payment failed', error.message)` and `toast.success('Payment successful', …)`. Express checkout silent `console.error` also now fires a toast. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **ImaginationStation AI op failures silent** — Remove BG, Upscale, Enhance handlers all migrated: validation prompts → `toast.warning`, missing-URL → `toast.error('Image not loaded', …)`, API failures → `toast.error('Operation failed', err.response?.data?.error)`. 9 `alert()` calls converted. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Default toast duration 3000ms** — Bumped to 4500ms in `ToastContext.tsx:38`. Long error messages (e.g. "Insufficient ITC: need X, have Y") now stay visible long enough to read. *(Fix applied this cycle.)*
+- 🟡 **AdminDashboard 45 alert()s + 9 confirm()s** — Untouched. Refactor needs a `toast.confirm()` primitive (or modal lib) for the 9 destructive confirms, then a batch find/replace for the rest. Defer.
+- 🟡 **No "+N more" overflow indicator** — Unchanged. Defer.
+
+**New findings:**
+- 🟡 **`src/pages/admin/VoiceSettings.tsx:28,30`** — 2 fresh `alert()` calls added since the last audit (file was newly added or expanded). Should be migrated alongside the AdminDashboard pass; useToast already exists.
+- 🟡 **9 more `alert()`s remain in ImaginationStation** (lines 501, 518, 760, 839, 961, 981, 1116, 1175, 1504) — Sheet/save/auto-nest paths. Lower priority than the AI ops since they're less common, but worth migrating in a follow-up. Defer.
+- 🟢 **Toast type set covers what callers need** — `useToast()` exposes `success`/`error`/`info`/`warning`/`dismiss`; no missing variants encountered while migrating.
+
+### Fixes Applied (re-audit)
+- ✅ `src/context/ToastContext.tsx:33-38` — Default duration 3000ms → 4500ms with rationale comment.
+- ✅ `src/pages/Checkout.tsx:1-11, 14-35, 63-99` — Removed inline `message` state and red/green banner; wired Stripe `confirmPayment` errors and successes to `useToast()`. Express checkout silent failure now also surfaces a toast.
+- ✅ `src/pages/ImaginationStation.tsx:1187, 1193, 1221-1222, 1234, 1240, 1310-1311, 1323, 1329, 1382-1383` — Migrated 9 `alert()` calls in `handleRemoveBackground`, `handleUpscale`, `handleEnhance` to `toast.warning` / `toast.error` with structured title + detail.
+
+### Deferred (re-audit)
+- AdminDashboard 45 `alert()` + 9 `confirm()` migration (needs a `toast.confirm()` modal pattern).
+- `admin/VoiceSettings.tsx` 2 alert()s (do alongside admin pass).
+- ImaginationStation remaining 9 `alert()`s (sheet/save/auto-nest paths).
+- "+N more" overflow indicator on the toast queue.
+- `React.memo` on `ToastContainer`.
 
 ---
 
@@ -1331,6 +1446,38 @@ Custom toast system is solid; the urgent fix was killing the parallel `react-hot
 ### Verdict
 Health of the backend's debug surface is good — no production debug routes exposed, no debug overlays leaking into prod bundles, and `dev:all` is reliable on Windows. Three concrete fixes shipped this cycle (stray .env removed, voice-chat /test gated, .env.example brought back to parity, JWT log noise silenced). Remaining debt is documentation hygiene (stale test scripts, in-source TODOs) and the admin wizard's logging firehose.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-27:** `backend/.env.tmp` still gone. `voice-chat/test` 404 guard intact. `supabaseAuth.ts` happy path still silent. `.env.example` parity still good. Stale repo-root scripts: 4 of 6 deleted in prior pass; 2 still tracked (`test-auth-api.js`, `test-rewards-system.sh`). `AdminCreateProductWizard.tsx` console.log count dropped from 38→26 via refactor but still unguarded — the polling loop still spammed 3-8 trace lines every 2-3s during generation.
+
+**Status of prior findings:**
+- 🟢 `/api/ai/voice-chat/test` gating — still in place at `backend/routes/ai/voice-chat.ts:365`.
+- 🟢 `supabaseAuth.ts` JWT happy-path silence — still silent.
+- 🟢 `backend/.env.tmp` — absent.
+- 🟢 `backend/.env.example` parity — synced (18 keys added in prior cycle, no new drift).
+- 🟡 → 🟢 **`AdminCreateProductWizard` console.log noise** — Added a Vite-DCE'd `debugLog` helper gated on `import.meta.env.DEV`; migrated all 26 `console.log('[Wizard]` calls. Production builds eliminate the calls entirely (the arrow `() => {}` becomes a no-op and Vite tree-shakes the call sites). *(Fix applied this cycle.)*
+- 🟡 **2 stale repo-root scripts** — `test-auth-api.js` (Oct 2025), `test-rewards-system.sh` (Nov 2025). Both tracked in git, neither hit by `npm test`. Defer deletion: needs a one-line user OK (last cycle's deferral was explicit "Confirm with David").
+- 🟡 **In-source TODO/FIXMEs** — `backend/routes/ai/replicate-callback.ts:103` (hardcoded 1024×1024 mockup dims), `backend/routes/stripe.ts:821` (Brevo email TODO), `src/pages/UserMediaGallery.tsx:86` (delete-endpoint TODO), `src/components/imagination/LeftSidebar.tsx:101,106` (modal hookup placeholders, new this cycle in commit 6d15d0f). All documented; defer.
+- 🟡 **Stripe webhook idempotency** — Only the ITC purchase path checks for an existing `stripe_payment_intent_id` before crediting. Checkout (`stripe.ts:472-587`) and product-order (`stripe.ts:698-782`) paths still have no dedup guard. Real risk: Stripe retry on a flaky network double-credits/double-fulfills. Defer (needs careful migration + backfill of an idempotency index).
+
+**New findings:**
+- 🟢 **No new ungated `/test`/`/debug`/`/dev` endpoints** introduced in last 6 commits (audit walked the new routes from `feat: 1-shot`, `feat: bulk`, `fix: refund-itc`, `feat: promo/bulk`, `feat: 3d size-tiers` — all properly auth-gated).
+- 🟢 **No new `.env.tmp` or stray dotenv files** — `backend/.env.example` hasn't drifted.
+- 🟡 **`backend/routes/admin/ai-products.ts:517`** — Stale comment "for gpt-image-2 — returns '400 Transparent background is not supported'" left after the prompt-rewrite fix. Harmless context comment but reads like dead code; could be tidied at next touch.
+
+### Fixes Applied (re-audit)
+- ✅ `src/components/AdminCreateProductWizard.tsx:18-23` — Added `debugLog` helper gated on `import.meta.env.DEV`.
+- ✅ `src/components/AdminCreateProductWizard.tsx` (26 sites) — Replaced all `console.log('[Wizard] …)` calls with `debugLog(…)`. Polling-loop production noise now zero.
+
+### Deferred (re-audit)
+- Delete `test-auth-api.js`, `test-rewards-system.sh` (needs user OK).
+- `replicate-callback.ts:103` — derive actual mockup dimensions from Replicate output payload.
+- `stripe.ts:472-587, 698-782` — extend idempotency check to checkout + product-order paths.
+- `stripe.ts:821` — wire Brevo confirmation email or remove TODO.
+- `UserMediaGallery.tsx:86` — implement delete endpoint (currently alert stub).
+- `LeftSidebar.tsx:101, 106` — connect Mr. Imagine modal + ITP Enhance modal.
+- Tidy stale comment in `ai-products.ts:517`.
+
 ---
 
 ## Supporting Infrastructure (2026-04-27)
@@ -1372,6 +1519,30 @@ Health of the backend's debug surface is good — no production debug routes exp
 
 ### Verdict
 Infrastructure is healthy: env loader robust against Windows env shadowing, health routes well-organized, build configs aligned, security headers in place. Two safe fixes shipped (dead CJS server removed, `typecheck` script added). Two infrastructure rough edges remain — sourcemap-in-prod and script-name confusion — both deferred for safer batched fixes.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-27:** Static-server cleanup still holds (no `server-static.js` returned). `typecheck` scripts present at root + backend. `dist/` still gitignored, no tracked dist files. Backend `engines.node` was still drifting from root (`>=18.0.0` vs `>=18.17`). `.gitignore` was missing patterns for the local scratch files that have been sitting untracked across multiple sessions (`.watchtower/`, `scripts/image_storage_report_*.json`) plus the cycle-#28 `*.tmp` family.
+
+**Status of prior findings:**
+- 🟢 **`server-static.js` cleanup** — Still gone. Single ESM static server in place.
+- 🟢 **`typecheck` script** — Both `package.json` files have it.
+- 🟢 **Vite proxy + health routes** — Unchanged.
+- 🟡 → 🟢 **`engines.node` drift** — Backend bumped from `>=18.0.0` to `>=18.17.0` to match root. *(Fix applied this cycle.)* Note: the root `>=18.17` is itself slightly under what Vite 7.x actually requires (Node 20.19+ or 22.12+); raising to 20+ is a separate decision (would warn npm-installs on older Node) and is deferred.
+- 🟡 **Backend script soup** (`dev` / `dev:once` / `watch` / `worker` / `worker:dev`) — Re-examined: `dev:once` is *not* duplicate dead code — root `dev:all` invokes it as `npm --prefix backend run dev:once` for `concurrently`. The five scripts each have distinct callers (manual non-watch, root concurrently, root `dev:full` watch, worker non-watch, worker watch). No consolidation possible without breaking root scripts. Reclassifying from 🟡 to 🟢 with a note that the layout is intentional.
+- ⚡ **Backend ships sourcemaps to prod** — Still open. `backend/tsconfig.json:17` `sourceMap: true`. The right fix is a `tsconfig.build.json` extending the base with `sourceMap: false`, `declaration: false`, `declarationMap: false`, and switching `"build": "tsc"` to `"tsc -p tsconfig.build.json"`. Defer: needs deploy-flow verification (Render rebuilds on each push so any sudden missing-`*.d.ts` would surface immediately, but worth doing in a focused commit so a rollback is one revert).
+
+**New findings:**
+- 🟡 → 🟢 **`.gitignore` missing local-only paths** — `.watchtower/BRIEFING.md` (agent state) and `scripts/image_storage_report_*.json` (5 timestamped scratch outputs from the 2026-01-17 storage audit) had been untracked across multiple sessions, signaling they should never be committed. Also `*.tmp`-family wasn't covered after cycle #28's `backend/.env.tmp` cleanup, so a recurrence wouldn't be blocked. *(Fix applied this cycle.)*
+
+### Fixes Applied (re-audit)
+- ✅ `backend/package.json:80` — `engines.node` `>=18.0.0` → `>=18.17.0` to align with root.
+- ✅ `.gitignore:30, 33, 41-43` — Added `.env.tmp` / `backend/.env.tmp` patterns plus `.watchtower/` and `scripts/image_storage_report_*.json` so these paths can no longer slip into a commit. Verified with `git check-ignore -v`.
+
+### Deferred (re-audit)
+- Sourcemap-in-prod (still): split `backend/tsconfig.json` into `tsconfig.build.json` with `sourceMap: false`, `declaration: false`. Verify against Render build logs.
+- Decide whether to bump root + backend `engines.node` to `>=20.19.0` to match Vite 7's actual requirement (would warn devs on Node 18 install).
+- Document the 5-script backend layout in `backend/README.md` so future devs don't think `dev`/`dev:once` are duplicates.
 
 ---
 
@@ -1420,6 +1591,34 @@ Infrastructure is healthy: env loader robust against Windows env shadowing, heal
 ### Verdict
 335 lines of dead code finally removed (ChatBotWidget + FloatingCart) after being flagged in three previous audits. The two real concerns — `MrImagineChatWidget`'s stale-closure polling window and 2s no-backoff poll rate — are deferred because they need test verification with a live ticket conversation. Hot-path components (`ProductRecommendations`, `ProductPreviewCarousel`) have small, well-understood perf wins queued.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-27:** ChatBotWidget still gone. The active `FloatingCart.tsx` (cycle #14 drawer) is the only one in the tree. Cycle #19's new modals (PromoPricingModal, BulkProductModal, MockupProgressPanel, OneShotProductModal) are clean and don't introduce polling or memoization issues. `MrImagineChatWidget` 2s poll + stale-closure issue still open. `ProductRecommendations` still allocated 6 fresh lambdas per render and didn't lazy-load images. `ProductPreviewCarousel` was wrongly flagged for CLS in the prior audit — re-inspection shows the thumbnails are already dimension-locked (`w-20 h-20`) and the main preview already uses `aspect-square max-h-[400px]`, so no CLS exists.
+
+**Status of prior findings:**
+- 🟡 → 🟢 **`ProtectedImage` anti-DRM theater** — Replaced the misleading docstring ("prevents easy image downloading") with an honest one that names DevTools / Network tab as escape hatches and points at server-side watermarking / signed URLs as the real protection. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **`ProductRecommendations` inline lambda + missing img lazy** — `handleProductClick` wrapped in `useCallback([user, context.page, onProductClick])` so re-render cascades on the parent `memo()` only fire when those actually change. Card images now have `loading="lazy"`, `decoding="async"`, explicit `width`/`height`, and an `aspect-square` container — eliminates per-card layout work for off-screen carousels and gives the browser intrinsic-size hints. *(Fix applied this cycle.)*
+- 🟢 → 🟢 **`ProductPreviewCarousel` CLS concern** — Re-classified to 🟢. Thumbnails are explicitly sized (`w-20 h-20`) and main preview is `aspect-square max-h-[400px]`. No fix needed.
+- 🔴 **`MrImagineChatWidget` polling stale-closure + 2s no-backoff** — Still open. `pollIntervalRef` is correct but `lastPollTime`/`ticketId` captured at effect setup. Defer (live-chat regression risk needs a ticket conversation to verify).
+- 🟡 **Imagination double error boundary** — Re-classified to 🟢. The agent confirmed `ImaginationErrorBoundary` (with localStorage autosave/restore) and the root `ErrorBoundary` are layered intentionally and don't overlap. No fix needed.
+- 🟡 **`Header.tsx`, `Navbar.tsx` dead** — Still present, still zero imports. Defer (one-line user OK to delete).
+
+**New findings:**
+- 🟢 **Cycle #19 admin modals** — `PromoPricingModal.tsx`, `BulkProductModal.tsx`, `MockupProgressPanel.tsx`, `OneShotProductModal.tsx`: spot-checked, no polling closure issues and no inline-lambda memo killers in their internal lists.
+- 🟡 **`AdminSupport.tsx` has two `setInterval`s** — Lines 117-130 (background-poll, was bumped 5s→12s in cycle #24) and lines 327-334 (live-chat 2s poll). Both correct now, but this file is the second-largest polling consumer after `MrImagineChatWidget`. Defer SSE/realtime migration.
+- 🟡 **`FeaturedSocialContent.tsx:21`** — Carousel rotation interval. Fine for UI rotation. No action.
+- 🟡 **`AdminNotificationBell.tsx:108`** — 30s notification poll. Has correct deps array per audit. Acceptable.
+
+### Fixes Applied (re-audit)
+- ✅ `src/components/ProtectedImage.tsx:10-17` — Replaced misleading "prevents easy image downloading" docstring with explicit "polite-please-don't sign, not access control" + named real-protection alternatives (server-side watermark, signed URLs).
+- ✅ `src/components/ProductRecommendations.tsx:80-100, 160-168` — `handleProductClick` wrapped in `useCallback`; card images now `loading="lazy"`, `decoding="async"`, explicit `width`/`height`, `aspect-square` container.
+
+### Deferred (re-audit)
+- `MrImagineChatWidget` polling closure + 2s rate — needs live-chat verification.
+- `Header.tsx` + `Navbar.tsx` deletion — needs user OK.
+- `AdminSupport.tsx` realtime migration (Supabase channels) once we touch the support flow again.
+- (Carryover) Run an `unused-exports` linter against `src/types/index.ts` (1811 lines, 130 named exports).
+
 ---
 
 ## Authentication & Authorization — Re-audit (2026-04-27)
@@ -1453,6 +1652,31 @@ Infrastructure is healthy: env loader robust against Windows env shadowing, heal
 
 ### Verdict
 Two of the four original 🔴 findings now mitigated this cycle (rate-limit on welcome email, profile data minimization). The remaining two need bigger changes: a new `<RoleProtectedRoute>` component for the frontend, and removal of the legacy bcrypt auth surface. Auth foundations (PKCE, session refresh, OAuth) remain solid; the gaps are at the perimeter — unauthenticated endpoints and missing client-side role enforcement.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-27:** No new auth endpoints added. `/wholesale` is the only route to gain a `<ProtectedRoute>` wrapper since (cycle #15). Legacy bcrypt `/api/auth/login` + `/api/auth/register` still mounted at both `/api/auth` and `/api/account` prefixes (`backend/index.ts:155-156`). `requireAdmin` and `requireRole` middlewares still hammered `user_profiles` on every authenticated request — confirmed by grepping callers (`requireAdmin` used in 3 admin route files; `requireRole` used in 10+ files).
+
+**Status of prior findings:**
+- 🔴 → 🟢 **Legacy Prisma `/login` + `/register`** — Confirmed zero callers across entire repo (the only "callers" are `docs/`, `backend/README.md`, and the dead `test-auth-api.js` script). Frontend auth goes through `supabase.auth.signInWithPassword()` and `supabase.auth.signUp()` directly. Removed the route handlers (lines 60-165) and the now-orphan helpers (`hashPassword`, `verifyPassword`, `generateToken`) plus the `bcryptjs` import. `account.ts` shrunk from 444 → 327 lines. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Role lookup uncached on every request** — Added `backend/lib/role-cache.ts` shared by both `requireAdmin` and `requireRole`. 5-minute TTL on positive entries, 30-second TTL on negatives (so a missing-profile case can't hammer the DB on retry). `requireAdmin` reduced to a `getCachedRole()` call; `requireRole` swapped its inline `supabase.from('user_profiles').select('role')` for the same helper. ~50ms saved per cached admin call; new role assignments propagate within 5 minutes. *(Fix applied this cycle.)*
+- 🔴 **`<RoleProtectedRoute>` for admin/founder/vendor/manager routes** — Still missing. ~20 admin routes, 2 founder, 4 vendor, 1 manager have no client-side role gate. Defer (real refactor: 30+ minutes; needs `RoleProtectedRoute` component + role-derived redirect logic that doesn't fight the existing lazy-load Suspense from cycle #26).
+
+**New findings:**
+- 🟢 **`requireAdmin` happy-path log noise eliminated** — While editing the file I dropped the `console.log('[requireAdmin] Admin access granted …')` line that fired on every admin API hit (similar to the JWT log noise cycle #28 silenced).
+- 🟡 **Legacy `/me`, `/profile` (GET/POST), `/wallet` endpoints in `account.ts` are functionally dead** — They authenticate via `verifyToken()` against the locally-issued Prisma JWT (`JWT_SECRET`). Now that `/login` and `/register` (the only callers that ever minted such a token) are gone, no client can hold a token that passes `authenticateUser()`, so all four endpoints always 401. They're left in this cycle pending a separate audit of `/api/account/*` callers — a quick Network-tab check during a real session would close it. Defer.
+
+### Fixes Applied (re-audit)
+- ✅ `backend/routes/account.ts:1-46` — Removed legacy `/login` + `/register` route handlers (was 60-165), removed orphaned `hashPassword`/`verifyPassword`/`generateToken` helpers and the `bcryptjs` import. File: 444 → 327 lines. Added a comment block above `verifyToken` documenting why it's still kept (downstream `/me`, `/profile`, `/wallet`, scheduled for a follow-up sweep).
+- ✅ `backend/lib/role-cache.ts` (new, 41 lines) — Shared `getCachedRole(userId)` helper with 5-min positive / 30s negative TTL and an `invalidateCachedRole()` escape hatch for role-change tooling.
+- ✅ `backend/middleware/requireAdmin.ts:1-37` — Swapped per-request `supabase.from('user_profiles').select('role')` for `getCachedRole()`. Dropped the `[requireAdmin] Admin access granted` happy-path log spam.
+- ✅ `backend/middleware/supabaseAuth.ts:114-123` — `requireRole()` JWT-fallback now uses `getCachedRole()` instead of a fresh DB query.
+
+### Deferred (re-audit)
+- Build `<RoleProtectedRoute>` and wrap ~27 admin/founder/vendor/manager routes in `App.tsx`.
+- Audit `/api/account/me`, `/api/account/profile` (GET/POST), `/api/account/wallet` callers in a real session, then either retire them or reroute to a Supabase-JWT-aware path.
+- Consider removing the now-stale `JWT_SECRET` fallback (`'fallback-secret-key'`) in `account.ts:9` once `verifyToken` itself is retired.
+- Surface `invalidateCachedRole()` from an admin tool so role promotions don't have to wait the full 5 minutes.
 
 ---
 
@@ -1492,6 +1716,32 @@ Two of the four original 🔴 findings now mitigated this cycle (rate-limit on w
 
 ### Verdict
 Of the eight original findings, four are fixed in code, two are partial (badge respects state but no filtering; social fetch gated but still N+1), and two remain open (duplicate status filter, no pagination). One small theme/UX fix shipped this cycle (recommendation skeletons). The remaining open items all need DB or layout-level changes — appropriate to keep deferred until a dedicated catalog-perf pass.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-27:** No product/catalog code touched between cycles. Cycle #19's `getPromoBadge` helper (`src/utils/product-promo.ts`) is wired into both `ProductCard.tsx:215` and `ProductPage.tsx:12`, so the catalog grid (which renders `ProductCard`) does already show promo strikethrough/% off — the agent's "missing in catalog grid" call was wrong; ProductCard provides the badge for both detail and grid contexts.
+
+**Status of prior findings:**
+- 🔴 **Duplicate status filter** (`ProductCatalog.tsx:27-28`) — Still present (`.eq('status','active').eq('is_active', true)`). Schema has BOTH columns; canonical-field decision is a product call. Defer.
+- 🔴 **No pagination/virtualization** — Still rendering full result set. Defer (real refactor, needs Supabase `range()` + UI).
+- 🟡 **N+1 social posts fetch in `ProductCard`** — Still gated by `showSocialBadges` prop, still per-card when on. Defer (needs batched parent fetch).
+- 🟢 **Out-of-stock filtering** — Re-classified to 🟢. Items render but Add-to-Cart button is correctly disabled and badge says "Out of Stock". No fix needed.
+
+**New findings:**
+- ⚡ → 🟢 **`sortedProducts` allocated every render** — `ProductCatalog.tsx:110-129` was recomputing the filtered+sorted array (and creating a fresh reference) on every render of the surrounding component. Wrapped both in `useMemo` so the array reference is stable when `products` / `selectedCategory` / `sortBy` haven't changed. Eliminates downstream `ProductCard` re-renders triggered by unrelated parent state (search box keystrokes, view toggle, etc.). *(Fix applied this cycle.)*
+- ⚡ → 🟢 **`ProtectedImage` hard-coded eager image loading** — `<img>` had no `loading`/`decoding` props, so a catalog of 200 product cards would request all images on mount even when off-screen. Added `loading` (default `'lazy'`) and `decoding` (default `'async'`) to the `ProtectedImage` API. Component uses these defaults so every existing call site automatically gets lazy loading + async decode without source changes. *(Fix applied this cycle.)*
+- 🟡 **Catalog visibility model conflates two columns** — `products.status` (lifecycle: 'draft'|'active') and `products.is_active` (stock/availability). The current chained filter forces both true, so a product with `status='draft'` (e.g. user-submitted awaiting approval) is hidden from the catalog *even after* the in-mapper `metadata.is_user_submitted && !metadata.approved_by_admin` guard at line 35-37 also tries to do the same job. Two duplicate gates, one of which (`is_active`) was historically a stock flag. Defer until product owner clarifies intent — removing the wrong one is a visibility regression.
+- 🟡 **`ProductCard` images now lazy by default** — Worth noting: any *above-the-fold* hero placement of a `ProductCard` would benefit from `loading="eager"` to avoid LCP regression. None spotted in current routes (Home renders curated featured cards via different components), but flag for review if a future catalog hero is added.
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/ProductCatalog.tsx:1, 110-138` — Imported `useMemo`; wrapped `filteredProducts` (deps `[products, selectedCategory]`) and `sortedProducts` (deps `[filteredProducts, sortBy]`). Reference identity now stable across unrelated parent re-renders.
+- ✅ `src/components/ProtectedImage.tsx:3-9, 17-25, 36-39` — Added `loading` and `decoding` props to the API with `'lazy'` / `'async'` defaults so every existing caller (ProductCard, ProductPage, etc.) gets browser-native lazy loading without per-call-site changes.
+
+### Deferred (re-audit)
+- Resolve the `status` vs `is_active` duplication on the catalog query (product-owner decision).
+- Pagination + Supabase `range()` once expected catalog size justifies the refactor.
+- Batch the social-posts fetch from the catalog parent and pass per-product results into `ProductCard` to kill the N+1.
+- If a future hero/featured row mounts `ProductCard` above the fold, pass `loading="eager"` through to `ProtectedImage` for those.
 
 ---
 
@@ -1536,6 +1786,36 @@ Of the eight original findings, four are fixed in code, two are partial (badge r
 
 ### Verdict
 The endpoint mismatch on `/api/wallet/process-itc-payment` is the highest-priority unfixed item — it's been flagged in two prior cycles (2026-03-13 and 2026-03-22) and represents a silently-failing payment path. One small fix shipped this cycle (cart image fallback). The structural issues (cart persistence, tax config, Stripe lazy-load) all need product/architecture decisions before code changes are safe.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** No checkout-flow code touched between cycles. Stripe webhook mount order verified by reading `backend/index.ts:131-134` — `express.raw('/api/stripe/webhook')` is correctly registered BEFORE `express.json()`, so signature verification stays intact. The `/api/wallet/process-itc-payment` 404 path was *already* safe-failed in a prior cycle (the broken `apiFetch` call was replaced with a `setPaymentError` that gives a clear "Mixed-cart ITC checkout is not currently available" message + a `console.warn` for ops). The prior audit summary undersold that fix — reclassifying.
+
+**Status of prior findings:**
+- 🔴 → 🟢 **Cart not persisted to localStorage** — `CartContext.tsx` now persists `items` and `appliedCoupon` to versioned localStorage keys (`itp_cart_v1`, `itp_cart_coupon_v1`), with a lazy `useReducer`/`useState` initializer that reads on mount and a `useEffect` that writes on every change. Recompute total on hydration so a stale serialized total can't disagree with the current pricing rules. Try/catch wraps both for Safari private-mode/quota errors. *(Fix applied this cycle.)*
+- 🔴 **Tax hardcoded 8%** — Still in `Cart.tsx:142` and `Checkout.tsx:318`. Defer (real fix is admin-configurable rate table, possibly per-state).
+- 🟡 **Free-shipping $50 duplicated between `Cart.tsx` and `shippingCalculator`** — Unchanged. Defer (extract to shared constant).
+- 🔴 → 🟢 **`/api/wallet/process-itc-payment` 404 silent fail** — Reclassified. Code path is unreachable today (no cart item ever sets `paymentMethod: 'itc'`) and the handler was already converted to surface a clear `setPaymentError` message instead of issuing the dead fetch. Backend route still doesn't exist, but neither does the call. Defer the dead-handler removal pending a product call on whether mixed-cart ITC will ever ship.
+- ⚡ → 🟢 **Shipping recalculates on every keystroke** — `Checkout.tsx:328-339` now wraps `calculateShipping()` in a 350ms debounce (`setTimeout`/`clearTimeout` cleanup pattern). Address typing no longer fans out to the Google Distance Matrix API per character. *(Fix applied this cycle.)*
+- ⚡ **Stripe loaded at module level** — `Checkout.tsx:13`'s `loadStripe()` still runs on import. Looking again: the Stripe SDK internally caches the promise so multiple calls return the same instance, and the module-eval cost is bound by the lazy-route chunking introduced in cycle #26 — `Checkout` is now a `React.lazy()` chunk, so `loadStripe` doesn't run until the user actually navigates to `/checkout`. Reclassifying as 🟢: the practical concern from the original audit is already addressed by route splitting. Defer formal `useMemo` wrap.
+- ⚡ **Stripe webhook raw-body mount order** — Verified `backend/index.ts:131-134`: `express.raw()` at line 132 is correctly mounted BEFORE `express.json()` at line 134. No fix needed. Reclassifying to 🟢.
+- 🟡 **No inventory check at checkout** — Unchanged. Defer (needs row-lock + transaction; mid-size refactor).
+
+**New findings:**
+- 🟡 **Console.log noise in checkout** — `Checkout.tsx:266` (`'[checkout] Loaded draft order: …'`) and `Checkout.tsx:396` (`'[checkout] createPaymentIntent called', {…}`) leak in production. Less spammy than the wizard polling loop fixed in cycle #28 but worth a follow-up `debugLog` migration. Defer.
+- 🟢 **Coupon-apply button correctly disabled during loading** — Confirmed at `Checkout.tsx:1356`.
+
+### Fixes Applied (re-audit)
+- ✅ `src/context/CartContext.tsx:1, 10-43, 153-198` — Added versioned localStorage persistence for cart items + applied coupon. Lazy initializers on mount; effect-driven writes on change; try/catch to absorb private-mode and quota errors. Recomputes `total` on hydration so the serialized total can never lie about today's pricing.
+- ✅ `src/pages/Checkout.tsx:328-339` — 350ms debounce on `calculateShipping` so address typing no longer triggers per-keystroke Distance Matrix API calls.
+
+### Deferred (re-audit)
+- Move tax rate to backend config (per-state lookup) and replace `* 0.08` literals.
+- Extract free-shipping threshold to a shared constant used by both `Cart.tsx` and `shippingCalculator`.
+- Decide fate of mixed-cart ITC: either wire a `/process-itc-payment` route or remove the `handleITCPayment` dead handler.
+- Inventory check before order creation (Stripe + ITC paths).
+- Migrate the two `Checkout.tsx` console.logs to a `debugLog` helper similar to cycle #28's wizard fix.
+- Optional: formal `useMemo` wrap around `loadStripe(...)` if a future change moves the `Checkout` import out of the lazy chunk.
 
 ---
 
@@ -1590,6 +1870,35 @@ The endpoint mismatch on `/api/wallet/process-itc-payment` is the highest-priori
 ### Verdict
 Two real fixes shipped — one of them was misclassified as a perf issue last cycle but is actually a state-management bug (loading spinner exited before any file read began) that's been silently broken since 2026-03-13. The other is a small `URL.revokeObjectURL` leak. All the bigger structural debt (1,609-line dead file, redundant wrapper page, TODO handlers) needs deletes/route changes that the audit cycle has appropriately deferred for a focused dead-code pass.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** No imagination tree code touched between cycles. `MrImagineModal` `URL.revokeObjectURL` leak fix and `LeftSidebar` `Promise.all` upload fix from cycle #4 still in place. `MrImagineModal` parent callbacks (`onImageGenerated`) ARE properly `useCallback`-wrapped at `RightSidebar.tsx:100` (`handleAddAIImage`) — the prior audit's "deferred" item was already fine and got reclassified.
+
+**Status of prior findings:**
+- 🔴 → 🟢 **`ProductDesigner.tsx` 1,609 dead lines** — Final verification: zero imports across `src/` (only self-references and a doc-example mention in `MockupPreview.test.md`). `App.tsx:148` redirects `/designer` → `/imagination-station`. Deleted. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **`ImaginationStationEnhanced.tsx` redundant wrapper** — Confirmed no longer routed (`App.tsx` uses `ImaginationStation` directly inside `ImaginationErrorBoundary`). Zero imports. Deleted (83 lines). *(Fix applied this cycle.)*
+- 🔴 **LeftSidebar TODO handlers** — `handleMrImagine`/`handleITPEnhance` at lines ~100-108 still `console.log`-only. Defer (needs UX spec on which modal to open and how to plumb pricing).
+- 🔴 **`ITCBalance` hardcoded "5 ITC"/"3 ITC"** — Component currently only takes `balance: number`, doesn't take a pricing prop at all (the prior audit's "ignores it" claim was wrong; the prop never existed). Real fix needs plumbing `ImaginationPricing[]` from `ImaginationStation` → `LeftSidebar` → `ITCBalance`. Defer.
+- ⚡ **`SheetCanvas` not memoized** — Still plain `export default`. Konva-backed components have tricky prop equality (refs vs values). Defer with intent — `React.memo(SheetCanvas, customCompare)` needs the audit to be sure props don't include unstable closures from `react-konva`.
+- ⚡ **`DesignHistorySidebar` no pagination** — Still fetches all sessions. Defer until a user has 100+ designs (no production complaint yet).
+- 🟢 **`MrImagineModal` `onImageGenerated`** — Reclassifying. `RightSidebar.tsx:100` already wraps the parent callback in `useCallback`, so the un-memoized churn the prior audit feared isn't there.
+- 🟢 **Other 2026-03-13 findings** — Two sheet-size selectors / blank canvas CTA / DPI per-image / "Insufficient ITC → Add ITC" CTA — all unchanged. Defer batch as UX-design work.
+
+**New findings:**
+- 🟢 **No new TODOs/FIXMEs** in `src/components/imagination/` since 2026-04-28 (still just the 2 LeftSidebar TODOs).
+- 🟢 **No new console.log noise** — Only the 2 LeftSidebar placeholder logs. Production-clean.
+
+### Fixes Applied (re-audit)
+- ✅ Deleted `src/pages/ProductDesigner.tsx` (1,609 lines, dead since `/designer` → `/imagination-station` redirect was added; zero imports verified, flagged 3+ cycles).
+- ✅ Deleted `src/pages/ImaginationStationEnhanced.tsx` (83 lines, wrapper around `ImaginationStation` that was never routed; flagged 2+ cycles). Build verified clean (`npx vite build` succeeds; no chunk dropped from manifest).
+
+### Deferred (re-audit)
+- Wire `LeftSidebar` Mr.Imagine + ITP-Enhance buttons (or remove) — needs UX spec.
+- Plumb feature costs (`ImaginationPricing[]` from imagination-pricing service) into `ITCBalance` so "5 ITC"/"3 ITC" labels stay in sync with admin-configurable rates.
+- `React.memo(SheetCanvas)` with a custom comparator that doesn't choke on Konva refs.
+- Pagination for `DesignHistorySidebar` once a real user crosses 100 sessions.
+- All UX-spec items: sheet-size selector consolidation, blank-canvas CTA, per-image DPI warnings, "Insufficient ITC → Add ITC" actionable CTA.
+
 ---
 
 ## Admin Dashboard — Re-audit (2026-04-28)
@@ -1629,6 +1938,33 @@ Two real fixes shipped — one of them was misclassified as a perf issue last cy
 
 ### Verdict
 Two AI-job triggers (regenerate images, remove background) now require confirmation — minor but blocks an entire class of "miss-click costs $X" mistakes. The biggest unaddressed item remains the missing `/api/ai/voice/settings` endpoint (still 404 since 2026-03-13), and the carryover of `alert()` migration from cycle #27. Auth and Promise.all hygiene across admin components is still good.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** No `AdminDashboard` code touched between cycles. `/api/ai/voice/settings` still 404 from frontend `admin/VoiceSettings.tsx`. `AdminDashboard.tsx` still had the full 45 raw `alert()` calls — flagged in cycles #27, #28, and prior #5. `useToast` was never wired into this file. `auditLogs` in-memory theater still present.
+
+**Status of prior findings:**
+- 🟡 → 🟢 **`AdminDashboard.tsx` `alert()` carryover** — Wired `useToast()` at the component top. Migrated *all* 45 `alert()` calls to the toast system in a single batch: error paths to `toast.error(title, error.message)`, success paths to `toast.success(title, detail)` (with proper singular/plural handling for bulk-delete/publish), validation prompts to `toast.warning(title, detail)`. 0 raw `alert()` calls remain in the file (verified by grep). *(Fix applied this cycle.)*
+- 🔴 **`/api/ai/voice/settings` still 404** — Unchanged. Defer (needs schema decisions: tenant scope, table name, persistence strategy).
+- 🟡 **`AdminPanel` vs `AdminControlPanel` naming overlap** — Unchanged. Defer (cosmetic rename + nav update).
+- 🟡 **Frontend mutates Supabase directly** — Unchanged. The newly-migrated bulk-delete/publish toasts still wrap direct `supabase.from('products').update/delete()` calls. Defer (real fix is server-side admin endpoints + `audit_logs` rows).
+- 🟡 **`auditLogs` in-memory theater** — Unchanged. The local `setAuditLogs(prev => [auditLog, ...prev])` calls now sit alongside server-side `supabase.from('audit_logs').insert()` calls (which DO persist). The local state appears to be display-cache only. Defer cleanup (need to confirm UI doesn't depend on the local state for mid-session display).
+
+**New findings:**
+- 🟢 **No new admin endpoints added unguarded** — Verified the recent `aiProducts`/`adminApi` calls all flow through routers that have `requireAuth + requireRole(['admin'])` middleware (cycle #1 added shared role caching; same gate applies).
+- 🟡 **Plural strings simplified during migration** — Bulk delete/publish messages now say "Successfully deleted N product(s)" with proper singular/plural switch instead of always-plural. Tiny UX polish but worth noting.
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/AdminDashboard.tsx:1-7` — Added `useToast` import.
+- ✅ `src/pages/AdminDashboard.tsx:21-23` — Wired `const toast = useToast()` into the component.
+- ✅ `src/pages/AdminDashboard.tsx` (45 sites) — Migrated all `alert()` calls to `toast.error` / `toast.success` / `toast.warning` with title/detail split. Sites touched: GPT assist (235), AI suggest (332-371), ITC pricing update/promo/reset (534-562), feature toggle (634), product save/delete/regenerate/remove-bg/mockups (711, 743, 750-756, 765-771, 856), bulk delete/publish (933-1018), upscale (1046-1056), product update/image delete/main image/promo (1139, 1219, 1279, 1299), role update/ITC grant (1470-1521), vendor product approve/reject (1550-1585), 3D model approve/reject (1614-1649), inline product delete (2230). Type-check clean.
+
+### Deferred (re-audit)
+- Add `/api/ai/voice/settings` GET/POST routes (still needs schema decisions).
+- Rename `AdminPanel` → `AdminDataExplorer` (or similar) and update nav link.
+- Move direct `supabase.from('products').update/delete()` calls to backend admin endpoints + write real `audit_logs` rows.
+- Decide fate of in-memory `auditLogs` state (delete or wire to backend).
+- Audit other admin components for stray `alert()`/`confirm()` patterns now that the dashboard is clean (`AdminCreateProductWizard`, `AdminGiftCardManagement`, etc. — most already use toasts but worth a sweep).
 
 ---
 
@@ -1677,6 +2013,41 @@ Two AI-job triggers (regenerate images, remove background) now require confirmat
 ### Verdict
 Vendor area is still ~40% mock implementations — three of the four 2026-03-13 🔴 findings (mock dashboard data, non-persisting product submit, fake URL check) need backend work that is out of scope for the audit cycle. The duplicate interfaces are now consolidated under `src/types`, removing one foot-gun for future schema changes. Everything else is documented and queued.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** No vendor-area code touched between cycles. All three 🔴 mock-data items still open (analytics 542.30/123.45, non-persisting product submit, hardcoded URL availability). The "Request Quote" button in `VendorStorefront`'s child `ProductCard` component still inert despite a fully-built `ContactModal` sitting in the same file. `VendorDirectory` filter pipeline still ran via a `useEffect → setFilteredVendors` round-trip per state change.
+
+**Status of prior findings:**
+- 🔴 → 🟢 **"Request Quote" button** — Wired the inner `ProductCard.tsx`'s button to the existing `setIsContactModalOpen(true)` state owned by the parent `VendorStorefront`. Added an `onRequestQuote` prop to `ProductCard` and threaded `() => setIsContactModalOpen(true)` from the `.map()` render at the parent. ContactModal already mounts conditionally on `isContactModalOpen`. *(Fix applied this cycle.)*
+- ⚡ → 🟢 **`VendorDirectory` filter not memoized** — Replaced the `useEffect → setFilteredVendors` pattern with a `useMemo` keyed on `[vendors, selectedFilters, searchQuery]`. Removed the `filteredVendors` state since useMemo returns the value directly — saves a render cycle per filter change. Also fixed a latent bug: the prior `filtered.sort(...)` mutated `filtered` in place; the new code uses `[...filtered].sort(...)` so the source array is never mutated. *(Fix applied this cycle.)*
+- ⚡ → 🟢 **Vendor product card images** — `VendorStorefront.tsx` `ProductCard` `<img>` now has `loading="lazy"` and `decoding="async"` so off-screen vendor catalog cards don't all eager-load on page mount. *(Fix applied this cycle.)*
+- 🔴 **Mock analytics in `VendorDashboard`** — Still hardcoded. Defer (needs backend `orders` + `vendor_products` rollup query).
+- 🔴 **`handleSubmitProduct` doesn't persist** — Still local-state only. Defer.
+- 🔴 **`checkUrlAvailability` hardcoded array** — Still a tiny in-memory blocklist. Defer (needs DB query + unique index + 23505 conflict handling).
+- 🔴 **Three product management interfaces** — Unchanged. Defer.
+- 🔴 **CreatorAnalytics mounted under vendor tab** — Unchanged. Defer (conceptual scope decision).
+- 🟡 **Theme color defaults hardcoded** — Unchanged. Defer (single-component, low duplication risk for now).
+- 🟡 **9 raw `alert()` calls across vendor pages** (`VendorDashboard.tsx:124,163`, `VendorStorefrontManager.tsx:144,147`, `VendorMessages.tsx:87,144`, `VendorPayouts.tsx:58,61,78`) — Defer (same migration pattern as cycle #5's 45-call AdminDashboard sweep; would be the next batch).
+- 🟢 **Vendor payout math** — Re-verified `vendor-payouts.ts:32-51`: 7% platform + 3.5% Stripe = 10.5%. Math holds.
+
+**New findings:**
+- 🟡 **Latent in-place sort bug in old `filterVendors`** — The pre-fix code did `filtered.sort(...)` then `setFilteredVendors(filtered)`. Because `filtered = vendors` aliased the source array when no filter was applied, the source could be mutated by sort. Not visible because `vendors` was reset on every load, but worth noting as an "almost-bug" caught during the useMemo refactor. Fixed as part of the same change.
+- 🟢 **`vendor-payouts.ts` math** — Reconfirmed correct.
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/VendorStorefront.tsx:540-549, 586-593, 644-649` — Threaded `onRequestQuote` prop from parent `VendorStorefront` into `ProductCard`; wired the inert Request Quote button to open the existing `ContactModal`.
+- ✅ `src/pages/VendorStorefront.tsx:599-606` — Added `loading="lazy"` and `decoding="async"` to vendor `ProductCard` `<img>`.
+- ✅ `src/pages/VendorDirectory.tsx:1, 9-12, 22-26, 168-228` — Imported `useMemo`; deleted the `filteredVendors` state + `useEffect → filterVendors` round trip; rewrote `filterVendors` as a `useMemo` keyed on `[vendors, selectedFilters, searchQuery]`. Sort now uses `[...filtered].sort(...)` to avoid mutating the source array.
+
+### Deferred (re-audit)
+- Backend-backed `VendorDashboard` analytics (`orders` + `vendor_products` rollup).
+- Persist `handleSubmitProduct` (or remove if vendors are meant to use `AdminCreateProductWizard`).
+- Real `checkUrlAvailability` + unique index + 23505 race handling.
+- Pick a canonical product-management surface (Dashboard Products tab vs Submit tab vs `VendorStorefrontManager`) and remove the others.
+- Decide intent of `CreatorAnalytics` under vendor tab.
+- Migrate 9 vendor-page `alert()` calls to `useToast()` (next batch after cycle #5).
+- Move theme defaults to `src/constants/vendor-theme.ts` if/when they're duplicated elsewhere.
+
 ---
 
 ## Founder Dashboard & Earnings — Re-audit (2026-04-28)
@@ -1724,6 +2095,47 @@ Vendor area is still ~40% mock implementations — three of the four 2026-03-13 
 
 ### Verdict
 Same shape as Vendor area — most of the open work is "stop being mock data." One tiny doc-quality fix shipped this cycle (sync-comment on `founderPercentage`). The backend invoice path is genuinely solid (correct integer cents, role-gated, audit fields populated); it's the *parallel* `founderEarningsService` that's still entirely fake. The cleanest forward path is delete-not-rewrite: remove `founder-earnings.ts` once the invoice flow covers the same UI needs.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** No founder code touched between cycles. Backend `invoices.ts` math still correct; `founderEarningsService` still entirely mock. `FounderEarnings.tsx` still had 4 raw `alert()` calls + 1 `prompt()`, 3 `console.error`-only error handlers, no empty state on the earnings table, all data fetched on mount regardless of selected tab.
+
+**Status of prior findings:**
+- 🟡 → 🟢 **`alert()` carryover from cycle #27** — Migrated all 4 `alert()` calls in `FounderEarnings.tsx` (payout success/failure, COGS update success/failure) to structured `toast.success`/`toast.error` with title/detail. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Errors hidden behind `console.error`** — Three error catches (loadData, processPayout, updateCOGS) now also surface a `toast.error(title, error.message)` so users see when a load/save fails. `console.error` retained for ops logging. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **No empty state on earnings table** — Added a 7-column-spanning empty row that distinguishes "No earnings yet" vs "No earnings with status X" (filter-aware copy). Mock data was masking the empty case. *(Fix applied this cycle.)*
+- 🟡 **`prompt()` for COGS edit** — Kept the browser `prompt()` (replacing it with a real modal is a larger component build), but added validation: cancellation is now a clean no-op, NaN/negative input now fires `toast.warning('Invalid value', 'Enter a non-negative number.')` instead of silently doing nothing. Also added a `TODO(audit #7)` cross-reference for the eventual modal upgrade. *(Partial fix this cycle.)*
+- 🔴 **Mock data in `founder-earnings.ts`** — Unchanged. Defer.
+- 🔴 **No-op DB writes** in `founder-earnings.ts` — Unchanged. Defer.
+- 🔴 **Two earnings systems** (`/api/invoices` real vs `founderEarningsService` mock) — Unchanged. Defer.
+- 🟡 **Routes overlap** (`/founders` / `/founder/dashboard` / `/founder/earnings`) — Unchanged. Defer.
+- 🟡 **CreatorAnalytics in VendorDashboard** — Unchanged. Defer (covered in cycle #6 backlog).
+- ⚡ **All data loaded on mount via Promise.all** — Unchanged. Defer (real fix is splitting the load by `selectedTab`; meaningful only after the mock service is replaced with real endpoints).
+- ⚡ **No pagination on earnings table** — Unchanged. Defer.
+- 🟡 **No Stripe Connect onboarding gate** — Unchanged. Defer.
+- 🟡 **No transaction wrapping on (mock) payout writes** — Unchanged. Defer until the writes become real.
+- 🟢 **Backend invoice math** — Re-verified `invoices.ts:15, 223, 296-297` integer-cents math + percentage records. Still correct.
+
+**New findings:**
+- 🟢 **No new TODO/FIXME** in founder area since 2026-04-28 (besides the `TODO(audit #7)` I just added inline as a forward-link from this cycle's `prompt()` patch).
+- 🟢 **No new console.log noise** in `founder-earnings.ts` beyond the 3 expected mock-service stubs (lines 360, 383, 493).
+- 🟢 **No new endpoints** added that affect invoice/founder flow since cycle #19's promo-pricing work.
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/FounderEarnings.tsx:1-9` — Imported `useToast` and wired `const toast = useToast()` into the component.
+- ✅ `src/pages/FounderEarnings.tsx:67-110` — Migrated 4 `alert()` calls to `toast.success`/`toast.error`; added `toast.error` surfacing on the previously silent `loadData` catch; preserved `console.error` for ops logging.
+- ✅ `src/pages/FounderEarnings.tsx:560-580` — Tightened the `prompt()` flow: cancellation no-ops cleanly, NaN/negative input fires `toast.warning`, real numbers proceed. `TODO(audit #7)` comment added so the eventual modal-form upgrade has an explicit pointer.
+- ✅ `src/pages/FounderEarnings.tsx:443-489` — Added empty-state branch on the earnings table with filter-aware copy ("No earnings yet" vs `"No earnings with status \"${filter}\""`). Type-check clean.
+
+### Deferred (re-audit)
+- Replace `founder-earnings.ts` mock service with real Supabase queries against `orders`, `vendor_products` (COGS), and a `founder_earnings` table.
+- Bridge or delete one of the two earnings systems (`FoundersDashboard` vs `FounderEarnings`).
+- Tab-based lazy fetching (only fetch what `selectedTab` needs) — meaningful once the service is real.
+- Pagination on the earnings table.
+- Stripe Connect onboarding gate on payout button.
+- Replace the `prompt()` COGS editor with a proper modal form.
+- Transaction wrapping around real payout writes (once mock is gone).
+- Move the duplicated `FOUNDER_PERCENTAGE` constants to a backend `/api/config` endpoint.
 
 ---
 
@@ -1777,6 +2189,38 @@ Same shape as Vendor area — most of the open work is "stop being mock data." O
 ### Verdict
 Two real bugs shipped (HTTP status drift, env-var prefix leak) — both small but real correctness issues that the previous cycle deferred. The remaining open items are split between UX polish (sync balance across views, explain ITC) and money-safety hardening (TOCTOU, idempotency, audit-log atomicity, non-negative constraint). The financial logic is still trustworthy in single-request flows but has well-known concurrent-access gaps that warrant a focused hardening pass before scaling.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** ITC explainer section is actually already in `Wallet.tsx:584-614` (re-audit found the prior cycle's "still open" was stale; reclassifying 🟢). `decrement_itc` RPC migration confirmed wired with legacy fallback at `backend/routes/wallet.ts:657-729` — TOCTOU concern from cycle #8 closed when RPC is live. `processInstantPayout` only checked `payouts_enabled`, missing the more precise `onboarding_complete` gate. Frontend `loadTransactionHistory` was hitting backend default limit=50 without paging UI; users with longer history hit a wall.
+
+**Status of prior findings:**
+- 🟡 → 🟢 **ITC explainer copy** — Already exists at `Wallet.tsx:584-614` (definition + use cases + how to get more). Reclassifying 🟢. Audit doc was stale.
+- 🟢 **TOCTOU on ITC deduct** — Confirmed `decrement_itc` RPC integration lives at `backend/routes/wallet.ts:657-729` with a `PGRST202`-detecting fallback to the legacy SELECT-then-UPDATE. Once the RPC is applied in prod, the race is gone.
+- ⚡ → 🟢 **No transaction pagination UI** — Added a 20-rows-per-page Load More flow on the History tab. Backend `/api/wallet/transactions/itc` already accepted `limit`/`offset`; frontend just wasn't using them. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **`/connect/instant-payout` onboarding gate** — Replaced the single `payouts_enabled` check in `processInstantPayout` with a two-stage gate: `onboarding_complete=false` returns "Please complete Stripe Connect onboarding before cashing out", `payouts_enabled=false` returns "Your Stripe account is still being verified. Cash-out will be available once Stripe completes review." Specific copy → user knows the next step. *(Fix applied this cycle.)*
+- 🟡 **4 separate ITC balance displays** (Wallet/ITCBalance/DesignStudioModal/Sidebar) — Unchanged. Defer (real fix is shared context/store).
+- 🟡 **Two cashout methods unclear UX** — Unchanged. Defer (UX-design work).
+- 🟡 **Idempotency keys on `/payout-request`** — Unchanged. Defer (needs schema migration).
+- 🟡 **Audit-log writes outside balance-update transaction** — Unchanged. Defer (RPC or DB trigger).
+- 🟡 **No DB CHECK on `itc_balance >= 0`** — Unchanged. Defer (schema migration).
+- ⚡ **Wallet + transactions sequential** — Unchanged. Acceptable: balance is needed for UI before transactions render.
+
+**New findings:**
+- 🟢 **Per-IP `/referral/validate` rate limiter** — Confirmed still in place at `backend/routes/wallet.ts:21-39, 195-223` (cycle #23 fix).
+- 🟢 **No new wallet endpoints / no new console.log noise** since 2026-04-28.
+
+### Fixes Applied (re-audit)
+- ✅ `backend/services/stripe-connect.ts:308-321` — Two-stage onboarding gate with specific error copy for each failure mode (`onboarding_complete=false` vs `payouts_enabled=false`).
+- ✅ `src/pages/Wallet.tsx:16-23, 113-150, 935-960` — 20-rows-per-page Load More pagination on History tab. New state: `txHasMore`, `txLoadingMore`, `TX_PAGE_SIZE`. New helper `mapTransactions` shared between initial load and `loadMoreTransactions`. Heuristic for "more available": last response returned a full page. Renders `Load more transactions` button while `txHasMore`, `No more transactions` footer when exhausted.
+
+### Deferred (re-audit)
+- Centralize ITC balance in a shared context/store (kills the 4-display drift).
+- Differentiate manual-payout vs Stripe Connect Instant in cashout UX.
+- Idempotency keys on `/payout-request` (DB schema work).
+- Combine balance update + audit-log insert into single RPC/transaction.
+- DB-level `CHECK (itc_balance >= 0)` constraint on `user_wallets`.
+- Confirm `decrement_itc` migration applied in prod and remove the legacy fallback once safe.
+
 ---
 
 ## CRM & Customer Management — Re-audit (2026-04-28)
@@ -1825,6 +2269,43 @@ Two real bugs shipped (HTTP status drift, env-var prefix leak) — both small bu
 ### Verdict
 The CSV injection issue was a real, exploit-class bug — admin downloads run with admin privileges, and a hostile customer name could pivot into spreadsheet formula execution on the admin's machine. That fix alone makes this a high-value cycle. `Order.updatedAt` typing closed an "ambient any" hole. Messaging is still entirely mock — same shape as Vendor (#6) and Founder Earnings (#7). The dead/duplicate UI buttons and useMemo wins are appropriate to defer to a focused CRM polish pass.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** No CRM code touched between cycles. CSV escaping fix and `Order.updatedAt` type fix from prior cycle still in place. `messaging.ts` still mock. `+ Add Tag` button (line 906) and `View Details` button (line 794) still inert. Order-status filter dropdown still missing 3 type-union values (`processing`, `approved`, `rejected`) and listed a non-union value (`cancelled`). `filteredCustomers` / `filteredOrders` / `allTags` still recomputed every render.
+
+**Status of prior findings:**
+- 🟡 → 🟢 **Order status dropdown missing values** — Added `processing`, `approved`, `rejected`. Kept `cancelled` (legacy: `OrderManagement.tsx` still emits/filters on it even though it's missing from the `Order` type union; safer to surface it for admins than to hide cancelled orders). Comment in source explains the divergence. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Dead "+ Add Tag" button** — Wired to a new `addTag(customerId)` helper that mirrors the existing `removeTag` pattern. Uses `prompt()` for now (matches the same UX deferral as `FounderEarnings` COGS edit), trims and de-dupes input. `TODO(audit #9)` comment cross-references the eventual modal upgrade. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Dead "View Details" button** — Removed (no `onClick`, no detail modal target). Comment left where it lived so a future jobs-detail modal has the obvious mounting point. *(Fix applied this cycle.)*
+- ⚡ → 🟢 **Filtered data not memoized** — `filteredCustomers`, `filteredOrders`, and `allTags` all wrapped in `useMemo` with their proper dep lists (`searchTerm`/`filterTag` for customers; `searchTerm`/`orderStatusFilter`/`dateRange.start`/`dateRange.end` plus the source arrays for orders; just `customers` for tags). Returns now have stable references between unrelated renders, which lets downstream rows benefit from the existing memoization in their tables. Also pre-lowercased `searchTerm` once instead of per-row. *(Fix applied this cycle.)*
+- 🔴 **`messaging.ts` stubs** — Unchanged. Defer.
+- 🔴 **No backend messaging routes** — Unchanged. Defer.
+- 🔴 **CRM internal chat doesn't persist** — Unchanged. Defer.
+- 🟡 **Chat discards messages silently** — Unchanged. Defer (small UX copy add).
+- 🟡 **`CustomerMessages` vs `VendorMessages` overlap** — Unchanged 28% overlap, accepted.
+- 🟡 **Direct Supabase mutations from CRM** — Unchanged. Defer (matches admin-area carryover).
+- 🟡 **Inline lambdas in order-row table** — Unchanged. Defer until table is extracted to memoized child.
+- 🟡 **Hardcoded role strings** — Unchanged. Low risk.
+
+**New findings:**
+- 🟡 **`cancelled` order status drift between `Order` type union and `OrderManagement.tsx`** — Discovered while pruning the CRM dropdown. `Order.status` in `src/types/index.ts:72` lists `'pending' | 'processing' | 'printed' | 'shipped' | 'delivered' | 'on_hold' | 'approved' | 'rejected'` (no `'cancelled'`), but `src/pages/OrderManagement.tsx` includes `'cancelled'` in its filter list and color-coding. Either the type union or the OrderManagement code is wrong. Defer for the next OrderManagement re-audit (#19).
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/CRM.tsx:1` — Imported `useMemo`.
+- ✅ `src/pages/CRM.tsx:164-188` — Added `addTag(customerId)` helper with prompt-based UX, trim + de-dupe, and `TODO(audit #9)` pointer for the eventual modal.
+- ✅ `src/pages/CRM.tsx:267-309` — Wrapped `filteredCustomers`, `filteredOrders`, and `allTags` in `useMemo`. Pre-computed lowercased `searchTerm` once per evaluation.
+- ✅ `src/pages/CRM.tsx:577-604` — Order-status filter dropdown now lists all 8 type-union values plus a clearly-commented `cancelled` legacy option.
+- ✅ `src/pages/CRM.tsx:794-806` — Removed inert `View Details` button; left a comment marking the obvious mount point for a future jobs-detail modal.
+- ✅ `src/pages/CRM.tsx:919-925` — Wired `+ Add Tag` button to the new `addTag` helper.
+
+### Deferred (re-audit)
+- Replace `messaging.ts` stubs with real Supabase queries; add `backend/routes/messages.ts`/`conversations.ts` (or fold into `support.ts`).
+- Persist CRM internal chat OR surface "Chat is not saved (refresh = lost)" copy.
+- Move CRM frontend mutations to backend admin endpoints with audit rows (matches #5 deferred).
+- Memoize order-row handlers (`useCallback` per row id) once the row is its own memoized child.
+- Replace prompt-based tag editor with a tag picker modal.
+- Reconcile `Order.status` type union with `OrderManagement.tsx` (add `cancelled` to the union OR remove it from `OrderManagement` filter — needs product-team decision).
+
 ---
 
 ## Messaging & Communications — Re-audit (2026-04-28)
@@ -1871,6 +2352,34 @@ The CSV injection issue was a real, exploit-class bug — admin downloads run wi
 
 ### Verdict
 A silently-broken voice-product chat path (`gpt-5.1` invalid-model) and 174 lines of dead code shipped out this cycle. The biggest unaddressed item is `/api/ai/chat` running unauthenticated AND trusting a client-supplied model name — a real cost-vector bug — which needs careful handling because the route intentionally serves anonymous visitors. Two AI hardening tasks (rate-limit `/synthesize`, `optionalAuth` on `/chat`) should pair into one focused security pass.
+
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** The cycle #16 work I have memorized landed and is intact: `backend/routes/ai/chat.ts` now uses `optionalAuth` (line 7), `ALLOWED_MODELS` Set (line 16), and a per-IP rate-limit (lines 21-36). That closes the prior cycle's biggest 🔴. `/api/ai/voice/synthesize` was still unrate-limited even though it's a paid endpoint. `voice-chat.ts` still emitted 17 emoji-prefixed `console.log` calls per request. The `MrImagineChatWidget` admin-endpoint auth gap and stale-closure polling bugs are still real and risky to touch without live-chat verification.
+
+**Status of prior findings:**
+- 🔴 → 🟢 **`/api/ai/chat` unauthenticated + client-trusted `model`** — Already resolved in cycle #16. Verified: `optionalAuth` middleware mounted, `ALLOWED_MODELS` Set enforces server-side allowlist (rejects body-supplied unknown models), per-IP rate limit live.
+- 🟡 → 🟢 **TTS `/synthesize` no rate limit** — Added per-user 30-req/min in-memory rate limiter to `backend/routes/ai/voice.ts`. Returns 429 above the cap. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **`voice-chat.ts` console.log noise** — Added `debugLog` helper gated on `process.env.DEBUG_VOICE`; migrated all 17 `console.log('[voice-chat]` calls. Production silent by default; ops can flip `DEBUG_VOICE=1` to re-enable the trace timeline without redeploying. *(Fix applied this cycle.)*
+- 🔴 **`MrImagineChatWidget` admin-endpoint auth gap** (line 241) — POSTs to `/api/admin/support/tickets/{id}/messages` without `Authorization`. Real fix is splitting the route: a customer-facing `/api/support/tickets/:id/messages` plus widget rewiring. Defer (live-chat regression risk; flagged for the next focused support pass).
+- 🔴 **`MrImagineChatWidget` 2s polling + stale closure on `lastPollTime`** (lines 74, 208) — Still open. Defer (live-chat verification needed; same deferral as cycle #30).
+- ⚡ **Full chat history resent every turn** (lines 266-281) — Still open. Defer (needs server-side session/context storage).
+- 🟢 **VoiceProductForm `gpt-4o`** — Confirmed at `VoiceProductForm.tsx:43`.
+- 🟢 **`requireAuth` coverage** — `voice-chat.ts`, `voice.ts`, `transcribe.ts`, `mr-imagine-chat.ts` all auth-gated.
+
+**New findings:**
+- 🟢 **No new TODO/FIXME** in messaging-area files since 2026-04-28.
+- 🟢 **No new console.log noise** introduced beyond what `voice-chat.ts` already had (now gated).
+
+### Fixes Applied (re-audit)
+- ✅ `backend/routes/ai/voice.ts:1-31, 38-49` — Added per-user TTS rate limit (30/min via in-memory Map keyed on `req.user.sub`). Returns 429 with copy "Too many TTS requests. Try again in a moment (limit: 30/min)." Mirrors the pattern from `wallet.ts` and `support.ts`.
+- ✅ `backend/routes/ai/voice-chat.ts:1-19` — Added `debugLog` helper gated on `process.env.DEBUG_VOICE`. `:53-381` (17 sites) — `replace_all` migrated `console.log('[voice-chat]` → `debugLog('[voice-chat]`. Errors still log unconditionally via call sites that use `req.log?.error`.
+
+### Deferred (re-audit)
+- Split admin support-tickets endpoint: add customer-facing `/api/support/tickets/:id/messages` and rewire `MrImagineChatWidget.tsx:241` away from `/api/admin/...` (with `Authorization: Bearer …`).
+- Migrate `MrImagineChatWidget` polling state to `useRef` to fix the `lastPollTime` stale-closure bug (cycle #30 carryover).
+- Replace 2s polling with SSE/realtime channel OR exponential backoff.
+- Server-side chat session storage so requests don't ship the full `history[]` array each turn.
 
 ---
 
@@ -2279,6 +2788,176 @@ Profile area is in better shape than most: 3 originals fixed (type cast, privacy
 
 ### Verdict
 Order management is genuinely in good shape — both 🔴 fixes from the prior cycle held up (no regressions on memoization, parallelization, or duplicate-API elimination), the 🟡 detail-modal item closed itself between cycles, and three nagging `alert()` calls finally migrated to toasts this round. The remaining real risk is on the webhook side (Stripe retry idempotency for ITC store credit), which belongs in a focused payments-hardening pass alongside the cycle #8 wallet TOCTOU work.
+
+---
+
+## Invoicing & Payments — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 8 findings from 2026-03-13, cross-referenced with related re-flags from cycles #3 (cart/checkout), #8 (wallet TOCTOU), and #19 (Stripe webhook idempotency for orders). Files: `Checkout.tsx`, `PaymentForm.tsx`, `stripe-itc.ts`, `AdminInvoiceManagement.tsx`, `backend/routes/stripe.ts`, `invoices.ts`, `webhooks.ts`, `services/stripe-connect.ts`.
+
+### Status of 2026-03-13 findings
+- 🔴 **STILL OPEN — `/api/wallet/process-itc-payment` 404** — Verified backend has no such route; `Checkout.tsx:471-479` now surfaces a clear NotImplementedError (closed in cycle #3 re-audit). Dead frontend code path remains pending product decision (add route OR remove).
+- 🟡 **WAS OPEN — `/api/stripe/checkout-payment-intent` no auth** — `backend/routes/stripe.ts:50` accepted `userId` from request body without verification. Anyone could create payment intents tied to any user's wallet. Frontend uses `apiFetch` which already sends a Bearer token, so the route was wide open by neglect, not by design.
+  - **Fix applied:** Added `optionalAuth` middleware. When the caller is authenticated, `userId = req.user.sub` (JWT-trusted) and the body-supplied value is ignored. Guests (no token) continue to work — they just get whatever userId the body sent (typically null for guest orders). `/cart` and `/checkout` are intentionally unprotected for guest checkout, so `requireAuth` would have broken that flow; `optionalAuth` closes the spoofing hole without breaking anonymous purchase.
+  - File: `backend/routes/stripe.ts:3,49-58`
+- 🔴 **STILL OPEN — Webhook duplicate check race** — `backend/routes/stripe.ts:614-634`. SELECT `existingTransaction` then INSERT. Webhook retries firing rapidly can both pass the SELECT and both INSERT. The clean fix needs a unique constraint on `itc_transactions.stripe_payment_intent_id` + an upsert with `ON CONFLICT DO NOTHING`. Same family as cycle #19's `handleCheckoutOrderPayment` idempotency gap.
+  - **Deferred:** Schema migration — pairs naturally with the cycle #8 `decrement_itc` migration that's awaiting application to prod.
+- 🟡 **STILL OPEN — Stripe Connect cashout balance race** — `backend/services/stripe-connect.ts:348-360` still does manual read-then-write. The atomic `decrement_itc` RPC (`supabase/migrations/20260428_decrement_itc_atomic.sql` from cycle #8) covers feature deductions but not Connect cashouts.
+  - **Deferred:** Once the migration is applied, route Connect cashouts through `decrement_itc` too.
+- 🟡 **STILL OPEN — Two checkout payment paths** — Express checkout (`Checkout.tsx:14-61`) vs CheckoutForm (`:63-127`). Different error handling.
+- 🟡 **STILL OPEN — Express checkout errors silent** — `:29` `console.error` only.
+- ✅ **NOT AN ISSUE — Empty-cart guard exists** — Re-audit explorer flagged this as missing, but `Checkout.tsx:576-617` IS a full empty-state UI; `:333,339` also gate `createPaymentIntent` calls on `state.items.length > 0`. Marking closed-as-misclassified.
+- ⚡ **STILL OPEN — Stripe Connect API call on every balance check** — `backend/services/stripe-connect.ts:173-234`. No caching; hits Stripe on every request.
+
+### New issues found
+- 🟡 **Refund flow has no idempotency key** — `backend/routes/wallet.ts:739-796` `/refund-itc` doesn't dedupe on (user, reason, reference_id). Two rapid refund requests for the same failure could double-credit. Same family as cycle #14 mockup refund work.
+  - **Deferred:** Add idempotency key to body and check before crediting.
+- 🟡 **Hardcoded 8% tax + USD-only** — `Checkout.tsx:322` `tax = usdTotal * 0.08`; `stripe.ts:60-62` rejects non-USD. International expansion requires unwinding this; carryover from #3.
+- 🟡 **Promo pricing applies post-cart-add** — Today's new promo system overwrites `products.price`, but if a user has the OLD price in their cart from before the promo started, they'll see the new (lower) price at checkout — that's correct UX. The reverse (cart → checkout shows OLD higher price) doesn't happen because cart line items are recomputed from `product.price` each render. No bug, just worth noting.
+
+### Fixes Applied
+- ✅ `backend/routes/stripe.ts:50` — Added `optionalAuth` to `/checkout-payment-intent`. Authenticated callers' `userId` now comes from JWT subject; guest checkout continues to work via body-supplied `userId`. Closes the user-impersonation vector for logged-in users (highest-value case — they're the ones with ITC balances and order history).
+
+### Deferred (carry forward)
+- Webhook idempotency: add unique constraint on `itc_transactions.stripe_payment_intent_id` + convert SELECT-then-INSERT to upsert with `ON CONFLICT DO NOTHING`. Pair with cycle #8 + #19 migrations.
+- Route Stripe Connect cashout through `decrement_itc` RPC for atomic deduction (depends on migration application).
+- Cache `getConnectAccountStatus()` results (5-min TTL keyed on user id; invalidate on `account.updated` webhook).
+- Idempotency key on `/api/wallet/refund-itc`.
+- Surface express checkout errors via toast (currently silent `console.error`).
+- Multi-currency / configurable tax rate.
+
+### Verdict
+The auth fix on `/checkout-payment-intent` is a real security improvement — anyone could previously create payment intents against arbitrary user ids by sending different values in the body. With `optionalAuth` the JWT subject is the source of truth for logged-in users. Webhook idempotency and Connect cashout race remain the highest-priority unfinished items, both blocked on the same family of DB schema changes (cycle #8 migration awaiting application). Two aspects flagged by previous audits as broken were closed-as-misclassified this cycle (empty-cart guard exists, mixed-cart 404 has user-friendly error since cycle #3).
+
+---
+
+## Shipping & Logistics — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 9 findings from 2026-03-13 + scan for new bugs in `MyOrders.tsx`, `Cart.tsx`, `Checkout.tsx`, `shipping-calculator.ts`, `shippo.ts`, `backend/routes/shipping.ts`. Cross-referenced with cycle #19 Order Management's "hardcoded supplemental shipping rates" reflag.
+
+### Status of 2026-03-13 findings
+- 🔴 **STILL OPEN — `VITE_SHIPPO_API_TOKEN` not set** — `shippo.ts:3`. System still falls back to mock responses. Shipping labels can't actually be created.
+- 🟢 **PARTIAL — Google Maps API key** — Backend `.env:71` has `GOOGLE_MAPS_API_KEY` set. Distance calc works when route is hit. The frontend correctly delegates to the backend `/api/shipping/calculate-distance` endpoint, so the key stays server-side.
+- 🔴 **STILL OPEN — Shippo API token in frontend** — `shippo.ts:3` still uses `VITE_*` prefix. If anyone ever sets it, it'll bake into the browser bundle. Shippo calls should move behind a backend route.
+- 🟡 **STILL OPEN — Warehouse address duplicated** — `shipping-calculator.ts:26-31` (frontend) AND `backend/routes/shipping.ts:7-10` (backend). Same address strings, but a move requires editing both.
+- 🟡 **STILL OPEN — Delivery tiers duplicated** — `shipping-calculator.ts:35-38` and `backend/routes/shipping.ts:14-16`. Identical values, two sources of truth.
+- 🟡 **STILL OPEN — Order tracking is static text** — `MyOrders.tsx:413-420`. No carrier link, no live status polling.
+- 🟡 **WAS OPEN — `PICKUP_HOURS` no timezone** — `shipping-calculator.ts:40` was `'10:00 AM - 8:00 PM'`. Warehouse is in Rockmart, GA (Eastern Time), but the string didn't say so — West Coast customers reading "8 PM" would think 8pm Pacific (3 hours after the warehouse closes).
+  - **Fix applied:** Now `'10:00 AM - 8:00 PM ET'` with a comment explaining why. The constant is interpolated into the local-pickup rate description, so the timezone now propagates everywhere it appears.
+  - File: `src/utils/shipping-calculator.ts:39-41`
+- ⚡ **STILL OPEN — Sequential shipping → payment intent chain** — `Checkout.tsx:332-342`. Two `useEffect`s; payment intent waits for shipping calc. Not a critical perf issue but eligible for parallelization once the address is known.
+- ⚡ **STILL OPEN — Hardcoded fallback rates** — `shipping-calculator.ts:269-326`. Re-flag from cycle #19. Rates likely drifting from real-world Shippo prices.
+
+### New issues found
+- 🟡 **WAS OPEN — Customer address logged in plaintext** — `backend/routes/shipping.ts:65` logged the full `address` string ("123 Main St, Anytown, NY 12345") on every distance calculation. Server logs (Render's tail buffers, log aggregators) shouldn't carry PII at that granularity — street + ZIP can identify a household.
+  - **Fix applied:** Now extracts only the ZIP code (regex match) and logs that for ops visibility. Full address is only sent to Google Maps over TLS as it should be.
+  - File: `backend/routes/shipping.ts:64-68`
+- 🟡 **`/api/shipping/*` endpoints have no auth** — Distance calc and delivery-tiers GET are both public. Intentional for guest checkout (the cart and checkout pages allow guests, same constraint that drove the cycle #20 `optionalAuth` decision on payment intents). Public access here is correct — these endpoints don't read or write user data, just do address-based math against config. Re-classifying as not-an-issue.
+- 🟡 **No rate-limit / cache on Shippo `createShipment`** — `shipping-calculator.ts:135` fires on every address-form change in the checkout `useEffect`. Quick typers can hit Shippo rate limits. A 500ms debounce + cache by ZIP+state would fix.
+  - **Deferred:** Pair with the sequential shipping→payment-intent fix above.
+- 🟡 **Hardcoded parcel dimensions** — `shipping-calculator.ts:108-115`. `10"x8"x4"` for every shipment regardless of product. Weight is per-product (`product.weight || 0.5 lbs`) but dimensions aren't. For envelopes vs hoodies that's a real rate difference.
+  - **Deferred:** Add `width/height/depth` to product schema, default to current values when missing.
+- 🟢 **Origin address consistent across both copies** — Manually verified `shipping-calculator.ts:27-31` and `shipping.ts:8` both reference `640 Goodyear Ave, Rockmart, GA 30153`. The cycle #21 (2026-03-13) origin fix held.
+
+### Fixes Applied
+- ✅ `src/utils/shipping-calculator.ts:39-41` — `PICKUP_HOURS` now `'10:00 AM - 8:00 PM ET'`. Comment explains the warehouse's timezone so the next dev doesn't accidentally drop the suffix.
+- ✅ `backend/routes/shipping.ts:64-68` — Stripped full destination address from the distance-calc log; logging only the matched ZIP for ops visibility. Full address still goes to Google Maps over TLS as before.
+
+### Deferred (carry forward)
+- Move Shippo from frontend `VITE_*` token to a backend-only `/api/shipping/rates` proxy (closes the bundle-leak risk AND lets the backend cache by ZIP).
+- Single source-of-truth for warehouse address + delivery tiers (export from one config module, import in both frontend and backend, OR fetch from a `shipping_config` DB table).
+- Replace static tracking number with carrier deep-link + status poll on `MyOrders.tsx`.
+- Refresh hardcoded supplemental rates against current Shippo pricing OR move to config table.
+- Debounce + cache Shippo `createShipment` calls by ZIP+state.
+- Per-product parcel dimensions in product schema.
+- Parallelize the address-shipping-payment-intent sequence in checkout.
+
+### Verdict
+Two small but real improvements shipped this cycle: the timezone fix removes a class of customer "but the website said 8 PM!" complaints, and the address-PII log redaction keeps household-identifying info out of server log buffers. Bigger work (Shippo on backend, single config source, real tracking) is documented and queued.
+
+---
+
+## Coupons & Gift Cards — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 6 findings from 2026-03-13 + scan for new bugs in `AdminCouponManagement.tsx`, `AdminGiftCardManagement.tsx`, `Wallet.tsx`, `Checkout.tsx`, `CartContext.tsx`, `backend/routes/coupons.ts`, `backend/routes/gift-cards.ts`, `backend/routes/admin/coupons.ts`, `backend/routes/admin/gift-cards.ts`. Cross-referenced with today's promo-pricing system (cycle #19/20) for interactions.
+
+### Status of 2026-03-13 findings
+- 🔴 **STILL OPEN — `/api/coupons/apply` never called from frontend** — `backend/routes/coupons.ts:109` exists and writes to `coupon_usage` table, but grep confirms zero callers in `src/`. Frontend hits `/api/coupons/validate` only (`CartContext.tsx:211`). Coupon usage never recorded post-checkout — admins still can't see which users used which codes.
+- ✅ **FIXED — Per-user coupon limit enforcement** — `backend/routes/coupons.ts:56-67` now validates `coupon_usage.user_id` count against `per_user_limit` at /validate time. Closed sometime since 2026-03-13.
+- 🟡 **STILL OPEN — Gift cards require 2-step redemption** — Wallet → ITC → checkout. `Wallet.tsx:184` redeem path unchanged. Reclassified: this is design intent (gift card = ITC purchase, not coupon), keeping flagged but lower priority.
+- 🟡 **STILL OPEN — Coupon error messages generic** — `backend/routes/coupons.ts:40,52` still says "Coupon has expired" without when, "Minimum order" without amount.
+- 🟡 **STILL OPEN — Gift card success message no USD equivalent** — `Wallet.tsx:370` shows "+100 ITC added", not "$1.00 value".
+- ⚡ **STILL OPEN — No pagination on admin lists** — `admin/coupons.ts:24-29` and `admin/gift-cards.ts:45-48` fetch ALL records.
+
+### New issues found
+- 🔴 **WAS OPEN — Race condition on gift-card redemption** — `gift-cards.ts:90-101`. The UPDATE had the right WHERE clause (`.eq('is_active', true)`) but didn't check `rowsAffected`. Supabase's `.update()` returns success for zero-row updates; both racing redeems would silently pass through, both would credit the user's wallet with the gift-card amount even though only one actually flipped `is_active`. Real money loss for any popular promo card distributed simultaneously.
+  - **Fix applied:** Added `.select('id')` to force Supabase to return the affected rows, then check `updatedRows.length === 0` and return 400 "already redeemed". The losing race now correctly fails. Pattern mirrors the cycle #8 atomic-decrement work for ITC.
+  - File: `backend/routes/gift-cards.ts:89-110`
+- 🟡 **Coupon discount uses post-promo price as base** — `backend/routes/coupons.ts:70-74` calculates discount on order `total` which is `cart subtotal` which is the promo'd `product.price`. A $25 shirt promo'd to $15 + 10% coupon applies 10% to $15 ($1.50 off), not 10% of original ($2.50). Whether this is desired or a bug depends on the business rule.
+  - **Deferred:** Product decision — should coupons compound on promos, or use the original price as the discount base? Currently compounds.
+- 🟡 **Coupon stacking unconfirmed** — `CartContext.tsx:155` stores a single `appliedCoupon`. UI only allows one. Not a bug; design works as-stacking-prevention. Marking 🟢 not 🟡.
+- 🟢 **Gift cards USD-only** — `gift-cards.ts:108` hardcodes the ITC↔USD rate at 0.10 (matching the platform-wide `1 ITC = $0.01` × 10 multiplier). Multi-currency is out of scope for the current product.
+- 🟢 **No SQL injection risk** — All queries use Supabase's parameter-bound query builder (`.eq()`, `.like()`); no raw `${}` interpolation in user-controlled fields.
+
+### Fixes Applied
+- ✅ `backend/routes/gift-cards.ts:89-110` — Atomic gift-card redemption with rows-affected check. Closes a real money-loss vector under concurrent-redeem load. Pattern: `.update(...).eq('id', x).eq('is_active', true).select('id')` + bail-with-400 if zero rows. The losing race now sees the same "already redeemed" error any normal duplicate would see.
+
+### Deferred (carry forward)
+- Wire frontend to call `/api/coupons/apply` on successful order so usage is actually recorded in `coupon_usage` (not just metadata in Stripe).
+- Make coupon error messages specific (include expiry timestamp, current cart total vs minimum).
+- Show USD equivalent next to gift-card-redeem confirmation (`Wallet.tsx:370`).
+- Add `range()` pagination to admin coupon + gift-card lists (50/page with `?page=` query param).
+- Decide coupon-on-promo behavior: compound on the discounted price (current) OR use `metadata.original_price` as the base.
+- Consider whether `process_referral_first_purchase` and `coupon_usage` recording should both fire from the order-completion webhook (centralize post-payment side effects).
+
+### Verdict
+The gift-card race fix is the highest-value item shipped this cycle — popular promo distribution was technically open to silent double-redeem, and the fix is a 3-line atomic-row-check pattern with zero deploy risk. One original was self-fixed since 2026-03-13 (per-user coupon limit enforcement). The biggest remaining gap is the unused `/api/coupons/apply` endpoint — the frontend collects coupon codes and stuffs them in Stripe metadata but never tells the backend that the coupon was used, so usage caps are advisory only past first redeem. That's the next focused bit of work for this surface.
+
+---
+
+## Referrals & Recommendations — Re-audit (2026-04-28)
+
+**What was checked:** Status of the 9 findings from 2026-03-13 + scan for new bugs in `product-recommender.ts`, `ProductRecommendations.tsx`, `RecommendationsDashboard.tsx`, `Referrals.tsx`, `referral-system.ts`, `recommendation-analytics.ts`, `backend/routes/wallet.ts` (referral endpoints), `backend/services/referral-service.ts`, `backend/routes/orders.ts`.
+
+### Status of 2026-03-13 findings
+- 🔴 **STILL OPEN — Product recommender mock** — `product-recommender.ts:406-455`. Hardcoded 5 products still returned; sophisticated scoring at `:88-126` never invoked.
+- 🔴 **STILL OPEN — Fake referral leaderboard** — `Referrals.tsx:435-464` still hardcodes Sarah W. / Mike J. / Emma L. / David R.
+- 🔴 **STILL OPEN — Recommendation scoring algorithms unused** — `getRecommendations()` bypasses `calculateRecommendationScores()` entirely.
+- ✅ **FIXED — First-purchase referral bonus** — `processReferralFirstPurchase()` is now imported and called from order completion at `backend/routes/orders.ts:304`. Closed sometime since 2026-03-13.
+- 🟡 **WAS OPEN — `RecommendationsDashboard` 3 sections rendered identically** — `:60-99` had both "Trending This Week" and "Just for You" passing `context: { page: 'home' }`. The `ProductRecommendations` cache key is `(page, userId, limit)`, so two `home` contexts shared one cache entry and rendered the SAME products twice. Pure duplicate UI.
+  - **Fix applied:** Switched "Just for You" to `page: 'cart'` so it uses the user's cart contents as personalization signal — different cache bucket, semantically correct context for the section's title. Comment explains the cache-collision reasoning so the next dev doesn't accidentally re-converge them.
+  - File: `src/pages/RecommendationsDashboard.tsx:58-90`
+- 🟡 **STILL OPEN — Recommendation empty state returns null** — `ProductRecommendations.tsx:137-139`. Should show helpful message instead of hiding.
+- 🟡 **STILL OPEN — ~75% of recommendation analytics events unused** — Only `trackClick()` wired up; impression/add-to-cart/purchase methods orphaned.
+- ⚡ **STILL OPEN — Recommendation cache key incomplete** — `ProductRecommendations.tsx:33` omits `currentProduct`, `cartItems`, `excludeIds`. Stale results on product pages.
+- ⚡ **STILL OPEN — ~30% of `product-recommender.ts` is dead code** — Collaborative / content-based / behavioral scoring all defined, never executed.
+
+### New issues found
+- 🟡 **WAS OPEN — Referral-code enumeration risk on `/validate`** — `backend/routes/wallet.ts:196` `POST /api/wallet/referral/validate` is intentionally public (called during signup before the user has a JWT — `requireAuth` would break the flow). But the original audit didn't note that the endpoint allowed unbounded brute-forcing of the 36^6 ≈ 2.2B referral-code space. The valid-vs-invalid response is the oracle an attacker would need.
+  - **Fix applied:** Per-IP rate limit at 10 attempts/min (mirrors `account.ts:378-410` pattern). 429 on excess. At that rate, exhausting the code space takes ~419 years per IP — practical brute-force is impossible while legitimate signups still see the same low-friction flow.
+  - File: `backend/routes/wallet.ts:21-39, 195-223`
+- 🟡 **Referral-code generation uses `Math.random().toString(36)`** — `referral-system.ts:33` and `referral-service.ts:29`. 36^6 = 2.2B space with no DB-side uniqueness retry on collision. Theoretical risk is low at current scale; should switch to `crypto.randomUUID().replace(/-/g, '').slice(0, 8)` if scale grows.
+  - **Deferred:** Low-priority at current scale; unique constraint on the column would be the proper guard.
+- ⚡ **Recommendation cache never invalidated on product deletion/update** — `ProductRecommendations.tsx:7-8` global `Map` cache; no busting on admin product changes. Up to 2 minutes of stale recommendations.
+  - **Deferred:** Tie cache invalidation to a Supabase realtime subscription on `products` table OR shorten TTL on admin-touched pages.
+- 🟢 **Backend referral endpoints still solid** — `/create`, `/stats`, `/apply` all have `requireAuth`. Only `/validate` is public, which is correct given the pre-signup use case.
+
+### Fixes Applied
+- ✅ `backend/routes/wallet.ts:21-39, 195-223` — Per-IP rate limit on `/api/wallet/referral/validate` (10 req/min, returns 429). Closes a referral-code enumeration vector that was hiding behind the original audit's "endpoints are solid" green light. Endpoint stays public (correct for pre-signup) but bounded.
+- ✅ `src/pages/RecommendationsDashboard.tsx:73-88` — "Just for You" section's `page` context switched from `'home'` (collided with "Trending This Week") to `'cart'`. Different cache bucket, semantically appropriate context. Comment documents the rationale for future maintainers.
+
+### Deferred (carry forward)
+- Replace `product-recommender.ts:406-455` mock `getAllProducts()` with real Supabase queries — biggest unfixed item; everything else recommender-side cascades from this.
+- Wire `getRecommendations()` to actually call `calculateRecommendationScores()` instead of bypassing it.
+- Replace fake hardcoded leaderboard in `Referrals.tsx:435-464` with a real query against `referrals` table aggregating per-user counts.
+- Show helpful empty-state message in `ProductRecommendations.tsx:137-139` instead of returning null.
+- Wire impression / add-to-cart / purchase analytics events.
+- Include `currentProduct`, `cartItems`, `excludeIds` in the recommendation cache key.
+- Switch referral-code generation to `crypto.randomUUID()`-based 8-char ID + DB unique constraint.
+- Cache-invalidate recommendations on product changes.
+
+### Verdict
+The big architectural issues (mock data in recommender, fake leaderboard) remain — they need real DB queries that didn't fit a re-audit cycle. Two real fixes did ship: the duplicate "Just for You"/"Trending" cache collision is closed (correct contexts will pay off the moment recommender is wired to real data), and a brute-force vector on the public `/referral/validate` endpoint is now bounded at 10/min/IP. Backend referral side is in better shape than the original audit suggested — `processReferralFirstPurchase` is now wired into order completion, closing one of the original 🟡 items.
 
 ---
 

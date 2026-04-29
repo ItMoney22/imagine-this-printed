@@ -77,15 +77,20 @@ export default function ShippingPolicy() {
                     <td className="py-3 px-4">$24.99+</td>
                   </tr>
                   <tr>
-                    <td className="py-3 px-4">Local Delivery</td>
+                    <td className="py-3 px-4">Local Delivery (within 10 mi)</td>
                     <td className="py-3 px-4">Same day - 2 days</td>
-                    <td className="py-3 px-4">Varies by distance</td>
+                    <td className="py-3 px-4">$10.00 flat</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 px-4">Local Delivery (10-20 mi)</td>
+                    <td className="py-3 px-4">Same day - 2 days</td>
+                    <td className="py-3 px-4">$15.00 flat</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <p className="text-sm text-muted mt-4">
-              * Shipping costs are calculated at checkout based on destination and package weight. Free shipping may be available for orders over a certain amount.
+              * Shipping costs are calculated at checkout based on destination and package weight. Free standard shipping is available on orders over $50. Local delivery is available within a 20-mile radius of our Rockmart, GA warehouse.
             </p>
           </section>
 

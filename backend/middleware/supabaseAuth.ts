@@ -111,17 +111,15 @@ export function requireRole(allowedRoles: string[]) {
       return;
     }
 
-    // Fetch user role from database if not in token
+    // Resolve the app role. JWT user_metadata.role is preferred (no DB
+    // call); fall through to the shared role cache otherwise. The cache
+    // has a 5-minute TTL and absorbs the cost across consecutive requests
+    // from the same user.
     if (!req.user.role) {
-      const { supabase } = await import('../lib/supabase.js');
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', req.user.sub)  // user_profiles.id matches Supabase auth user id
-        .single();
-
-      if (profile?.role) {
-        req.user.role = profile.role;
+      const { getCachedRole } = await import('../lib/role-cache.js');
+      const role = await getCachedRole(req.user.sub);
+      if (role) {
+        req.user.role = role;
       }
     }
 

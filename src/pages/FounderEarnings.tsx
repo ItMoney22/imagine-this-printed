@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { founderEarningsService } from '../utils/founder-earnings'
 import type { ProductCOGS } from '../utils/founder-earnings'
 import type { FounderEarnings } from '../types'
 
 const FounderEarningsPage: React.FC = () => {
   const { user } = useAuth()
+  const toast = useToast()
   const [earnings, setEarnings] = useState<FounderEarnings[]>([])
   const [report, setReport] = useState<any>(null)
   const [analytics, setAnalytics] = useState<any>(null)
@@ -63,8 +65,9 @@ const FounderEarningsPage: React.FC = () => {
       setReport(reportData)
       setAnalytics(analyticsData)
       setProductCOGS(cogsData)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading earnings data:', error)
+      toast.error('Failed to load earnings', error?.message || 'Try refreshing the page.')
     } finally {
       setIsLoading(false)
     }
@@ -72,18 +75,18 @@ const FounderEarningsPage: React.FC = () => {
 
   const processPayout = async () => {
     if (!user) return
-    
+
     try {
       setIsProcessing(true)
       await founderEarningsService.processFounderPayout(user.id)
-      
+
       // Reload data
       await loadData()
-      
-      alert('Payout processed successfully!')
-    } catch (error) {
+
+      toast.success('Payout processed', 'The payout has been queued.')
+    } catch (error: any) {
       console.error('Error processing payout:', error)
-      alert('Failed to process payout. Please try again.')
+      toast.error('Failed to process payout', error?.message || 'Please try again.')
     } finally {
       setIsProcessing(false)
     }
@@ -92,20 +95,20 @@ const FounderEarningsPage: React.FC = () => {
   const updateCOGS = async (productId: string, newCOGS: Partial<ProductCOGS>) => {
     try {
       await founderEarningsService.updateProductCOGS(productId, newCOGS)
-      
+
       // Update local state
-      setProductCOGS(prev => 
-        prev.map(cogs => 
-          cogs.productId === productId 
+      setProductCOGS(prev =>
+        prev.map(cogs =>
+          cogs.productId === productId
             ? { ...cogs, ...newCOGS }
             : cogs
         )
       )
-      
-      alert('COGS updated successfully!')
-    } catch (error) {
+
+      toast.success('COGS updated')
+    } catch (error: any) {
       console.error('Error updating COGS:', error)
-      alert('Failed to update COGS. Please try again.')
+      toast.error('Failed to update COGS', error?.message || 'Please try again.')
     }
   }
 
@@ -438,37 +441,49 @@ const FounderEarningsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-card divide-y divide-gray-200">
-                  {filteredEarnings.map((earning) => (
-                    <tr key={earning.id} className="hover:bg-card">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
-                        {earning.orderId}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
-                        {founderEarningsService.formatCurrency(earning.saleAmount)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
-                        {founderEarningsService.formatCurrency(earning.costOfGoods)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
-                        {founderEarningsService.formatCurrency(earning.grossProfit)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                        {founderEarningsService.formatCurrency(earning.founderEarnings)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          earning.status === 'paid' ? 'bg-green-100 text-green-800' :
-                          earning.status === 'calculated' ? 'bg-blue-100 text-blue-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {earning.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
-                        {new Date(earning.calculatedAt).toLocaleDateString()}
+                  {filteredEarnings.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center">
+                        <p className="text-sm text-muted">
+                          {filter === 'all'
+                            ? "No earnings yet. Once orders ship and complete, your founder earnings will appear here."
+                            : `No earnings with status "${filter}". Try a different filter.`}
+                        </p>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredEarnings.map((earning) => (
+                      <tr key={earning.id} className="hover:bg-card">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
+                          {earning.orderId}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
+                          {founderEarningsService.formatCurrency(earning.saleAmount)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
+                          {founderEarningsService.formatCurrency(earning.costOfGoods)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-text">
+                          {founderEarningsService.formatCurrency(earning.grossProfit)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                          {founderEarningsService.formatCurrency(earning.founderEarnings)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            earning.status === 'paid' ? 'bg-green-100 text-green-800' :
+                            earning.status === 'calculated' ? 'bg-blue-100 text-blue-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {earning.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
+                          {new Date(earning.calculatedAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -544,10 +559,19 @@ const FounderEarningsPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <button
                           onClick={() => {
+                            // TODO(audit #7): replace this `prompt()` with a
+                            // proper modal form once we have a shared "edit
+                            // numeric field" pattern. Until then at least
+                            // surface invalid input via toast instead of a
+                            // silent no-op.
                             const newCOGS = prompt('Enter new total COGS:', cogs.totalCOGS.toString())
-                            if (newCOGS && !isNaN(parseFloat(newCOGS))) {
-                              updateCOGS(cogs.productId, { totalCOGS: parseFloat(newCOGS) })
+                            if (newCOGS === null) return // user cancelled
+                            const parsed = parseFloat(newCOGS)
+                            if (isNaN(parsed) || parsed < 0) {
+                              toast.warning('Invalid value', 'Enter a non-negative number.')
+                              return
                             }
+                            updateCOGS(cogs.productId, { totalCOGS: parsed })
                           }}
                           className="text-purple-600 hover:text-purple-900"
                         >

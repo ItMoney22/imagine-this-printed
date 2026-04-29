@@ -16,6 +16,12 @@ import { aiProducts, imageFlow } from '../lib/api'
 import type { AIProductCreationRequest, AIProductCreationResponse, AIJob } from '../types'
 import { supabase } from '../lib/supabase'
 
+// Wizard polling fires 3-8 trace lines every 2-3s while a generation is in
+// flight. Useful during development; pure noise in prod (and burns cycles in
+// console-instrumented browsers). `import.meta.env.DEV` is statically false
+// in `vite build`, so all callers below are dead-code-eliminated for prod.
+const debugLog: typeof console.log = import.meta.env.DEV ? console.log.bind(console) : () => {}
+
 type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'enhance-image' | 'success'
 
 interface NormalizedProduct {
@@ -93,16 +99,16 @@ export default function AdminCreateProductWizard() {
   // Poll job status every 2 seconds during generation
   useEffect(() => {
     if (currentStep === 'generate' && productId) {
-      console.log('[Wizard] 🔄 Starting polling for product:', productId, 'selectedImageId:', selectedImageId)
+      debugLog('[Wizard] 🔄 Starting polling for product:', productId, 'selectedImageId:', selectedImageId)
 
       const interval = setInterval(async () => {
         try {
-          console.log('[Wizard] 📡 Polling status for product:', productId)
+          debugLog('[Wizard] 📡 Polling status for product:', productId)
           const response = await aiProducts.getStatus(productId)
-          console.log('[Wizard] 📊 Status response:', response)
+          debugLog('[Wizard] 📊 Status response:', response)
 
           const jobs = response.jobs || []
-          console.log('[Wizard] 📋 Jobs:', jobs.map((j: any) => ({ id: j.id, type: j.type, status: j.status })))
+          debugLog('[Wizard] 📋 Jobs:', jobs.map((j: any) => ({ id: j.id, type: j.type, status: j.status })))
           setJobs(jobs)
 
           // Update product and assets in real-time (for image previews)
@@ -114,11 +120,11 @@ export default function AdminCreateProductWizard() {
           const mockupJob = jobs.find((j: any) => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2'))
           const sourceAssets = (response.assets || []).filter((a: any) => a.kind === 'source')
 
-          console.log('[Wizard] 📸 Source assets count:', sourceAssets.length, 'Image job status:', imageJob?.status, 'Mockup job status:', mockupJob?.status, 'Selected:', selectedImageId)
+          debugLog('[Wizard] 📸 Source assets count:', sourceAssets.length, 'Image job status:', imageJob?.status, 'Mockup job status:', mockupJob?.status, 'Selected:', selectedImageId)
 
           // CASE 1: Mockups already triggered - wait for ALL mockup jobs to complete
           if (mockupsTriggeredRef.current || selectedImageId) {
-            console.log('[Wizard] 🎯 Mockups triggered, monitoring mockup progress...')
+            debugLog('[Wizard] 🎯 Mockups triggered, monitoring mockup progress...')
 
             // Find all mockup jobs (replicate_mockup and ghost_mannequin)
             const mockupJobs = jobs.filter((j: any) =>
@@ -131,7 +137,7 @@ export default function AdminCreateProductWizard() {
               )
               const failedMockups = mockupJobs.filter((j: any) => j.status === 'failed')
 
-              console.log('[Wizard] 📊 Mockup progress:', completedMockups.length, '/', mockupJobs.length, 'complete')
+              debugLog('[Wizard] 📊 Mockup progress:', completedMockups.length, '/', mockupJobs.length, 'complete')
 
               // All mockups done
               if (completedMockups.length === mockupJobs.length) {
@@ -141,7 +147,7 @@ export default function AdminCreateProductWizard() {
                   setError('Mockup generation failed. Please try again.')
                 } else {
                   // At least one succeeded
-                  console.log('[Wizard] ✅ All mockups complete, transitioning to success')
+                  debugLog('[Wizard] ✅ All mockups complete, transitioning to success')
                   setCurrentStep('success')
                 }
               }
@@ -152,27 +158,27 @@ export default function AdminCreateProductWizard() {
           // CASE 2: Source images ready
           if (imageJob?.status === 'succeeded' && sourceAssets.length >= 1 && !mockupsTriggeredRef.current) {
             const isMulti = imageJob?.input?.multiModel === true || imageJob?.output?.multiModel === true
-            console.log('[Wizard] 🎨 Source images ready:', sourceAssets.length, 'multiModel:', isMulti)
+            debugLog('[Wizard] 🎨 Source images ready:', sourceAssets.length, 'multiModel:', isMulti)
             setImageWaitCount(0)
             setSourceImages(sourceAssets)
 
             if (isMulti && sourceAssets.length > 1) {
               // Multi-model fan-out: send user to selection step to pick the best variant
-              console.log('[Wizard] 🎯 Multi-model — routing to select-image step')
+              debugLog('[Wizard] 🎯 Multi-model — routing to select-image step')
               setCurrentStep('select-image')
             } else if (isMulti && sourceAssets.length === 1) {
               // Multi-model but only one model succeeded — still let user confirm
-              console.log('[Wizard] 🎯 Multi-model with single survivor — routing to select-image step')
+              debugLog('[Wizard] 🎯 Multi-model with single survivor — routing to select-image step')
               setCurrentStep('select-image')
             } else {
               // Single-model path: auto-select and trigger mockups
               mockupsTriggeredRef.current = true
               const singleImage = sourceAssets[0]
-              console.log('[Wizard] 🎯 Single-model — auto-selecting:', singleImage.id)
+              debugLog('[Wizard] 🎯 Single-model — auto-selecting:', singleImage.id)
               setSelectedImageId(singleImage.id)
               try {
                 const response = await aiProducts.selectImage(productId, singleImage.id)
-                console.log('[Wizard] ✅ Auto-triggered mockup generation:', response.mockupJobs?.length, 'jobs')
+                debugLog('[Wizard] ✅ Auto-triggered mockup generation:', response.mockupJobs?.length, 'jobs')
               } catch (err: any) {
                 console.error('[Wizard] ❌ Error auto-triggering mockups:', err)
                 setError(err.message || 'Failed to auto-trigger mockups')
@@ -307,9 +313,9 @@ export default function AdminCreateProductWizard() {
     setError(null)
 
     try {
-      console.log('[Wizard] 🔄 Triggering background removal for product:', productId)
+      debugLog('[Wizard] 🔄 Triggering background removal for product:', productId)
       await aiProducts.removeBackground(productId)
-      console.log('[Wizard] ✅ Background removal job created')
+      debugLog('[Wizard] ✅ Background removal job created')
       setRemovingBackground(false)
     } catch (error: any) {
       console.error('[Wizard] ❌ Error creating background removal job:', error)
@@ -325,10 +331,10 @@ export default function AdminCreateProductWizard() {
     setError(null)
 
     try {
-      console.log('[Wizard] 🔄 Triggering mockup creation for product:', productId, 'with selected image:', selectedImageId)
+      debugLog('[Wizard] 🔄 Triggering mockup creation for product:', productId, 'with selected image:', selectedImageId)
       // Pass the selected image ID so mockups use the correct image
       await aiProducts.createMockups(productId, selectedImageId || undefined)
-      console.log('[Wizard] ✅ Mockup jobs created')
+      debugLog('[Wizard] ✅ Mockup jobs created')
       setCreatingMockups(false)
     } catch (error: any) {
       console.error('[Wizard] ❌ Error creating mockup jobs:', error)
@@ -351,7 +357,7 @@ export default function AdminCreateProductWizard() {
   const handleSelectImage = async (imageId: string) => {
     if (!productId) return
 
-    console.log('[Wizard] 🎯 Selecting image:', imageId, 'for product:', productId)
+    debugLog('[Wizard] 🎯 Selecting image:', imageId, 'for product:', productId)
 
     // Just store the selection and go to enhance-image step
     // DON'T trigger mockup yet - let user choose Remove BG / Upscale first
@@ -366,12 +372,12 @@ export default function AdminCreateProductWizard() {
     setLoading(true)
     setError(null)
     try {
-      console.log('[Wizard] 🎭 Generating mockups for image:', selectedImageId)
+      debugLog('[Wizard] 🎭 Generating mockups for image:', selectedImageId)
 
       // Call the backend API to select image and trigger mockup generation
       const response = await aiProducts.selectImage(productId, selectedImageId)
 
-      console.log('[Wizard] ✅ Mockup job created:', response.mockupJob?.id)
+      debugLog('[Wizard] ✅ Mockup job created:', response.mockupJob?.id)
 
       setCurrentStep('generate') // Go back to generation step to monitor mockup progress
     } catch (error: any) {
@@ -389,12 +395,12 @@ export default function AdminCreateProductWizard() {
     setRemovingBackground(true)
     setError(null)
     try {
-      console.log('[Wizard] ✂️ Removing background for image:', selectedImageId)
+      debugLog('[Wizard] ✂️ Removing background for image:', selectedImageId)
 
       // Call the backend API to remove background for the selected asset
       await aiProducts.removeBackground(productId, selectedImageId)
 
-      console.log('[Wizard] ✅ Background removal job created')
+      debugLog('[Wizard] ✅ Background removal job created')
 
       // Go back to generate step to monitor progress
       setCurrentStep('generate')
@@ -413,14 +419,14 @@ export default function AdminCreateProductWizard() {
     setError(null)
     try {
       const modelLabel = editModel === 'openai/gpt-image-2' ? 'GPT Image 2' : 'Gemini 3 Pro Image'
-      console.log('[Wizard] 🖌️ Editing image with', modelLabel, ':', selectedImageId, '→', editPrompt)
+      debugLog('[Wizard] 🖌️ Editing image with', modelLabel, ':', selectedImageId, '→', editPrompt)
       const result = await imageFlow.edit({
         parentAssetId: selectedImageId,
         prompt: editPrompt,
         forceModel: editModel,
         confirmedCost: editModel === 'fal-ai/gemini-3-pro-image-preview/edit', // Gemini 3 is gated at $0.15
       })
-      console.log('[Wizard] ✅ Edited:', result.assetId, result.url)
+      debugLog('[Wizard] ✅ Edited:', result.assetId, result.url)
 
       // Append edited image to source list and select it
       if (result.assetId) {
@@ -501,7 +507,7 @@ export default function AdminCreateProductWizard() {
 
   const handleDownloadImage = async (imageUrl: string, imageName: string) => {
     try {
-      console.log('[Wizard] 📥 Downloading image:', imageName)
+      debugLog('[Wizard] 📥 Downloading image:', imageName)
       const response = await fetch(imageUrl)
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
@@ -512,7 +518,7 @@ export default function AdminCreateProductWizard() {
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
-      console.log('[Wizard] ✅ Image downloaded successfully')
+      debugLog('[Wizard] ✅ Image downloaded successfully')
     } catch (error: any) {
       console.error('[Wizard] ❌ Error downloading image:', error)
       setError('Failed to download image')

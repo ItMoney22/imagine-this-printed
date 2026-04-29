@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import Stripe from 'stripe'
-import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
+import { requireAuth, requireRole, optionalAuth } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import {
   ITC_PACKAGES,
@@ -46,10 +46,20 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
-// POST /api/stripe/checkout-payment-intent - Create or update payment intent for product checkout
-router.post('/checkout-payment-intent', async (req: Request, res: Response): Promise<any> => {
+// POST /api/stripe/checkout-payment-intent - Create or update payment intent for product checkout.
+//
+// optionalAuth (NOT requireAuth) because /cart and /checkout are intentionally
+// public for guest checkout. When the caller IS authenticated, we trust
+// req.user.sub over the body-supplied userId — that closes the spoofing hole
+// (anyone could previously send any userId in the body and have an order
+// associated with that wallet). For guests we still accept the body-supplied
+// userId (or null) — guest order rows just won't be tied to a user.
+router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, discount, userId, shippingCost, tax, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId } = req.body
+    const { amount, currency, items, shipping, couponCode, discount, userId: bodyUserId, shippingCost, tax, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId } = req.body
+    // Authenticated callers: use the JWT subject. Guests: trust the body
+    // (or null) because there's no logged-in user to verify against.
+    const userId = req.user?.sub ?? bodyUserId ?? null
 
     // Validate amount (in cents)
     if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents

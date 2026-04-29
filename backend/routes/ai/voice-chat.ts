@@ -9,6 +9,13 @@ import { generateProductImage } from '../../services/replicate.js'
 import { buildDTFPrompt } from '../../services/dtf-optimizer.js'
 import crypto from 'crypto'
 
+// Voice-chat emits a 17-line emoji-prefixed trace per request: useful when
+// debugging the multi-stage pipeline (transcribe → assistant → TTS) live
+// in prod, noisy when everything is healthy. Gate behind DEBUG_VOICE so
+// ops can flip it on without a redeploy. Errors still log unconditionally
+// via the call sites that use `console.error`.
+const debugLog: typeof console.log = process.env.DEBUG_VOICE ? console.log.bind(console) : () => {}
+
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage() })
 
@@ -50,7 +57,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
       return res.status(401).json({ error: 'User ID required' })
     }
 
-    console.log('[voice-chat] 🎙️ Processing voice input:', {
+    debugLog('[voice-chat] 🎙️ Processing voice input:', {
       userId,
       audioSize: file.size,
       mimetype: file.mimetype,
@@ -62,7 +69,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     const filename = `voice-chat-${crypto.randomUUID()}.${fileExtension}`
     const storagePath = `audio/${filename}`
 
-    console.log('[voice-chat] 📤 Uploading audio...')
+    debugLog('[voice-chat] 📤 Uploading audio...')
     let audioUrl: string
     try {
       audioUrl = await uploadFromBuffer({
@@ -83,7 +90,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
 
     // STEP 2: Transcribe using GPT-4o
     currentStep = 'transcribe'
-    console.log('[voice-chat] 🎧 Transcribing with GPT-4o...')
+    debugLog('[voice-chat] 🎧 Transcribing with GPT-4o...')
     let transcriptionResult
     try {
       transcriptionResult = await transcribeAudio({
@@ -101,11 +108,11 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     }
 
     const userText = transcriptionResult.text
-    console.log('[voice-chat] ✅ Transcription:', userText)
+    debugLog('[voice-chat] ✅ Transcription:', userText)
 
     // STEP 3: Generate AI response
     currentStep = 'ai-response'
-    console.log('[voice-chat] 🤖 Generating AI response...')
+    debugLog('[voice-chat] 🤖 Generating AI response...')
     let aiResponse
     try {
       aiResponse = await generateAssistantResponse(userId, userText)
@@ -118,7 +125,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
       })
     }
 
-    console.log('[voice-chat] ✅ AI response:', {
+    debugLog('[voice-chat] ✅ AI response:', {
       text: aiResponse.text.substring(0, 100) + '...',
       step: aiResponse.nextPrompt,
       complete: aiResponse.isComplete,
@@ -127,7 +134,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
 
     // STEP 4: Generate voice audio (Mr. Imagine - brand mascot voice)
     currentStep = 'voice-synthesis'
-    console.log('[voice-chat] 🎤 Generating Mr. Imagine voice response...')
+    debugLog('[voice-chat] 🎤 Generating Mr. Imagine voice response...')
     let voiceUrl: string
     try {
       voiceUrl = await generateConversationalResponse(aiResponse.text, {
@@ -145,7 +152,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2)
-    console.log('[voice-chat] ✅ Complete voice turn in', elapsed, 'seconds')
+    debugLog('[voice-chat] ✅ Complete voice turn in', elapsed, 'seconds')
 
     // Clean up display text - remove pause markers meant for voice synthesis
     // These markers like <#0.3#> are for TTS natural pauses but shouldn't show in UI
@@ -197,7 +204,7 @@ router.post('/generate-designs', requireAuth, async (req: Request, res: Response
       return res.status(400).json({ error: 'Design concept is required' })
     }
 
-    console.log('[voice-chat] 🎨 Generating 3 design options:', {
+    debugLog('[voice-chat] 🎨 Generating 3 design options:', {
       userId,
       conceptPreview: designConcept.substring(0, 100) + '...',
       shirtColor,
@@ -206,7 +213,7 @@ router.post('/generate-designs', requireAuth, async (req: Request, res: Response
     // Build DTF-optimized prompt
     const dtfPrompt = buildDTFPrompt(designConcept, shirtColor, 'clean')
 
-    console.log('[voice-chat] 📝 DTF prompt built:', dtfPrompt.substring(0, 200) + '...')
+    debugLog('[voice-chat] 📝 DTF prompt built:', dtfPrompt.substring(0, 200) + '...')
 
     // Generate from all 3 models in parallel
     const result = await generateProductImage({
@@ -215,7 +222,7 @@ router.post('/generate-designs', requireAuth, async (req: Request, res: Response
       printStyle: 'clean',
     })
 
-    console.log('[voice-chat] ✅ Multi-model generation complete:', {
+    debugLog('[voice-chat] ✅ Multi-model generation complete:', {
       totalOutputs: result.outputs.length,
       succeeded: result.outputs.filter((o: any) => o.status === 'succeeded').length,
     })
@@ -253,7 +260,7 @@ router.post('/select-design', requireAuth, async (req: Request, res: Response): 
       return res.status(400).json({ error: 'Design index must be 0, 1, or 2' })
     }
 
-    console.log('[voice-chat] ✅ Design selected:', { userId, designIndex })
+    debugLog('[voice-chat] ✅ Design selected:', { userId, designIndex })
 
     // The design selection is handled through the conversation flow
     // This endpoint is for explicit selection from the UI
@@ -284,7 +291,7 @@ router.post('/reset', requireAuth, async (req: Request, res: Response): Promise<
 
     resetConversation(userId)
 
-    console.log('[voice-chat] 🔄 Conversation reset for user:', userId)
+    debugLog('[voice-chat] 🔄 Conversation reset for user:', userId)
 
     res.json({ message: 'Conversation reset successfully' })
   } catch (error: any) {
@@ -309,7 +316,7 @@ router.get('/design-data', requireAuth, async (req: Request, res: Response): Pro
     const designData = getDesignData(userId)
     const currentStep = getConversationStep(userId)
 
-    console.log('[voice-chat] 📊 Design data requested:', { userId, step: currentStep })
+    debugLog('[voice-chat] 📊 Design data requested:', { userId, step: currentStep })
 
     res.json({
       designData,
@@ -342,7 +349,7 @@ router.post('/set-step', requireAuth, async (req: Request, res: Response): Promi
 
     setConversationStep(userId, step)
 
-    console.log('[voice-chat] 📍 Step manually set:', { userId, step })
+    debugLog('[voice-chat] 📍 Step manually set:', { userId, step })
 
     res.json({
       success: true,
@@ -371,14 +378,14 @@ router.post('/test', async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: 'Text is required' })
     }
 
-    console.log('[voice-chat] 🧪 Test Mr. Imagine voice generation:', text.substring(0, 50) + '...')
+    debugLog('[voice-chat] 🧪 Test Mr. Imagine voice generation:', text.substring(0, 50) + '...')
 
     const audioUrl = await generateConversationalResponse(text, {
       voiceId: AVAILABLE_VOICES.MR_IMAGINE,
       emotion: EMOTIONS.AUTO,
     })
 
-    console.log('[voice-chat] ✅ Test voice generated:', audioUrl)
+    debugLog('[voice-chat] ✅ Test voice generated:', audioUrl)
 
     res.json({
       text,

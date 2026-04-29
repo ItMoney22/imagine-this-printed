@@ -1184,13 +1184,13 @@ const ImaginationStation: React.FC = () => {
 
     const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
-      alert('Please select an image layer');
+      toast.warning('Select an image first', 'Click an image layer in your design to continue.');
       return;
     }
 
     const imageUrl = selectedLayer.processed_url || selectedLayer.source_url;
     if (!imageUrl) {
-      alert('No image URL found for this layer');
+      toast.error('Image not loaded', 'This layer has no source image. Try re-uploading.');
       return;
     }
 
@@ -1218,8 +1218,8 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Remove Background failed:', error);
-      const msg = error.response?.data?.error || 'Remove background failed. Please try again.';
-      alert(msg);
+      const msg = error.response?.data?.error || 'Please try again.';
+      toast.error('Remove background failed', msg);
     } finally {
       setIsRemovingBg(false);
     }
@@ -1231,13 +1231,13 @@ const ImaginationStation: React.FC = () => {
 
     const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
-      alert('Please select an image layer');
+      toast.warning('Select an image first', 'Click an image layer in your design to continue.');
       return;
     }
 
     const imageUrl = selectedLayer.processed_url || selectedLayer.source_url;
     if (!imageUrl) {
-      alert('No image URL found for this layer');
+      toast.error('Image not loaded', 'This layer has no source image. Try re-uploading.');
       return;
     }
 
@@ -1307,8 +1307,8 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Upscale failed:', error);
-      const msg = error.response?.data?.error || 'Upscale failed. Please try again.';
-      alert(msg);
+      const msg = error.response?.data?.error || 'Please try again.';
+      toast.error('Upscale failed', msg);
     } finally {
       setIsUpscaling(false);
     }
@@ -1320,13 +1320,13 @@ const ImaginationStation: React.FC = () => {
 
     const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
-      alert('Please select an image layer');
+      toast.warning('Select an image first', 'Click an image layer in your design to continue.');
       return;
     }
 
     const imageUrl = selectedLayer.processed_url || selectedLayer.source_url;
     if (!imageUrl) {
-      alert('No image URL found for this layer');
+      toast.error('Image not loaded', 'This layer has no source image. Try re-uploading.');
       return;
     }
 
@@ -1379,8 +1379,8 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Enhance failed:', error);
-      const msg = error.response?.data?.error || 'Enhance failed. Please try again.';
-      alert(msg);
+      const msg = error.response?.data?.error || 'Please try again.';
+      toast.error('Enhance failed', msg);
     } finally {
       setIsEnhancing(false);
     }

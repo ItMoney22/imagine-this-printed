@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES } from '../utils/shipping-calculator'
@@ -15,6 +16,7 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, or
   const { clearCart } = useCart()
   const navigate = useNavigate()
   const stripe = useStripe()
+  const toast = useToast()
 
   const handleExpressPayment = async (event: any) => {
     const result = await stripe?.confirmPayment({
@@ -27,6 +29,7 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, or
 
     if (result?.error) {
       console.error('Express payment failed:', result.error)
+      toast.error('Payment failed', result.error.message || 'Please try a different payment method.')
     } else {
       clearCart()
       navigate(`/order-success?order_id=${orderId}`)
@@ -65,16 +68,15 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
   const elements = useElements()
   const { clearCart } = useCart()
   const navigate = useNavigate()
+  const toast = useToast()
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    setMessage('')
 
     if (!stripe || !elements) {
-      setMessage('Stripe not loaded')
+      toast.error('Payment unavailable', 'Stripe failed to load. Refresh the page and try again.')
       setLoading(false)
       return
     }
@@ -88,9 +90,12 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
     })
 
     if (error) {
-      setMessage(error.message || 'Payment failed')
+      // Surface the specific decline/auth message so the user knows whether
+      // to retry the same card, change card, or contact their bank. The old
+      // inline banner was easy to miss on mobile under the Pay button.
+      toast.error('Payment failed', error.message || 'Please try a different payment method.')
     } else {
-      setMessage('Payment successful!')
+      toast.success('Payment successful', 'Redirecting to order confirmation…')
       clearCart()
       navigate(`/order-success?order_id=${orderId}`)
     }
@@ -106,15 +111,6 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
           <h2 className="text-lg font-semibold mb-4">Payment Method</h2>
           <PaymentElement />
         </div>
-
-        {message && (
-          <div className={`p-3 rounded-md ${message.includes('successful')
-            ? 'bg-green-50 text-green-700 border border-green-200'
-            : 'bg-red-50 text-red-700 border border-red-200'
-            }`}>
-            {message}
-          </div>
-        )}
 
         <button
           type="submit"
@@ -329,10 +325,17 @@ const Checkout: React.FC = () => {
   const userItcBalance = user?.wallet?.itcBalance || 0
   const maxItcCredit = Math.min(userItcBalance, Math.ceil((usdTotal + shipping + tax) / 0.01))
 
+  // Debounce shipping recalc — every keystroke into address/city/state/zip
+  // used to fire `calculateShipping`, and on a real address that hits the
+  // Google Maps Distance Matrix API per call. 350ms is the sweet spot:
+  // long enough to coalesce typing, short enough that the UI updates
+  // before the user looks at the shipping line.
   useEffect(() => {
-    if (state.items.length > 0) {
+    if (state.items.length === 0) return
+    const handle = setTimeout(() => {
       calculateShipping()
-    }
+    }, 350)
+    return () => clearTimeout(handle)
   }, [state.items, formData.address, formData.city, formData.state, formData.zipCode, formData.country])
 
   useEffect(() => {

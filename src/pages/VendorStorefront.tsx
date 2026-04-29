@@ -544,6 +544,7 @@ const VendorStorefront: React.FC = () => {
                 theme={theme}
                 displayPrice={getDisplayPrice(product)}
                 onAddToCart={() => handleAddToCart(product)}
+                onRequestQuote={() => setIsContactModalOpen(true)}
                 layout={theme.layout}
               />
             ))}
@@ -589,8 +590,9 @@ const ProductCard: React.FC<{
   theme: VendorStorefrontTheme
   displayPrice: { price: number; label: string }
   onAddToCart: () => void
+  onRequestQuote: () => void
   layout: string
-}> = ({ product, theme, displayPrice, onAddToCart, layout }) => {
+}> = ({ product, theme, displayPrice, onAddToCart, onRequestQuote, layout }) => {
   return (
     <div className={`bg-card rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow ${
       layout === 'list' ? 'flex' : ''
@@ -599,6 +601,8 @@ const ProductCard: React.FC<{
         <img
           src={product.images[0]}
           alt={product.name}
+          loading="lazy"
+          decoding="async"
           className={`object-cover ${layout === 'list' ? 'w-full h-full' : 'w-full h-48'}`}
         />
       </div>
@@ -641,7 +645,10 @@ const ProductCard: React.FC<{
           >
             Add to Cart
           </button>
-          <button className="w-full py-2 px-4 border card-border rounded-md text-sm font-medium text-text hover:bg-card">
+          <button
+            onClick={onRequestQuote}
+            className="w-full py-2 px-4 border card-border rounded-md text-sm font-medium text-text hover:bg-card"
+          >
             Request Quote
           </button>
         </div>

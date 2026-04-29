@@ -5,20 +5,25 @@ interface ProtectedImageProps {
   alt: string
   className?: string
   onError?: (e: React.SyntheticEvent<HTMLImageElement, Event>) => void
+  loading?: 'eager' | 'lazy'
+  decoding?: 'sync' | 'async' | 'auto'
 }
 
 /**
- * ProtectedImage component prevents easy image downloading via:
- * - Disabling right-click context menu
- * - Preventing drag and drop
- * - Adding CSS to prevent selection
- * - Optional watermark overlay
+ * ProtectedImage adds *friction* against casual saving — right-click is
+ * blocked, drag is blocked, selection is disabled. It does NOT prevent a
+ * determined user from grabbing the bytes via DevTools, the Network tab,
+ * or `curl` against the public asset URL. Treat this as a polite "please
+ * don't" sign, not access control. For real protection we'd need
+ * server-side watermarking or signed-URL gating with short TTL.
  */
 const ProtectedImage: React.FC<ProtectedImageProps> = ({
   src,
   alt,
   className = '',
-  onError
+  onError,
+  loading = 'lazy',
+  decoding = 'async'
 }) => {
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -35,6 +40,8 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
       <img
         src={src}
         alt={alt}
+        loading={loading}
+        decoding={decoding}
         className={`${className} pointer-events-auto`}
         onContextMenu={handleContextMenu}
         onDragStart={handleDragStart}

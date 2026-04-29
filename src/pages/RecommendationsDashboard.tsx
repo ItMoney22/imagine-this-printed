@@ -56,7 +56,8 @@ const RecommendationsDashboard: React.FC = () => {
 
       {/* Recommendation Sections */}
       <div className="space-y-12">
-        {/* Trending Recommendations */}
+        {/* Trending Recommendations — `page: 'home'` is the global/no-user-
+            context bucket the recommender treats as "what's hot platform-wide". */}
         <ProductRecommendations
           context={{
             page: 'home',
@@ -69,10 +70,15 @@ const RecommendationsDashboard: React.FC = () => {
           }}
         />
 
-        {/* Personalized Recommendations */}
+        {/* Personalized Recommendations — `page: 'cart'` so the recommender
+            uses the user's cart contents as personalization signal. Was
+            previously also `page: 'home'`, which made this section identical
+            to "Trending" — the recommendation cache key is keyed on
+            (page, userId, limit), so two `home` contexts shared one cache
+            entry and rendered the same products twice. */}
         <ProductRecommendations
           context={{
-            page: 'home',
+            page: 'cart',
             limit: 8
           }}
           title="⭐ Just for You"

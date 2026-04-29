@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useState, useCallback } from 'react'
+import React, { createContext, useContext, useReducer, useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { CartItem, Product, AppliedCoupon } from '../types'
 
@@ -8,6 +8,38 @@ interface CartState {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
+
+// localStorage keys are versioned so a future schema change can ignore
+// old persisted carts instead of crashing on mismatched shape. Bump the
+// suffix when CartItem or AppliedCoupon get a breaking change.
+const CART_STORAGE_KEY = 'itp_cart_v1'
+const COUPON_STORAGE_KEY = 'itp_cart_coupon_v1'
+
+function loadCartFromStorage(): CartState {
+  if (typeof window === 'undefined') return { items: [], total: 0 }
+  try {
+    const raw = window.localStorage.getItem(CART_STORAGE_KEY)
+    if (!raw) return { items: [], total: 0 }
+    const parsed = JSON.parse(raw) as { items?: CartItem[] }
+    const items = Array.isArray(parsed.items) ? parsed.items : []
+    // Recompute total — pricing rules (3-for-$25 deal, plus-size upcharge)
+    // can change between sessions, and we never want a stored total to
+    // disagree with the current calculator.
+    return { items, total: calculateTotal(items) }
+  } catch {
+    return { items: [], total: 0 }
+  }
+}
+
+function loadCouponFromStorage(): AppliedCoupon | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(COUPON_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as AppliedCoupon) : null
+  } catch {
+    return null
+  }
+}
 
 interface CartContextType {
   state: CartState
@@ -151,9 +183,37 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
 }
 
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [state, dispatch] = useReducer(cartReducer, { items: [], total: 0 })
-  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null)
+  // Lazy initializers so we read localStorage exactly once on mount, not
+  // on every render. The third arg to useReducer + the initializer
+  // function form of useState are the canonical patterns for this.
+  const [state, dispatch] = useReducer(cartReducer, undefined, loadCartFromStorage)
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(loadCouponFromStorage)
   const [couponLoading, setCouponLoading] = useState(false)
+
+  // Persist cart on every change. localStorage writes are synchronous but
+  // small (typical cart < 5KB JSON). Wrapped in try/catch because quota
+  // errors and Safari private-mode throw instead of returning false.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: state.items }))
+    } catch {
+      // Quota or private-mode — silent. The in-memory cart still works.
+    }
+  }, [state])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      if (appliedCoupon) {
+        window.localStorage.setItem(COUPON_STORAGE_KEY, JSON.stringify(appliedCoupon))
+      } else {
+        window.localStorage.removeItem(COUPON_STORAGE_KEY)
+      }
+    } catch {
+      // ignore — see CART_STORAGE_KEY effect
+    }
+  }, [appliedCoupon])
 
   const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc') => {
     dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod } })

@@ -86,8 +86,13 @@ router.post('/redeem', async (req: Request, res: Response) => {
 
         const itcAmount = giftCard.itc_amount || 0
 
-        // Start transaction - Mark gift card as redeemed
-        const { error: updateError } = await supabase
+        // Atomic mark-as-redeemed. The `.eq('is_active', true)` filter on the
+        // UPDATE is the race protection: if a concurrent redeem already flipped
+        // the card to `is_active=false`, our UPDATE matches zero rows. The
+        // .select() forces Supabase to return the affected rows so we can
+        // verify >=1; without it Supabase returns success even for 0-row
+        // updates and the next user gets credited a second time.
+        const { data: updatedRows, error: updateError } = await supabase
             .from('gift_cards')
             .update({
                 is_active: false,
@@ -96,9 +101,15 @@ router.post('/redeem', async (req: Request, res: Response) => {
                 balance: 0
             })
             .eq('id', giftCard.id)
-            .eq('is_active', true) // Ensure it's still unredeemed
+            .eq('is_active', true)
+            .select('id')
 
         if (updateError) throw updateError
+        if (!updatedRows || updatedRows.length === 0) {
+            // Another redeem won the race. Return the same 400 the user would
+            // have seen on a normal already-redeemed lookup.
+            return res.status(400).json({ error: 'This gift card has already been redeemed' })
+        }
 
         // Get user's current wallet
         const { data: wallet, error: walletError } = await supabase

@@ -1,14 +1,11 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
 import { CartProvider } from './context/CartContext'
 import { KioskAuthProvider } from './context/KioskAuthContext'
 import { ToastProvider } from './context/ToastContext'
 import { SidebarProvider, useSidebar } from './context/SidebarContext'
 import ErrorBoundary from './components/ErrorBoundary'
-// import './utils/debug' // Auto-run debug utilities
-// import './utils/connectivity-test' // Additional connectivity tests
-// import './utils/env-check' // Environment diagnostic
 import { Sidebar, MobileMenuButton } from './components/Sidebar'
 import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
@@ -18,6 +15,12 @@ import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCart
 import FloatingCart from './components/FloatingCart'
 import { MrImagineNotificationProvider } from './components/MrImagineNotification'
 import { ToastContainer } from './components/ToastContainer'
+import { ImaginationErrorBoundary } from './components/imagination'
+import CookieConsent from './components/CookieConsent'
+
+// Eagerly-loaded pages: public/landing routes that should be on the first
+// paint (the rest is below as React.lazy chunks). Auth + catalog + cart are
+// hot paths; legal pages are tiny static markup.
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -25,53 +28,52 @@ import AuthCallback from './pages/AuthCallback'
 import AuthError from './pages/AuthError'
 import ProductCatalog from './pages/ProductCatalog'
 import ProductPage from './pages/ProductPage'
-// ProductDesigner discontinued - using ImaginationStation instead
 import Cart from './pages/Cart'
-import Checkout from './pages/Checkout'
-import FoundersDashboard from './pages/FoundersDashboard'
-import VendorDashboard from './pages/VendorDashboard'
-import ModelGallery from './pages/ModelGallery'
-import Wallet from './pages/Wallet'
-import CRM from './pages/CRM'
-import AdminDashboard from './pages/AdminDashboard'
-import MarketingTools from './pages/MarketingTools'
-import OrderManagement from './pages/OrderManagement'
-import Referrals from './pages/Referrals'
-import UserProfile from './pages/UserProfile'
-import ProfileEdit from './pages/ProfileEdit'
-import CustomerMessages from './pages/CustomerMessages'
-import VendorMessages from './pages/VendorMessages'
-import VendorPayouts from './pages/VendorPayouts'
-import FounderEarningsPage from './pages/FounderEarnings'
-import AdminControlPanel from './pages/AdminControlPanel'
-import AdminEmailTemplates from './pages/AdminEmailTemplates'
-import AdminPanel from './pages/AdminPanel'
-import WholesalePortal from './pages/WholesalePortal'
-import VendorStorefront from './pages/VendorStorefront'
-// Removed: ProductManagement (duplicate of AdminDashboard Products tab)
-import ManagerDashboard from './pages/ManagerDashboard'
-import AdminCostOverride from './pages/AdminCostOverride'
-import KioskManagement from './pages/KioskManagement'
-import KioskAnalytics from './pages/KioskAnalytics'
-import Community from './pages/Community'
-import ImageDebug from './pages/ImageDebug'
-import AdminAIProductBuilder from './pages/AdminAIProductBuilder'
-import SocialContentManagement from './pages/SocialContentManagement'
-import UserMediaGallery from './pages/UserMediaGallery'
-// UserProductCreator discontinued - using ImaginationStation instead
-import UserDesignDashboard from './pages/UserDesignDashboard'
-import MyOrders from './pages/MyOrders'
-import { AdminVoiceSettings } from './pages/admin/VoiceSettings'
-import AdminImaginationProducts from './pages/admin/ImaginationProducts'
-import ImaginationStation from './pages/ImaginationStation'
-import { ImaginationErrorBoundary } from './components/imagination'
 import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
+import Referrals from './pages/Referrals'
+import UserProfile from './pages/UserProfile'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
 import ShippingPolicy from './pages/ShippingPolicy'
 import ReturnsPolicy from './pages/ReturnsPolicy'
-import CookieConsent from './components/CookieConsent'
+
+// Lazy-loaded pages: heavy/admin/auth-gated routes that don't need to be in
+// the initial bundle. Each becomes its own chunk; React.lazy needs `default`
+// exports, so named exports are unwrapped in the dynamic import.
+const Checkout = lazy(() => import('./pages/Checkout'))
+const FoundersDashboard = lazy(() => import('./pages/FoundersDashboard'))
+const VendorDashboard = lazy(() => import('./pages/VendorDashboard'))
+const ModelGallery = lazy(() => import('./pages/ModelGallery'))
+const Wallet = lazy(() => import('./pages/Wallet'))
+const CRM = lazy(() => import('./pages/CRM'))
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
+const MarketingTools = lazy(() => import('./pages/MarketingTools'))
+const OrderManagement = lazy(() => import('./pages/OrderManagement'))
+const ProfileEdit = lazy(() => import('./pages/ProfileEdit'))
+const CustomerMessages = lazy(() => import('./pages/CustomerMessages'))
+const VendorMessages = lazy(() => import('./pages/VendorMessages'))
+const VendorPayouts = lazy(() => import('./pages/VendorPayouts'))
+const FounderEarningsPage = lazy(() => import('./pages/FounderEarnings'))
+const AdminControlPanel = lazy(() => import('./pages/AdminControlPanel'))
+const AdminEmailTemplates = lazy(() => import('./pages/AdminEmailTemplates'))
+const AdminPanel = lazy(() => import('./pages/AdminPanel'))
+const WholesalePortal = lazy(() => import('./pages/WholesalePortal'))
+const VendorStorefront = lazy(() => import('./pages/VendorStorefront'))
+const ManagerDashboard = lazy(() => import('./pages/ManagerDashboard'))
+const AdminCostOverride = lazy(() => import('./pages/AdminCostOverride'))
+const KioskManagement = lazy(() => import('./pages/KioskManagement'))
+const KioskAnalytics = lazy(() => import('./pages/KioskAnalytics'))
+const Community = lazy(() => import('./pages/Community'))
+const ImageDebug = lazy(() => import('./pages/ImageDebug'))
+const AdminAIProductBuilder = lazy(() => import('./pages/AdminAIProductBuilder'))
+const SocialContentManagement = lazy(() => import('./pages/SocialContentManagement'))
+const UserMediaGallery = lazy(() => import('./pages/UserMediaGallery'))
+const UserDesignDashboard = lazy(() => import('./pages/UserDesignDashboard'))
+const MyOrders = lazy(() => import('./pages/MyOrders'))
+const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
+const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
+const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk']
@@ -126,6 +128,11 @@ function App() {
                   <Router>
                     <ScrollToTop />
                     <AppLayout>
+                <Suspense fallback={
+                  <div className="min-h-[40vh] flex items-center justify-center">
+                    <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                }>
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/login" element={<Login />} />
@@ -249,6 +256,7 @@ function App() {
                     </div>
                   } />
                   </Routes>
+                  </Suspense>
                   </AppLayout>
                 </Router>
                 </SidebarProvider>

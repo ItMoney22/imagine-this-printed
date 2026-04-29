@@ -113,20 +113,23 @@ const AdminSupport: React.FC = () => {
         }
     }, [selectedTicket, accessToken])
 
-    // Poll for updates when online
+    // Poll for dashboard-level updates (waiting chats / online agents) when
+    // an agent is online. This used to also re-fetch live-chat messages every
+    // 5s, but `startLiveChatPolling` already does that at 2s, so the duplicate
+    // call hit the API twice per second-pair for no UX gain. Background poll
+    // is bumped to 12s — agent-presence and queue depth don't need sub-5s
+    // freshness, and the prior 5s rate compounded across 3 endpoints to ~36
+    // requests/min per logged-in admin.
     useEffect(() => {
         if (!isAgentOnline || !accessToken) return
 
         const interval = setInterval(() => {
             fetchWaitingChats()
             fetchOnlineAgents()
-            if (selectedTicket && isLiveChatActive) {
-                fetchTicketMessages(selectedTicket.id)
-            }
-        }, 5000)
+        }, 12000)
 
         return () => clearInterval(interval)
-    }, [isAgentOnline, isLiveChatActive, selectedTicket, accessToken])
+    }, [isAgentOnline, accessToken])
 
     const fetchTickets = async () => {
         if (!accessToken) return

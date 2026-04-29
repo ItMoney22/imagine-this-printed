@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { sendWelcomeEmail } from '../utils/email.js'
 
@@ -15,20 +14,12 @@ interface UserPayload {
   role: string
 }
 
-// Auth utilities
-const hashPassword = async (password: string): Promise<string> => {
-  const saltRounds = 12
-  return bcrypt.hash(password, saltRounds)
-}
-
-const verifyPassword = async (password: string, hash: string): Promise<boolean> => {
-  return bcrypt.compare(password, hash)
-}
-
-const generateToken = (payload: UserPayload): string => {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' })
-}
-
+// Legacy JWT verification kept for the /me, /profile, /wallet endpoints
+// below, which still expect a Prisma-issued token. The original /login and
+// /register routes that minted those tokens have been removed (frontend
+// uses Supabase Auth exclusively); these endpoints are effectively dead
+// surfaces but are left intact pending a separate audit of /api/account/*
+// callers before the rest of the file is retired.
 const verifyToken = (token: string): UserPayload | null => {
   try {
     return jwt.verify(token, JWT_SECRET) as UserPayload
@@ -55,114 +46,6 @@ const authenticateUser = async (req: Request): Promise<any> => {
 
   return user
 }
-
-// Auth routes
-router.post('/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' })
-    }
-
-    const user = await prisma.userProfile.findUnique({
-      where: { email },
-      include: { wallet: true }
-    })
-    
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' })
-    }
-    
-    const isValidPassword = await verifyPassword(password, user.passwordHash)
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid password' })
-    }
-    
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role
-    })
-    
-    return res.status(200).json({ user, token })
-  } catch (error) {
-    console.error('Login error:', error)
-    return res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-router.post('/register', async (req: Request, res: Response) => {
-  try {
-    const { email, password, userData } = req.body
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' })
-    }
-
-    const existingUser = await prisma.userProfile.findUnique({
-      where: { email }
-    })
-
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' })
-    }
-
-    const hashedPassword = await hashPassword(password)
-    const username = email.split('@')[0]
-    const displayName = userData?.firstName && userData?.lastName 
-      ? `${userData.firstName} ${userData.lastName}`.trim()
-      : userData?.firstName || 'User'
-    
-    const user = await prisma.userProfile.create({
-      data: {
-        email,
-        passwordHash: hashedPassword,
-        username,
-        displayName,
-        firstName: userData?.firstName,
-        lastName: userData?.lastName,
-        role: 'customer',
-        emailVerified: false,
-        profileCompleted: false,
-        preferences: {},
-        metadata: {},
-        wallet: {
-          create: {
-            pointsBalance: 0,
-            itcBalance: 0,
-            lifetimePointsEarned: 0,
-            lifetimeItcEarned: 0,
-            walletStatus: 'active'
-          }
-        }
-      },
-      include: {
-        wallet: true
-      }
-    })
-
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role
-    })
-
-    // Send welcome email (don't fail if email fails)
-    try {
-      await sendWelcomeEmail(user.email, user.username)
-      console.log(`[Email] Welcome email sent to ${user.email}`)
-    } catch (emailError) {
-      console.error('[Email] Failed to send welcome email:', emailError)
-      // Don't fail registration if email fails
-    }
-
-    return res.status(201).json({ user, token })
-  } catch (error) {
-    console.error('Registration error:', error)
-    return res.status(500).json({ error: 'Internal server error' })
-  }
-})
 
 router.get('/me', async (req: Request, res: Response) => {
   try {

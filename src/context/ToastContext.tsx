@@ -30,8 +30,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     // Keep max 3 toasts, remove oldest if needed
     setToasts(prev => [...prev.slice(-2), newToast])
 
-    // Auto-dismiss after duration (default 3 seconds)
-    const duration = toast.duration ?? 3000
+    // Auto-dismiss after duration. Default 4.5s; was 3s but multi-line
+    // error toasts (e.g. "Insufficient ITC: need X, have Y") were
+    // disappearing before slow readers finished. 4.5s still feels snappy
+    // for success toasts and is the React/Material default.
+    const duration = toast.duration ?? 4500
     setTimeout(() => {
       removeToast(id)
     }, duration)

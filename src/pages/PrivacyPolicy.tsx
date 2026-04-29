@@ -108,9 +108,19 @@ export default function PrivacyPolicy() {
 
           <section>
             <h2 className="text-2xl font-bold text-text mb-4">7. Cookies</h2>
-            <p className="text-muted leading-relaxed">
-              We use cookies and similar technologies to enhance your experience, analyze site traffic, and for marketing purposes. You can control cookies through your browser settings, though some features may not function properly without them.
-            </p>
+            <div className="space-y-4 text-muted leading-relaxed">
+              <p>
+                We use a small number of cookies and similar technologies to operate the site and to credit referrals. You can control cookies through your browser settings, though some features may not function properly without them.
+              </p>
+              <p><strong className="text-text">Cookies we set:</strong></p>
+              <ul className="list-disc list-inside ml-4 space-y-2">
+                <li><strong className="text-text">itp_referral</strong> — stores a referral code so the referring user receives credit when you sign up. 90-day expiration. Only set after you accept cookies via our consent banner.</li>
+                <li><strong className="text-text">itp_referral_ts</strong> — timestamp companion to the referral cookie, used to validate the 90-day window. Only set after you accept cookies via our consent banner.</li>
+              </ul>
+              <p>
+                Essential authentication and cart state are stored in browser <em>localStorage</em>, not cookies, and are not subject to consent because they are required for the site to function.
+              </p>
+            </div>
           </section>
 
           <section>

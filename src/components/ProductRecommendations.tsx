@@ -77,7 +77,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
     loadRecommendations()
   }, [loadRecommendations])
 
-  const handleProductClick = (product: Product, position: number) => {
+  const handleProductClick = useCallback((product: Product, position: number) => {
     // Track recommendation click
     if (user) {
       productRecommender.trackRecommendationClick(
@@ -97,7 +97,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
     if (onProductClick) {
       onProductClick(product, position)
     }
-  }
+  }, [user, context.page, onProductClick])
 
   if (isLoading) {
     return (
@@ -157,10 +157,14 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
             className="group cursor-pointer"
             onClick={() => handleProductClick(product, index)}
           >
-            <div className="bg-gray-100 rounded-lg overflow-hidden mb-2 group-hover:shadow-md transition-shadow">
+            <div className="bg-gray-100 rounded-lg overflow-hidden mb-2 group-hover:shadow-md transition-shadow aspect-square">
               <img
                 src={product.images[0] || '/placeholder-product.jpg'}
                 alt={product.name}
+                loading="lazy"
+                decoding="async"
+                width={400}
+                height={400}
                 className="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-200"
               />
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">

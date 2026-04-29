@@ -14,6 +14,13 @@ const Wallet: React.FC = () => {
   const [selectedTab, setSelectedTab] = useState<'overview' | 'history' | 'purchase' | 'cashout'>('overview')
   const [itcBalance, setItcBalance] = useState(0)
   const [itcHistory, setItcHistory] = useState<ITCTransaction[]>([])
+  // Pagination state for the History tab. Backend `/api/wallet/transactions/itc`
+  // already supports `limit` + `offset`; we just weren't using them and were
+  // pulling the default 50-row window. Now load 20 at a time and let the user
+  // request more with a button.
+  const [txHasMore, setTxHasMore] = useState(true)
+  const [txLoadingMore, setTxLoadingMore] = useState(false)
+  const TX_PAGE_SIZE = 20
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -110,28 +117,50 @@ const Wallet: React.FC = () => {
     }
   }
 
+  const mapTransactions = (rows: any[]): ITCTransaction[] => rows.map((t: any) => ({
+    id: t.id,
+    userId: t.user_id,
+    type: t.type,
+    amount: t.amount,
+    usdValue: t.metadata?.usd_value || Math.abs(t.amount) * itcToUSD,
+    reason: t.reference || t.type || 'ITC Transaction',
+    createdAt: t.created_at,
+    metadata: t.metadata
+  }))
+
   const loadTransactionHistory = async () => {
     try {
-      // Load ITC transactions
-      const itcResponse = await apiFetch('/api/wallet/transactions/itc', {
-        method: 'GET'
-      })
-
-      // Map snake_case to camelCase for ITC transactions
-      const mappedItcTransactions = (itcResponse.transactions || []).map((t: any) => ({
-        id: t.id,
-        userId: t.user_id,
-        type: t.type,
-        amount: t.amount,
-        usdValue: t.metadata?.usd_value || Math.abs(t.amount) * itcToUSD,
-        reason: t.reference || t.type || 'ITC Transaction',
-        createdAt: t.created_at,
-        metadata: t.metadata
-      }))
-      setItcHistory(mappedItcTransactions)
+      const itcResponse = await apiFetch(
+        `/api/wallet/transactions/itc?limit=${TX_PAGE_SIZE}&offset=0`,
+        { method: 'GET' }
+      )
+      const rows = itcResponse.transactions || []
+      setItcHistory(mapTransactions(rows))
+      // Heuristic: if we got back a full page, there *might* be more.
+      // Cheap and good enough for a Load More button — we re-check on every
+      // subsequent click.
+      setTxHasMore(rows.length === TX_PAGE_SIZE)
     } catch (error) {
       console.error('Failed to load transaction history:', error)
       // Non-critical, don't show error
+    }
+  }
+
+  const loadMoreTransactions = async () => {
+    if (txLoadingMore || !txHasMore) return
+    setTxLoadingMore(true)
+    try {
+      const itcResponse = await apiFetch(
+        `/api/wallet/transactions/itc?limit=${TX_PAGE_SIZE}&offset=${itcHistory.length}`,
+        { method: 'GET' }
+      )
+      const rows = itcResponse.transactions || []
+      setItcHistory(prev => [...prev, ...mapTransactions(rows)])
+      setTxHasMore(rows.length === TX_PAGE_SIZE)
+    } catch (error) {
+      console.error('Failed to load more transactions:', error)
+    } finally {
+      setTxLoadingMore(false)
     }
   }
 
@@ -940,6 +969,23 @@ const Wallet: React.FC = () => {
                     </svg>
                   </div>
                   <p className="text-slate-500">No transactions yet</p>
+                </div>
+              )}
+              {itcHistory.length > 0 && txHasMore && (
+                <div className="px-6 py-4 text-center border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={loadMoreTransactions}
+                    disabled={txLoadingMore}
+                    className="px-4 py-2 text-sm font-medium text-purple-600 hover:text-purple-700 disabled:text-slate-400 disabled:cursor-not-allowed"
+                  >
+                    {txLoadingMore ? 'Loading…' : 'Load more transactions'}
+                  </button>
+                </div>
+              )}
+              {itcHistory.length > 0 && !txHasMore && (
+                <div className="px-6 py-3 text-center text-xs text-slate-400 border-t border-slate-100">
+                  No more transactions
                 </div>
               )}
             </div>

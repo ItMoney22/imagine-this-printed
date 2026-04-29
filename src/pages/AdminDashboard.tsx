@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useToast } from '../hooks/useToast'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { aiProducts, adminApi } from '../lib/api'
@@ -20,6 +21,7 @@ import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
+  const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' || 'overview'
   const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices'>(tabFromUrl)
@@ -230,7 +232,7 @@ const AdminDashboard: React.FC = () => {
 
     } catch (error: any) {
       console.error('GPT assist failed:', error)
-      alert(`Failed to generate text: ${error.message || 'Unknown error'}. Please try again.`)
+      toast.error('Failed to generate text', `${error.message || 'Unknown error'}. Please try again.`)
     } finally {
       setGeneratingGptText(false)
     }
@@ -329,7 +331,7 @@ const AdminDashboard: React.FC = () => {
   // AI suggestion for name/description
   const handleAiSuggest = async () => {
     if (uploadedImages.length === 0) {
-      alert('Please upload an image first')
+      toast.warning('Upload an image first', 'You need to upload at least one image before AI assist can suggest copy.')
       return
     }
     setAiSuggesting(true)
@@ -338,7 +340,7 @@ const AdminDashboard: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         console.error('No auth session for AI suggest')
-        alert('Please log in again to use AI assist')
+        toast.error('Session expired', 'Please log in again to use AI assist.')
         return
       }
       const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/products/ai-suggest`, {
@@ -358,11 +360,11 @@ const AdminDashboard: React.FC = () => {
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.error('AI suggest failed:', response.status, errorData)
-        alert('AI assist failed: ' + (errorData.error || 'Unknown error'))
+        toast.error('AI assist failed', errorData.error || 'Unknown error')
       }
     } catch (error) {
       console.error('Error getting AI suggestion:', error)
-      alert('Failed to get AI suggestion')
+      toast.error('Failed to get AI suggestion', 'Please try again or check the network.')
     } finally {
       setAiSuggesting(false)
     }
@@ -531,7 +533,7 @@ const AdminDashboard: React.FC = () => {
       setEditingPricing(null)
     } catch (error) {
       console.error('Error updating pricing:', error)
-      alert('Failed to update pricing')
+      toast.error('Failed to update pricing')
     }
   }
 
@@ -540,10 +542,10 @@ const AdminDashboard: React.FC = () => {
     try {
       await adminApi.setImaginationPromo(promoHours)
       await loadItcPricing()
-      alert(`Promotional pricing activated for ${promoHours} hours!`)
+      toast.success('Promo activated', `Promotional pricing active for ${promoHours} hours.`)
     } catch (error) {
       console.error('Error setting promo:', error)
-      alert('Failed to activate promo')
+      toast.error('Failed to activate promo')
     }
   }
 
@@ -552,10 +554,10 @@ const AdminDashboard: React.FC = () => {
     try {
       await adminApi.resetImaginationPricing()
       await loadItcPricing()
-      alert('Pricing reset to defaults')
+      toast.success('Pricing reset', 'All ITC pricing reverted to defaults.')
     } catch (error) {
       console.error('Error resetting pricing:', error)
-      alert('Failed to reset pricing')
+      toast.error('Failed to reset pricing')
     }
   }
 
@@ -631,7 +633,7 @@ const AdminDashboard: React.FC = () => {
       ))
     } catch (error: any) {
       console.error('Error updating featured status:', error)
-      alert('Failed to update featured status')
+      toast.error('Failed to update featured status', error.message)
     }
   }
 
@@ -706,7 +708,7 @@ const AdminDashboard: React.FC = () => {
       setAuditLogs(prev => [auditLog, ...prev])
     } catch (error: any) {
       console.error('Error saving product:', error)
-      alert('Failed to save product: ' + error.message)
+      toast.error('Failed to save product', error.message)
     }
   }
 
@@ -738,7 +740,7 @@ const AdminDashboard: React.FC = () => {
       setAuditLogs(prev => [auditLog, ...prev])
     } catch (error: any) {
       console.error('Error deleting product:', error)
-      alert('Failed to delete product: ' + error.message)
+      toast.error('Failed to delete product', error.message)
     }
   }
 
@@ -747,11 +749,11 @@ const AdminDashboard: React.FC = () => {
     try {
       setLoadingAction(`regenerate-${productId}`)
       await aiProducts.regenerateImages(productId)
-      alert('Image regeneration job created! The worker will process it shortly.')
+      toast.success('Regeneration queued', 'Image regeneration job created. The worker will process it shortly.')
       await loadProductJobs(productId)
     } catch (error: any) {
       console.error('Error regenerating images:', error)
-      alert('Failed to regenerate images: ' + error.message)
+      toast.error('Failed to regenerate images', error.message)
     } finally {
       setLoadingAction(null)
     }
@@ -762,11 +764,11 @@ const AdminDashboard: React.FC = () => {
     try {
       setLoadingAction(`rembg-${productId}`)
       await aiProducts.removeBackground(productId)
-      alert('Background removal job created! The worker will process it shortly.')
+      toast.success('Background removal queued', 'Job created. The worker will process it shortly.')
       await loadProductJobs(productId)
     } catch (error: any) {
       console.error('Error removing background:', error)
-      alert('Failed to remove background: ' + error.message)
+      toast.error('Failed to remove background', error.message)
     } finally {
       setLoadingAction(null)
     }
@@ -853,7 +855,7 @@ const AdminDashboard: React.FC = () => {
       setTimeout(poll, 1500)
     } catch (error: any) {
       console.error('Error creating mockups:', error)
-      alert('Failed to create mockups: ' + error.message)
+      toast.error('Failed to create mockups', error.message)
       setLoadingAction(null)
     }
   }
@@ -930,7 +932,7 @@ const AdminDashboard: React.FC = () => {
 
   const handleMassDelete = async () => {
     if (selectedProducts.size === 0) {
-      alert('Please select products to delete')
+      toast.warning('No products selected', 'Pick at least one product to delete.')
       return
     }
 
@@ -944,17 +946,18 @@ const AdminDashboard: React.FC = () => {
       await Promise.all(deletePromises)
 
       await loadProducts()
+      const count = selectedProducts.size
       setSelectedProducts(new Set())
-      alert(`Successfully deleted ${selectedProducts.size} products!`)
+      toast.success('Products deleted', `Successfully deleted ${count} product${count === 1 ? '' : 's'}.`)
     } catch (error: any) {
       console.error('Error deleting products:', error)
-      alert('Failed to delete some products: ' + error.message)
+      toast.error('Failed to delete some products', error.message)
     }
   }
 
   const handlePublishProducts = async () => {
     if (selectedProducts.size === 0) {
-      alert('Please select products to publish')
+      toast.warning('No products selected', 'Pick at least one product to publish.')
       return
     }
 
@@ -1008,11 +1011,12 @@ const AdminDashboard: React.FC = () => {
 
       await loadProducts()
       await loadMetrics()
+      const count = selectedProducts.size
       setSelectedProducts(new Set())
-      alert(`Successfully published ${selectedProducts.size} products!`)
+      toast.success('Products published', `Successfully published ${count} product${count === 1 ? '' : 's'}.`)
     } catch (error: any) {
       console.error('Error publishing products:', error)
-      alert('Failed to publish some products: ' + error.message)
+      toast.error('Failed to publish some products', error.message)
     }
   }
 
@@ -1043,13 +1047,13 @@ const AdminDashboard: React.FC = () => {
 
       if (error) throw error
 
-      alert('Image upscale job created! The worker will process it shortly.')
+      toast.success('Upscale queued', 'Image upscale job created. The worker will process it shortly.')
       if (editingProductData?.id === productId) {
         await loadProductJobs(productId)
       }
     } catch (error: any) {
       console.error('Error upscaling image:', error)
-      alert('Failed to create upscale job: ' + error.message)
+      toast.error('Failed to create upscale job', error.message)
     } finally {
       setLoadingAction(null)
     }
@@ -1136,7 +1140,7 @@ const AdminDashboard: React.FC = () => {
       await loadProducts()
     } catch (error: any) {
       console.error('Error updating product:', error)
-      alert('Failed to update product: ' + error.message)
+      toast.error('Failed to update product', error.message)
     }
   }
 
@@ -1216,7 +1220,7 @@ const AdminDashboard: React.FC = () => {
       console.log('✅ Image deleted successfully')
     } catch (error: any) {
       console.error('Error deleting image:', error)
-      alert('Failed to delete image: ' + error.message)
+      toast.error('Failed to delete image', error.message)
     }
   }
 
@@ -1276,7 +1280,7 @@ const AdminDashboard: React.FC = () => {
       console.log('✅ Main image updated successfully')
     } catch (error: any) {
       console.error('❌ Error setting main image:', error)
-      alert('Failed to set main image: ' + error.message)
+      toast.error('Failed to set main image', error.message)
     }
   }
 
@@ -1296,7 +1300,7 @@ const AdminDashboard: React.FC = () => {
       setProducts(products.map(p => p.id === product.id ? { ...p, isThreeForTwentyFive: newStatus, metadata: newMetadata } : p))
     } catch (error: any) {
       console.error('Error updating promo:', error)
-      alert('Failed to update promo status: ' + error.message)
+      toast.error('Failed to update promo status', error.message)
     }
   }
 
@@ -1467,10 +1471,10 @@ const AdminDashboard: React.FC = () => {
       // Reload audit logs to show the new entry
       await loadAuditLogsData()
 
-      alert(`User role updated to ${newRole} successfully!`)
+      toast.success('Role updated', `User role updated to ${newRole}.`)
     } catch (error: any) {
       console.error('Error updating user role:', error)
-      alert('Failed to update user role: ' + error.message)
+      toast.error('Failed to update user role', error.message)
     }
   }
 
@@ -1486,7 +1490,7 @@ const AdminDashboard: React.FC = () => {
         .single()
 
       if (!wallet) {
-        alert('User has no wallet initialized.')
+        toast.warning('No wallet', 'User has no wallet initialized yet.')
         return
       }
 
@@ -1515,10 +1519,10 @@ const AdminDashboard: React.FC = () => {
       setShowItcModal(false)
       setItcAmount(0)
       setItcUser(null)
-      alert('ITC Balance updated successfully')
+      toast.success('ITC balance updated')
     } catch (error: any) {
       console.error('Error granting ITC:', error)
-      alert('Failed to update ITC: ' + error.message)
+      toast.error('Failed to update ITC', error.message)
     }
   }
 
@@ -1547,10 +1551,10 @@ const AdminDashboard: React.FC = () => {
 
       await loadAuditLogsData()
       await loadMetrics()
-      alert('Vendor product approved successfully!')
+      toast.success('Vendor product approved')
     } catch (error: any) {
       console.error('Error approving vendor product:', error)
-      alert('Failed to approve product: ' + error.message)
+      toast.error('Failed to approve product', error.message)
     }
   }
 
@@ -1579,10 +1583,10 @@ const AdminDashboard: React.FC = () => {
 
       await loadAuditLogsData()
       await loadMetrics()
-      alert('Vendor product rejected and deleted successfully!')
+      toast.success('Vendor product rejected', 'The product has been deleted.')
     } catch (error: any) {
       console.error('Error rejecting vendor product:', error)
-      alert('Failed to reject product: ' + error.message)
+      toast.error('Failed to reject product', error.message)
     }
   }
 
@@ -1611,10 +1615,10 @@ const AdminDashboard: React.FC = () => {
 
       await loadAuditLogsData()
       await loadMetrics()
-      alert('3D model approved successfully!')
+      toast.success('3D model approved')
     } catch (error: any) {
       console.error('Error approving model:', error)
-      alert('Failed to approve model: ' + error.message)
+      toast.error('Failed to approve model', error.message)
     }
   }
 
@@ -1643,10 +1647,10 @@ const AdminDashboard: React.FC = () => {
 
       await loadAuditLogsData()
       await loadMetrics()
-      alert('3D model rejected and deleted successfully!')
+      toast.success('3D model rejected', 'The model has been deleted.')
     } catch (error: any) {
       console.error('Error rejecting model:', error)
-      alert('Failed to reject model: ' + error.message)
+      toast.error('Failed to reject model', error.message)
     }
   }
 
@@ -2227,9 +2231,9 @@ const AdminDashboard: React.FC = () => {
                                       try {
                                         await supabase.from('products').delete().eq('id', product.id)
                                         await loadProducts()
-                                        alert('Product deleted successfully!')
+                                        toast.success('Product deleted')
                                       } catch (error: any) {
-                                        alert('Failed to delete: ' + error.message)
+                                        toast.error('Failed to delete', error.message)
                                       }
                                     }
                                   }}

@@ -31,13 +31,18 @@ export const WAREHOUSE_ADDRESS = {
   coordinates: { lat: 34.0027, lng: -85.0450 } // Approximate coordinates
 }
 
-// Local delivery settings (tiered pricing)
+// Local delivery settings (tiered pricing).
+// NOTE: If these tiers change, also update the published prices in
+// src/pages/ShippingPolicy.tsx (Section 2 table) — that page is a legal
+// snapshot and intentionally hardcoded, not pulled from this constant.
 export const LOCAL_DELIVERY_TIERS = [
   { maxMiles: 10, fee: 10.00, label: 'Local Delivery (within 10 miles)' },
   { maxMiles: 20, fee: 15.00, label: 'Local Delivery (10-20 miles)' }
 ]
 export const MAX_DELIVERY_RADIUS_MILES = 20
-export const PICKUP_HOURS = '10:00 AM - 8:00 PM'
+// Warehouse is in Rockmart, GA — Eastern Time. Including the timezone so the
+// pickup-hours copy doesn't lie to West Coast customers reading "8 PM".
+export const PICKUP_HOURS = '10:00 AM - 8:00 PM ET'
 
 // Shipping markup (5% hidden markup on shipping rates)
 const SHIPPING_MARKUP = 0.05

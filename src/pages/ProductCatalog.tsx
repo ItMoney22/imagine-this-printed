@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
@@ -107,26 +107,36 @@ const ProductCatalog: React.FC = () => {
     }
   ]
 
-  const filteredProducts = selectedCategory === 'all'
-    ? products
-    : products.filter(product => product.category === selectedCategory)
+  // Filter + sort run on every render of this large component (category
+  // pills, search box, view toggle, etc. all live above the grid). With
+  // 200+ products the array clone + sort is cheap individually but the
+  // resulting `sortedProducts` reference changes every render, which
+  // breaks `ProductCard`'s implicit memoization and re-renders the whole
+  // grid on unrelated state changes.
+  const filteredProducts = useMemo(
+    () => selectedCategory === 'all'
+      ? products
+      : products.filter(product => product.category === selectedCategory),
+    [products, selectedCategory]
+  )
 
-  // Sort products
-  const sortedProducts = [...filteredProducts].sort((a, b) => {
-    switch (sortBy) {
-      case 'price-low':
-        return a.price - b.price
-      case 'price-high':
-        return b.price - a.price
-      case 'popular':
-        return (b.metadata?.viewCount || 0) - (a.metadata?.viewCount || 0)
-      case 'newest':
-      default:
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
-        return dateB - dateA
-    }
-  })
+  const sortedProducts = useMemo(() => {
+    return [...filteredProducts].sort((a, b) => {
+      switch (sortBy) {
+        case 'price-low':
+          return a.price - b.price
+        case 'price-high':
+          return b.price - a.price
+        case 'popular':
+          return (b.metadata?.viewCount || 0) - (a.metadata?.viewCount || 0)
+        case 'newest':
+        default:
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+          return dateB - dateA
+      }
+    })
+  }, [filteredProducts, sortBy])
 
   useEffect(() => {
     if (category) {

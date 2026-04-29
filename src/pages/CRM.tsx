@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import type { CustomerContact, ContactNote, CustomJobRequest, Order } from '../types'
@@ -162,11 +162,26 @@ const CRM: React.FC = () => {
 
 
   const removeTag = (customerId: string, tagToRemove: string) => {
-    setCustomers(prev => prev.map(customer => 
-      customer.id === customerId 
+    setCustomers(prev => prev.map(customer =>
+      customer.id === customerId
         ? { ...customer, tags: customer.tags.filter(tag => tag !== tagToRemove) }
         : customer
     ))
+  }
+
+  const addTag = (customerId: string) => {
+    // TODO(audit #9): replace this `prompt()` with a tag-picker modal once
+    // we have a shared "edit-list-of-strings" pattern. Until then at least
+    // the button isn't inert and we de-dupe + trim.
+    const raw = prompt('Add tag (use - or _ instead of spaces):')
+    if (raw === null) return // user cancelled
+    const tag = raw.trim()
+    if (!tag) return
+    setCustomers(prev => prev.map(customer => {
+      if (customer.id !== customerId) return customer
+      if (customer.tags.includes(tag)) return customer // de-dupe
+      return { ...customer, tags: [...customer.tags, tag] }
+    }))
   }
 
   const updateJobStatus = (jobId: string, status: CustomJobRequest['status'], assignedTo?: string) => {
@@ -264,32 +279,46 @@ const CRM: React.FC = () => {
     exportToCSV(orderData, 'orders')
   }
 
-  const filteredCustomers = customers.filter(customer => {
-    const matchesSearch = customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         customer.email.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesTag = !filterTag || customer.tags.includes(filterTag)
-    return matchesSearch && matchesTag
-  })
+  // Memoize the three derived lists. They're cheap individually but were
+  // recomputing on every render of this 900+ line component (search-input
+  // keystrokes, modal open/close, tab switches all trigger renders), and
+  // returning fresh references on each pass kept downstream tables from
+  // memoizing properly.
+  const filteredCustomers = useMemo(() => {
+    const q = searchTerm.toLowerCase()
+    return customers.filter(customer => {
+      const matchesSearch = customer.name.toLowerCase().includes(q) ||
+                           customer.email.toLowerCase().includes(q)
+      const matchesTag = !filterTag || customer.tags.includes(filterTag)
+      return matchesSearch && matchesTag
+    })
+  }, [customers, searchTerm, filterTag])
 
-  const filteredOrders = orders.filter(order => {
-    const customer = customers.find(c => c.userId === order.userId)
-    const matchesSearch = (customer?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (customer?.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.id.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = orderStatusFilter === 'all' || order.status === orderStatusFilter
-    
-    let matchesDate = true
-    if (dateRange.start && dateRange.end) {
-      const orderDate = new Date(order.createdAt)
-      const startDate = new Date(dateRange.start)
-      const endDate = new Date(dateRange.end)
-      matchesDate = orderDate >= startDate && orderDate <= endDate
-    }
-    
-    return matchesSearch && matchesStatus && matchesDate
-  })
+  const filteredOrders = useMemo(() => {
+    const q = searchTerm.toLowerCase()
+    return orders.filter(order => {
+      const customer = customers.find(c => c.userId === order.userId)
+      const matchesSearch = (customer?.name || '').toLowerCase().includes(q) ||
+                           (customer?.email || '').toLowerCase().includes(q) ||
+                           order.id.toLowerCase().includes(q)
+      const matchesStatus = orderStatusFilter === 'all' || order.status === orderStatusFilter
 
-  const allTags = Array.from(new Set(customers.flatMap(c => c.tags)))
+      let matchesDate = true
+      if (dateRange.start && dateRange.end) {
+        const orderDate = new Date(order.createdAt)
+        const startDate = new Date(dateRange.start)
+        const endDate = new Date(dateRange.end)
+        matchesDate = orderDate >= startDate && orderDate <= endDate
+      }
+
+      return matchesSearch && matchesStatus && matchesDate
+    })
+  }, [orders, customers, searchTerm, orderStatusFilter, dateRange.start, dateRange.end])
+
+  const allTags = useMemo(
+    () => Array.from(new Set(customers.flatMap(c => c.tags))),
+    [customers]
+  )
 
   if (user?.role !== 'admin' && user?.role !== 'manager') {
     return (
@@ -576,10 +605,17 @@ const CRM: React.FC = () => {
             >
               <option value="all">All Statuses</option>
               <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
+              <option value="approved">Approved</option>
               <option value="printed">Printed</option>
               <option value="shipped">Shipped</option>
               <option value="delivered">Delivered</option>
               <option value="on_hold">On Hold</option>
+              <option value="rejected">Rejected</option>
+              {/* `cancelled` retained as a legacy filter — the Order type
+                  union doesn't list it, but `OrderManagement.tsx` still
+                  emits/filters on it, so admins might have cancelled orders
+                  in the data they need to find. */}
               <option value="cancelled">Cancelled</option>
             </select>
             <div className="flex gap-2">
@@ -791,9 +827,9 @@ const CRM: React.FC = () => {
                               </button>
                             </div>
                           )}
-                          <button className="text-purple-600 hover:text-purple-900 ml-2">
-                            View Details
-                          </button>
+                          {/* "View Details" button removed (was inert with no
+                              onClick or modal target). Re-add when there's a
+                              real job-details modal to open. */}
                         </td>
                       </tr>
                     )
@@ -903,7 +939,10 @@ const CRM: React.FC = () => {
                     </button>
                   </span>
                 ))}
-                <button className="px-3 py-1 border border-dashed card-border rounded-full text-sm text-muted hover:border-gray-400">
+                <button
+                  onClick={() => addTag(selectedCustomer.id)}
+                  className="px-3 py-1 border border-dashed card-border rounded-full text-sm text-muted hover:border-gray-400"
+                >
                   + Add Tag
                 </button>
               </div>

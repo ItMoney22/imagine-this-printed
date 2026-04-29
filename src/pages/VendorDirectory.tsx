@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useNavigate } from 'react-router-dom'
 import type { WholesaleVendor } from '../types'
@@ -7,7 +7,6 @@ const VendorDirectory: React.FC = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [vendors, setVendors] = useState<WholesaleVendor[]>([])
-  const [filteredVendors, setFilteredVendors] = useState<WholesaleVendor[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedFilters, setSelectedFilters] = useState({
     category: 'all',
@@ -22,10 +21,6 @@ const VendorDirectory: React.FC = () => {
   useEffect(() => {
     loadVendors()
   }, [])
-
-  useEffect(() => {
-    filterVendors()
-  }, [vendors, selectedFilters, searchQuery])
 
   const loadVendors = async () => {
     setIsLoading(true)
@@ -165,10 +160,14 @@ const VendorDirectory: React.FC = () => {
     }
   }
 
-  const filterVendors = () => {
+  // Filter + sort the vendor list. Memoized so unrelated parent state
+  // changes (search input keystrokes drive `searchQuery`, but other state
+  // like `viewMode` shouldn't refilter) don't recompute the whole pipeline.
+  // Previously this lived in a useEffect that called setFilteredVendors,
+  // which forced an extra render cycle per filter change.
+  const filteredVendors = useMemo(() => {
     let filtered = vendors
 
-    // Search filter
     if (searchQuery) {
       filtered = filtered.filter(vendor =>
         vendor.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -177,28 +176,24 @@ const VendorDirectory: React.FC = () => {
       )
     }
 
-    // Category filter
     if (selectedFilters.category !== 'all') {
       filtered = filtered.filter(vendor =>
         vendor.categories.includes(selectedFilters.category)
       )
     }
 
-    // Location filter
     if (selectedFilters.location !== 'all') {
       filtered = filtered.filter(vendor =>
         vendor.address.state === selectedFilters.location
       )
     }
 
-    // Certification filter
     if (selectedFilters.certification !== 'all') {
       filtered = filtered.filter(vendor =>
         vendor.certifications.includes(selectedFilters.certification)
       )
     }
 
-    // Minimum order filter
     if (selectedFilters.minimumOrder !== 'all') {
       const maxOrder = parseInt(selectedFilters.minimumOrder)
       filtered = filtered.filter(vendor =>
@@ -206,8 +201,10 @@ const VendorDirectory: React.FC = () => {
       )
     }
 
-    // Sorting
-    filtered.sort((a, b) => {
+    // Sort returns a new array so we don't mutate the source `vendors`
+    // state in place — Array#sort sorts in place, so `[...filtered]`
+    // is the cheap clone before sorting.
+    return [...filtered].sort((a, b) => {
       switch (selectedFilters.sort) {
         case 'rating':
           return b.rating - a.rating
@@ -223,9 +220,7 @@ const VendorDirectory: React.FC = () => {
           return 0
       }
     })
-
-    setFilteredVendors(filtered)
-  }
+  }, [vendors, selectedFilters, searchQuery])
 
   const handleFilterChange = (filterType: string, value: string) => {
     setSelectedFilters(prev => ({

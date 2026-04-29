@@ -309,8 +309,18 @@ export async function processInstantPayout(
     return { success: false, error: 'No Stripe Connect account found. Please set up cash-out first.' }
   }
 
+  // Two-stage gate so the user gets a precise next-step:
+  //   - onboarding_complete=false → user hasn't finished the Stripe form yet
+  //   - onboarding_complete=true but payouts_enabled=false → form submitted,
+  //     Stripe still verifying / requirements outstanding
+  // Stripe rejects either way, but the error copy here is what the user
+  // actually sees, so we want the specific message.
+  if (!connectAccount.onboarding_complete) {
+    return { success: false, error: 'Please complete Stripe Connect onboarding before cashing out.' }
+  }
+
   if (!connectAccount.payouts_enabled) {
-    return { success: false, error: 'Payouts not enabled. Please complete onboarding first.' }
+    return { success: false, error: 'Your Stripe account is still being verified. Cash-out will be available once Stripe completes review.' }
   }
 
   // 2. Check wallet balance

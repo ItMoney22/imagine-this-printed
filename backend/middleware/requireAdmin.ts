@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
-import { supabase } from '../lib/supabase.js'
+import { getCachedRole } from '../lib/role-cache.js'
 
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -10,30 +10,24 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
       return
     }
 
-    // Fetch user profile to check role
-    const { data: profile, error } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', userId)
-      .single()
+    const role = await getCachedRole(userId)
 
-    if (error || !profile) {
-      console.error('[requireAdmin] Error fetching user profile:', error)
+    if (role === null) {
       res.status(403).json({ error: 'Forbidden - Unable to verify user role' })
       return
     }
 
-    if (profile.role !== 'admin') {
-      console.warn(`[requireAdmin] Access denied for user ${userId} with role: ${profile.role}`)
+    if (role !== 'admin') {
+      console.warn(`[requireAdmin] Access denied for user ${userId} with role: ${role}`)
       res.status(403).json({
         error: 'Forbidden - Admin access required',
-        userRole: profile.role
+        userRole: role
       })
       return
     }
 
-    // User is admin, proceed
-    console.log(`[requireAdmin] Admin access granted for user: ${userId}`)
+    // User is admin — happy path stays silent (was a per-request log spam
+    // source before; admins hit a lot of these endpoints).
     next()
   } catch (error: any) {
     console.error('[requireAdmin] Unexpected error:', error)
