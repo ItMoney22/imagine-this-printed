@@ -108,6 +108,29 @@ export interface InboundEmailData {
   }[];
 }
 
+/**
+ * Fetch the FULL received email (incl. html/text body, headers, attachments)
+ * from Resend's receiving endpoint. The `email.received` webhook is
+ * metadata-only — the body lives here, keyed by the event's `email_id`.
+ * (This is exactly how the davidtrinidad.com/Watchtower inbound works.)
+ * Returns null on any failure so the caller can fall back to webhook metadata.
+ */
+export async function fetchReceivedEmail(emailId: string): Promise<(InboundEmailData & { id?: string }) | null> {
+  try {
+    const res = await fetch(`${RESEND_API_BASE}/emails/receiving/${encodeURIComponent(emailId)}`, {
+      headers: { Authorization: `Bearer ${apiKey()}` },
+    });
+    if (!res.ok) {
+      console.error('[email-resend] receiving fetch failed:', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+    return (await res.json()) as InboundEmailData & { id?: string };
+  } catch (err) {
+    console.error('[email-resend] receiving fetch error:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /** Parse `"Display Name <user@host>"` into its parts. */
 export function parseAddress(raw: string): { name: string; address: string } {
   const m = raw?.match(/^\s*(?:"?([^"<]*)"?\s*)?<([^>]+)>\s*$/);

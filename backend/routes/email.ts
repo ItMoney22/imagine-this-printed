@@ -13,6 +13,7 @@ import { requireAuth, requireRole } from '../middleware/supabaseAuth.js';
 import {
   sendViaResend,
   verifyResendWebhook,
+  fetchReceivedEmail,
   parseAddress,
   toAddressArray,
   EMAIL_DOMAIN,
@@ -876,23 +877,23 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
     }
 
     const data: InboundEmailData = event.data || {};
+    const emailId = data.email_id || (data as Record<string, any>).id || null;
 
-    // Resend's inbound `email.received` body has arrived empty under data.text/
-    // data.html for real mail (TikTok, test sends) — the parsed body lives under
-    // a different key depending on the payload. Pull it from any known location
-    // so it's never dropped, and log the payload's top-level keys (no content) so
-    // we can confirm the exact live shape from the server logs.
-    const d = data as Record<string, any>;
-    const htmlBody: string | null =
-      d.html ?? d.html_body ?? d.bodyHtml ?? d.body_html ??
-      d.email?.html ?? (d.content && typeof d.content === 'object' ? d.content.html : null) ?? null;
-    const textBody: string | null =
-      d.text ?? d.plain ?? d.text_body ?? d.bodyText ?? d.body_text ?? d.snippet ??
-      d.email?.text ?? (typeof d.content === 'string' ? d.content : d.content?.text) ?? null;
-    console.log('[email-webhook] inbound payload keys:', Object.keys(d).join(','), '| html?', !!htmlBody, '| text?', !!textBody, '| raw?', !!d.raw);
+    // Resend's `email.received` webhook is METADATA-ONLY — the html/text body,
+    // headers and attachment contents are NOT in the payload. Fetch the full
+    // received email from the receiving endpoint (keyed by email_id). Fall back
+    // to the webhook metadata if the fetch fails so we never drop a message.
+    const full = emailId ? await fetchReceivedEmail(emailId) : null;
+    const src = (full || data) as Record<string, any>;
 
-    const from = parseAddress(String(data.from || ''));
-    const recipients = [...toAddressArray(data.to), ...toAddressArray(data.cc)];
+    const htmlBody: string | null = src.html ?? null;
+    const textBody: string | null = src.text ?? null;
+    if (!full) {
+      console.warn('[email-webhook] receiving fetch returned nothing — storing metadata only for', emailId);
+    }
+
+    const from = parseAddress(String(src.from || data.from || ''));
+    const recipients = [...toAddressArray(src.to ?? data.to), ...toAddressArray(src.cc ?? data.cc)];
 
     // Resend webhooks are account-wide — only handle our domain's recipients.
     const ourRecipients = [...new Set(recipients.filter(r => r.endsWith(`@${EMAIL_DOMAIN}`)))];
@@ -907,7 +908,7 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
       .in('address', ourRecipients)
       .eq('is_active', true);
 
-    const attachments = (data.attachments || []).map(a => ({
+    const attachments = ((src.attachments as InboundEmailData['attachments']) || []).map(a => ({
       filename: a.filename || 'attachment',
       content_type: a.content_type || 'application/octet-stream',
       size: a.size ?? (a.content ? Math.floor(a.content.length * 0.75) : 0),
@@ -921,13 +922,13 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
       const { error } = await supabase.from('email_messages').insert({
         mailbox_id: mailbox.id,
         direction: 'inbound',
-        resend_id: data.email_id || null,
-        message_id: data.message_id || null,
+        resend_id: emailId,
+        message_id: src.message_id || data.message_id || null,
         from_address: from.address,
         from_name: from.name,
-        to_addresses: toAddressArray(data.to),
-        cc_addresses: toAddressArray(data.cc),
-        subject: data.subject || '(no subject)',
+        to_addresses: toAddressArray(src.to ?? data.to),
+        cc_addresses: toAddressArray(src.cc ?? data.cc),
+        subject: src.subject || data.subject || '(no subject)',
         text_body: textBody,
         html_body: htmlBody,
         attachments,
