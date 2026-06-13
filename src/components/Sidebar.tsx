@@ -30,7 +30,8 @@ import {
   X,
   Contact,
   Mail,
-  Inbox
+  Inbox,
+  Star
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -138,6 +139,15 @@ export function Sidebar() {
             label="Products"
             isCollapsed={isCollapsed}
             isActive={isActive('/catalog')}
+            onClick={closeMobile}
+          />
+          <NavItem
+            to="/america-250"
+            icon={<Star className="w-5 h-5" />}
+            label="July 4th · 250"
+            isCollapsed={isCollapsed}
+            isActive={isActive('/america-250')}
+            highlight={true}
             onClick={closeMobile}
           />
           <NavItem
