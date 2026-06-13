@@ -48,8 +48,38 @@ async function getMailboxForUser(mailboxId: string, user: { id: string; role?: s
   if (error || !mailbox) return { mailbox: null, allowed: false };
 
   const isAdmin = user.role === 'admin';
-  const allowed = isAdmin || mailbox.user_id === user.id;
+  // A mailbox ASSIGNED to a user (user_id set) is private to that user — even
+  // admins cannot read or send from someone else's assigned mailbox. Unassigned
+  // company mailboxes (user_id null, e.g. wecare@) are shared and usable by admins.
+  const allowed = mailbox.user_id === user.id || (isAdmin && mailbox.user_id == null);
   return { mailbox, allowed };
+}
+
+// Branded HTML signature appended to every outgoing message that has a
+// configured signature_title (or display name). Marked with data-itp-signature
+// so re-sends / forwards don't stack duplicate signatures.
+function renderSignature(mailbox: { display_name?: string | null; address: string; signature_title?: string | null }): string {
+  const name = (mailbox.display_name || mailbox.address).trim();
+  const role = mailbox.signature_title?.trim();
+  const titleLine = role ? `${escapeHtmlText(role)} &middot; Imagine This Printed` : 'Imagine This Printed';
+  return (
+    `<div data-itp-signature="1" style="margin-top:28px;padding-top:18px;border-top:1px solid #e5e7eb;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">` +
+      `<p style="margin:0;font-weight:700;color:#7c3aed;font-size:15px;">${escapeHtmlText(name)}</p>` +
+      `<p style="margin:2px 0 0;color:#374151;font-size:13px;">${titleLine}</p>` +
+      `<p style="margin:6px 0 0;font-size:12px;color:#6b7280;">` +
+        `<a href="https://imaginethisprinted.com" style="color:#7c3aed;text-decoration:none;">imaginethisprinted.com</a>` +
+        `&nbsp;&middot;&nbsp;<a href="mailto:${mailbox.address}" style="color:#7c3aed;text-decoration:none;">${mailbox.address}</a>` +
+      `</p>` +
+    `</div>`
+  );
+}
+
+function escapeHtmlText(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /** Resolve effective role when the JWT doesn't carry it. */
@@ -83,15 +113,27 @@ router.get('/users', requireAuth, requireAdmin, async (_req: Request, res: Respo
   }
 });
 
-// GET /api/email/mailboxes — admin sees all, employees see their own
+// GET /api/email/mailboxes — INBOX view: only the caller's OWN mailboxes
+// (admins also see unassigned shared company boxes like wecare@). This is the
+// list shown in the 3-pane mail client, so an admin no longer sees employees'
+// private mailboxes here.
+// GET /api/email/mailboxes?scope=all — admin-only: every mailbox, for the
+// "Manage Mailboxes" administration UI.
 router.get('/mailboxes', requireAuth, async (req: Request, res: Response) => {
   try {
     const role = await ensureRole(req);
+    const scope = String(req.query.scope || 'mine');
     let query = supabase
       .from('email_mailboxes')
       .select('*, owner:user_profiles!user_id(id, email, username)')
       .order('created_at', { ascending: true });
-    if (role !== 'admin') {
+    if (scope === 'all') {
+      if (role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+      // no owner filter — full administrative list
+    } else if (role === 'admin') {
+      // own mailboxes + shared/unassigned company mailboxes
+      query = query.or(`user_id.eq.${req.user!.id},user_id.is.null`);
+    } else {
       query = query.eq('user_id', req.user!.id);
     }
     const { data: mailboxes, error } = await query;
@@ -162,9 +204,10 @@ router.post('/mailboxes', requireAuth, requireAdmin, async (req: Request, res: R
 // PUT /api/email/mailboxes/:id — admin updates assignment / name / active
 router.put('/mailboxes/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const { display_name, user_email, is_active } = req.body || {};
+    const { display_name, user_email, is_active, signature_title } = req.body || {};
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (display_name !== undefined) updates.display_name = display_name;
+    if (signature_title !== undefined) updates.signature_title = signature_title || null;
     if (is_active !== undefined) updates.is_active = !!is_active;
     if (user_email !== undefined) {
       if (user_email === null || user_email === '') {
@@ -360,14 +403,27 @@ router.post('/send', requireAuth, async (req: Request, res: Response) => {
       ? `${mailbox.display_name} <${mailbox.address}>`
       : mailbox.address;
 
+    // Build the final HTML body and append the sender's branded signature.
+    // If the caller sent rich HTML (AI compose), use it as-is; otherwise wrap
+    // the plain text. Signature is added server-side so every outgoing message
+    // is consistently signed (and never double-signed).
+    let finalHtml =
+      (typeof html === 'string' && html.trim())
+        ? html
+        : `<div style="font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;white-space:pre-wrap;color:#374151;font-size:15px;line-height:1.6;">${escapeHtmlText(text || '')}</div>`;
+    if (!finalHtml.includes('data-itp-signature')) {
+      finalHtml += renderSignature(mailbox);
+    }
+    const finalText = (typeof text === 'string' && text.trim()) ? text : htmlToPlainText(finalHtml);
+
     const result = await sendViaResend({
       from: fromHeader,
       to,
       cc: Array.isArray(cc) && cc.length ? cc : undefined,
       bcc: Array.isArray(bcc) && bcc.length ? bcc : undefined,
       subject,
-      html: html || undefined,
-      text: text || undefined,
+      html: finalHtml,
+      text: finalText,
       headers: Object.keys(headers).length ? headers : undefined,
     });
 
@@ -384,8 +440,8 @@ router.post('/send', requireAuth, async (req: Request, res: Response) => {
         cc_addresses: Array.isArray(cc) ? cc : [],
         bcc_addresses: Array.isArray(bcc) ? bcc : [],
         subject,
-        text_body: text || null,
-        html_body: html || null,
+        text_body: finalText || null,
+        html_body: finalHtml || null,
         status: 'sent',
         is_read: true,
       })
@@ -451,12 +507,21 @@ const MR_IMAGINE_SYSTEM_PROMPT =
 router.post('/assistant', requireAuth, async (req: Request, res: Response) => {
   try {
     await ensureRole(req);
-    const { mailbox_id, instruction, message_id } = req.body || {};
+    const { mailbox_id, instruction, message_id, history } = req.body || {};
 
     if (!mailbox_id || !instruction || typeof instruction !== 'string') {
       res.status(400).json({ error: 'mailbox_id and instruction are required' });
       return;
     }
+
+    // Prior conversation turns so the user can iterate ("now make it warmer",
+    // "tell her we ship Monday"). Keep only the last 8, text only, capped.
+    const priorTurns: { role: 'user' | 'assistant'; content: string }[] = Array.isArray(history)
+      ? history
+          .filter((t: any) => t && (t.role === 'user' || t.role === 'assistant') && typeof (t.text ?? t.content) === 'string')
+          .slice(-8)
+          .map((t: any) => ({ role: t.role, content: String(t.text ?? t.content).slice(0, 4000) }))
+      : [];
     if (instruction.length > 2000) {
       res.status(400).json({ error: 'Instruction too long' });
       return;
@@ -523,7 +588,11 @@ router.post('/assistant', requireAuth, async (req: Request, res: Response) => {
       max_tokens: 700,
       messages: [
         { role: 'system', content: MR_IMAGINE_SYSTEM_PROMPT },
-        { role: 'user', content: `${context}\n\n---\nREQUEST: ${instruction}` },
+        // The email context is established once as the first user turn so the
+        // model keeps "the email we're discussing" in view across follow-ups.
+        { role: 'user', content: context },
+        ...priorTurns,
+        { role: 'user', content: instruction },
       ],
     });
 
@@ -533,6 +602,145 @@ router.post('/assistant', requireAuth, async (req: Request, res: Response) => {
       return;
     }
     res.json({ reply });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Featured products — for inserting product blocks into composed emails.
+// GET /api/email/featured-products?search=
+// ---------------------------------------------------------------------------
+
+router.get('/featured-products', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const search = String(req.query.search || '').trim();
+    let query = supabase
+      .from('products')
+      .select('id, name, price, images, slug, category, is_featured')
+      .eq('is_active', true)
+      .order('is_featured', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(24);
+    if (search) query = query.ilike('name', `%${search}%`);
+    const { data, error } = await query;
+    if (error) throw error;
+    const products = (data || []).map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      price: typeof p.price === 'number' ? p.price : Number(p.price ?? 0),
+      image: Array.isArray(p.images) && p.images.length ? p.images[0] : null,
+      category: p.category || null,
+      is_featured: !!p.is_featured,
+      url: `https://imaginethisprinted.com/product/${p.id}`,
+    }));
+    res.json({ products });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Mr. Imagine compose assistant — writes / polishes a high-end HTML email.
+// POST /api/email/compose-assist { mailbox_id, instruction, draft?, recipient?,
+//   tone?, products?: [{name, price, url, image}] } -> { subject, html }
+// Gemini 2.5 Flash via OpenRouter. Returns an on-brand HTML content fragment
+// (no signature — that's appended at send time).
+// ---------------------------------------------------------------------------
+
+const COMPOSE_SYSTEM_PROMPT =
+  'You are Mr. Imagine, the email copywriter for Imagine This Printed, a custom printing and AI-design company. ' +
+  'Write a polished, high-end, on-brand client/marketing email body as clean HTML with INLINE styles only. ' +
+  'Brand: friendly but professional, primary purple #7c3aed, pink accent #ec4899, light background, white rounded cards, generous spacing, mobile-friendly. ' +
+  'Rules: (1) Do NOT include <html>, <head> or <body> tags — return a content fragment that lives inside an email container. ' +
+  '(2) Do NOT add a sign-off name, signature, or "Best, ..." block — the system appends the sender\'s signature automatically. ' +
+  '(3) If PRODUCTS are provided, feature them as attractive cards: product image (if any), name, price formatted like $12.99, and a purple rounded "View Product" button linking to the product url. Lay multiple products out cleanly. ' +
+  '(4) Keep copy concise and compelling — a strong hook, clear value, one clear call to action. ' +
+  '(5) Use only inline style="" attributes, never <style> blocks or external CSS. ' +
+  'Return STRICT JSON and nothing else: {"subject": "<email subject>", "html": "<the html body fragment>"}.';
+
+function stripJsonFence(s: string): string {
+  return s.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+router.post('/compose-assist', requireAuth, async (req: Request, res: Response) => {
+  try {
+    await ensureRole(req);
+    const { mailbox_id, instruction, draft, recipient, tone, products } = req.body || {};
+
+    if (!mailbox_id || !instruction || typeof instruction !== 'string') {
+      res.status(400).json({ error: 'mailbox_id and instruction are required' });
+      return;
+    }
+    if (instruction.length > 4000) {
+      res.status(400).json({ error: 'Instruction too long' });
+      return;
+    }
+    if (!checkAssistantLimit(req.user!.id)) {
+      res.status(429).json({ error: 'Mr. Imagine needs a breather — try again in a minute.' });
+      return;
+    }
+    if (!process.env.OPENROUTER_API_KEY) {
+      res.status(503).json({ error: 'Compose assist is not configured (missing OPENROUTER_API_KEY)' });
+      return;
+    }
+
+    const { mailbox, allowed } = await getMailboxForUser(mailbox_id, req.user!);
+    if (!mailbox) { res.status(404).json({ error: 'Mailbox not found' }); return; }
+    if (!allowed) { res.status(403).json({ error: 'You do not have access to this mailbox' }); return; }
+
+    const productList = Array.isArray(products)
+      ? products.slice(0, 8).map((p: any) => ({
+          name: String(p?.name ?? '').slice(0, 200),
+          price: typeof p?.price === 'number' ? p.price : Number(p?.price ?? 0),
+          url: String(p?.url ?? '').slice(0, 500),
+          image: p?.image ? String(p.image).slice(0, 1000) : null,
+        }))
+      : [];
+
+    const userParts = [
+      `SENDER: ${mailbox.display_name || mailbox.address} <${mailbox.address}>`,
+      recipient ? `RECIPIENT: ${String(recipient).slice(0, 300)}` : null,
+      tone ? `TONE: ${String(tone).slice(0, 200)}` : null,
+      draft && String(draft).trim() ? `CURRENT DRAFT TO IMPROVE:\n${String(draft).slice(0, 6000)}` : null,
+      productList.length ? `PRODUCTS TO FEATURE (JSON):\n${JSON.stringify(productList)}` : null,
+      `REQUEST: ${instruction}`,
+    ].filter(Boolean);
+
+    const { default: OpenAI } = await import('openai');
+    const openrouter = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
+
+    const completion = await openrouter.chat.completions.create({
+      model: 'google/gemini-2.5-flash',
+      temperature: 0.7,
+      max_tokens: 2000,
+      messages: [
+        { role: 'system', content: COMPOSE_SYSTEM_PROMPT },
+        { role: 'user', content: userParts.join('\n\n') },
+      ],
+    });
+
+    const raw = completion.choices?.[0]?.message?.content?.trim();
+    if (!raw) {
+      res.status(502).json({ error: 'Mr. Imagine came back empty-handed — try again.' });
+      return;
+    }
+
+    let parsed: { subject?: string; html?: string } = {};
+    try {
+      parsed = JSON.parse(stripJsonFence(raw));
+    } catch {
+      // Model didn't return clean JSON — treat the whole thing as the HTML body.
+      parsed = { html: raw };
+    }
+    if (!parsed.html) {
+      res.status(502).json({ error: 'Mr. Imagine could not draft that — try rephrasing.' });
+      return;
+    }
+    res.json({ subject: parsed.subject || '', html: parsed.html });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }

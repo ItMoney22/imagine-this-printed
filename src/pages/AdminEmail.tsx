@@ -29,11 +29,13 @@ import {
   Sparkles,
   Volume2,
   VolumeX,
+  Wand2,
+  Package,
 } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { emailApi, synthesizeMrImagineVoice } from '../lib/email-api'
-import type { Mailbox, EmailMessage, EmailFolder, AssignableUser } from '../lib/email-api'
+import type { Mailbox, EmailMessage, EmailFolder, AssignableUser, FeaturedProduct } from '../lib/email-api'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,28 @@ function escapeHtml(str: string): string {
 
 function textToHtml(text: string): string {
   return escapeHtml(text).replace(/\n/g, '<br/>')
+}
+
+// Build a featured-products HTML block for emails composed without AI.
+// (When Mr. Imagine writes the email, he weaves the products in himself.)
+function buildProductsHtml(products: FeaturedProduct[]): string {
+  if (!products.length) return ''
+  const cards = products
+    .map(
+      p => `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff;">
+        <tr>
+          ${p.image ? `<td width="96" style="padding:12px;"><img src="${p.image}" alt="${escapeHtml(p.name)}" width="80" height="80" style="width:80px;height:80px;object-fit:cover;border-radius:8px;display:block;" /></td>` : ''}
+          <td style="padding:12px;vertical-align:middle;">
+            <div style="font-weight:600;color:#374151;font-size:15px;">${escapeHtml(p.name)}</div>
+            <div style="color:#059669;font-weight:700;margin:4px 0;">$${p.price.toFixed(2)}</div>
+            <a href="${p.url}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">View Product</a>
+          </td>
+        </tr>
+      </table>`
+    )
+    .join('')
+  return `<div style="margin-top:20px;"><p style="color:#7c3aed;font-weight:600;margin:0 0 8px;font-family:'Segoe UI',Tahoma,sans-serif;">Featured for you</p>${cards}</div>`
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -125,6 +149,73 @@ const ComposeModal: React.FC<ComposeProps> = ({
   const [body, setBody] = useState(defaultBody)
   const [sending, setSending] = useState(false)
 
+  // Mr. Imagine compose-assist (Gemini 2.5 Flash)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [tone, setTone] = useState('Friendly & professional')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [generatedHtml, setGeneratedHtml] = useState<string | null>(null)
+
+  // featured products to feature in the email
+  const [showProducts, setShowProducts] = useState(false)
+  const [products, setProducts] = useState<FeaturedProduct[]>([])
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
+  const [selected, setSelected] = useState<FeaturedProduct[]>([])
+
+  const loadProducts = async (search?: string) => {
+    setProductsLoading(true)
+    try {
+      const { products: p } = await emailApi.listFeaturedProducts(search)
+      setProducts(p)
+    } catch (err: unknown) {
+      toast.error('Products', err instanceof Error ? err.message : 'Failed to load products')
+    } finally {
+      setProductsLoading(false)
+    }
+  }
+
+  const toggleProducts = () => {
+    const next = !showProducts
+    setShowProducts(next)
+    if (next && products.length === 0) loadProducts()
+  }
+
+  const toggleSelect = (p: FeaturedProduct) => {
+    setSelected(prev =>
+      prev.some(s => s.id === p.id) ? prev.filter(s => s.id !== p.id) : [...prev, p]
+    )
+  }
+
+  const runAssist = async (mode: 'write' | 'polish') => {
+    if (!fromId) { toast.error('No mailbox selected'); return }
+    const instruction =
+      mode === 'polish'
+        ? `Polish and elevate this draft into a high-end, on-brand email. Keep my intent and key facts.${aiPrompt.trim() ? ` Extra guidance: ${aiPrompt.trim()}` : ''}`
+        : aiPrompt.trim()
+    if (mode === 'write' && !instruction) {
+      toast.error('Tell Mr. Imagine what to say', 'A short brief, e.g. "thank them for their order and show our bestsellers".')
+      return
+    }
+    setAiBusy(true)
+    try {
+      const { subject: s, html } = await emailApi.composeAssist({
+        mailbox_id: fromId,
+        instruction: instruction || 'Write a friendly, professional email.',
+        draft: body || undefined,
+        recipient: toRaw || undefined,
+        tone,
+        products: selected.map(p => ({ name: p.name, price: p.price, url: p.url, image: p.image })),
+      })
+      setGeneratedHtml(html)
+      if (s && !subject.trim()) setSubject(s)
+      toast.success('Mr. Imagine drafted your email', 'Review the preview, then send or tweak it.')
+    } catch (err: unknown) {
+      toast.error('Mr. Imagine', err instanceof Error ? err.message : 'Could not draft that')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
   const handleSend = async () => {
     const toList = parseEmailList(toRaw)
     if (toList.length === 0) {
@@ -140,6 +231,21 @@ const ComposeModal: React.FC<ComposeProps> = ({
       toast.error('No mailbox selected')
       return
     }
+
+    // Body: use Mr. Imagine's HTML when generated; otherwise wrap the plain
+    // text and append any chosen product cards. The signature is added server-side.
+    let html: string
+    let text: string | undefined
+    if (generatedHtml) {
+      html = generatedHtml
+      text = undefined
+    } else {
+      html =
+        `<div style="font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;white-space:pre-wrap;color:#374151;font-size:15px;line-height:1.6;">${textToHtml(body)}</div>` +
+        buildProductsHtml(selected)
+      text = body
+    }
+
     setSending(true)
     try {
       await emailApi.send({
@@ -148,8 +254,8 @@ const ComposeModal: React.FC<ComposeProps> = ({
         cc: showCcBcc && ccRaw ? parseEmailList(ccRaw) : undefined,
         bcc: showCcBcc && bccRaw ? parseEmailList(bccRaw) : undefined,
         subject,
-        text: body,
-        html: `<div style="font-family:sans-serif;white-space:pre-wrap">${textToHtml(body)}</div>`,
+        text,
+        html,
         in_reply_to_message_id: inReplyToId,
       })
       toast.success('Message sent')
@@ -165,9 +271,9 @@ const ComposeModal: React.FC<ComposeProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card border border-text/10 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col">
+      <div className="bg-card border border-text/10 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[92vh]">
         {/* header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-text/10">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-text/10 shrink-0">
           <h2 className="text-base font-semibold text-text">New Message</h2>
           <button
             onClick={onClose}
@@ -179,7 +285,7 @@ const ComposeModal: React.FC<ComposeProps> = ({
         </div>
 
         {/* fields */}
-        <div className="px-5 py-4 space-y-3 flex-1">
+        <div className="px-5 py-4 space-y-3 flex-1 overflow-y-auto">
           {/* from */}
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted w-14 shrink-0 text-right">From</span>
@@ -251,13 +357,148 @@ const ComposeModal: React.FC<ComposeProps> = ({
             />
           </div>
 
-          {/* body */}
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            placeholder="Write your message..."
-            className="w-full bg-bg border border-text/10 rounded-lg px-3 py-2 text-sm text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y min-h-[240px]"
-          />
+          {/* Mr. Imagine compose bar */}
+          <div className="rounded-xl border border-primary/20 bg-gradient-to-r from-purple-600/5 to-fuchsia-600/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <img
+                src="/mr-imagine/mr-imagine-waving.png"
+                alt=""
+                aria-hidden="true"
+                className="w-6 h-6 object-contain rounded-full bg-gradient-to-br from-purple-600 to-fuchsia-600 p-0.5"
+              />
+              <span className="text-xs font-semibold text-text">Mr. Imagine — let me write it for you</span>
+            </div>
+            <textarea
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              rows={2}
+              placeholder="Tell me what to say — e.g. 'thank them for their first order and show our bestselling tumblers'"
+              className="w-full bg-bg border border-text/10 rounded-lg px-3 py-2 text-sm text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={tone}
+                onChange={e => setTone(e.target.value)}
+                className="bg-bg border border-text/10 rounded-lg px-2 py-1.5 text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {['Friendly & professional', 'Warm & personal', 'Playful & fun', 'Persuasive & sales-y', 'Formal & polished'].map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => runAssist('write')}
+                disabled={aiBusy}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-gradient-to-br from-purple-600 to-fuchsia-600 text-white font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                <Wand2 size={13} /> {aiBusy ? 'Writing…' : 'Write it'}
+              </button>
+              <button
+                onClick={() => runAssist('polish')}
+                disabled={aiBusy || !body.trim()}
+                title={!body.trim() ? 'Type a draft first' : undefined}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-primary/30 text-primary font-medium hover:bg-primary/10 disabled:opacity-40 transition-colors"
+              >
+                <Sparkles size={13} /> Polish my draft
+              </button>
+              <button
+                onClick={toggleProducts}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-text/10 text-text hover:bg-text/5 transition-colors"
+              >
+                <Package size={13} /> Products{selected.length ? ` (${selected.length})` : ''}
+              </button>
+            </div>
+
+            {/* product picker */}
+            {showProducts && (
+              <div className="border-t border-text/10 pt-2 space-y-2">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                  <input
+                    value={productSearch}
+                    onChange={e => setProductSearch(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && loadProducts(productSearch)}
+                    placeholder="Search products…"
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg border border-text/10 rounded-lg text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                {productsLoading ? (
+                  <p className="text-xs text-muted py-3 text-center">Loading products…</p>
+                ) : products.length === 0 ? (
+                  <p className="text-xs text-muted py-3 text-center">No products found.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                    {products.map(p => {
+                      const isSel = selected.some(s => s.id === p.id)
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => toggleSelect(p)}
+                          className={`text-left rounded-lg border p-1.5 transition-colors ${isSel ? 'border-primary bg-primary/10' : 'border-text/10 hover:bg-text/5'}`}
+                        >
+                          {p.image ? (
+                            <img src={p.image} alt="" className="w-full h-16 object-cover rounded mb-1" />
+                          ) : (
+                            <div className="w-full h-16 rounded mb-1 bg-text/5 flex items-center justify-center">
+                              <Package size={16} className="text-muted" />
+                            </div>
+                          )}
+                          <p className="text-[11px] font-medium text-text truncate">{p.name}</p>
+                          <p className="text-[11px] text-primary font-semibold">${p.price.toFixed(2)}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* body: Mr. Imagine HTML preview OR plain-text editor */}
+          {generatedHtml ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-primary flex items-center gap-1">
+                  <Sparkles size={12} /> Mr. Imagine draft (preview)
+                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => runAssist('write')}
+                    disabled={aiBusy}
+                    className="text-xs text-muted hover:text-primary transition-colors disabled:opacity-40"
+                  >
+                    Regenerate
+                  </button>
+                  <button
+                    onClick={() => setGeneratedHtml(null)}
+                    className="text-xs text-muted hover:text-text transition-colors"
+                  >
+                    Edit as text
+                  </button>
+                </div>
+              </div>
+              <iframe
+                title="Email preview"
+                sandbox=""
+                srcDoc={`<div style="padding:12px;font-family:sans-serif;">${generatedHtml}</div>`}
+                className="w-full h-72 bg-white rounded-lg border border-text/10"
+              />
+              <p className="text-[11px] text-muted">Your signature is added automatically when you send.</p>
+            </div>
+          ) : (
+            <>
+              <textarea
+                value={body}
+                onChange={e => setBody(e.target.value)}
+                placeholder="Write your message..."
+                className="w-full bg-bg border border-text/10 rounded-lg px-3 py-2 text-sm text-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y min-h-[200px]"
+              />
+              {selected.length > 0 && (
+                <p className="text-[11px] text-muted">
+                  {selected.length} product{selected.length > 1 ? 's' : ''} will be added as cards. Your signature is added automatically.
+                </p>
+              )}
+            </>
+          )}
         </div>
 
         {/* footer */}
@@ -297,18 +538,34 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
 }) => {
   const toast = useToast()
   const [users, setUsers] = useState<AssignableUser[]>([])
+  const [rows, setRows] = useState<Mailbox[]>(mailboxes)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editOwner, setEditOwner] = useState('')
+  const [editTitle, setEditTitle] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  // Load assignable users for the owner dropdown
+  // Admin manages EVERY mailbox here (the inbox list is scoped to the owner),
+  // so load the full administrative list and refresh it after each change.
+  const loadAll = useCallback(() => {
+    emailApi.listAllMailboxes()
+      .then(({ mailboxes: mb }) => setRows(mb))
+      .catch(() => { /* keep whatever we already have */ })
+  }, [])
+
+  // Reload the full list AND tell the parent to refresh its inbox list.
+  const refreshAll = useCallback(() => {
+    loadAll()
+    onChanged()
+  }, [loadAll, onChanged])
+
   useEffect(() => {
+    loadAll()
     emailApi.listUsers()
       .then(({ users: u }) => setUsers(u))
       .catch(() => { /* dropdown just falls back to empty */ })
-  }, [])
+  }, [loadAll])
 
   const userLabel = (u: AssignableUser) =>
     u.username ? `${u.username} (${u.email})` : u.email
@@ -324,6 +581,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
     setEditingId(m.id)
     setEditName(m.display_name ?? '')
     setEditOwner(m.owner?.email ?? '')
+    setEditTitle(m.signature_title ?? '')
   }
 
   const cancelEdit = () => setEditingId(null)
@@ -334,10 +592,11 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
       await emailApi.updateMailbox(m.id, {
         display_name: editName || undefined,
         user_email: editOwner || null,
+        signature_title: editTitle.trim() || null,
       })
       toast.success('Mailbox updated')
       setEditingId(null)
-      onChanged()
+      refreshAll()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       toast.error('Update failed', msg)
@@ -350,7 +609,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
     setTogglingId(m.id)
     try {
       await emailApi.updateMailbox(m.id, { is_active: !m.is_active })
-      onChanged()
+      refreshAll()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       toast.error('Toggle failed', msg)
@@ -370,7 +629,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
     try {
       await emailApi.deleteMailbox(m.id)
       toast.success('Mailbox deleted')
-      onChanged()
+      refreshAll()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       toast.error('Delete failed', msg)
@@ -395,7 +654,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
       setNewLocal('')
       setNewName('')
       setNewOwner('')
-      onChanged()
+      refreshAll()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       toast.error('Create failed', msg)
@@ -430,12 +689,13 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
                 <th className="text-left pb-2 font-medium">Address</th>
                 <th className="text-left pb-2 font-medium">Display Name</th>
                 <th className="text-left pb-2 font-medium">Assigned To</th>
+                <th className="text-left pb-2 font-medium">Signature</th>
                 <th className="text-left pb-2 font-medium">Active</th>
                 <th className="pb-2" />
               </tr>
             </thead>
             <tbody>
-              {mailboxes.map(m => (
+              {rows.map(m => (
                 <tr key={m.id} className="border-b border-text/5 hover:bg-text/5 transition-colors">
                   <td className="py-2.5 pr-3 font-mono text-xs text-text">{m.address}</td>
                   <td className="py-2.5 pr-3">
@@ -466,6 +726,18 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
                       <span className="text-muted text-xs">
                         {m.owner?.email ?? '—'}
                       </span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    {editingId === m.id ? (
+                      <input
+                        value={editTitle}
+                        onChange={e => setEditTitle(e.target.value)}
+                        placeholder="e.g. CEO & Co-Founder"
+                        className="bg-bg border border-primary/40 rounded px-2 py-1 text-xs text-text w-full focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
+                    ) : (
+                      <span className="text-muted text-xs">{m.signature_title || '—'}</span>
                     )}
                   </td>
                   <td className="py-2.5 pr-3">
@@ -619,6 +891,9 @@ const MrImagineAssistant: React.FC<MrImagineAssistantProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const initialActionFired = useRef(false)
+  // Mirror of `messages` so sendInstruction can pass the running conversation
+  // as history without re-creating the callback on every new message.
+  const messagesRef = useRef<AssistantMessage[]>([])
 
   // persist voice toggle
   useEffect(() => {
@@ -629,8 +904,9 @@ const MrImagineAssistant: React.FC<MrImagineAssistantProps> = ({
     }
   }, [voiceEnabled])
 
-  // scroll to bottom when messages change
+  // scroll to bottom when messages change + keep the history ref in sync
   useEffect(() => {
+    messagesRef.current = messages
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
@@ -689,6 +965,11 @@ const MrImagineAssistant: React.FC<MrImagineAssistantProps> = ({
   const sendInstruction = useCallback(
     async (instruction: string, userLabel: string, messageId?: string) => {
       if (loading) return
+      // Capture the conversation so far (before adding this turn) as history,
+      // so follow-ups like "make it warmer" or "tell her we ship Monday" keep context.
+      const historyTurns = messagesRef.current
+        .filter(m => m.role === 'user' || (m.role === 'assistant' && !m.retryFn))
+        .map(m => ({ role: m.role, text: m.text }))
       const userMsgId = `u-${Date.now()}`
       const asstMsgId = `a-${Date.now()}`
       setMessages(prev => [
@@ -703,6 +984,7 @@ const MrImagineAssistant: React.FC<MrImagineAssistantProps> = ({
             mailbox_id: mailboxId,
             instruction,
             message_id: messageId,
+            history: historyTurns,
           })
           const newMsg: AssistantMessage = { id: asstMsgId, role: 'assistant', text: reply }
           setMessages(prev => [...prev, newMsg])
