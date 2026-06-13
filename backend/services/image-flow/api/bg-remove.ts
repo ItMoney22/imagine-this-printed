@@ -3,6 +3,7 @@
 
 import { supabase } from '../../../lib/supabase.js'
 import { runFal } from '../providers/fal.js'
+import { removeBackgroundSync } from '../../replicate.js'
 import { getModel, DEFAULT_BG_REMOVE_MODEL } from '../models.js'
 import { generateKey, uploadFromUrl } from '../storage.js'
 import { resolveSource } from '../source-resolver.js'
@@ -43,14 +44,27 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
     imageUrl: req.imageUrl,
   })
 
-  const input = buildInput(model, {
-    prompt: '',
-    inputImages: [src.url],
-    extra: req.extra,
-  })
+  const isReplace = model.id.endsWith('/replace')
 
-  const { imageUrls } = await runFal({ modelId: model.id, input })
-  const imageUrl = imageUrls[0]
+  // The fal Bria key is dead (401 invalid credentials). Route plain background
+  // REMOVAL to the working Replicate 851-labs remover (same provider the worker
+  // rembg path uses). Background REPLACE needs prompt-driven generation that
+  // 851-labs can't do, so it stays on fal until a valid FAL_API_KEY is set.
+  let imageUrl: string
+  let provider: 'replicate' | 'fal'
+  if (isReplace) {
+    const input = buildInput(model, {
+      prompt: '',
+      inputImages: [src.url],
+      extra: req.extra,
+    })
+    const { imageUrls } = await runFal({ modelId: model.id, input })
+    imageUrl = imageUrls[0]
+    provider = 'fal'
+  } else {
+    imageUrl = await removeBackgroundSync(src.url)
+    provider = 'replicate'
+  }
 
   const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'
   const safeExt = ['png', 'webp'].includes(ext) ? ext : 'png'
@@ -61,7 +75,7 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
 
   let assetId: string | null = null
   if (productId) {
-    const role = req.assetRole ?? (model.id.endsWith('/replace') ? 'design_bg_replaced' : 'design_no_bg')
+    const role = req.assetRole ?? (isReplace ? 'design_bg_replaced' : 'design_no_bg')
     const { data, error } = await supabase
       .from('product_assets')
       .insert({
@@ -76,7 +90,7 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
         display_order: 99,
         metadata: {
           model_id: model.id,
-          provider: 'fal',
+          provider,
           parent_asset_id: src.parentAssetId,
           cost_usd: model.costPerImageUsd,
           processed_at: new Date().toISOString(),
