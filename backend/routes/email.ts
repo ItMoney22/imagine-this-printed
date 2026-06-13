@@ -876,6 +876,21 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
     }
 
     const data: InboundEmailData = event.data || {};
+
+    // Resend's inbound `email.received` body has arrived empty under data.text/
+    // data.html for real mail (TikTok, test sends) — the parsed body lives under
+    // a different key depending on the payload. Pull it from any known location
+    // so it's never dropped, and log the payload's top-level keys (no content) so
+    // we can confirm the exact live shape from the server logs.
+    const d = data as Record<string, any>;
+    const htmlBody: string | null =
+      d.html ?? d.html_body ?? d.bodyHtml ?? d.body_html ??
+      d.email?.html ?? (d.content && typeof d.content === 'object' ? d.content.html : null) ?? null;
+    const textBody: string | null =
+      d.text ?? d.plain ?? d.text_body ?? d.bodyText ?? d.body_text ?? d.snippet ??
+      d.email?.text ?? (typeof d.content === 'string' ? d.content : d.content?.text) ?? null;
+    console.log('[email-webhook] inbound payload keys:', Object.keys(d).join(','), '| html?', !!htmlBody, '| text?', !!textBody, '| raw?', !!d.raw);
+
     const from = parseAddress(String(data.from || ''));
     const recipients = [...toAddressArray(data.to), ...toAddressArray(data.cc)];
 
@@ -913,8 +928,8 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
         to_addresses: toAddressArray(data.to),
         cc_addresses: toAddressArray(data.cc),
         subject: data.subject || '(no subject)',
-        text_body: data.text || null,
-        html_body: data.html || null,
+        text_body: textBody,
+        html_body: htmlBody,
         attachments,
         status: 'received',
       });
