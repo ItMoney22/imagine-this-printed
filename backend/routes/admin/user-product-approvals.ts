@@ -163,7 +163,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
 
                 <div style="background: linear-gradient(135deg, #9333EA 0%, #EC4899 100%); border-radius: 12px; padding: 20px; margin: 20px 0; color: white;">
                   <h3 style="margin: 0 0 10px 0;">💰 Start Earning!</h3>
-                  <p style="margin: 0;">You'll earn <strong>10% royalty</strong> on every sale of your design!</p>
+                  <p style="margin: 0;">You'll earn <strong>15% royalty</strong> on every sale of your design!</p>
                 </div>
 
                 <h3>Next Steps:</h3>
@@ -181,7 +181,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
                 </div>
 
                 <div style="text-align: center; margin: 20px 0;">
-                  <a href="https://imaginethisprinted.com/products/${product.slug}"
+                  <a href="https://imaginethisprinted.com/product/${id}"
                      style="color: #9333EA; text-decoration: none; font-weight: bold;">
                     View Your Live Product →
                   </a>

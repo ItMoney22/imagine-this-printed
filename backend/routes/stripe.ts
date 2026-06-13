@@ -628,17 +628,24 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
         if (updateError) {
           req.log?.error({ err: updateError, userId }, 'Failed to deduct ITC from wallet')
         } else {
-          // Record the transaction
-          await supabase
+          // Record the transaction (itc_transactions live schema:
+          // type/amount/balance_after/reference/metadata — the old reason/usd_value
+          // columns don't exist, so this ledger insert silently failed)
+          const { error: creditLedgerError } = await supabase
             .from('itc_transactions')
             .insert({
               user_id: userId,
+              type: 'purchase_payment',
               amount: -itcAmount, // Negative for deduction
-              reason: `Store credit applied to order ${orderNumber}`,
+              balance_after: newBalance,
               reference: orderId,
-              usd_value: parseFloat(itcCreditUSD || '0'),
+              metadata: {
+                description: `Store credit applied to order ${orderNumber}`,
+                usd_value: parseFloat(itcCreditUSD || '0')
+              },
               created_at: new Date().toISOString()
             })
+          if (creditLedgerError) req.log?.error({ err: creditLedgerError, userId }, 'Failed to log ITC store-credit ledger')
 
           req.log?.info({
             userId,

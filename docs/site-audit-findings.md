@@ -3015,10 +3015,10 @@ Cycle one area per 2-hour pass; mark ✅ + date when audited; restart the cycle 
 |---|------------|--------|
 | P1 | Home + catalog + product page + cart/checkout flow | ✅ 2026-06-12 |
 | P2 | Imagination Station editor + AI tools | ✅ 2026-06-13 |
-| P3 | Toy Creator + 3D model pipeline + Toy Lab admin | ⬜ |
-| P4 | Metal Art Studio + Creator Hub + community/user products + royalties | ⬜ |
-| P5 | Email system (mailboxes, send/receive, assistant) + transactional senders | ⬜ |
-| P6 | Wallet + ITC + payouts + admin dashboard tabs + order management | ⬜ |
+| P3 | Toy Creator + 3D model pipeline + Toy Lab admin | ✅ 2026-06-13 |
+| P4 | Metal Art Studio + Creator Hub + community/user products + royalties | ✅ 2026-06-13 |
+| P5 | Email system (mailboxes, send/receive, assistant) + transactional senders | ✅ 2026-06-13 |
+| P6 | Wallet + ITC + payouts + admin dashboard tabs + order management | ✅ 2026-06-13 |
 
 ## P1: Home + Catalog + Product Page + Cart/Checkout (2026-06-12, patrol cycle 1)
 
@@ -3075,5 +3075,117 @@ Cycle one area per 2-hour pass; mark ✅ + date when audited; restart the cycle 
 
 ### Verdict
 2 ledger bugs fixed (both silent-schema-drift, both ITC money paths), 1 stale royalty value fixed. 1 UX + 1 speed documented. Backend + frontend typecheck clean.
+
+---
+
+## P3: Toy Creator + 3D Model Pipeline + Toy Lab Admin (2026-06-13, patrol cycle 3)
+
+**What was checked:** All frontend→backend contracts in ToyCreator / ToyAR / AdminToyLab; live-schema alignment for `user_3d_models`, `ai_jobs`, `itc_transactions`, `products`, `product_assets`, `user_wallets` (the tables the toy/3D create→concept→tripo→promote→rembg pipeline writes to); UX + speed sweep. Deep read via Explore subagent.
+
+### Correctness / DB schema
+- 🔴 **Worker ITC ledger insert used nonexistent columns — every 3D-model/toy ITC charge + refund went unlogged.** `deductItc`/`refundItc` inserted `description` + `reference_type` into `itc_transactions`, but the live schema is `(user_id, type, amount, reference, balance_after, metadata, created_at)` — neither column exists. The `.insert()` error was never checked, so the wallet balance updated correctly but **no ledger row was ever written** for any Toy Creator / 3D-model generation or its failure refund (same silent-drift class as P1 stripe.ts and P2 imagination-pricing.ts).
+  - **Fix applied:** rewrote both inserts to the live shape (`type/amount/balance_after/reference` + `metadata:{source,description,status}`) and now surface `error`. Files: `backend/worker/ai-jobs-worker.ts:1172` (deduct), `backend/worker/ai-jobs-worker.ts:1211` (refund).
+- 🟢 **`3d-models.ts` purchase-download uses the atomic `deduct_itc` RPC** (`3d-models.ts:873`), not a direct insert — ledger handled server-side, no drift.
+- 🟢 **`ai_jobs` writes align** — code writes `type/status/input/output/created_at` (insert) and `status/output/error/updated_at` (update); all exist live.
+- 🟢 **`products` promote insert aligns** — `name/description/category/price/images/status/is_active/is_user_generated/created_by_user_id/metadata` all exist (royalty attribution via `created_by_user_id` confirmed present).
+- 🟢 **`product_assets` rembg insert aligns** — `product_id/kind/path/url/width/height/asset_role/is_primary/display_order` all exist.
+- 🟢 **`user_3d_models` insert + all pipeline updates align** — `concept_image_url/glb_url/stl_url/size_tier/print_height_mm/print_price_usd/triangle_count/error_message/purchased_licenses/metadata/itc_charged/status` all exist.
+- 🟢 **All frontend→backend contracts map cleanly.** ToyCreator's 10 calls (wallet/get, size-tiers, /{id}, /create, /approve, /generate-3d, /order, /remix, ai/transcribe + 3s status poll), ToyAR's public `/public/{id}/ar` (correctly no-auth, gated on `metadata.nfc.enabled`), and AdminToyLab's admin/list, /retry, /promote, /nfc — methods, paths (mounted `/api/3d-models`), auth (requireAuth / requireRole(['admin']) / public), and response keys all match the handlers.
+- ⚠️ **CROSS-AREA NOTE (P6, not fixed this cycle):** `backend/routes/wallet.ts` has the SAME `itc_transactions` drift at 5 inserts — lines 406, 517, 602, 732, 800 write `reference_type`/`description` (and 800 also `reference_id`). These belong to P6 (Wallet/ITC/payouts); flagged here so the P6 pass fixes them. Two of wallet.ts's inserts (517, 602, 732, 800) don't check the error either.
+
+### UX
+- 🟡 **Admin "Toy parts" panel never rendered.** ToyCreator stores `metadata.toy_parts` as an **object** (`{head, body, extras[], mind, strength, spoken}`) but `AdminToyLab` ModelCard cast it to `string[]` and guarded on `toyParts.length` — `.length` on an object is `undefined`, so the chip list silently never showed.
+  - **Fix applied:** normalize both the legacy array shape and the real object shape into a deduped trait-chip list. File: `src/pages/AdminToyLab.tsx:417`.
+- 🟡 **(minor, documented)** Promote modal copy "activate it in Product Management" is vague — no link/path to Admin → Products. `src/pages/AdminToyLab.tsx:156`. Low priority.
+- 🟢 No emoji-as-chrome, no stray dark-mode defaults on light surfaces (modal scrim `bg-black/60` is a standard overlay, acceptable). Empty states in ToyCreator (CreatureCard) and AdminToyLab (search-vs-filter contextual) are good.
+- 🟢 Explore's "dead `? null : null` ternary at line 1014" was a **false positive** — that line is a legitimate Load-More spinner ternary. No change.
+
+### Speed
+- 🟢 **`Model3DViewer` is already optimized** — it does NOT statically import three.js/model-viewer; it injects `@google/model-viewer` from CDN at runtime only when the component mounts (the "alive" reveal stage). `React.lazy` would save almost nothing since the heavy dependency is already deferred. `src/components/3d-models/Model3DViewer.tsx:23`.
+- ⚡ **(documented, not fixed)** `buildPrompt` (`ToyCreator.tsx:850`) and `totalPrice` (`ToyCreator.tsx:1031`) recompute each render without `useMemo`. Both are trivial string/number ops on a single-item kid page (not a list/hot path), so memoization is micro-optimization with stale-deps risk; left as-is.
+- 🟢 ToyCreator polls model status every 3s only while a job is in flight; AdminToyLab paginates (limit/offset) rather than loading all models.
+
+### Verdict
+1 🔴 ledger bug fixed (silent schema drift, ITC money path — toy/3D charges + refunds now logged), 1 🟡 UX fixed (admin toy-parts display). 1 🟡 + 2 ⚡ documented; 1 cross-area P6 note raised (wallet.ts itc_transactions drift × 5). Root + backend typecheck clean (EXIT=0).
+
+---
+
+## P4: Metal Art Studio + Creator Hub + Community/User Products + Royalties (2026-06-13, patrol cycle 4)
+
+**What was checked:** All frontend→backend contracts in MetalArtStudio, the Creator Hub (UserDesignDashboard at /account/designs), and Community/CommunityShowcase; live-schema alignment for `itc_transactions`, `wallet_transactions`, `products`, `product_tags`, `design_sessions`, `community_boosts`, `community_boost_earnings`, `community_posts`; royalty rates; UX + speed. Deep read via Explore subagent (several Explore inferences corrected against live schema — see 🟢 below).
+
+### Correctness / DB schema
+- 🔴 **Five `itc_transactions` ledger inserts wrote nonexistent columns** — `reference_type`/`description`/`reference_id` don't exist on live `itc_transactions` (`id, user_id, type, amount, reference, balance_after, metadata, created_at`). Wallet balances were updated correctly in every case (separate `user_wallets` update), but the ledger row silently failed, so the user's ITC transaction history was missing these entries (same silent-drift class as P1/P2/P3).
+  - **Fix applied:** all five rewritten to `reference` + `metadata` (folding the old description/reference_id into metadata) with error surfacing. Files: `backend/routes/user-products.ts:99` (/create — design generation), `:557` (/variations), `:1265` (/download); `backend/routes/community.ts:465` (paid boost), `:732` (creator boost reward).
+- 🔴 **Apparel royalty was 10%, contradicting the 15% promised everywhere else.** `/create` stored `metadata.creator_royalty_percent: 10` and `/creator-analytics` reported `royaltyRate: '10%'` / `0.10`, while Metal Art, 3D toys, the designs/submit path, and the Creator Hub UI ("every sale pays you 15%") all use 15%.
+  - **Fix applied:** apparel `/create` → 15% and creator-analytics → `0.15` / `'15%'`. Files: `backend/routes/user-products.ts:197`, `:1150`, `:1159`.
+- 🔴 **MISSING TABLES — community + drafts features write to tables that don't exist** (documented only; creating them is DDL, which the patrol must not run against prod). Live DB has NONE of: `community_boosts`, `community_boost_earnings`, `community_posts`, `design_sessions`. Both routers are mounted (`/api/community` index.ts:199, `/api/user-products` :186), so the writes are reachable and fail: community boost/earnings inserts and post reads error out (the feed degrades via a `products WHERE is_user_generated` fallback so the page still shows content), and Creator Hub drafts can't be saved/loaded (`design_sessions` — already seen as the worker's 42P01 in P3; the frontend `.catch` degrades drafts to empty). **Needs a migration as a separate (non-patrol) task.**
+- 🟢 **Explore inferences corrected against live schema:** `wallet_transactions` DOES exist (`id, user_id, transaction_type, amount, balance_before, balance_after, reference_id, reference_type, description, created_at`) and the imagination-station auto-nest/smart-fill inserts (`transaction_type/amount/reference_type/description`) align — the P2 fix holds, NOT a bug. The `/my-products`, `/creator-analytics`, `/design-sessions`, `/my-earnings` routes all EXIST (user-products.ts:706/1051/798/732) — Creator Hub data loads. `products` (designs/submit + /create), `product_tags`, `ai_jobs` inserts all align with live schema.
+
+### UX
+- 🟡 **(documented)** `creator_royalty_percent` lives only in `products.metadata` (no top-level column), so any code reading `product.creator_royalty_percent` gets undefined — must read `metadata.creator_royalty_percent`. Not a bug today (royalty display is hardcoded), but a latent footgun. `imagination-station.ts:1322`, `user-products.ts:197`.
+- 🟢 Light-mode clean — Metal Art Studio uses the light surface + purple accents; the only `bg-slate-900`/`text-white` are intentional TikTok/Instagram platform badges (`Community.tsx`), not dark-mode drift. Creator Hub draft-expiry banner + empty states are clear. No emoji-as-chrome.
+- 🟢 Two submission flows (designs/submit and /create) now both store 15% royalty — reconciled by the fix above.
+
+### Speed
+- 🟢 Creator Hub loads its 4 initial fetches (my-products, design-sessions, creator-analytics, wallet) via `Promise.all` (UserDesignDashboard.tsx:119) — already parallel.
+- ⚡ **(documented)** `CreateDesignModal` and `Create3DModelForm` are eagerly imported in UserDesignDashboard (`:33`) though only used on demand — candidates for `React.lazy`. `Community.tsx:40` `loadPosts` isn't `useCallback` (only called from an effect — negligible). Left as-is (low impact).
+
+### Verdict
+2 🔴 fixed (5-site ITC ledger drift across user-products + community; apparel royalty 10%→15%), 1 🔴 documented (4 missing tables — community + design_sessions — need a migration, DDL out of patrol scope). 1 🟡 + 2 ⚡ documented. Several Explore "critical/missing" claims disproven against live schema. Root + backend typecheck clean (EXIT=0).
+
+---
+
+## P5: Email System (mailboxes, send/receive, assistant) + transactional senders (2026-06-13, patrol cycle 5)
+
+**What was checked:** Live-schema alignment for `email_messages`, `email_mailboxes`, `email_templates`, `email_logs`, `discount_codes`; the admin email-templates route + AdminEmailTemplates page contracts; email_logs write paths + the Brevo tracking webhook; the transactional senders' wiring; AdminEmail UX/speed. (The in-app mailbox client, compose, assistant, signatures, coupon auto-create were built+verified earlier this session — re-confirmed, no new issues.) Deep read via Explore subagent; several Explore "verify these columns / no caller" flags resolved against live schema + code.
+
+### Correctness / DB schema
+- 🟢 **No schema drift in the entire email area.** Verified every insert/update against the live schema:
+  - `email_messages` send insert (`mailbox_id, direction, resend_id, in_reply_to, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, text_body, html_body, status, is_read`) + inbound insert (+`message_id, attachments`) + read/archive update — all columns exist.
+  - `email_mailboxes` CRUD incl. `signature_title` — aligned.
+  - `email_templates` PATCH (`name, description, subject_template, html_template, ai_enabled, ai_prompt_context, ai_tone, mr_imagine_enabled, mr_imagine_greeting, is_active, updated_by, updated_at`) — all exist.
+  - `email_logs` insert (emailAI.ts logEmail: `template_key, recipient_email, subject_sent, ai_personalization_used, message_id, status, order_id, metadata`) and Brevo-webhook update (`status, open_count, opened_at, click_count, clicked_at, clicked_links, bounced_at, error_message, spam_reported_at, unsubscribed_at`) — all columns exist (Explore flagged `clicked_links`/`unsubscribed_at` as unverified; both present).
+  - `discount_codes` (compose-assist coupon create) — aligned (verified P4).
+- 🟢 **All contracts match.** AdminEmailTemplates.tsx ↔ `/api/admin/email-templates` (GET /, /logs/recent, /stats/overview, POST /:key/preview, /:key/send-test, PATCH /:key) and AdminEmail.tsx ↔ `/api/email/*` line up on method/path/keys.
+
+### UX / content
+- 🟡 **Approval email said "10% royalty"** — contradicts the 15% platform-wide rate (fixed in P4) and the Creator Hub promise. **Fix applied:** `backend/routes/admin/user-product-approvals.ts:166` → 15%.
+- 🟡 **Approval email had a broken CTA link** — "View Your Live Product" pointed at `/products/${product.slug}`, but the app route is `/product/:id` (App.tsx:150); no `/products/:slug` route exists, so the link 404'd. **Fix applied:** `user-product-approvals.ts:184` → `/product/${id}`. (Rejection email's `/create-design` and approval's `/wallet` links verified to resolve — App.tsx:152/165 — left as-is.)
+- 🟡 **(documented) Six dedicated template senders are unused.** `sendProductApprovalEmail`/`sendProductRejectionEmail` (utils/email.ts:160/215) are DUPLICATES — the live approval route (`admin/user-product-approvals.ts`) already emails creators via its own inline HTML through `sendEmail` (Resend). The unused template versions ALSO carry the same `/products/${productId}` broken-link pattern + "10%" copy, so they must NOT be wired as-is. `sendCustomJob{Submitted,Approved,Completed}Email` have no trigger (no custom-jobs route/`custom_job_requests` table found — appears unbuilt). `sendPayoutEmail` has no trigger — payout completion runs in the Stripe Connect webhook (`webhooks.ts` `payout.paid` → `handlePayoutPaid`) with no email call. Recommend: consolidate product approval/rejection onto one (fixed) implementation and delete the duplicates; wire payout email into the Stripe Connect paid handler; build/remove the custom-job senders. (Refactor — documented, not done in patrol.)
+- 🟡 **(documented) email_logs under-reports real sends.** Only admin test-sends write a log row (via `logEmail`); the transactional senders (order confirmation, welcome, approval, etc.) send through `sendEmailWithTracking` → Resend and do NOT write `email_logs`. Open/click tracking only updates via the **Brevo** webhook, which is effectively dead post-Resend-migration (no Resend events webhook). Net: the admin Email Logs/Stats dashboard reflects almost nothing for current production mail. Fix would be: write an email_logs row on every transactional send + add a Resend events webhook to populate open/click/bounce. (Bigger task — documented.)
+- 🟢 Explore mis-flags corrected: AdminEmail's `selected.map(...)` is inside the `runAssist` handler, not a render hot path (no memo needed); the `bg-black/60` compose-modal scrim is a deliberate standard overlay (consistent with the P3 ruling), not a light-theme violation. No dead buttons.
+
+### Speed
+- 🟢 Mailbox poll is silent + 60s; compose product picker lazy-loads on toggle; assistant carries bounded history. No waterfalls. Nothing to fix.
+
+### Verdict
+0 🔴. 2 🟡 fixed (approval-email royalty 10%→15%; broken product CTA link). 2 🟡 documented (6 unused/duplicate template senders → consolidate + wire payout/custom-job; email_logs under-reports real sends + Resend tracking webhook missing). Entire email area is schema-aligned and contract-clean. Root + backend typecheck clean (EXIT=0).
+
+---
+
+## P6: Wallet + ITC + Payouts + Admin Dashboard + Order Management (2026-06-13, patrol cycle 6)
+
+**What was checked:** All frontend→backend contracts in Wallet.tsx + AdminConnectManagement + admin order management; live-schema alignment for `itc_transactions`, `orders`, `payout_requests`, `itc_cashout_requests`, `audit_logs`, `user_wallets`; every ITC ledger write in wallet.ts + stripe.ts; admin order-status update. Deep read via Explore; all column lists diffed against live schema.
+
+### Correctness / DB schema
+- 🔴 **Full-ITC checkout was 100% broken — order insert wrote 7 nonexistent columns.** `POST /api/wallet/process-full-itc-payment` inserted `shipping_cost`, `tax`, `discount`, `shipping_method`, `shipping_type`, `pickup_appointment`, `coupon_code` into `orders`, but the live table uses `shipping_amount`/`tax_amount`/`discount_amount` and has none of the other four. Postgres rejects a row with unknown columns, so EVERY pay-entirely-with-ITC checkout failed with "Failed to create order." (No money lost — the insert is before the ITC deduction, and it returns 500 first.)
+  - **Fix applied:** mapped to `shipping_amount`/`tax_amount`/`discount_amount`, moved `coupon_code` into `discount_codes[]`, folded `shipping_method`/`shipping_type`/`pickup_appointment`/`coupon_code` into `metadata`. File: `backend/routes/wallet.ts:901`.
+- 🔴 **Six `itc_transactions` ledger inserts wrote nonexistent columns** — `reference_type`/`description`/`reference_id` (and stripe's `reason`/`usd_value`); live `itc_transactions` is `id, user_id, type, amount, reference, balance_after, metadata, created_at`. Wallet balances were always updated correctly (separate `user_wallets` update), but the ledger row silently failed — so payouts, payout-cancel refunds, ITC→store-credit conversions, feature deductions, feature refunds, and Stripe store-credit deductions left **no transaction-history entry** (the same silent-drift class as P1–P4, and the cross-area note raised in P4).
+  - **Fix applied:** all six rewritten to `reference` + `metadata` with error surfacing; the stripe one also gained the missing `type`/`balance_after`. Files: `backend/routes/wallet.ts:406` (payout-request), `:518` (payout-cancel refund), `:604` (itc-to-credit), `:735` (deduct-itc), `:804` (refund-itc); `backend/routes/stripe.ts:632` (checkout ITC store-credit deduction).
+- 🔴 **(documented — DDL out of patrol scope) `audit_logs` table does not exist.** The admin order-status-update writes an audit row (`stripe.ts:1024`: `user_id, action, entity, entity_id, changes, created_at`) to a table that isn't in the DB. The insert's error isn't captured (Supabase returns `{error}` rather than throwing), so the status update still succeeds — but the audit trail is silently never recorded. Needs a migration to create `audit_logs` (or remove the dead insert). Same class as the P4 missing-tables finding.
+- 🟢 **Aligned / correct:** `payout_requests` insert (`user_id, amount_itc, amount_usd, payout_method, payout_details, status`) ✓; `process-full-itc-payment` ledger insert (wallet.ts:971) already correct; Stripe webhook `purchase` (stripe.ts:772) + `payment_failed` (stripe.ts:907) inserts correct; `itc_cashout_requests` (cashout) + `stripe_connect_accounts` reads align; `orders` Stripe-checkout insert (P1 path) uses the correct `*_amount` columns; admin order-status UPDATE (`status, tracking_number, tracking_company?, fulfillment_status, updated_at`) aligns.
+- 🟢 **Contracts:** all Wallet.tsx calls (`/api/wallet/get`, `/transactions/itc`, `/connect/*`, `/api/gift-cards/redeem`, `/api/stripe/create-payment-intent`), AdminConnectManagement (`/api/wallet/admin/connect/overview`), and the admin order-status PATCH map to real routes with matching keys.
+
+### UX
+- 🟡 **(documented)** `Wallet.tsx:557` Quick-Actions card uses a dark `from-slate-900 to-slate-800 ... text-white` gradient on the light, purple-accented site — visually off-brand (should be a purple/pink gradient). Minor.
+- 🟡 **(documented)** Cashout-history section (`Wallet.tsx:1270`) has no empty state — when there are no cash-outs the block just doesn't render, which can read as broken. Add a "No cash-outs yet" placeholder.
+- 🟢 No dead buttons; no emoji-as-chrome; the rest of the wallet/admin surfaces are light-theme clean.
+
+### Speed
+- ⚡ **(documented)** After a successful purchase and after a cashout, `Wallet.tsx` awaits `loadWalletData()` then `loadCashoutHistory()` sequentially (`:199`, `:396`) — could be `Promise.all`. Low impact (post-action refresh). The admin connect overview is already a single batched endpoint.
+
+### Verdict
+2 🔴 fixed (full-ITC checkout order insert — feature was fully broken; 6-site ITC ledger drift across wallet.ts + stripe.ts), 1 🔴 documented (`audit_logs` table missing — needs migration). 2 🟡 + 1 ⚡ documented. Root + backend typecheck clean (EXIT=0). **All six patrol areas now ✅ — next cycle resets to P1.**
 
 ---

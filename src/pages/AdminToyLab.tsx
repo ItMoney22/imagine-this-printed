@@ -414,7 +414,21 @@ function ModelCard({ model, onRetry, onPromote }: ModelCardProps) {
     setRetrying(false)
   }
 
-  const toyParts = (model.metadata as Record<string, unknown> | null)?.toy_parts as string[] | undefined
+  // ToyCreator stores toy_parts as an object ({head, body, strength, extras[], …}),
+  // but this card historically expected a string[] (so .length was undefined and the
+  // panel never rendered). Normalize both shapes into a deduped trait chip list.
+  const rawToyParts = (model.metadata as Record<string, unknown> | null)?.toy_parts
+  const toyParts: string[] = Array.isArray(rawToyParts)
+    ? (rawToyParts as unknown[]).filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    : rawToyParts && typeof rawToyParts === 'object'
+      ? (() => {
+          const p = rawToyParts as Record<string, unknown>
+          const vals = [p.head, p.body, p.strength, ...(Array.isArray(p.extras) ? p.extras : [])]
+          return Array.from(
+            new Set(vals.filter((v): v is string => typeof v === 'string' && v.trim().length > 0))
+          )
+        })()
+      : []
 
   return (
     <div className="bg-card border border-text/10 rounded-xl overflow-hidden flex flex-col">

@@ -96,10 +96,10 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
         type: 'usage',
         amount: -GENERATION_COST_ITC,
         balance_after: newBalance,
-        reference_type: 'design_generation',
-        description: `Design generation: ${prompt.substring(0, 50)}...`,
+        reference: 'design_generation',
         metadata: {
           reason: 'Design generation',
+          description: `Design generation: ${prompt.substring(0, 50)}...`,
           prompt_preview: prompt.substring(0, 100),
           product_type: productType,
         }
@@ -193,8 +193,9 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
           print_placement: printPlacement,
           print_style: printStyle,
           model_id: modelId,
-          // Royalty settings
-          creator_royalty_percent: 10, // 10% royalty on each sale
+          // Royalty settings — 15% platform-wide (matches Metal Art, 3D, and
+          // the Creator Hub "every sale pays you 15%" promise; was 10% here only).
+          creator_royalty_percent: 15,
           submitted_at: new Date().toISOString(),
         },
       })
@@ -548,16 +549,16 @@ router.post('/:id/variations', requireAuth, async (req: Request, res: Response):
       .update({ itc_balance: newBalance })
       .eq('user_id', userId)
 
-    // Log transaction
-    await supabase.from('itc_transactions').insert({
+    // Log transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { error: varTxError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'usage',
       amount: -VARIATION_COST_ITC,
       balance_after: newBalance,
-      reference_type: 'design_variation',
-      description: `Design variations (${variationType}) for product`,
-      metadata: { product_id: id, variation_type: variationType }
+      reference: 'design_variation',
+      metadata: { product_id: id, variation_type: variationType, description: `Design variations (${variationType}) for product` }
     })
+    if (varTxError) console.error('[user-products] ⚠️ variation ledger insert failed:', varTxError.message)
 
     // Get original prompt
     const originalPrompt = product.metadata?.original_prompt || product.metadata?.image_prompt || product.description
@@ -1146,8 +1147,8 @@ router.get('/creator-analytics', requireAuth, async (req: Request, res: Response
       })
     }
 
-    // Calculate royalty percentage (10%)
-    const royaltyRate = 0.10
+    // Calculate royalty percentage (15% platform-wide)
+    const royaltyRate = 0.15
     const potentialRoyalties = totalRevenue * royaltyRate
 
     const analytics = {
@@ -1155,7 +1156,7 @@ router.get('/creator-analytics', requireAuth, async (req: Request, res: Response
       totalSales,
       totalRevenue,
       totalRoyalties,
-      royaltyRate: '10%',
+      royaltyRate: '15%',
       bestSellingProduct,
       monthlyTrends,
       recentDesigns: userProducts?.slice(0, 5) || [],
@@ -1254,19 +1255,18 @@ router.post('/download', requireAuth, async (req: Request, res: Response): Promi
       return res.status(500).json({ error: 'Failed to process payment' })
     }
 
-    // Log the transaction
-    await supabase
+    // Log the transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { error: dlTxError } = await supabase
       .from('itc_transactions')
       .insert({
         user_id: userId,
         type: 'usage',
         amount: -DOWNLOAD_COST_ITC,
         balance_after: newBalance,
-        reference_type: 'design_download',
-        reference_id: designId,
-        description: `Design download: ${design.name}`,
-        metadata: { designId, designName: design.name }
+        reference: 'design_download',
+        metadata: { designId, designName: design.name, description: `Design download: ${design.name}` }
       })
+    if (dlTxError) console.error('[user-products] ⚠️ download ledger insert failed:', dlTxError.message)
 
     console.log('[user-products] ✅ Download authorized:', { userId, designId, newBalance })
 

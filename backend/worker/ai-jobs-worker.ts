@@ -1168,16 +1168,19 @@ async function deductItc(userId: string, amount: number, description: string): P
       return false
     }
 
-    // Log transaction
-    await supabase.from('itc_transactions').insert({
+    // Log transaction — live itc_transactions schema is
+    // (user_id, type, amount, reference, balance_after, metadata, created_at).
+    // The old insert wrote description/reference_type (nonexistent cols) with
+    // the error swallowed, so every 3D-model charge silently skipped the ledger.
+    const { error: ledgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
+      type: 'debit',
       amount: -amount,
       balance_after: wallet.itc_balance - amount,
-      type: 'debit',
-      description: `3D Model: ${description}`,
-      reference_type: '3d_model',
-      created_at: new Date().toISOString()
+      reference: '3d_model',
+      metadata: { source: '3d_model', description: `3D Model: ${description}`, status: 'completed' }
     })
+    if (ledgerError) console.error('[worker] ❌ ITC deduct ledger insert failed:', ledgerError.message)
 
     console.log('[worker] 💰 Deducted', amount, 'ITC for', description)
     return true
@@ -1208,15 +1211,15 @@ async function refundItc(userId: string, amount: number, description: string): P
       })
       .eq('user_id', userId)
 
-    await supabase.from('itc_transactions').insert({
+    const { error: refundLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
+      type: 'credit',
       amount: amount,
       balance_after: wallet.itc_balance + amount,
-      type: 'credit',
-      description: `Refund: ${description}`,
-      reference_type: '3d_model_refund',
-      created_at: new Date().toISOString()
+      reference: '3d_model_refund',
+      metadata: { source: '3d_model', description: `Refund: ${description}`, status: 'refund' }
     })
+    if (refundLedgerError) console.error('[worker] ❌ ITC refund ledger insert failed:', refundLedgerError.message)
 
     console.log('[worker] 💸 Refunded', amount, 'ITC for', description)
   } catch (error: any) {

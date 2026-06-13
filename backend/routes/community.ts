@@ -455,16 +455,16 @@ router.post('/posts/:id/boost-paid', requireAuth, async (req: Request, res: Resp
       return res.status(500).json({ error: 'Failed to deduct ITC' })
     }
 
-    // Log the deduction transaction
-    await supabase.from('itc_transactions').insert({
+    // Log the deduction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { error: boostTxError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'usage',
       amount: -amount,
       balance_after: newBalance,
-      description: `Paid boost on community post`,
-      reference_type: 'community_boost',
-      reference_id: postId
+      reference: 'community_boost',
+      metadata: { post_id: postId, description: 'Paid boost on community post' }
     })
+    if (boostTxError) console.error('[community/boost-paid] ledger insert failed:', boostTxError.message)
 
     // Create boost record
     const boostPoints = amount * COMMUNITY_CONFIG.PAID_BOOST_MULTIPLIER
@@ -720,20 +720,20 @@ async function creditCreatorITC(
       return
     }
 
-    // Log the transaction
-    const { data: transaction } = await supabase
+    // Log the transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { data: transaction, error: rewardTxError } = await supabase
       .from('itc_transactions')
       .insert({
         user_id: creatorId,
         type: 'reward',
         amount: itcToCredit,
         balance_after: newBalance,
-        description: `Community boost reward (${boostType})`,
-        reference_type: 'community_boost',
-        reference_id: boostId
+        reference: 'community_boost',
+        metadata: { boost_id: boostId, boost_type: boostType, description: `Community boost reward (${boostType})` }
       })
       .select()
       .single()
+    if (rewardTxError) console.error('[creditCreatorITC] ledger insert failed:', rewardTxError.message)
 
     // Record the earning
     await supabase.from('community_boost_earnings').insert({

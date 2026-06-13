@@ -402,21 +402,22 @@ router.post('/payout-request', requireAuth, async (req: Request, res: Response):
       return res.status(500).json({ error: 'Failed to deduct ITC' })
     }
 
-    // Log the transaction
-    await supabase.from('itc_transactions').insert({
+    // Log the transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { error: payoutLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'payout',
       amount: -amount_itc,
       balance_after: newBalance,
-      reference_type: 'payout_request',
-      description: `Payout request: ${amount_itc} ITC -> $${netUsd.toFixed(2)} via ${payout_method}`,
+      reference: 'payout_request',
       metadata: {
+        description: `Payout request: ${amount_itc} ITC -> $${netUsd.toFixed(2)} via ${payout_method}`,
         payout_method,
         gross_usd: grossUsd,
         fee_usd: feeUsd,
         net_usd: netUsd
       }
     })
+    if (payoutLedgerError) console.error('[wallet/payout-request] ledger insert failed:', payoutLedgerError.message)
 
     // Create payout request
     const { data: request, error: requestError } = await supabase
@@ -513,15 +514,16 @@ router.delete('/payout-request/:id', requireAuth, async (req: Request, res: Resp
         .update({ itc_balance: newBalance })
         .eq('user_id', userId)
 
-      // Log the refund
-      await supabase.from('itc_transactions').insert({
+      // Log the refund (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+      const { error: cancelLedgerError } = await supabase.from('itc_transactions').insert({
         user_id: userId,
         type: 'refund',
         amount: request.amount_itc,
         balance_after: newBalance,
-        reference_type: 'payout_cancelled',
-        description: `Payout request cancelled - ${request.amount_itc} ITC refunded`
+        reference: 'payout_cancelled',
+        metadata: { description: `Payout request cancelled - ${request.amount_itc} ITC refunded` }
       })
+      if (cancelLedgerError) console.error('[wallet/payout-cancel] ledger insert failed:', cancelLedgerError.message)
     }
 
     // Delete the request
@@ -598,15 +600,16 @@ router.post('/itc-to-credit', requireAuth, async (req: Request, res: Response): 
       return res.status(500).json({ error: 'Failed to convert ITC' })
     }
 
-    // Log the transaction
-    await supabase.from('itc_transactions').insert({
+    // Log the transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { error: convLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'conversion',
       amount: -amount_itc,
       balance_after: newItcBalance,
-      reference_type: 'store_credit',
-      description: `Converted ${amount_itc} ITC to $${creditAmount.toFixed(2)} store credit`
+      reference: 'store_credit',
+      metadata: { description: `Converted ${amount_itc} ITC to $${creditAmount.toFixed(2)} store credit` }
     })
+    if (convLedgerError) console.error('[wallet/itc-to-credit] ledger insert failed:', convLedgerError.message)
 
     console.log('[wallet/itc-to-credit] ✅ ITC converted to store credit:', {
       userId,
@@ -728,15 +731,16 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
       newBalance = Number(rpcResult)
     }
 
-    // Log the transaction
-    await supabase.from('itc_transactions').insert({
+    // Log the transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
+    const { error: deductLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'usage',
       amount: -amount,
       balance_after: newBalance,
-      reference_type: 'feature_usage',
-      description: reason,
+      reference: 'feature_usage',
+      metadata: { description: reason },
     })
+    if (deductLedgerError) console.error('[wallet/deduct-itc] ledger insert failed:', deductLedgerError.message)
 
     console.log('[wallet/deduct-itc] ✅ ITC deducted', usedFallback ? '(legacy fallback)' : '(atomic RPC)', '— user:', userId, 'amount:', amount, 'new balance:', newBalance)
 
@@ -797,15 +801,16 @@ router.post('/refund-itc', requireAuth, async (req: Request, res: Response): Pro
       return res.status(500).json({ error: 'Failed to refund ITC' })
     }
 
-    await supabase.from('itc_transactions').insert({
+    // itc_transactions live schema: type/amount/balance_after/reference/metadata
+    const { error: refundLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'refund',
       amount,
       balance_after: newBalance,
-      reference_type: reference_type || 'feature_refund',
-      reference_id: reference_id || null,
-      description: reason,
+      reference: reference_type || 'feature_refund',
+      metadata: { reference_id: reference_id || null, description: reason },
     })
+    if (refundLedgerError) console.error('[wallet/refund-itc] ledger insert failed:', refundLedgerError.message)
 
     console.log('[wallet/refund-itc] ✅ ITC refunded:', { userId, amount, reason, newBalance })
 
@@ -903,9 +908,14 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
         user_id: userId,
         customer_email: shipping?.email || userEmail,
         subtotal: subtotal,
-        shipping_cost: shippingCost || 0,
-        tax: tax || 0,
-        discount: discount || 0,
+        // Live `orders` columns are *_amount; the old shipping_cost/tax/discount
+        // plus shipping_method/shipping_type/pickup_appointment/coupon_code don't
+        // exist on the table, so this insert rejected the whole row and EVERY
+        // full-ITC checkout failed with "Failed to create order". Map to the real
+        // columns and fold the rest into discount_codes[] + metadata.
+        shipping_amount: shippingCost || 0,
+        tax_amount: tax || 0,
+        discount_amount: discount || 0,
         total: parseFloat(usdEquivalent),
         currency: 'ITC',
         status: 'processing',
@@ -921,10 +931,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
           zipCode: shipping?.zipCode,
           country: shipping?.country || 'US'
         },
-        shipping_method: shippingMethod,
-        shipping_type: shippingType,
-        pickup_appointment: pickupAppointment,
-        coupon_code: couponCode || null,
+        discount_codes: couponCode ? [couponCode] : [],
         metadata: {
           items: items.map((item: any) => ({
             id: item.id,
@@ -941,7 +948,11 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
             usd_equivalent: usdEquivalent,
             rate: '0.01'
           },
-          payment_method: 'itc_full'
+          payment_method: 'itc_full',
+          shipping_method: shippingMethod,
+          shipping_type: shippingType,
+          pickup_appointment: pickupAppointment,
+          coupon_code: couponCode || null
         }
       })
       .select()
