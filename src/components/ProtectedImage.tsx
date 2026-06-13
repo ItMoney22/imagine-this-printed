@@ -27,42 +27,35 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
 }) => {
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
-    return false
   }
 
   const handleDragStart = (e: React.DragEvent) => {
     e.preventDefault()
-    return false
   }
 
+  // Render the bare <img> (no wrapper div) so the caller's className —
+  // including absolute/inset-0 fill layouts like ProductCard's — applies
+  // directly to the image. A wrapping <div className="relative"> previously
+  // became the positioning context for absolutely-positioned images, collapsing
+  // them to 0×0 (blank product cards). Right-click/drag are still blocked on the
+  // image itself; per this component's contract that's "polite friction" only.
   return (
-    <div className="relative select-none">
-      <img
-        src={src}
-        alt={alt}
-        loading={loading}
-        decoding={decoding}
-        className={`${className} pointer-events-auto`}
-        onContextMenu={handleContextMenu}
-        onDragStart={handleDragStart}
-        onError={onError}
-        draggable={false}
-        style={{
-          WebkitUserSelect: 'none',
-          userSelect: 'none',
-          WebkitTouchCallout: 'none',
-        }}
-      />
-      {/* Transparent overlay to prevent direct image interaction */}
-      <div
-        className="absolute inset-0 z-10"
-        onContextMenu={handleContextMenu}
-        style={{
-          background: 'transparent',
-          cursor: 'default'
-        }}
-      />
-    </div>
+    <img
+      src={src}
+      alt={alt}
+      loading={loading}
+      decoding={decoding}
+      className={className}
+      onContextMenu={handleContextMenu}
+      onDragStart={handleDragStart}
+      onError={onError}
+      draggable={false}
+      style={{
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        WebkitTouchCallout: 'none',
+      }}
+    />
   )
 }
 
