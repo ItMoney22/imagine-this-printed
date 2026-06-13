@@ -1089,7 +1089,11 @@ const AdminEmail: React.FC = () => {
       setAssistantKey(k => k + 1)
       setAssistantQuickAction(undefined)
     }
-  }, [selectedMailboxId, folder, searchQuery, loadMessages])
+    // Intentionally exclude loadMessages: it reads its target from arguments,
+    // so only the primitive triggers should re-run this. Including it (its
+    // identity tracks the toast object) re-fired the effect every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMailboxId, folder, searchQuery])
 
   // ── search debounce ─────────────────────────────────────────────────────────
 
@@ -1155,7 +1159,10 @@ const AdminEmail: React.FC = () => {
     }
     const id = setInterval(tick, 60_000)
     return () => clearInterval(id)
-  }, [selectedMailboxId, folder, searchQuery, loadMessages])
+    // loadMessages excluded for the same reason as above — its identity tracked
+    // the toast object and recreated the interval every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMailboxId, folder, searchQuery])
 
   // ── actions ─────────────────────────────────────────────────────────────────
 
