@@ -31,7 +31,8 @@ import {
   Contact,
   Mail,
   Inbox,
-  Star
+  Star,
+  Trophy
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -147,6 +148,15 @@ export function Sidebar() {
             label="July 4th · 250"
             isCollapsed={isCollapsed}
             isActive={isActive('/america-250')}
+            highlight={true}
+            onClick={closeMobile}
+          />
+          <NavItem
+            to="/world-cup"
+            icon={<Trophy className="w-5 h-5" />}
+            label="World Cup 2026"
+            isCollapsed={isCollapsed}
+            isActive={isActive('/world-cup')}
             highlight={true}
             onClick={closeMobile}
           />
