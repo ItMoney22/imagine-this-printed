@@ -79,6 +79,9 @@ const Navbar: React.FC = () => {
             <Link to="/catalog" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Products
             </Link>
+            <Link to="/america-250" className="px-3 py-2 rounded-md text-sm font-semibold transition-colors text-white bg-gradient-to-r from-red-600 via-blue-700 to-red-600 hover:opacity-90 flex items-center gap-1.5">
+              <span aria-hidden="true">★</span> July 4th · 250
+            </Link>
             <Link
               to="/imagination-station"
               className="text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg hover:shadow-purple-500/25"
@@ -483,6 +486,9 @@ const Navbar: React.FC = () => {
             </Link>
             <Link to="/catalog" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
               Products
+            </Link>
+            <Link to="/america-250" onClick={closeMobileMenu} className="flex items-center gap-2 px-3 py-2 text-white bg-gradient-to-r from-red-600 via-blue-700 to-red-600 rounded-md text-base font-medium">
+              <span aria-hidden="true">★</span> July 4th · America 250
             </Link>
             <Link to="/imagination-station" onClick={closeMobileMenu} className="flex items-center gap-2 px-3 py-2 text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md text-base font-medium">
               <Sparkles className="w-4 h-4" />
