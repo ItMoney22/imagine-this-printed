@@ -82,6 +82,85 @@ function escapeHtmlText(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+// Product cards built server-side with the EXACT (escaped) image/url — the AI
+// only places a [[PRODUCTS]] token; it must never try to echo the long signed
+// GCS image URLs itself (it mangles them, so images break).
+interface EmailProduct { name: string; price: number; url: string; image: string | null }
+function buildProductCardsHtml(products: EmailProduct[]): string {
+  if (!products.length) return '';
+  const cards = products
+    .map(p => {
+      const img = p.image
+        ? `<td width="96" style="padding:12px;"><img src="${escapeHtmlText(p.image)}" alt="${escapeHtmlText(p.name)}" width="80" height="80" style="width:80px;height:80px;object-fit:cover;border-radius:8px;display:block;" /></td>`
+        : '';
+      return (
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff;"><tr>${img}` +
+        `<td style="padding:12px;vertical-align:middle;">` +
+        `<div style="font-weight:600;color:#374151;font-size:15px;">${escapeHtmlText(p.name)}</div>` +
+        `<div style="color:#059669;font-weight:700;margin:4px 0;">$${Number(p.price || 0).toFixed(2)}</div>` +
+        `<a href="${escapeHtmlText(p.url)}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">View Product</a>` +
+        `</td></tr></table>`
+      );
+    })
+    .join('');
+  return `<div style="margin-top:20px;"><p style="color:#7c3aed;font-weight:600;margin:0 0 8px;font-family:'Segoe UI',Tahoma,sans-serif;">Featured for you</p>${cards}</div>`;
+}
+
+function buildCouponBannerHtml(code: string, type: string, value: number): string {
+  const label = type === 'fixed' ? `$${Number(value).toFixed(2)} OFF` : `${value}% OFF`;
+  return (
+    `<div style="margin:20px 0;text-align:center;">` +
+    `<div style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#ec4899);border-radius:14px;padding:18px 30px;">` +
+    `<div style="color:rgba(255,255,255,.85);font-size:12px;letter-spacing:1px;text-transform:uppercase;font-family:'Segoe UI',Tahoma,sans-serif;">Your code &middot; ${label}</div>` +
+    `<div style="color:#fff;font-size:28px;font-weight:800;letter-spacing:3px;margin-top:4px;font-family:'Segoe UI',Tahoma,sans-serif;">${escapeHtmlText(code)}</div>` +
+    `</div></div>`
+  );
+}
+
+// Create (or reuse) a discount_codes coupon. Idempotent on code. Returns the
+// coupon, or null if invalid / on error. Codes are stored UPPERCASE to match
+// redemption (routes/coupons.ts compares code.toUpperCase()).
+async function createEmailCoupon(
+  spec: { code?: string; type?: string; value?: number | string },
+  userId: string,
+  recipient?: string
+): Promise<{ code: string; type: string; value: number; existed: boolean } | null> {
+  const code = String(spec.code || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  const type = spec.type === 'fixed' ? 'fixed' : 'percentage';
+  let value = Number(spec.value);
+  if (!code || code.length < 3 || !Number.isFinite(value) || value <= 0) return null;
+  if (type === 'percentage') value = Math.min(value, 100);
+
+  const { data: existing } = await supabase
+    .from('discount_codes')
+    .select('code, type, value')
+    .eq('code', code)
+    .maybeSingle();
+  if (existing) return { code: existing.code, type: existing.type, value: Number(existing.value), existed: true };
+
+  const { data, error } = await supabase
+    .from('discount_codes')
+    .insert({
+      code,
+      type,
+      value,
+      is_active: true,
+      current_uses: 0,
+      description: `Created via Mr. Imagine email${recipient ? ` for ${recipient}` : ''}`,
+      per_user_limit: 1,
+      applies_to: 'usd',
+      created_by: userId,
+      metadata: { source: 'email_compose', intended_recipient: recipient || null },
+    })
+    .select('code, type, value')
+    .single();
+  if (error) {
+    console.error('[compose-assist] coupon create failed:', error.message);
+    return null;
+  }
+  return { code: data.code, type: data.type, value: Number(data.value), existed: false };
+}
+
 /** Resolve effective role when the JWT doesn't carry it. */
 async function ensureRole(req: Request): Promise<string> {
   if (req.user?.role) return req.user.role;
@@ -654,10 +733,11 @@ const COMPOSE_SYSTEM_PROMPT =
   'Brand: friendly but professional, primary purple #7c3aed, pink accent #ec4899, light background, white rounded cards, generous spacing, mobile-friendly. ' +
   'Rules: (1) Do NOT include <html>, <head> or <body> tags — return a content fragment that lives inside an email container. ' +
   '(2) Do NOT add a sign-off name, signature, or "Best, ..." block — the system appends the sender\'s signature automatically. ' +
-  '(3) If PRODUCTS are provided, feature them as attractive cards: product image (if any), name, price formatted like $12.99, and a purple rounded "View Product" button linking to the product url. Lay multiple products out cleanly. ' +
-  '(4) Keep copy concise and compelling — a strong hook, clear value, one clear call to action. ' +
-  '(5) Use only inline style="" attributes, never <style> blocks or external CSS. ' +
-  'Return STRICT JSON and nothing else: {"subject": "<email subject>", "html": "<the html body fragment>"}.';
+  '(3) If PRODUCTS are provided, write copy that introduces them, and place the exact token [[PRODUCTS]] on its own line where the product showcase should appear. Do NOT write product cards, <img> tags, prices, or URLs yourself — the real product cards are inserted automatically in place of the token. ' +
+  '(4) If the user asks to offer a discount or coupon (e.g. "add a coupon MONEYMAN15 for 15% off"), put it in the JSON "coupon" field as {"code":"<CODE>","type":"percentage"|"fixed","value":<number>}, mention the offer naturally in the copy, and place the exact token [[COUPON]] on its own line where the code box should appear. Do NOT format the code box yourself. Omit the coupon field entirely if no discount was requested. ' +
+  '(5) Keep copy concise and compelling — a strong hook, clear value, one clear call to action. ' +
+  '(6) Use only inline style="" attributes, never <style> blocks or external CSS. ' +
+  'Return STRICT JSON and nothing else: {"subject": "<email subject>", "html": "<the html body fragment>", "coupon": <optional {code,type,value}>}.';
 
 function stripJsonFence(s: string): string {
   return s.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -729,7 +809,7 @@ router.post('/compose-assist', requireAuth, async (req: Request, res: Response) 
       return;
     }
 
-    let parsed: { subject?: string; html?: string } = {};
+    let parsed: { subject?: string; html?: string; coupon?: { code?: string; type?: string; value?: number } } = {};
     try {
       parsed = JSON.parse(stripJsonFence(raw));
     } catch {
@@ -740,7 +820,32 @@ router.post('/compose-assist', requireAuth, async (req: Request, res: Response) 
       res.status(502).json({ error: 'Mr. Imagine could not draft that — try rephrasing.' });
       return;
     }
-    res.json({ subject: parsed.subject || '', html: parsed.html });
+
+    let html = parsed.html;
+
+    // Inject real product cards where the model placed [[PRODUCTS]] (exact,
+    // escaped image URLs — never trust the model to echo signed GCS URLs).
+    if (productList.length) {
+      const block = buildProductCardsHtml(productList);
+      html = html.includes('[[PRODUCTS]]') ? html.split('[[PRODUCTS]]').join(block) : html + block;
+    }
+
+    // Auto-create the coupon (admin only) and render its banner where [[COUPON]] is.
+    let createdCoupon: { code: string; type: string; value: number; existed: boolean } | null = null;
+    if (parsed.coupon && parsed.coupon.code && parsed.coupon.value != null) {
+      if (req.user!.role === 'admin') {
+        createdCoupon = await createEmailCoupon(parsed.coupon, req.user!.id, recipient);
+        if (createdCoupon) {
+          const banner = buildCouponBannerHtml(createdCoupon.code, createdCoupon.type, createdCoupon.value);
+          html = html.includes('[[COUPON]]') ? html.split('[[COUPON]]').join(banner) : html + banner;
+        }
+      }
+    }
+
+    // Strip any leftover tokens (model placed them but we had nothing to fill).
+    html = html.split('[[PRODUCTS]]').join('').split('[[COUPON]]').join('');
+
+    res.json({ subject: parsed.subject || '', html, coupon: createdCoupon });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }

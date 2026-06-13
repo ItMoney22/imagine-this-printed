@@ -91,7 +91,11 @@ export const emailApi = {
     recipient?: string;
     tone?: string;
     products?: Array<{ name: string; price: number; url: string; image: string | null }>;
-  }): Promise<{ subject: string; html: string }> =>
+  }): Promise<{
+    subject: string;
+    html: string;
+    coupon: { code: string; type: string; value: number; existed: boolean } | null;
+  }> =>
     apiFetch('/api/email/compose-assist', { method: 'POST', body: JSON.stringify(body) }),
 
   createMailbox: (body: { address: string; display_name?: string; user_email?: string }): Promise<{ mailbox: Mailbox }> =>

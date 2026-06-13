@@ -79,7 +79,7 @@ function buildProductsHtml(products: FeaturedProduct[]): string {
       p => `
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff;">
         <tr>
-          ${p.image ? `<td width="96" style="padding:12px;"><img src="${p.image}" alt="${escapeHtml(p.name)}" width="80" height="80" style="width:80px;height:80px;object-fit:cover;border-radius:8px;display:block;" /></td>` : ''}
+          ${p.image ? `<td width="96" style="padding:12px;"><img src="${escapeHtml(p.image)}" alt="${escapeHtml(p.name)}" width="80" height="80" style="width:80px;height:80px;object-fit:cover;border-radius:8px;display:block;" /></td>` : ''}
           <td style="padding:12px;vertical-align:middle;">
             <div style="font-weight:600;color:#374151;font-size:15px;">${escapeHtml(p.name)}</div>
             <div style="color:#059669;font-weight:700;margin:4px 0;">$${p.price.toFixed(2)}</div>
@@ -198,7 +198,7 @@ const ComposeModal: React.FC<ComposeProps> = ({
     }
     setAiBusy(true)
     try {
-      const { subject: s, html } = await emailApi.composeAssist({
+      const { subject: s, html, coupon } = await emailApi.composeAssist({
         mailbox_id: fromId,
         instruction: instruction || 'Write a friendly, professional email.',
         draft: body || undefined,
@@ -208,7 +208,15 @@ const ComposeModal: React.FC<ComposeProps> = ({
       })
       setGeneratedHtml(html)
       if (s && !subject.trim()) setSubject(s)
-      toast.success('Mr. Imagine drafted your email', 'Review the preview, then send or tweak it.')
+      if (coupon) {
+        const off = coupon.type === 'fixed' ? `$${coupon.value.toFixed(2)} off` : `${coupon.value}% off`
+        toast.success(
+          `Coupon ${coupon.code} ${coupon.existed ? 'ready' : 'created'} (${off})`,
+          'It\'s live in the system and included in the email.'
+        )
+      } else {
+        toast.success('Mr. Imagine drafted your email', 'Review the preview, then send or tweak it.')
+      }
     } catch (err: unknown) {
       toast.error('Mr. Imagine', err instanceof Error ? err.message : 'Could not draft that')
     } finally {
