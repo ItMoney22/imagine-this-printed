@@ -241,7 +241,7 @@ export default function AdminCreateProductWizard() {
   // Prompt-edit (gpt-image-2 by default; user can switch to gemini-3 in the studio)
   const [editPrompt, setEditPrompt] = useState('')
   const [editing, setEditing] = useState(false)
-  const [editModel, setEditModel] = useState<'openai/gpt-image-2' | 'fal-ai/gemini-3-pro-image-preview/edit'>('openai/gpt-image-2')
+  const [editModel, setEditModel] = useState<'openai/gpt-image-2' | 'google/nano-banana'>('openai/gpt-image-2')
   // Design lock: strict-fidelity edits — only the requested change, nothing added/removed
   const [strictEdit, setStrictEdit] = useState(true)
   // Edit progress (elapsed-time based; the upstream API gives no progress events)
@@ -744,14 +744,14 @@ export default function AdminCreateProductWizard() {
     setEditing(true)
     setError(null)
     try {
-      const modelLabel = editModel === 'openai/gpt-image-2' ? 'GPT Image 2' : 'Gemini 3 Pro Image'
+      const modelLabel = editModel === 'openai/gpt-image-2' ? 'GPT Image 2' : 'Gemini (Nano Banana)'
       debugLog('[Wizard] 🖌️ Editing image with', modelLabel, ':', selectedImageId, '→', editPrompt)
       const result = await imageFlow.edit({
         parentAssetId: selectedImageId,
         prompt: editPrompt,
         forceModel: editModel,
         preserveDesign: strictEdit, // design lock: apply ONLY the requested change
-        confirmedCost: editModel === 'fal-ai/gemini-3-pro-image-preview/edit', // Gemini 3 is gated at $0.15
+        confirmedCost: true, // both edit models (gpt-image-2, nano-banana) are cheap Replicate calls — no cost gate
       })
       debugLog('[Wizard] ✅ Edited:', result.assetId, result.url)
 
@@ -2237,7 +2237,7 @@ export default function AdminCreateProductWizard() {
                         const stage = pct < 18
                           ? 'Sending your design…'
                           : pct < 72
-                            ? `${isGpt ? 'GPT Image 2' : 'Gemini 3 Pro'} is repainting…`
+                            ? `${isGpt ? 'GPT Image 2' : 'Gemini (Nano Banana)'} is repainting…`
                             : 'Polishing & saving…'
                         return (
                           <div className="absolute inset-0 bg-bg/85 backdrop-blur-sm flex flex-col items-center justify-center px-10">
@@ -2359,16 +2359,16 @@ export default function AdminCreateProductWizard() {
                       <p className="text-[10px] text-muted/80 mt-0.5">~25s Â· $0.04</p>
                     </button>
                     <button
-                      onClick={() => setEditModel('fal-ai/gemini-3-pro-image-preview/edit')}
+                      onClick={() => setEditModel('google/nano-banana')}
                       disabled={editing}
                       className={`px-3 py-2 rounded-lg text-left text-xs transition-all border ${
-                        editModel === 'fal-ai/gemini-3-pro-image-preview/edit'
+                        editModel === 'google/nano-banana'
                           ? 'bg-primary/15 border-primary/50 text-text shadow-[0_0_15px_rgba(168,85,247,0.2)]'
                           : 'bg-bg/40 border-white/10 text-text/70 hover:text-text hover:border-white/20'
                       } disabled:opacity-40`}
                     >
-                      <p className="font-semibold">Gemini 3 Pro</p>
-                      <p className="text-[10px] text-muted/80 mt-0.5">~8s Â· $0.15</p>
+                      <p className="font-semibold">Gemini (Nano Banana)</p>
+                      <p className="text-[10px] text-muted/80 mt-0.5">~8s · $0.04</p>
                     </button>
                   </div>
                 </div>

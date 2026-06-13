@@ -321,11 +321,12 @@ export const MODELS: ImageModel[] = [
     id: 'google/nano-banana',
     provider: 'replicate',
     tier: 'mockup',
+    unifiedGenAndEdit: true, // also serves the Refine edit toggle (Replicate Gemini edit, replaces the dead fal Gemini)
     label: 'Nano Banana',
     costPerImageUsd: 0.039,
     approxSeconds: 8,
     strengths: ['edit', 'multi-image', 'photoreal-product'],
-    notes: 'Gemini 2.5 Flash Image — best quality on garment mockups (flat lay, ghost mannequin, character fusion).',
+    notes: 'Gemini 2.5 Flash Image — best quality on garment mockups (flat lay, ghost mannequin, character fusion). Also the Replicate-based "Gemini" option in the Refine editor.',
     promptCraft:
       "Multi-image input. For mockups, supply [character?, design] image_input array; describe the garment, color, and where the print sits. Keep instructions concrete.",
   },

@@ -1569,16 +1569,33 @@ const AdminEmail: React.FC = () => {
   useEffect(() => {
     const iframe = iframeRef.current
     if (!iframe) return
-    const onLoad = () => {
+    let timers: ReturnType<typeof setTimeout>[] = []
+    // Grow the iframe to the email's full height so it never gets clipped to a
+    // fixed box. Needs sandbox="allow-same-origin" (set on the iframe) for
+    // contentDocument to be readable; scripts still don't run.
+    const resize = () => {
       try {
-        const h = iframe.contentDocument?.body?.scrollHeight ?? 400
-        iframe.style.height = `${Math.max(400, h)}px`
+        const doc = iframe.contentDocument
+        const h = Math.max(
+          doc?.body?.scrollHeight ?? 0,
+          doc?.documentElement?.scrollHeight ?? 0,
+        )
+        if (h > 0) iframe.style.height = `${h + 24}px`
       } catch {
-        // cross-origin sandbox — ignore
+        // sandboxed without same-origin — can't measure; leave default height
       }
     }
+    const onLoad = () => {
+      resize()
+      // Re-measure after late-loading images/fonts settle (marketing emails
+      // like TikTok's have a banner image that arrives after initial layout).
+      timers = [200, 600, 1200, 2500].map(ms => setTimeout(resize, ms))
+    }
     iframe.addEventListener('load', onLoad)
-    return () => iframe.removeEventListener('load', onLoad)
+    return () => {
+      iframe.removeEventListener('load', onLoad)
+      timers.forEach(clearTimeout)
+    }
   }, [openMessage?.html_body])
 
   // ── derived ──────────────────────────────────────────────────────────────────
@@ -1952,11 +1969,11 @@ const AdminEmail: React.FC = () => {
                 {openMessage.html_body ? (
                   <iframe
                     ref={iframeRef}
-                    sandbox=""
+                    sandbox="allow-same-origin"
                     srcDoc={openMessage.html_body}
                     title="Email body"
-                    className="w-full bg-white rounded-lg min-h-[400px] border border-text/10"
-                    style={{ height: '400px' }}
+                    className="w-full bg-white rounded-lg border border-text/10 block"
+                    style={{ minHeight: '400px' }}
                   />
                 ) : (
                   <pre className="whitespace-pre-wrap font-sans text-sm text-text">
