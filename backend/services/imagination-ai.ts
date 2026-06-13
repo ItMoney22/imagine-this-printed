@@ -307,7 +307,9 @@ export class ImaginationAIService {
       // subscription/payg/enterprise/free tiers — every call returned 402.
       // Replicate is already in the bill, marginal cost ~$0.001/call.
       const replicateOutput = await replicate.run(
-        '851-labs/background-remover' as `${string}/${string}`,
+        // Pinned version — version-less form hits the official-models endpoint and
+        // 404s for this community model; the version routes through /predictions.
+        '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc' as `${string}/${string}:${string}`,
         {
           input: { image: imageUrl, format: 'png', background_type: 'rgba' },
         }

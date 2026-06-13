@@ -652,7 +652,10 @@ export async function getPrediction(predictionId: string) {
 export async function removeBackgroundSync(imageUrl: string): Promise<string> {
   console.log('[replicate] 🎨 Removing background (851-labs, sync):', imageUrl.substring(0, 80))
   const output = await replicate.run(
-    '851-labs/background-remover' as `${string}/${string}`,
+    // Pinned version — the version-less `owner/name` form hits Replicate's
+    // official-models endpoint (/models/.../predictions) and 404s for this
+    // community model. Pinning the version routes through /predictions, which works.
+    '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc' as `${string}/${string}:${string}`,
     { input: { image: imageUrl, format: 'png', background_type: 'rgba' } }
   )
   const extractUrl = (item: any): string => {
