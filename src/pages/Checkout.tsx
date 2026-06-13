@@ -219,8 +219,10 @@ const Checkout: React.FC = () => {
         return
       }
 
-      // Check if order belongs to current user
-      if (order.user_id !== user?.id) {
+      // Check if order belongs to current user. Guest drafts have a null
+      // user_id — `null !== undefined` used to flag a guest's own draft as
+      // foreign; treat unowned drafts as resumable by anyone holding the link.
+      if (order.user_id && order.user_id !== user?.id) {
         setDraftOrderError('This order does not belong to your account')
         return
       }
@@ -235,9 +237,14 @@ const Checkout: React.FC = () => {
       // Set the order ID for payment
       setOrderId(draftOrderId)
 
-      // If order has a payment intent, use it
-      if (order.stripe_payment_intent_id) {
-        setPaymentIntentId(order.stripe_payment_intent_id)
+      // If order has a payment intent, use it. The orders column is
+      // payment_intent_id (NOT stripe_payment_intent_id) — reading the wrong
+      // key meant the backend's update-existing-order path (which requires
+      // BOTH existingPaymentIntentId and existingOrderId) never fired, so
+      // paying a draft created a duplicate order and left the draft unpaid.
+      const existingIntentId = order.payment_intent_id || order.stripe_payment_intent_id
+      if (existingIntentId) {
+        setPaymentIntentId(existingIntentId)
       }
 
       // Pre-fill shipping address from order if available
@@ -541,7 +548,7 @@ const Checkout: React.FC = () => {
         }),
       })
 
-      if (response.success) {
+      if (response && response.success) {
         clearCart()
         // Refresh user profile to update wallet balance
         if (refreshProfile) {
@@ -688,6 +695,19 @@ const Checkout: React.FC = () => {
                 </div>
                 <h2 className="text-lg font-semibold">Contact Information</h2>
               </div>
+              {!user && (
+                <p className="text-sm text-muted mb-4 -mt-1">
+                  Checking out as a guest — your confirmation goes to the email below.{' '}
+                  <button
+                    type="button"
+                    onClick={() => navigate('/login?redirect=/checkout')}
+                    className="text-primary hover:text-secondary font-medium underline underline-offset-2"
+                  >
+                    Sign in
+                  </button>{' '}
+                  to earn points and track orders.
+                </p>
+              )}
               <div className="space-y-4">
                 <input
                   type="email"

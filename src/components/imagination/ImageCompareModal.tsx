@@ -3,6 +3,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw, Check, ArrowLeft, ArrowRight } from 'lucide-react';
+import { CHECKERBOARD_BG } from './checkerboard';
 
 interface ImageCompareModalProps {
   isOpen: boolean;
@@ -108,33 +109,33 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="bg-card text-text rounded-2xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-primary/20 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-serif font-bold text-stone-800">{title}</h2>
+            <h2 className="text-xl font-serif font-bold text-text">{title}</h2>
             {metadata?.operation && (
-              <p className="text-sm text-stone-500 mt-1">
+              <p className="text-sm text-muted mt-1">
                 Operation: {metadata.operation}
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+            className="p-2 hover:bg-primary/10 rounded-full transition-colors"
           >
-            <X className="w-5 h-5 text-stone-600" />
+            <X className="w-5 h-5 text-muted" />
           </button>
         </div>
 
         {/* View mode tabs */}
-        <div className="px-6 py-3 border-b border-stone-100 flex items-center gap-4">
-          <div className="flex bg-stone-100 rounded-lg p-1">
+        <div className="px-6 py-3 border-b border-primary/10 flex items-center gap-4">
+          <div className="flex bg-bg rounded-lg p-1">
             <button
               onClick={() => setViewMode('slider')}
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                viewMode === 'slider' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-600 hover:text-stone-800'
+                viewMode === 'slider' ? 'bg-card text-text shadow-sm' : 'text-muted hover:text-text'
               }`}
             >
               Slider
@@ -142,7 +143,7 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
             <button
               onClick={() => setViewMode('side-by-side')}
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                viewMode === 'side-by-side' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-600 hover:text-stone-800'
+                viewMode === 'side-by-side' ? 'bg-card text-text shadow-sm' : 'text-muted hover:text-text'
               }`}
             >
               Side by Side
@@ -150,7 +151,7 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
             <button
               onClick={() => setViewMode('toggle')}
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                viewMode === 'toggle' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-600 hover:text-stone-800'
+                viewMode === 'toggle' ? 'bg-card text-text shadow-sm' : 'text-muted hover:text-text'
               }`}
             >
               Toggle
@@ -161,35 +162,35 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
           <div className="flex items-center gap-2 ml-auto">
             <button
               onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}
-              className="p-1.5 hover:bg-stone-100 rounded-lg transition-colors"
+              className="p-1.5 hover:bg-primary/10 rounded-lg transition-colors"
               title="Zoom out"
             >
-              <ZoomOut className="w-4 h-4 text-stone-600" />
+              <ZoomOut className="w-4 h-4 text-muted" />
             </button>
-            <span className="text-sm text-stone-600 min-w-[3rem] text-center">{Math.round(zoom * 100)}%</span>
+            <span className="text-sm text-muted min-w-[3rem] text-center">{Math.round(zoom * 100)}%</span>
             <button
               onClick={() => setZoom(z => Math.min(3, z + 0.25))}
-              className="p-1.5 hover:bg-stone-100 rounded-lg transition-colors"
+              className="p-1.5 hover:bg-primary/10 rounded-lg transition-colors"
               title="Zoom in"
             >
-              <ZoomIn className="w-4 h-4 text-stone-600" />
+              <ZoomIn className="w-4 h-4 text-muted" />
             </button>
             <button
               onClick={() => { setZoom(1); setSliderPosition(50); }}
-              className="p-1.5 hover:bg-stone-100 rounded-lg transition-colors"
+              className="p-1.5 hover:bg-primary/10 rounded-lg transition-colors"
               title="Reset view"
             >
-              <RotateCcw className="w-4 h-4 text-stone-600" />
+              <RotateCcw className="w-4 h-4 text-muted" />
             </button>
           </div>
         </div>
 
         {/* Compare view */}
-        <div className="flex-1 overflow-auto p-6 bg-stone-50">
+        <div className="flex-1 overflow-auto p-6 bg-bg">
           {viewMode === 'slider' && (
             <div
               ref={containerRef}
-              className="relative w-full aspect-square max-h-[60vh] mx-auto bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjVmNWY1Ii8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmNWY1ZjUiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] rounded-xl overflow-hidden shadow-lg cursor-col-resize select-none"
+              className={`relative w-full aspect-square max-h-[60vh] mx-auto ${CHECKERBOARD_BG} rounded-xl overflow-hidden shadow-lg cursor-col-resize select-none`}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -241,13 +242,13 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
 
           {viewMode === 'side-by-side' && (
             <div className="grid grid-cols-2 gap-4 max-h-[60vh]" style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}>
-              <div className="relative bg-white rounded-xl overflow-hidden shadow-lg">
+              <div className={`relative ${CHECKERBOARD_BG} rounded-xl overflow-hidden shadow-lg`}>
                 <img src={beforeImage} alt={beforeLabel} className="w-full h-full object-contain" />
                 <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/70 text-white text-sm font-medium rounded-full">
                   {beforeLabel}
                 </div>
               </div>
-              <div className="relative bg-white rounded-xl overflow-hidden shadow-lg">
+              <div className={`relative ${CHECKERBOARD_BG} rounded-xl overflow-hidden shadow-lg`}>
                 <img src={afterImage} alt={afterLabel} className="w-full h-full object-contain" />
                 <div className="absolute top-4 left-4 px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-full">
                   {afterLabel}
@@ -258,7 +259,7 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
 
           {viewMode === 'toggle' && (
             <div className="relative max-h-[60vh] mx-auto" style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}>
-              <div className="relative bg-white rounded-xl overflow-hidden shadow-lg">
+              <div className={`relative ${CHECKERBOARD_BG} rounded-xl overflow-hidden shadow-lg`}>
                 <img
                   src={showAfter ? afterImage : beforeImage}
                   alt={showAfter ? afterLabel : beforeLabel}
@@ -280,18 +281,18 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
 
         {/* Metadata display */}
         {metadata && (metadata.beforeDimensions || metadata.afterDimensions || metadata.beforeDpi || metadata.afterDpi) && (
-          <div className="px-6 py-3 bg-stone-50 border-t border-stone-100">
+          <div className="px-6 py-3 bg-bg border-t border-primary/10">
             <div className="flex items-center justify-center gap-8 text-sm">
               {metadata.beforeDimensions && (
-                <div className="text-stone-600">
-                  <span className="font-medium">Before:</span> {metadata.beforeDimensions.width} × {metadata.beforeDimensions.height}px
-                  {metadata.beforeDpi && <span className="ml-2 text-stone-500">({metadata.beforeDpi} DPI)</span>}
+                <div className="text-muted">
+                  <span className="font-medium text-text">Before:</span> {metadata.beforeDimensions.width} × {metadata.beforeDimensions.height}px
+                  {metadata.beforeDpi && <span className="ml-2 text-muted">({metadata.beforeDpi} DPI)</span>}
                 </div>
               )}
               {metadata.afterDimensions && (
-                <div className="text-purple-700">
+                <div className="text-purple-400">
                   <span className="font-medium">After:</span> {metadata.afterDimensions.width} × {metadata.afterDimensions.height}px
-                  {metadata.afterDpi && <span className="ml-2 text-purple-500">({metadata.afterDpi} DPI)</span>}
+                  {metadata.afterDpi && <span className="ml-2 text-purple-300">({metadata.afterDpi} DPI)</span>}
                 </div>
               )}
             </div>
@@ -299,15 +300,15 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
         )}
 
         {/* Footer actions */}
-        <div className="px-6 py-4 border-t border-stone-200 flex items-center justify-between bg-white">
-          <p className="text-sm text-stone-500">
+        <div className="px-6 py-4 border-t border-primary/20 flex items-center justify-between bg-card">
+          <p className="text-sm text-muted">
             Use arrow keys to adjust slider, Space to toggle
           </p>
           <div className="flex items-center gap-3">
             {onRevert && (
               <button
                 onClick={onRevert}
-                className="px-4 py-2 text-stone-700 hover:bg-stone-100 rounded-lg font-medium transition-colors"
+                className="px-4 py-2 text-text hover:bg-primary/10 rounded-lg font-medium transition-colors"
               >
                 Revert to Original
               </button>
@@ -323,7 +324,7 @@ const ImageCompareModal: React.FC<ImageCompareModalProps> = ({
             )}
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-stone-200 text-stone-700 rounded-lg font-medium hover:bg-stone-300 transition-colors"
+              className="px-4 py-2 bg-primary/10 text-text rounded-lg font-medium hover:bg-primary/20 transition-colors"
             >
               Close
             </button>

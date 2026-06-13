@@ -2,12 +2,20 @@
  * NanoBanana Prompt Builders for 3D Figurine Generation
  *
  * Provides optimized prompts for generating 3D-printable figurines
- * using Google's NanoBanana model via Replicate.
+ * using Google's NanoBanana / openai/gpt-image-2 models via Replicate.
  *
  * Two generation modes:
  * 1. Text-to-Image (t2i): Generate initial concept from text prompt
  * 2. Image-to-Image (i2i): Generate consistent angle views from concept
  */
+
+// Shared clause constants — used by both the full t2i path and the remix i2i path
+// so both references always stay in sync.
+export const TOY_MODE_CLAUSE =
+  'Designed as a collectible vinyl-toy style figurine for 3D printing: chunky rounded proportions, thick sturdy limbs, no thin protruding parts or fragile details, feet/base wide enough to stand stably, smooth surfaces, bold simple shapes, full vibrant colors, single connected solid body, neutral plain background, centered full view of the entire figure'
+
+export const COLOR4_CLAUSE =
+  'Use a LIMITED FLAT PALETTE of at most 4 distinct solid colors total, large clean single-color regions with crisp boundaries, no gradients, no color blending, no tiny multicolor details — every region must be one of the 4 chosen colors'
 
 // Style descriptors optimized for 3D printing
 export const STYLES = {
@@ -66,9 +74,16 @@ export type AngleView = keyof typeof ANGLE_VIEWS
  *
  * @param userPrompt - User's description of the figurine
  * @param style - Visual style for the figurine
+ * @param opts - Optional flags:
+ *   toyMode applies print-optimized collectible-toy language.
+ *   colorMode 'color4' appends AMS 4-spool palette constraints; 'grey' leaves behavior unchanged.
  * @returns Optimized prompt for NanoBanana t2i
  */
-export function buildConceptPrompt(userPrompt: string, style: Style3D = 'realistic'): string {
+export function buildConceptPrompt(
+  userPrompt: string,
+  style: Style3D = 'realistic',
+  opts?: { toyMode?: boolean; colorMode?: 'grey' | 'color4' }
+): string {
   const styleInfo = STYLES[style] || STYLES.realistic
 
   // Clean and normalize user prompt
@@ -78,7 +93,7 @@ export function buildConceptPrompt(userPrompt: string, style: Style3D = 'realist
     .replace(/[^\w\s,.-]/g, '')
 
   // Build comprehensive prompt optimized for 3D printing
-  const prompt = [
+  const parts = [
     `A ${styleInfo.descriptor} 3D-printable figurine of ${cleanPrompt}`,
     'centered composition on pure white background',
     'product photography lighting, soft shadows',
@@ -87,9 +102,19 @@ export function buildConceptPrompt(userPrompt: string, style: Style3D = 'realist
     'single subject, clean isolated view',
     'high detail, sharp focus',
     'front view perspective'
-  ].join(', ')
+  ]
 
-  return prompt
+  // Toy-creator mode: append print-optimized collectible-toy language
+  if (opts?.toyMode) {
+    parts.push(TOY_MODE_CLAUSE)
+  }
+
+  // Color4 mode: constrain palette for AMS 4-spool FDM printing
+  if (opts?.colorMode === 'color4') {
+    parts.push(COLOR4_CLAUSE)
+  }
+
+  return parts.join(', ')
 }
 
 /**

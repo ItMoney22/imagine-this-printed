@@ -4,6 +4,7 @@ import OpenAI from 'openai'
 import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { requireAdmin } from '../../middleware/requireAdmin.js'
+import { requireVendorOrAdmin } from '../../middleware/requireVendorOrAdmin.js'
 import { nanoid } from 'nanoid'
 
 const router = express.Router()
@@ -48,7 +49,7 @@ const openai = new OpenAI({
  * POST /api/admin/upload-product-image
  * Upload a product image to GCS
  */
-router.post('/upload-product-image', requireAuth, requireAdmin, upload.single('image'), async (req, res) => {
+router.post('/upload-product-image', requireAuth, requireVendorOrAdmin, upload.single('image'), async (req, res) => {
   try {
     const file = req.file
     if (!file) {
@@ -83,7 +84,7 @@ router.post('/upload-product-image', requireAuth, requireAdmin, upload.single('i
  * POST /api/admin/upload-digital-file
  * Upload a digital product file to GCS
  */
-router.post('/upload-digital-file', requireAuth, requireAdmin, upload.single('file'), async (req, res) => {
+router.post('/upload-digital-file', requireAuth, requireVendorOrAdmin, upload.single('file'), async (req, res) => {
   try {
     const file = req.file
     if (!file) {

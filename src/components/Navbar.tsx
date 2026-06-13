@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, Dna } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 
@@ -88,6 +88,13 @@ const Navbar: React.FC = () => {
             </Link>
             <Link to="/models" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
               3D Models
+            </Link>
+            <Link
+              to="/toy-creator"
+              className="text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 transition-all shadow-lg hover:shadow-cyan-500/25"
+            >
+              <Dna className="w-4 h-4" />
+              Toy Creator
             </Link>
             <Link to="/community" className="text-gray-700 hover:text-purple-600 px-3 py-2 rounded-md text-sm font-medium">
               Community
@@ -266,6 +273,20 @@ const Navbar: React.FC = () => {
                           className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                         >
                           Dashboard
+                        </Link>
+                        <Link
+                          to="/admin/email"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Email
+                        </Link>
+                        <Link
+                          to="/admin/toys"
+                          onClick={closeAccountMenu}
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        >
+                          Toy Lab
                         </Link>
                         <Link
                           to="/admin/control-panel"
@@ -469,6 +490,10 @@ const Navbar: React.FC = () => {
             </Link>
             <Link to="/models" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
               3D Models
+            </Link>
+            <Link to="/toy-creator" onClick={closeMobileMenu} className="flex items-center gap-2 px-3 py-2 text-white bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-md text-base font-medium">
+              <Dna className="w-4 h-4" />
+              Toy Creator
             </Link>
             <Link to="/community" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
               Community

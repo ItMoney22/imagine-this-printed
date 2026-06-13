@@ -15,7 +15,11 @@ import { supabase } from '../lib/supabase'
 import { PRODUCT_STYLE_OPTIONS } from '../utils/product-style-options'
 import { BULK_DESIGN_SUGGESTIONS } from '../utils/bulk-design-suggestions'
 
-const MAX_PROMPTS = 20
+// The server caps each /bulk request at 20 prompts; the client chunks bigger
+// lists into sequential batches of BATCH_SIZE, so admins can queue up to
+// MAX_PROMPTS designs in one sitting (results stream in per batch).
+const MAX_PROMPTS = 100
+const BATCH_SIZE = 20
 const ITC_PER_DESIGN = 1 // display estimate; backend handles actual cost
 
 interface BulkProductModalProps {
@@ -63,6 +67,8 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
   const [results, setResults] = useState<BulkResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null)
+  const csvInputRef = React.useRef<HTMLInputElement>(null)
   // Track which result rows the admin already deleted (deletes are server
   // calls but we hide them locally too so the grid updates immediately).
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
@@ -102,22 +108,69 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
       if (!session?.access_token) throw new Error('Not authenticated')
 
       const apiBase = import.meta.env.VITE_API_BASE || ''
-      const response = await fetch(`${apiBase}/api/admin/products/ai/bulk`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ prompts: parsedPrompts, productType, shirtColor, style: style || undefined }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data?.error ?? 'Bulk generation failed')
-      setResults(data.results as BulkResult[])
+
+      // Chunk into sequential batches — the server caps each request at 20 and
+      // each batch takes minutes, so sequencing also respects the rate limiter.
+      // Results accumulate per batch so finished designs appear immediately.
+      const batches: string[][] = []
+      for (let i = 0; i < parsedPrompts.length; i += BATCH_SIZE) {
+        batches.push(parsedPrompts.slice(i, i + BATCH_SIZE))
+      }
+      const all: BulkResult[] = []
+      for (let b = 0; b < batches.length; b++) {
+        setBatchProgress({ current: b + 1, total: batches.length })
+        const response = await fetch(`${apiBase}/api/admin/products/ai/bulk`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ prompts: batches[b], productType, shirtColor, style: style || undefined }),
+        })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data?.error ?? 'Bulk generation failed')
+        all.push(...(data.results as BulkResult[]))
+        setResults([...all])
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Bulk generation failed')
     } finally {
       window.clearInterval(tick)
       setIsGenerating(false)
+      setBatchProgress(null)
+    }
+  }
+
+  // CSV/TXT import — one prompt per line; for CSV rows, the first cell is the
+  // prompt. Merges into the textarea deduped, capped at MAX_PROMPTS.
+  const handleCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const raw = await file.text()
+      const incoming = raw
+        .split(/\r?\n/)
+        .map((line) => {
+          const cell = line.split(/[,;\t]/)[0] ?? ''
+          return cell.replace(/^["']|["']$/g, '').replace(/^\s*[-*•]\s*|\s*\d+[.)]\s*/, '').trim()
+        })
+        .filter((p) => p.length >= 3 && p.toLowerCase() !== 'prompt') // skip header row
+      const existing = new Set(text.split('\n').map((l) => l.trim().toLowerCase()).filter(Boolean))
+      const fresh = incoming.filter((p) => !existing.has(p.toLowerCase()))
+      const room = Math.max(0, MAX_PROMPTS - existing.size)
+      const toAdd = fresh.slice(0, room)
+      if (toAdd.length > 0) {
+        setText((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n` : '') + toAdd.join('\n'))
+      }
+      if (fresh.length > room) {
+        setError(`Imported ${toAdd.length} prompts — ${fresh.length - room} skipped (cap is ${MAX_PROMPTS}).`)
+      } else {
+        setError(null)
+      }
+    } catch {
+      setError('Could not read that file. Use a plain .csv or .txt with one prompt per line.')
+    } finally {
+      if (csvInputRef.current) csvInputRef.current.value = ''
     }
   }
 
@@ -251,9 +304,31 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
                   placeholder={`A wolf howling at a neon moon, retro 80s synthwave\nA skull with roses, traditional tattoo style\nA vintage muscle car silhouette at sunset\nA cosmic astronaut riding a whale through stars\n...`}
                   className="w-full bg-bg/60 border border-white/10 rounded-xl px-4 py-3 text-text placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all resize-y font-mono text-sm leading-relaxed disabled:opacity-60"
                 />
-                <p className="text-xs text-muted mt-1.5">
-                  Numbers / dashes are stripped automatically — paste a list straight from a doc.
-                </p>
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-xs text-muted">
+                    Numbers / dashes are stripped automatically — paste a list straight from a doc.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => csvInputRef.current?.click()}
+                    disabled={isGenerating}
+                    className="text-xs font-semibold text-primary hover:text-secondary transition-colors disabled:opacity-40 flex-shrink-0 ml-3"
+                  >
+                    Import CSV / TXT
+                  </button>
+                  <input
+                    ref={csvInputRef}
+                    type="file"
+                    accept=".csv,.txt"
+                    onChange={handleCsvFile}
+                    className="hidden"
+                  />
+                </div>
+                {batchProgress && (
+                  <p className="text-xs text-primary mt-1.5 font-semibold animate-pulse">
+                    Generating batch {batchProgress.current} of {batchProgress.total} ({BATCH_SIZE} designs per batch)…
+                  </p>
+                )}
               </div>
 
               {/* Suggestions panel — pre-built design ideas grouped by theme.

@@ -46,7 +46,7 @@ const UserMediaGallery: React.FC = () => {
         `/api/realistic-mockups/gallery?page=${pagination.page}&limit=${pagination.limit}&type=${filterType}`
       )
 
-      if (!response.ok) {
+      if (response.error || response.ok === false) {
         throw new Error(response.error || 'Failed to fetch gallery')
       }
 

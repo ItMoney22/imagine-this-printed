@@ -205,28 +205,60 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
     }
   }
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const img = new window.Image()
-        img.onload = () => {
-          const newElement = {
-            id: `image-${Date.now()}`,
-            type: 'image',
-            src: event.target?.result as string,
-            x: 280,
-            y: 150,
-            width: Math.min(200, img.width),
-            height: Math.min(200, img.height),
-            rotation: 0
-          }
-          setElements([...elements, newElement])
+      setIsProcessingImage(true)
+      setProcessingMessage('Uploading design...')
+      try {
+        const reader = new FileReader()
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = (event) => resolve(event.target?.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        })
+
+        // Upload to server to get a real URL
+        const response = await apiFetch('/api/imagination-station/ai/use-upload', {
+          method: 'POST',
+          body: JSON.stringify({ dataUrl })
+        })
+
+        const imageUrl = response.url || response.imageUrl || response.processedUrl;
+        if (!imageUrl) {
+          throw new Error('No URL returned from upload')
         }
-        img.src = event.target?.result as string
+
+        const img = new window.Image()
+        img.crossOrigin = "anonymous"
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => {
+            const newElement = {
+              id: `image-${Date.now()}`,
+              type: 'image',
+              src: imageUrl,
+              x: 280,
+              y: 150,
+              width: Math.min(200, img.width),
+              height: Math.min(200, img.height),
+              rotation: 0
+            }
+            setElements(prev => [...prev, newElement])
+            resolve()
+          }
+          img.onerror = reject
+          img.src = imageUrl
+        })
+        
+        toast.success('Image uploaded', 'Your design has been added to the canvas.')
+      } catch (err: any) {
+        console.error('Upload error:', err)
+        toast.error('Upload failed', err.message || 'Failed to upload image')
+      } finally {
+        setIsProcessingImage(false)
+        setProcessingMessage('')
+        if (fileInputRef.current) fileInputRef.current.value = ''
       }
-      reader.readAsDataURL(file)
     }
   }
 
@@ -293,7 +325,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
         })
       })
 
-      if (!response.ok) {
+      if (response.error || (response.ok === false)) {
         throw new Error(response.error || 'Failed to remove background')
       }
 
@@ -359,7 +391,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
         })
       })
 
-      if (!response.ok) {
+      if (response.error || (response.ok === false)) {
         throw new Error(response.error || 'Failed to upscale image')
       }
 
@@ -417,7 +449,7 @@ const DesignStudioModal: React.FC<DesignStudioModalProps> = ({
         })
       })
 
-      if (!response.ok) {
+      if (response.error || (response.ok === false)) {
         throw new Error(response.error || 'Failed to generate mockup')
       }
 

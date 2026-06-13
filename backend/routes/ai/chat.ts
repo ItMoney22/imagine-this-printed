@@ -13,8 +13,18 @@ const router = Router()
 // Server-controlled allowlist. Mr. Imagine intentionally serves anonymous
 // visitors, but we cannot let the client pick the model — that's a wide-open
 // cost vector (e.g. someone passing 'o1-pro' on every request).
-const ALLOWED_MODELS = new Set(['gpt-4o', 'gpt-4.1-mini', 'gpt-4o-mini'])
-const DEFAULT_MODEL = 'gpt-4o'
+//
+// Cost decision (2026-06-12): Mr. Imagine's brain defaults to Gemini 2.5
+// Flash via OpenRouter (~94% cheaper than gpt-4o, 1M context, low latency).
+// OpenRouter speaks the OpenAI SDK dialect and normalizes tool calling, so
+// the function-calling flow below runs unchanged. If OPENROUTER_API_KEY is
+// missing we fall back to direct OpenAI. Legacy clients that still send
+// 'gpt-4o' simply fall through the allowlist onto the cheap default.
+const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+const ALLOWED_MODELS = USE_OPENROUTER
+  ? new Set(['google/gemini-2.5-flash', 'google/gemini-2.5-pro', 'openai/gpt-4o-mini'])
+  : new Set(['gpt-4o', 'gpt-4.1-mini', 'gpt-4o-mini'])
+const DEFAULT_MODEL = USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-4o'
 
 // Per-IP rate limit for anonymous callers. Authenticated users are
 // rate-limited at a higher tier (their JWT also gives us an audit trail).
@@ -37,16 +47,20 @@ function checkChatRateLimit(key: string, limit: number): boolean {
 
 // Initialize Supabase client for Ticket Creation
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // Anon fallback would silently re-enable RLS on privileged queries and mask a misconfigured deploy — dev only.
+  || (process.env.NODE_ENV !== 'production' ? process.env.VITE_SUPABASE_ANON_KEY : undefined)
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null
 
 if (!supabase) {
     console.warn('[chat] Supabase credentials missing given env. Ticket creation will happen in-memory/mock.')
 }
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-})
+const openai = new OpenAI(
+    USE_OPENROUTER
+        ? { apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1' }
+        : { apiKey: process.env.OPENAI_API_KEY }
+)
 
 /**
  * POST /api/ai/chat

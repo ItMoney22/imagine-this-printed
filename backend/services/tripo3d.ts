@@ -52,7 +52,12 @@ export const SIZE_TIERS: Record<PrintSizeTier, SizeTierConfig> = {
     texture: 'standard',
     quad: false,
     itcCost: 50,
-    printPriceUsd: 8,
+    // Pricing dropped 2026-06-12 (David: "$20-something for user generated is
+    // too much — go a little under, get people in"). Material cost grounding:
+    // a PLA figurine runs ~$0.50–$4 in filament + pennies of electricity, so
+    // these keep healthy margin while staying impulse-buy priced. Revisit when
+    // the print-economics panel (live filament/kWh from Watchtower) lands.
+    printPriceUsd: 5.99,
     approxSeconds: 60,
   },
   small: {
@@ -64,7 +69,7 @@ export const SIZE_TIERS: Record<PrintSizeTier, SizeTierConfig> = {
     texture: 'standard',
     quad: false,
     itcCost: 80,
-    printPriceUsd: 18,
+    printPriceUsd: 11.99,
     approxSeconds: 90,
   },
   medium: {
@@ -76,7 +81,7 @@ export const SIZE_TIERS: Record<PrintSizeTier, SizeTierConfig> = {
     texture: 'HD',
     quad: false,
     itcCost: 140,
-    printPriceUsd: 32,
+    printPriceUsd: 18.99,
     approxSeconds: 120,
   },
   large: {
@@ -88,7 +93,7 @@ export const SIZE_TIERS: Record<PrintSizeTier, SizeTierConfig> = {
     texture: 'HD',
     quad: true,
     itcCost: 220,
-    printPriceUsd: 55,
+    printPriceUsd: 29.99,
     approxSeconds: 180,
   },
 }

@@ -10,7 +10,7 @@ import { pricingService } from '../services/imagination-pricing.js';
 import { aiService } from '../services/imagination-ai.js';
 import { layoutService } from '../services/imagination-layout.js';
 import gcsStorage from '../services/gcs-storage.js';
-import { uploadImageFromBase64 } from '../services/google-cloud-storage.js';
+import { uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
@@ -43,12 +43,30 @@ const requireAuth = async (req: Request, res: Response, next: Function): Promise
 // Get sheet presets configuration
 router.get('/presets', async (req: Request, res: Response) => {
   try {
-    const products = await imaginationProducts.getAllProducts();
-    // Transform to expected format if needed, but new format is better. 
-    // Allowing frontend to adapt to new structure or we map it here.
-    // Let's stick to returning the full product list which includes rules and sizes.
-    // However, legacy frontend expects { dtf: {...}, uv_dtf: {...} } map.
-    // For backward compatibility while I update frontend:
+    // getAllProducts falls back to static config on DB error, but wrap in its
+    // own try/catch as defence-in-depth in case the table doesn't exist at all
+    // and the service throws unexpectedly.
+    let products;
+    try {
+      products = await imaginationProducts.getAllProducts();
+    } catch (dbErr: unknown) {
+      console.warn('[imagination-station] /presets DB query failed, using static config:', dbErr instanceof Error ? dbErr.message : String(dbErr));
+      const { SHEET_PRESETS } = await import('../config/imagination-presets.js');
+      const staticMap: any = {};
+      for (const [key, preset] of Object.entries(SHEET_PRESETS)) {
+        staticMap[key] = {
+          width: preset.width,
+          heights: preset.heights,
+          rules: preset.rules,
+          displayName: preset.displayName,
+          description: preset.description
+        };
+      }
+      res.json(staticMap);
+      return;
+    }
+
+    // Legacy frontend expects { dtf: {...}, uv_dtf: {...} } map.
     const presetsMap: any = {};
     for (const p of products) {
       presetsMap[p.printType] = {
@@ -60,10 +78,9 @@ router.get('/presets', async (req: Request, res: Response) => {
       };
     }
 
-    // Check if we have data, if not (e.g. migration failed), the service already falls back to hardcoded.
     res.json(presetsMap);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -76,7 +93,7 @@ router.get('/pricing', requireAuth, async (req: Request, res: Response) => {
 
     res.json({ pricing, freeTrials });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -117,7 +134,7 @@ router.post('/sheets', requireAuth, async (req: Request, res: Response): Promise
     if (error) throw error;
     res.status(201).json(data);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -141,7 +158,7 @@ router.get('/sheets', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data || []);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -171,7 +188,7 @@ router.get('/sheets/:id', requireAuth, async (req: Request, res: Response): Prom
 
     res.json({ ...sheet, layers: layers || [] });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -198,7 +215,7 @@ router.put('/sheets/:id', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -229,7 +246,7 @@ router.delete('/sheets/:id', requireAuth, async (req: Request, res: Response): P
     await supabase.from('imagination_sheets').delete().eq('id', id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -258,21 +275,11 @@ router.post('/sheets/:id/upload', requireAuth, upload.single('image'), async (re
       return;
     }
 
-    // Upload to Supabase Storage
+    // Upload to GCS
     const fileName = `${uuidv4()}-${file.originalname}`;
     const filePath = `imagination-station/${user.id}/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('uploads')
-      .upload(filePath, file.buffer, {
-        contentType: file.mimetype
-      });
-
-    if (uploadError) throw uploadError;
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('uploads')
-      .getPublicUrl(filePath);
+    const result = await uploadImageFromBuffer(file.buffer, filePath, file.mimetype);
+    const publicUrl = result.publicUrl;
 
     // Create layer record
     const { data: layer, error: layerError } = await supabase
@@ -285,7 +292,7 @@ router.post('/sheets/:id/upload', requireAuth, upload.single('image'), async (re
         position_y: 0,
         width: 100, // Will be updated by frontend with actual dimensions
         height: 100,
-        z_index: Date.now(),
+        z_index: Math.floor(Date.now() / 1000),
         metadata: { originalName: file.originalname, mimeType: file.mimetype }
       })
       .select()
@@ -294,7 +301,7 @@ router.post('/sheets/:id/upload', requireAuth, upload.single('image'), async (re
     if (layerError) throw layerError;
     res.status(201).json(layer);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -320,7 +327,7 @@ router.post('/sheets/:id/submit', requireAuth, async (req: Request, res: Respons
 
     res.json(sheet);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -404,7 +411,7 @@ router.post('/projects/save', requireAuth, async (req: Request, res: Response): 
     });
   } catch (error: any) {
     console.error('Save project error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -438,7 +445,7 @@ router.get('/projects/:id', requireAuth, async (req: Request, res: Response): Pr
       layers: layers || []
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -478,22 +485,26 @@ router.get('/projects', requireAuth, async (req: Request, res: Response) => {
 
     res.json(projectsWithMeta);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
 // AI Operations
 
 // Generate image with Mr. Imagine (standalone, no sheet required)
+// Supports generating 1–4 images in parallel across the top models.
 router.post('/ai/generate', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { prompt, style, useTrial } = req.body;
+    const { prompt, style, useTrial, count: rawCount } = req.body;
 
     if (!prompt) {
       res.status(400).json({ error: 'Prompt is required' });
       return;
     }
+
+    // Parse and clamp count: default 1, integer, clamped 1–4
+    const count = Math.min(4, Math.max(1, parseInt(rawCount, 10) || 1));
 
     // Get user's ITC balance
     const { data: wallet } = await supabase
@@ -502,28 +513,36 @@ router.post('/ai/generate', requireAuth, async (req: Request, res: Response): Pr
       .eq('user_id', user.id)
       .single();
 
-    // For standalone generation, we'll create a temporary sheet or just return the URL
-    // Let's just generate and return the image URL without persisting to a sheet
-    const result = await aiService.generateImage({
+    const result = await aiService.generateImagesMulti({
       userId: user.id,
-      sheetId: 'standalone', // Mark as standalone generation
       prompt,
       style: style || 'realistic',
-      itcBalance: wallet?.itc_balance || 0
+      itcBalance: wallet?.itc_balance || 0,
+      count,
     });
 
-    // Extract the image URL from the result
-    const imageUrl = result.layer?.source_url || result.layer?.processed_url;
+    if (!result.images || result.images.length === 0) {
+      res.status(502).json({ error: 'Image generation completed but no output URLs were produced. You were not charged.' });
+      return;
+    }
+
+    // Legacy aliases so existing single-image callers keep working
+    const primaryUrl = result.images[0]?.url;
 
     res.json({
-      imageUrl,
-      url: imageUrl,
-      output: imageUrl,
+      images: result.images,
       cost: result.cost,
-      freeTrialUsed: result.freeTrialUsed
+      perImageCost: result.perImageCost,
+      freeTrialUsed: result.freeTrialUsed,
+      failures: result.failures,
+      // Legacy aliases
+      imageUrl: primaryUrl,
+      url: primaryUrl,
+      output: primaryUrl,
+      processedUrl: primaryUrl,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -567,9 +586,17 @@ router.post('/sheets/:id/generate', requireAuth, async (req: Request, res: Respo
       itcBalance: wallet?.itc_balance || 0
     });
 
-    res.json(result);
+    // Normalize response shape so any caller gets consistent URL aliases
+    const genUrl = result.layer?.source_url || result.layer?.processed_url || '';
+    res.json({
+      ...result,
+      imageUrl: genUrl,
+      url: genUrl,
+      output: genUrl,
+      processedUrl: genUrl,
+    });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -599,7 +626,12 @@ router.post('/ai/remove-bg', requireAuth, async (req: Request, res: Response): P
     });
 
     // Return the processed image URL - include processedUrl for frontend compatibility
-    const processedUrl = result.layer?.processed_url || imageUrl;
+    const processedUrl = result.layer?.processed_url;
+
+    if (!processedUrl) {
+      res.status(502).json({ error: 'Image processing completed but no output URL was produced. You were not charged.' });
+      return;
+    }
 
     res.json({
       processedUrl,
@@ -611,7 +643,7 @@ router.post('/ai/remove-bg', requireAuth, async (req: Request, res: Response): P
       freeTrialUsed: result.freeTrialUsed
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -655,9 +687,17 @@ router.post('/sheets/:id/remove-bg', requireAuth, async (req: Request, res: Resp
       itcBalance: wallet?.itc_balance || 0
     });
 
-    res.json(result);
+    // Normalize response shape so any caller gets consistent URL aliases
+    const bgUrl = result.layer?.processed_url || result.layer?.source_url || '';
+    res.json({
+      ...result,
+      processedUrl: bgUrl,
+      imageUrl: bgUrl,
+      url: bgUrl,
+      output: bgUrl,
+    });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -695,7 +735,12 @@ router.post('/ai/upscale', requireAuth, async (req: Request, res: Response): Pro
 
     // Return the processed image URL - include processedUrl for frontend compatibility
     // Also include scaleFactor for dimension recalculation on frontend
-    const processedUrl = result.layer?.processed_url || imageUrl;
+    const processedUrl = result.layer?.processed_url;
+
+    if (!processedUrl) {
+      res.status(502).json({ error: 'Image processing completed but no output URL was produced. You were not charged.' });
+      return;
+    }
 
     res.json({
       processedUrl,
@@ -708,7 +753,7 @@ router.post('/ai/upscale', requireAuth, async (req: Request, res: Response): Pro
       freeTrialUsed: result.freeTrialUsed
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -758,9 +803,17 @@ router.post('/sheets/:id/upscale', requireAuth, async (req: Request, res: Respon
       scaleFactor
     });
 
-    res.json(result);
+    // Normalize response shape so any caller gets consistent URL aliases
+    const upUrl = result.layer?.processed_url || result.layer?.source_url || '';
+    res.json({
+      ...result,
+      processedUrl: upUrl,
+      imageUrl: upUrl,
+      url: upUrl,
+      output: upUrl,
+    });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -790,7 +843,12 @@ router.post('/ai/enhance', requireAuth, async (req: Request, res: Response): Pro
     });
 
     // Return the processed image URL - include processedUrl for frontend compatibility
-    const processedUrl = result.layer?.processed_url || imageUrl;
+    const processedUrl = result.layer?.processed_url;
+
+    if (!processedUrl) {
+      res.status(502).json({ error: 'Image processing completed but no output URL was produced. You were not charged.' });
+      return;
+    }
 
     res.json({
       processedUrl,
@@ -802,7 +860,7 @@ router.post('/ai/enhance', requireAuth, async (req: Request, res: Response): Pro
       freeTrialUsed: result.freeTrialUsed
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -845,9 +903,17 @@ router.post('/sheets/:id/enhance', requireAuth, async (req: Request, res: Respon
       itcBalance: wallet?.itc_balance || 0
     });
 
-    res.json(result);
+    // Normalize response shape so any caller gets consistent URL aliases
+    const enhUrl = result.layer?.processed_url || result.layer?.source_url || '';
+    res.json({
+      ...result,
+      processedUrl: enhUrl,
+      imageUrl: enhUrl,
+      url: enhUrl,
+      output: enhUrl,
+    });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -897,21 +963,51 @@ router.post('/layout/auto-nest', requireAuth, async (req: Request, res: Response
       itcBalance
     );
 
-    // Deduct ITC if charged
+    // Deduct ITC if charged — use optimistic conditional update to guard against
+    // concurrent balance changes (race condition between read and write).
     if (result.itcCharged > 0) {
-      await supabase
-        .from('user_wallets')
-        .update({ itc_balance: itcBalance - result.itcCharged })
-        .eq('user_id', user.id);
+      const charged = result.itcCharged;
+      const applyDeduction = async (balance: number): Promise<boolean> => {
+        const { data: updated } = await supabase
+          .from('user_wallets')
+          .update({ itc_balance: balance - charged })
+          .eq('user_id', user.id)
+          .eq('itc_balance', balance)  // optimistic lock
+          .select('itc_balance');
+        return Array.isArray(updated) && updated.length > 0;
+      };
 
-      // Log transaction
-      await supabase.from('wallet_transactions').insert({
+      let success = await applyDeduction(itcBalance);
+      if (!success) {
+        // Balance changed concurrently — re-fetch once and retry
+        const { data: freshWallet } = await supabase
+          .from('user_wallets')
+          .select('itc_balance')
+          .eq('user_id', user.id)
+          .single();
+        const freshBalance = freshWallet?.itc_balance ?? 0;
+        if (freshBalance < charged) {
+          res.status(409).json({ error: 'ITC balance changed concurrently — insufficient funds. Please retry.' });
+          return;
+        }
+        success = await applyDeduction(freshBalance);
+        if (!success) {
+          res.status(409).json({ error: 'ITC balance is being modified concurrently. Please retry in a moment.' });
+          return;
+        }
+      }
+
+      // Log transaction. wallet_transactions live schema has NO `metadata`
+      // column (transaction_type/amount/balance_after/reference_type/description)
+      // — the old insert with metadata silently failed.
+      const { error: wtErr } = await supabase.from('wallet_transactions').insert({
         user_id: user.id,
         transaction_type: 'spend',
         amount: result.itcCharged,
-        description: 'Auto-Nest layout optimization',
-        metadata: { feature: 'auto_nest', layerCount: layers.length }
+        reference_type: 'imagination_auto_nest',
+        description: `Auto-Nest layout optimization (${layers.length} layers)`
       });
+      if (wtErr) console.error('[imagination/auto-nest] wallet_transactions insert failed:', wtErr.message);
     }
 
     res.json({
@@ -921,7 +1017,7 @@ router.post('/layout/auto-nest', requireAuth, async (req: Request, res: Response
       itcCharged: result.itcCharged
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -969,21 +1065,49 @@ router.post('/layout/smart-fill', requireAuth, async (req: Request, res: Respons
       itcBalance
     );
 
-    // Deduct ITC if charged
+    // Deduct ITC if charged — use optimistic conditional update to guard against
+    // concurrent balance changes (race condition between read and write).
     if (result.itcCharged > 0) {
-      await supabase
-        .from('user_wallets')
-        .update({ itc_balance: itcBalance - result.itcCharged })
-        .eq('user_id', user.id);
+      const charged = result.itcCharged;
+      const applyDeduction = async (balance: number): Promise<boolean> => {
+        const { data: updated } = await supabase
+          .from('user_wallets')
+          .update({ itc_balance: balance - charged })
+          .eq('user_id', user.id)
+          .eq('itc_balance', balance)  // optimistic lock
+          .select('itc_balance');
+        return Array.isArray(updated) && updated.length > 0;
+      };
 
-      // Log transaction
-      await supabase.from('wallet_transactions').insert({
+      let success = await applyDeduction(itcBalance);
+      if (!success) {
+        // Balance changed concurrently — re-fetch once and retry
+        const { data: freshWallet } = await supabase
+          .from('user_wallets')
+          .select('itc_balance')
+          .eq('user_id', user.id)
+          .single();
+        const freshBalance = freshWallet?.itc_balance ?? 0;
+        if (freshBalance < charged) {
+          res.status(409).json({ error: 'ITC balance changed concurrently — insufficient funds. Please retry.' });
+          return;
+        }
+        success = await applyDeduction(freshBalance);
+        if (!success) {
+          res.status(409).json({ error: 'ITC balance is being modified concurrently. Please retry in a moment.' });
+          return;
+        }
+      }
+
+      // Log transaction (wallet_transactions has no metadata column — see auto-nest note)
+      const { error: wtErr } = await supabase.from('wallet_transactions').insert({
         user_id: user.id,
         transaction_type: 'spend',
         amount: result.itcCharged,
-        description: 'Smart Fill layout optimization',
-        metadata: { feature: 'smart_fill', duplicatesAdded: result.totalAdded }
+        reference_type: 'imagination_smart_fill',
+        description: `Smart Fill layout optimization (+${result.totalAdded} copies)`
       });
+      if (wtErr) console.error('[imagination/smart-fill] wallet_transactions insert failed:', wtErr.message);
     }
 
     res.json({
@@ -993,7 +1117,7 @@ router.post('/layout/smart-fill', requireAuth, async (req: Request, res: Respons
       itcCharged: result.itcCharged
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -1037,6 +1161,12 @@ router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): P
 
     // Return all common keys for frontend compatibility
     const url = result.layer.processed_url;
+
+    if (!url) {
+      res.status(502).json({ error: 'Image processing completed but no output URL was produced. You were not charged.' });
+      return;
+    }
+
     res.json({
       processedUrl: url,
       imageUrl: url,
@@ -1049,7 +1179,7 @@ router.post('/ai/reimagine', requireAuth, async (req: Request, res: Response): P
     });
   } catch (error: any) {
     console.error('[imagination-station] reimagine error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -1083,7 +1213,7 @@ router.post('/ai/use-upload', requireAuth, async (req: Request, res: Response): 
     });
   } catch (error: any) {
     console.error('[imagination-station] use-upload error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -1189,7 +1319,7 @@ router.post('/designs/submit', requireAuth, async (req: Request, res: Response):
           user_submitted: true,
           creator_id: user.id,
           original_prompt: design_concept,
-          creator_royalty_percent: 10,
+          creator_royalty_percent: 15,
           original_replicate_url: isTemporaryUrl ? preview_url : undefined // Keep original for reference
         },
         created_by_user_id: user.id,
@@ -1234,8 +1364,11 @@ router.post('/designs/submit', requireAuth, async (req: Request, res: Response):
 
   } catch (error: any) {
     console.error('[imagination-station] ❌ Design submission error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
 export default router;
+
+
+

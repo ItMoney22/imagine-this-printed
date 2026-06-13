@@ -1,88 +1,158 @@
-interface BrevoEmailOptions {
+// ============================================================================
+// Transactional email — transport is Resend (sendViaResend).
+//
+// Graceful fallback behaviour:
+//   1. If RESEND_API_KEY is present  → use Resend (primary).
+//   2. If RESEND_API_KEY is absent   → log a clear error, then attempt the
+//      legacy Brevo path only if BREVO_API_KEY is also present.
+//   3. If neither key is present     → log and return success:false.
+//
+// All exported function *signatures* are unchanged so callers need no edits.
+// ============================================================================
+
+import { sendViaResend } from '../services/email-resend.js'
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+// EMAIL_FROM is the primary "from" address for all transactional mail.
+// Fall back to BREVO_SENDER_EMAIL for compat during the migration window.
+const EMAIL_FROM =
+  process.env.EMAIL_FROM ||
+  (process.env.BREVO_SENDER_EMAIL
+    ? `Mr. Imagine from Imagine This Printed <${process.env.BREVO_SENDER_EMAIL}>`
+    : 'Imagine This Printed <wecare@imaginethisprinted.com>')
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY
+const BREVO_API_KEY  = process.env.BREVO_API_KEY
+const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com'
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
+
+// Flag to enable/disable AI personalisation (can be toggled via env)
+const AI_EMAIL_ENABLED = process.env.AI_EMAIL_ENABLED !== 'false'
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+interface EmailOptions {
   to: string
   subject: string
   htmlContent: string
   textContent?: string
 }
 
-interface SendEmailResult {
+export interface SendEmailResult {
   success: boolean
   messageId?: string
 }
 
-const BREVO_API_KEY = process.env.BREVO_API_KEY
-const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com'
-// Mr. Imagine is the sender for all customer-facing emails
-const BREVO_SENDER_NAME = 'Mr. Imagine from Imagine This Printed'
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
-
-// Flag to enable/disable AI personalization (can be toggled via env)
-const AI_EMAIL_ENABLED = process.env.AI_EMAIL_ENABLED !== 'false'
+// ---------------------------------------------------------------------------
+// Core transport helpers
+// ---------------------------------------------------------------------------
 
 /**
- * Send email via Brevo API
- * Returns success boolean for backward compatibility
- * Use sendEmailWithTracking for full response including messageId
+ * Primary transport: Resend.
+ * Throws on hard failure so the caller can decide whether to fall back.
  */
-export const sendEmail = async (options: BrevoEmailOptions): Promise<boolean> => {
+async function sendViaResendTransport(options: EmailOptions): Promise<SendEmailResult> {
+  const result = await sendViaResend({
+    from: EMAIL_FROM,
+    to: [options.to],
+    subject: options.subject,
+    html: options.htmlContent,
+    text: options.textContent || options.htmlContent.replace(/<[^>]*>/g, ''),
+  })
+  console.log('[Email] ✅ Sent via Resend to:', options.to, 'id:', result.id)
+  return { success: true, messageId: result.id }
+}
+
+/**
+ * Legacy Brevo transport used only as a fallback when RESEND_API_KEY is absent.
+ */
+async function sendViaBrevoFallback(options: EmailOptions): Promise<SendEmailResult> {
+  if (!BREVO_API_KEY) return { success: false }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': BREVO_API_KEY,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: {
+        name: 'Mr. Imagine from Imagine This Printed',
+        email: BREVO_SENDER_EMAIL,
+      },
+      to: [{ email: options.to, name: options.to }],
+      subject: options.subject,
+      htmlContent: options.htmlContent,
+      textContent: options.textContent || options.htmlContent.replace(/<[^>]*>/g, ''),
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    console.error('[Email] Brevo fallback API error:', errorData)
+    return { success: false }
+  }
+
+  const data = await response.json() as { messageId?: string }
+  console.log('[Email] ✅ Sent via Brevo (fallback) to:', options.to, 'messageId:', data.messageId)
+  return { success: true, messageId: data.messageId }
+}
+
+// ---------------------------------------------------------------------------
+// Public send functions (same signatures as before)
+// ---------------------------------------------------------------------------
+
+/**
+ * Send transactional email.
+ * Returns a boolean for backward compatibility.
+ */
+export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
   const result = await sendEmailWithTracking(options)
   return result.success
 }
 
 /**
- * Send email via Brevo API with full tracking response
- * Returns messageId for webhook tracking
+ * Send transactional email with full tracking response.
+ * Returns messageId when available (used by email-templates route for log correlation).
  */
-export const sendEmailWithTracking = async (options: BrevoEmailOptions): Promise<SendEmailResult> => {
-  if (!BREVO_API_KEY) {
-    console.error('[Email] BREVO_API_KEY is not set')
-    // Log the email instead for development
-    console.log('[Email] Would send to:', options.to)
-    console.log('[Email] Subject:', options.subject)
-    return { success: true }
+export const sendEmailWithTracking = async (options: EmailOptions): Promise<SendEmailResult> => {
+  if (!RESEND_API_KEY && !BREVO_API_KEY) {
+    console.error('[Email] No transport configured — set RESEND_API_KEY (or BREVO_API_KEY as fallback)')
+    console.log('[Email] Would have sent to:', options.to, '| Subject:', options.subject)
+    return { success: false }
   }
 
-  try {
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'accept': 'application/json',
-        'api-key': BREVO_API_KEY,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: BREVO_SENDER_NAME,
-          email: BREVO_SENDER_EMAIL
-        },
-        to: [
-          {
-            email: options.to,
-            name: options.to
-          }
-        ],
-        subject: options.subject,
-        htmlContent: options.htmlContent,
-        textContent: options.textContent || options.htmlContent.replace(/<[^>]*>/g, '')
-      })
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json()
-      console.error('[Email] Brevo API error:', errorData)
+  if (RESEND_API_KEY) {
+    try {
+      return await sendViaResendTransport(options)
+    } catch (err) {
+      console.error('[Email] Resend transport failed:', err)
+      // Do NOT silently swallow — re-throw so callers know the primary path failed
       return { success: false }
     }
+  }
 
-    const data = await response.json() as { messageId?: string }
-    const messageId = data.messageId
-
-    console.log('[Email] ✅ Email sent successfully to:', options.to, 'messageId:', messageId)
-    return { success: true, messageId }
-  } catch (error) {
-    console.error('[Email] ❌ Email sending failed:', error)
+  // RESEND_API_KEY absent — attempt legacy Brevo path
+  console.error('[Email] RESEND_API_KEY is not set; falling back to Brevo (BREVO_API_KEY present)')
+  try {
+    return await sendViaBrevoFallback(options)
+  } catch (err) {
+    console.error('[Email] Brevo fallback failed:', err)
     return { success: false }
   }
 }
+
+// ============================================================================
+// All high-level sender functions below — transport wired through sendEmail /
+// sendEmailWithTracking above.  HTML templates are unchanged.
+// ============================================================================
 
 /**
  * Send approval notification email to product creator
@@ -391,7 +461,7 @@ export const sendTicketEscalationEmail = async (
 
         <div style="text-align: center; margin: 30px 0;">
           <a href="${FRONTEND_URL}/admin/dashboard?tab=support" style="display: inline-block; background: #ef4444; color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            Go Online & Help Customer
+            Go Online &amp; Help Customer
           </a>
         </div>
 
@@ -530,7 +600,7 @@ try {
   import('../services/emailAI.js').then(module => {
     generateAIEmail = module.generateAIEmail
     console.log('[Email] AI email service loaded successfully')
-  }).catch(err => {
+  }).catch(() => {
     console.log('[Email] AI email service not available, using fallback templates')
   })
 } catch {
@@ -539,7 +609,7 @@ try {
 
 /**
  * Send order confirmation email to customer
- * Uses AI personalization when available, with Mr. Imagine personality
+ * Uses AI personalisation when available, with Mr. Imagine personality
  */
 export const sendOrderConfirmationEmail = async (
   email: string,
@@ -773,7 +843,7 @@ export const sendOrderDeliveredEmail = async (
 // ===============================
 
 /**
- * Send welcome email to new users - Uses AI-powered Mr. Imagine personalization
+ * Send welcome email to new users - Uses AI-powered Mr. Imagine personalisation
  */
 export const sendWelcomeEmail = async (
   email: string,

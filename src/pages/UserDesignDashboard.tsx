@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import {
   Palette,
@@ -25,7 +25,10 @@ import {
   Box,
   Loader2,
   AlertTriangle,
-  Info
+  Info,
+  Shirt,
+  Layers3,
+  Landmark
 } from 'lucide-react'
 import { CreateDesignModal } from '../components/CreateDesignModal'
 import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
@@ -82,6 +85,7 @@ const DOWNLOAD_COST = 100
 
 export default function UserDesignDashboard() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('designs')
   const [designs, setDesigns] = useState<UserDesign[]>([])
   const [sessions, setSessions] = useState<DesignSession[]>([])
@@ -378,7 +382,7 @@ export default function UserDesignDashboard() {
                 Creator Dashboard
               </span>
               <h1 className="font-display text-3xl sm:text-4xl md:text-5xl mb-3 bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-                My Designs
+                Creator Hub
               </h1>
               <p className="text-muted text-base sm:text-lg max-w-xl">
                 Manage your creations, track sales, and earn royalties from your designs.
@@ -403,6 +407,133 @@ export default function UserDesignDashboard() {
                 <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
                 Create New
               </button>
+            </div>
+          </div>
+
+          {/* Creator Hub — three earn tracks */}
+          <div className="mt-10 sm:mt-12">
+            <div className="mb-5">
+              <h2 className="text-xl sm:text-2xl font-display font-bold text-text">Three ways to create — every sale pays you 15% in ITC.</h2>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+
+              {/* Track 1 — Apparel & Designs */}
+              <div className="relative rounded-2xl overflow-hidden min-h-[260px] sm:min-h-[300px] group border border-white/10 hover:border-primary/40 transition-colors shadow-lg">
+                <img
+                  src="/hub/hub-apparel.webp"
+                  alt="Apparel and designs"
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+                <div className="relative h-full flex flex-col justify-end p-5 sm:p-6">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-primary/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-primary/30">
+                      <Shirt className="w-5 h-5 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-display font-bold text-white">Apparel &amp; Designs</h3>
+                  </div>
+                  <p className="text-white/80 text-sm leading-relaxed mb-4">
+                    Design shirts, hoodies &amp; more. We print, you profit.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mb-4">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/30 backdrop-blur-sm border border-primary/40 text-primary text-xs font-semibold">
+                      <TrendingUp className="w-3 h-3" />
+                      Earn 15% royalties
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActiveTab('designs')
+                      setIsCreateModalOpen(true)
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/80 hover:bg-primary backdrop-blur-sm text-white font-semibold rounded-xl transition-colors text-sm"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Create a design
+                  </button>
+                </div>
+              </div>
+
+              {/* Track 2 — 3D Toys & Models */}
+              <div className="relative rounded-2xl overflow-hidden min-h-[260px] sm:min-h-[300px] group border border-white/10 hover:border-secondary/40 transition-colors shadow-lg">
+                <img
+                  src="/hub/hub-toys.webp"
+                  alt="3D toys and models"
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+                <div className="relative h-full flex flex-col justify-end p-5 sm:p-6">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-secondary/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-secondary/30">
+                      <Layers3 className="w-5 h-5 text-secondary" />
+                    </div>
+                    <h3 className="text-lg font-display font-bold text-white">3D Toys &amp; Models</h3>
+                  </div>
+                  <p className="text-white/80 text-sm leading-relaxed mb-4">
+                    Dream up creatures in the Toy Creator or build 3D models.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mb-4">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/30 backdrop-blur-sm border border-secondary/40 text-secondary text-xs font-semibold">
+                      <TrendingUp className="w-3 h-3" />
+                      Earn 15% royalties
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => navigate('/toy-creator')}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-secondary/80 hover:bg-secondary backdrop-blur-sm text-white font-semibold rounded-xl transition-colors text-sm"
+                    >
+                      <Box className="w-4 h-4" />
+                      Toy Creator
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('3d-models')}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white font-semibold rounded-xl border border-white/20 transition-colors text-sm"
+                    >
+                      My 3D models
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Track 3 — Metal Art */}
+              <div className="relative rounded-2xl overflow-hidden min-h-[260px] sm:min-h-[300px] group border border-white/10 hover:border-amber-400/40 transition-colors shadow-lg">
+                {/* NEW badge */}
+                <div className="absolute top-3 right-3 z-10 px-2 py-0.5 bg-amber-400 text-black text-xs font-bold rounded-full tracking-wide shadow">
+                  NEW
+                </div>
+                <img
+                  src="/hub/hub-metal.webp"
+                  alt="Metal art prints"
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+                <div className="relative h-full flex flex-col justify-end p-5 sm:p-6">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-amber-500/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-amber-400/30">
+                      <Landmark className="w-5 h-5 text-amber-300" />
+                    </div>
+                    <h3 className="text-lg font-display font-bold text-white">Metal Art</h3>
+                  </div>
+                  <p className="text-white/80 text-sm leading-relaxed mb-4">
+                    Museum-grade metal prints. Design one, hang it or sell it.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mb-4">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/30 backdrop-blur-sm border border-amber-400/40 text-amber-300 text-xs font-semibold">
+                      <TrendingUp className="w-3 h-3" />
+                      Earn 15% royalties
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => navigate('/metal-art')}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500/80 hover:bg-amber-500 backdrop-blur-sm text-white font-semibold rounded-xl transition-colors text-sm"
+                  >
+                    <Landmark className="w-4 h-4" />
+                    Metal Art Studio
+                  </button>
+                </div>
+              </div>
+
             </div>
           </div>
 
@@ -893,7 +1024,7 @@ export default function UserDesignDashboard() {
                   </span>
                   <h3 className="text-2xl font-display font-bold text-text mb-2">Creator Royalties</h3>
                   <p className="text-muted mb-8 max-w-2xl">
-                    Earn 10% ITC on every sale of your designs. Royalties are credited automatically when orders complete.
+                    Earn 15% ITC on every sale of your designs. Royalties are credited automatically when orders complete.
                   </p>
 
                   <div className="grid md:grid-cols-3 gap-4 sm:gap-6">
@@ -948,7 +1079,7 @@ export default function UserDesignDashboard() {
                     <div className="w-14 h-14 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform shadow-lg shadow-emerald-500/20">
                       <DollarSign className="w-6 h-6 text-emerald-400" />
                     </div>
-                    <p className="font-display font-semibold text-text mb-1">You Earn 10%</p>
+                    <p className="font-display font-semibold text-text mb-1">You Earn 15%</p>
                     <p className="text-sm text-muted">ITC credited to wallet</p>
                   </div>
                 </div>

@@ -2,6 +2,12 @@ import { Router, Request, Response } from 'express'
 import OpenAI from 'openai'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 
+// Marketing/social routes emit a small per-request trace useful for debugging
+// content-generation failures, but those calls happen at admin-driven cadence
+// (low traffic). Default-quiet in prod; flip DEBUG_MARKETING=1 to re-enable
+// the trace without redeploying.
+const debugLog: typeof console.log = process.env.DEBUG_MARKETING ? console.log.bind(console) : () => {}
+
 const router = Router()
 
 // Initialize OpenAI client
@@ -80,7 +86,7 @@ Generate a JSON response with the following structure:
 
     const content = JSON.parse(completion.choices[0].message.content || '{}')
 
-    console.log(`[marketing] Generated content for "${productName}" on ${platform}`)
+    debugLog(`[marketing] Generated content for "${productName}" on ${platform}`)
 
     return res.json({ content })
   } catch (error: any) {
@@ -165,7 +171,7 @@ Generate a JSON response with:
 
     const content = JSON.parse(completion.choices[0].message.content || '{}')
 
-    console.log(`[marketing] Generated campaign "${campaignName}" with ${products.length} products`)
+    debugLog(`[marketing] Generated campaign "${campaignName}" with ${products.length} products`)
 
     return res.json({ content })
   } catch (error: any) {
@@ -236,5 +242,48 @@ function generateMockContent(productName: string, platform: string) {
     targetingTips: `Focus on demographics interested in custom products, DIY enthusiasts, and gift shoppers. Consider targeting based on recent life events or seasonal occasions.`
   }
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/marketing/mascot-today — PUBLIC. Mr. Imagine "wears" a different
+// product every day: rotates through mr_imagine mockup assets of active
+// products by day-of-year. The site header uses this as the mascot image so
+// he's always modeling something from the store. Falls back to null (frontend
+// keeps the static mascot) when no mockups exist.
+// ---------------------------------------------------------------------------
+router.get('/mascot-today', async (_req: Request, res: Response) => {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+
+    const { data: activeProducts } = await sb
+      .from('products')
+      .select('id, name')
+      .eq('is_active', true)
+      .limit(300)
+    const ids = (activeProducts || []).map(p => p.id)
+    if (ids.length === 0) { res.json({ url: null }); return }
+
+    const { data: assets } = await sb
+      .from('product_assets')
+      .select('url, product_id')
+      .in('product_id', ids)
+      .eq('asset_role', 'mr_imagine')
+      .order('created_at', { ascending: true })
+      .limit(366)
+    if (!assets || assets.length === 0) { res.json({ url: null }); return }
+
+    const dayOfYear = Math.floor(
+      (Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 0)) / 86_400_000
+    )
+    const pick = assets[dayOfYear % assets.length]
+    const product = (activeProducts || []).find(p => p.id === pick.product_id)
+
+    // Cacheable for an hour; rotation is daily anyway
+    res.set('Cache-Control', 'public, max-age=3600')
+    res.json({ url: pick.url, productId: pick.product_id, productName: product?.name ?? null })
+  } catch (error) {
+    res.json({ url: null, error: error instanceof Error ? error.message : String(error) })
+  }
+})
 
 export default router

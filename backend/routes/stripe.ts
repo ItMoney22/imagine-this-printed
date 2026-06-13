@@ -46,6 +46,73 @@ function checkRateLimit(userId: string): boolean {
   return true
 }
 
+// ---------------------------------------------------------------------------
+// Checkout order line-item helpers
+//
+// PRODUCTION SCHEMA (verified live 2026-06-12): order_items columns are
+// (id, order_id, product_id uuid, product_name, variant_id, variant_name,
+// quantity, unit_price, subtotal, metadata jsonb, created_at).
+// The columns this route used to insert (price, total, variations,
+// personalization) DO NOT exist in production, so every order_items insert
+// failed silently (the error was never checked) and the table held 0 rows —
+// orders rendered only through the orders.metadata.items fallback.
+//
+// product_id is a uuid column: custom client-side cart ids
+// ('3d-print-<modelId>', 'imagination-sheet-<id>', 'metal-art-custom-<ts>')
+// can never be stored there. One such id used to abort the entire multi-row
+// insert (22P02). They are kept in order_items.metadata.client_product_id and
+// in the orders.metadata.items snapshot instead, and product_id is nulled.
+// ---------------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Durable cart snapshot stored on orders.metadata.items — what MyOrders and
+// the print bridge read for items that have no products row (custom items).
+function snapshotCartItems(items: any[] | undefined | null) {
+  return (items || []).map((i: any) => ({
+    id: i.product?.id ?? null,
+    name: i.product?.name ?? null,
+    price: i.product?.price ?? 0,
+    quantity: i.quantity || 1,
+    image: i.product?.images?.[0] ?? null,
+    size: i.selectedSize ?? null,
+    color: i.selectedColor ?? null,
+    customDesign: i.customDesign ?? null
+  }))
+}
+
+// Re-sync order_items rows to the current cart (replace, not append — drafts
+// are updated on every cart/total change). Failures are logged but do not
+// fail checkout: orders.metadata.items still carries the snapshot.
+async function replaceOrderItems(orderId: string, items: any[] | undefined | null, req: Request) {
+  if (!items || items.length === 0) return
+  const rows = items.map((item: any) => {
+    const rawId = item.product?.id != null ? String(item.product.id) : null
+    return {
+      order_id: orderId,
+      product_id: rawId && UUID_RE.test(rawId) ? rawId : null,
+      product_name: item.product?.name || 'Unknown Product',
+      quantity: item.quantity || 1,
+      unit_price: item.product?.price || 0,
+      subtotal: (item.product?.price || 0) * (item.quantity || 1),
+      metadata: {
+        client_product_id: rawId,
+        image_url: item.product?.images?.[0] ?? null,
+        size: item.selectedSize ?? null,
+        color: item.selectedColor ?? null,
+        custom_design: item.customDesign ?? null
+      }
+    }
+  })
+  const { error: delError } = await supabase.from('order_items').delete().eq('order_id', orderId)
+  if (delError) {
+    req.log?.error({ err: delError, orderId }, 'Failed to clear order_items before re-sync')
+  }
+  const { error } = await supabase.from('order_items').insert(rows)
+  if (error) {
+    req.log?.error({ err: error, orderId }, 'Failed to insert order_items rows (metadata.items snapshot still present)')
+  }
+}
+
 // POST /api/stripe/checkout-payment-intent - Create or update payment intent for product checkout.
 //
 // optionalAuth (NOT requireAuth) because /cart and /checkout are intentionally
@@ -88,6 +155,21 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           }
         })
 
+        // Merge metadata so the items snapshot tracks the CURRENT cart (the
+        // draft may have been created before an item — e.g. a 3D print — was
+        // added) without clobbering unrelated keys (print status, etc.).
+        const { data: existingOrder } = await supabase
+          .from('orders')
+          .select('metadata, user_id')
+          .eq('id', existingOrderId)
+          .single()
+        const mergedMetadata = {
+          ...(existingOrder?.metadata && typeof existingOrder.metadata === 'object' ? existingOrder.metadata : {}),
+          items: snapshotCartItems(items),
+          itc_credit_amount: itcCreditAmount || 0,
+          itc_credit_usd: itcCreditUSD || 0
+        }
+
         // Update the existing order
         await supabase
           .from('orders')
@@ -110,9 +192,25 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             },
             customer_email: shipping?.email || null,
             customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
+            metadata: mergedMetadata,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingOrderId)
+
+        // Claim ownership of guest drafts: if the caller is authenticated and
+        // the draft has no user yet (created while logged out / with an
+        // expired session), attach it so /api/orders/my can find it. Never
+        // reassign an order that already belongs to a user.
+        if (req.user?.sub && existingOrder && !existingOrder.user_id) {
+          await supabase
+            .from('orders')
+            .update({ user_id: req.user.sub })
+            .eq('id', existingOrderId)
+            .is('user_id', null)
+        }
+
+        // Re-sync line items to the current cart
+        await replaceOrderItems(existingOrderId, items, req)
 
         req.log?.info({
           paymentIntentId: existingPaymentIntentId,
@@ -168,13 +266,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         discount_codes: couponCode ? [couponCode] : [],
         source: 'web',
         metadata: {
-          items: items?.map((i: any) => ({
-            id: i.product?.id,
-            name: i.product?.name,
-            price: i.product?.price,
-            quantity: i.quantity,
-            image: i.product?.images?.[0]
-          })),
+          items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
           itc_credit_usd: itcCreditUSD || 0
         }
@@ -187,26 +279,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       return res.status(500).json({ error: 'Failed to create order', message: orderError.message })
     }
 
-    // Create order items
-    if (items && items.length > 0) {
-      const orderItems = items.map((item: any) => ({
-        order_id: order.id,
-        product_id: item.product?.id || null,
-        product_name: item.product?.name || 'Unknown Product',
-        quantity: item.quantity || 1,
-        price: item.product?.price || 0,
-        total: (item.product?.price || 0) * (item.quantity || 1),
-        variations: item.selectedSize || item.selectedColor ? {
-          size: item.selectedSize,
-          color: item.selectedColor
-        } : {},
-        personalization: item.customDesign ? {
-          designUrl: item.customDesign
-        } : {}
-      }))
-
-      await supabase.from('order_items').insert(orderItems)
-    }
+    // Create order items (schema-safe; errors logged inside, never silent)
+    await replaceOrderItems(order.id, items, req)
 
     // Build description from items
     const itemDescriptions = items?.map((item: any) =>
@@ -485,6 +559,46 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
     itcCreditUSD
   }, 'Processing checkout order payment')
 
+  // Idempotency claim — Stripe retries webhook deliveries. Flipping
+  // payment_status is the atomic gate (single UPDATE … WHERE != 'paid'): if
+  // another delivery already claimed this order, skip ALL side effects.
+  // Without this, the ITC deduction below double-charged wallets on retries.
+  const { data: claimedRows, error: orderUpdateError } = await supabase
+    .from('orders')
+    .update({
+      status: 'processing',
+      payment_status: 'paid',
+      payment_intent_id: paymentIntent.id,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+    .neq('payment_status', 'paid')
+    .select('id')
+
+  if (orderUpdateError) {
+    req.log?.error({ err: orderUpdateError, orderId }, 'Failed to update order status')
+    throw new Error('Failed to update order status')
+  }
+  if (!claimedRows || claimedRows.length === 0) {
+    req.log?.info(
+      { orderId, paymentIntentId: paymentIntent.id },
+      'Order already marked paid — duplicate webhook delivery, skipping side effects'
+    )
+    return
+  }
+
+  // Defensive: if the order row lost its user linkage (created while the
+  // session was missing/expired) but the payment intent knows the user,
+  // backfill it so the order shows up in /api/orders/my. Only fills NULL —
+  // never reassigns.
+  if (userId) {
+    await supabase
+      .from('orders')
+      .update({ user_id: userId })
+      .eq('id', orderId)
+      .is('user_id', null)
+  }
+
   // Process ITC credit deduction if applicable
   const itcAmount = parseFloat(itcCreditAmount || '0')
   if (itcAmount > 0 && userId) {
@@ -538,22 +652,6 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
       req.log?.error({ err: itcError, userId, itcAmount }, 'Error processing ITC credit deduction')
       // Don't throw - order payment succeeded, ITC issue is secondary
     }
-  }
-
-  // Update order status to paid/processing
-  const { error: orderUpdateError } = await supabase
-    .from('orders')
-    .update({
-      status: 'processing',
-      payment_status: 'paid',
-      payment_intent_id: paymentIntent.id,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', orderId)
-
-  if (orderUpdateError) {
-    req.log?.error({ err: orderUpdateError, orderId }, 'Failed to update order status')
-    throw new Error('Failed to update order status')
   }
 
   // Get order details for notification/email
@@ -621,13 +719,20 @@ async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Reque
   const itcAmountNum = parseFloat(itcAmount)
   const usdAmount = parseFloat(packagePriceUSD)
 
-  // Check for duplicate transaction
-  const { data: existingTransaction } = await supabase
+  // Check for duplicate transaction. The payment intent id lives in the
+  // `reference` column (live schema has no stripe_payment_intent_id column —
+  // the old filter errored, so dedupe NEVER worked and webhook retries could
+  // double-credit ITC).
+  const { data: existingTransaction, error: dedupeError } = await supabase
     .from('itc_transactions')
     .select('id')
-    .eq('stripe_payment_intent_id', paymentIntent.id)
-    .single()
+    .eq('type', 'purchase')
+    .eq('reference', paymentIntent.id)
+    .maybeSingle()
 
+  if (dedupeError) {
+    req.log?.error({ err: dedupeError }, 'Dedupe check failed — continuing cautiously')
+  }
   if (existingTransaction) {
     req.log?.warn({ paymentIntentId: paymentIntent.id }, 'Duplicate transaction detected')
     return
@@ -661,15 +766,19 @@ async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Reque
     throw new Error('Failed to update wallet')
   }
 
-  // Record transaction
+  // Record transaction (live schema: type/amount/reference/balance_after/metadata)
   const { error: transactionError } = await supabase
     .from('itc_transactions')
     .insert({
       user_id: userId,
+      type: 'purchase',
       amount: itcAmountNum,
-      reason: `Purchased ${itcAmountNum} ITC for $${usdAmount.toFixed(2)}`,
-      stripe_payment_intent_id: paymentIntent.id,
-      usd_value: usdAmount,
+      balance_after: newBalance,
+      reference: paymentIntent.id,
+      metadata: {
+        usd_value: usdAmount,
+        reason: `Purchased ${itcAmountNum} ITC for $${usdAmount.toFixed(2)}`
+      },
       created_at: new Date().toISOString()
     })
 
@@ -791,15 +900,18 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent, req: Re
     lastPaymentError: paymentIntent.last_payment_error
   }, 'Payment failed')
 
-  // Optionally record failed payment attempt
+  // Optionally record failed payment attempt (live schema columns)
   if (userId) {
     await supabase
       .from('itc_transactions')
       .insert({
         user_id: userId,
+        type: 'payment_failed',
         amount: 0,
-        reason: `Failed payment attempt - ${paymentIntent.last_payment_error?.message || 'Unknown error'}`,
-        stripe_payment_intent_id: paymentIntent.id,
+        reference: paymentIntent.id,
+        metadata: {
+          error: paymentIntent.last_payment_error?.message || 'Unknown error'
+        },
         created_at: new Date().toISOString()
       })
   }
@@ -811,7 +923,7 @@ async function sendPurchaseConfirmationEmail(userId: string, itcAmount: number, 
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('email, username')
-    .eq('user_id', userId)
+    .eq('id', userId) // user_profiles PK is `id` (= auth uid); there is no user_id column
     .single()
 
   if (!profile || !profile.email) {

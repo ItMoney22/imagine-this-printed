@@ -5,7 +5,9 @@ import { sendWelcomeEmail } from '../utils/email.js'
 
 const router = Router()
 const prisma = new PrismaClient()
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key'
+// No fallback — a guessable default would let anyone mint valid legacy tokens.
+// When unset, verifyToken below always fails and the legacy surfaces stay dead.
+const JWT_SECRET = process.env.JWT_SECRET
 
 // Types
 interface UserPayload {
@@ -21,6 +23,7 @@ interface UserPayload {
 // surfaces but are left intact pending a separate audit of /api/account/*
 // callers before the rest of the file is retired.
 const verifyToken = (token: string): UserPayload | null => {
+  if (!JWT_SECRET) return null
   try {
     return jwt.verify(token, JWT_SECRET) as UserPayload
   } catch (error) {

@@ -48,6 +48,10 @@ const ModelGallery = lazy(() => import('./pages/ModelGallery'))
 const Wallet = lazy(() => import('./pages/Wallet'))
 const CRM = lazy(() => import('./pages/CRM'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
+const AdminEmail = lazy(() => import('./pages/AdminEmail'))
+const AdminToyLab = lazy(() => import('./pages/AdminToyLab'))
+const ToyCreator = lazy(() => import('./pages/ToyCreator'))
+const MetalArtStudio = lazy(() => import('./pages/MetalArtStudio'))
 const MarketingTools = lazy(() => import('./pages/MarketingTools'))
 const OrderManagement = lazy(() => import('./pages/OrderManagement'))
 const ProfileEdit = lazy(() => import('./pages/ProfileEdit'))
@@ -74,9 +78,10 @@ const MyOrders = lazy(() => import('./pages/MyOrders'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
+const ToyAR = lazy(() => import('./pages/ToyAR'))
 
 // Routes that should hide the sidebar for full-screen experience
-const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk']
+const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/']
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -153,6 +158,10 @@ function App() {
                   <Route path="/vendor" element={<VendorDashboard />} />
                   <Route path="/models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />
                   <Route path="/3d-models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />
+                  <Route path="/toy-creator" element={<ProtectedRoute><ToyCreator /></ProtectedRoute>} />
+                  <Route path="/metal-art" element={<ProtectedRoute><MetalArtStudio /></ProtectedRoute>} />
+                  {/* PUBLIC — opened by scanning the NFC tag in a printed figurine */}
+                  <Route path="/ar/:modelId" element={<ToyAR />} />
                   <Route path="/wallet" element={<Wallet />} />
                   <Route path="/crm" element={<CRM />} />
                   <Route path="/admin" element={<AdminDashboard />} />
@@ -193,6 +202,8 @@ function App() {
 
                   {/* Admin Routes */}
                   <Route path="/admin/dashboard" element={<AdminDashboard />} />
+                  <Route path="/admin/email" element={<ProtectedRoute><AdminEmail /></ProtectedRoute>} />
+                  <Route path="/admin/toys" element={<ProtectedRoute><AdminToyLab /></ProtectedRoute>} />
                   <Route path="/admin/control-panel" element={<AdminControlPanel />} />
                   <Route path="/admin-panel" element={<AdminPanel />} />
                   <Route path="/admin/orders" element={<OrderManagement />} />

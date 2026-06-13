@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Sparkles, ShoppingCart, Zap, Check } from 'lucide-react'
+import { Sparkles, ShoppingCart, Zap, Check, Upload, Loader2 } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
@@ -10,6 +10,7 @@ import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
+import { imaginationApi } from '../lib/api'
 import type { Product } from '../types'
 
 const ProductPage: React.FC = () => {
@@ -25,6 +26,8 @@ const ProductPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load product and source image from database
   useEffect(() => {
@@ -118,6 +121,42 @@ const ProductPage: React.FC = () => {
     )
   }
 
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !product) return
+
+    if (!user) {
+      toast.error('Sign in required', 'Please sign in to upload your own design')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const printType = product.category === 'tumblers' ? 'uv_dtf' : 'dtf'
+      const sheet = await imaginationApi.createSheet({
+        name: 'Design for ' + product.name,
+        print_type: printType,
+        sheet_height: printType === 'uv_dtf' ? 12 : 24
+      })
+
+      const { data: uploadedLayer } = await imaginationApi.uploadImage(sheet.data.id, file)
+
+      const params = new URLSearchParams({
+        productName: product.name,
+        productId: product.id
+      })
+      navigate('/imagination-station/' + sheet.data.id + '?' + params.toString())
+      toast.success('Image uploaded', 'Taking you to the Imagination Station')
+    } catch (err: any) {
+      console.error('[ProductPage] Upload failed:', err)
+      toast.error('Upload failed', err.message || 'Failed to upload image')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   const handleAddToCart = () => {
     // Size is always required (we show default sizes if product doesn't have them)
     if (!selectedSize) {
@@ -206,9 +245,9 @@ const ProductPage: React.FC = () => {
 
         <div className="space-y-6">
           <div>
-            <h1 className="text-3xl font-bold text-text mb-2">{product.name}</h1>
+            <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-primary via-purple-500 to-secondary bg-clip-text text-transparent animate-gradient-text drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">{product.name}</h1>
             <div className="flex items-baseline gap-3 flex-wrap">
-              <p className="text-3xl font-bold text-primary">${product.price}</p>
+              <p className="text-3xl font-bold text-text">${product.price}</p>
               {(() => {
                 const promo = getPromoBadge(product)
                 if (!promo) return null
@@ -225,17 +264,29 @@ const ProductPage: React.FC = () => {
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2 text-text">Description</h3>
-            <p className="text-muted leading-relaxed">{product.description}</p>
+            <h3 className="text-lg font-semibold mb-2 text-text font-serif italic">The Vision</h3>
+            <p className="text-muted leading-relaxed italic border-l-2 border-primary/30 pl-4">"{product.description}"</p>
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2 text-text">Features</h3>
-            <ul className="text-muted space-y-1">
-              <li>• High-quality materials</li>
-              <li>• Custom printing available</li>
-              <li>• Fast processing time</li>
-              <li>• Satisfaction guaranteed</li>
+            <h3 className="text-lg font-semibold mb-2 text-text">Essence & Quality</h3>
+            <ul className="text-muted space-y-2">
+              <li className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                <span>Crafted for the Extraordinary</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                <span>Frequency-Aligned Print Quality</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                <span>Truth in Every Thread</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                <span>Consciously Produced</span>
+              </li>
             </ul>
           </div>
 
@@ -345,6 +396,28 @@ const ProductPage: React.FC = () => {
             </div>
 
             <div className="space-y-3">
+              
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept="image/*"
+                className="hidden"
+              />
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-full bg-white/10 hover:bg-white/20 border-2 border-primary/50 text-text font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg mb-2 shadow-[0_0_15px_rgba(168,85,247,0.2)]"
+              >
+                {uploading ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                ) : (
+                  <Upload className="w-6 h-6 text-primary" />
+                )}
+                {uploading ? "Uploading..." : "Upload Your Own Design"}
+              </button>
+
               <button
                 onClick={() => {
                   // Navigate to Imagination Station with the SOURCE image (original Flux-generated)
@@ -456,3 +529,5 @@ const ProductPage: React.FC = () => {
 }
 
 export default ProductPage
+
+

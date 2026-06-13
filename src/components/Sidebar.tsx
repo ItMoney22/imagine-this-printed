@@ -29,7 +29,8 @@ import {
   Menu,
   X,
   Contact,
-  Mail
+  Mail,
+  Inbox
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -328,6 +329,14 @@ export function Sidebar() {
               label="Marketing Tools"
               isCollapsed={isCollapsed}
               isActive={isActive('/admin/marketing')}
+              onClick={closeMobile}
+            />
+            <NavItem
+              to="/admin/email"
+              icon={<Inbox className="w-5 h-5" />}
+              label="Email Inbox"
+              isCollapsed={isCollapsed}
+              isActive={isActive('/admin/email')}
               onClick={closeMobile}
             />
             <NavItem

@@ -256,7 +256,7 @@ const Wallet: React.FC = () => {
 
     try {
       const response = await apiFetch('/api/wallet/connect/status', { method: 'GET' })
-      if (response.ok) {
+      if (response && !response.error && response.ok !== false) {
         setConnectStatus(response.status)
       }
     } catch (error) {
@@ -269,7 +269,7 @@ const Wallet: React.FC = () => {
 
     try {
       const response = await apiFetch('/api/wallet/connect/cashout-history', { method: 'GET' })
-      if (response.ok) {
+      if (response && !response.error && response.ok !== false) {
         // Map snake_case to camelCase
         const mapped = (response.requests || []).map((r: any) => ({
           id: r.id,
@@ -319,7 +319,7 @@ const Wallet: React.FC = () => {
         const createResponse = await apiFetch('/api/wallet/connect/create-account', {
           method: 'POST'
         })
-        if (!createResponse.ok) {
+        if (createResponse.error || createResponse.ok === false) {
           throw new Error(createResponse.error || 'Failed to create account')
         }
       }
@@ -359,7 +359,7 @@ const Wallet: React.FC = () => {
         body: JSON.stringify({ amountItc: amount })
       })
 
-      if (response.ok) {
+      if (response && !response.error && response.ok !== false) {
         setCashoutCalculation(response.calculation)
       }
     } catch (error) {
@@ -391,7 +391,7 @@ const Wallet: React.FC = () => {
         body: JSON.stringify({ amountItc: cashoutAmount })
       })
 
-      if (response.ok) {
+      if (response && !response.error && response.ok !== false) {
         setCashoutSuccess(true)
         await loadWalletData()
         await loadCashoutHistory()

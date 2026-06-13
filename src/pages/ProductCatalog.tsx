@@ -12,6 +12,7 @@ const ProductCatalog: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'popular'>('newest')
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Load products from Supabase - reload when navigating to this page
   useEffect(() => {
@@ -104,6 +105,13 @@ const ProductCatalog: React.FC = () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
         </svg>
       )
+    },
+    {
+      id: 'metal-art', name: 'Metal Art', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm3 2h10v7l-3-3-4 4-3-2v-6z" />
+        </svg>
+      )
     }
   ]
 
@@ -113,12 +121,21 @@ const ProductCatalog: React.FC = () => {
   // resulting `sortedProducts` reference changes every render, which
   // breaks `ProductCard`'s implicit memoization and re-renders the whole
   // grid on unrelated state changes.
-  const filteredProducts = useMemo(
-    () => selectedCategory === 'all'
+  const filteredProducts = useMemo(() => {
+    const byCategory = selectedCategory === 'all'
       ? products
-      : products.filter(product => product.category === selectedCategory),
-    [products, selectedCategory]
-  )
+      : products.filter(product => product.category === selectedCategory)
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return byCategory
+    return byCategory.filter(product => {
+      const tags: string[] = Array.isArray(product.metadata?.tags) ? product.metadata.tags : []
+      return (
+        product.name.toLowerCase().includes(q) ||
+        product.description.toLowerCase().includes(q) ||
+        tags.some(t => String(t).toLowerCase().includes(q))
+      )
+    })
+  }, [products, selectedCategory, searchQuery])
 
   const sortedProducts = useMemo(() => {
     return [...filteredProducts].sort((a, b) => {
@@ -239,6 +256,20 @@ const ProductCatalog: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {/* Search */}
+                  <div className="relative flex-1 sm:flex-none sm:w-64">
+                    <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+                    </svg>
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search products…"
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                  </div>
+
                   {/* Sort Dropdown */}
                   <select
                     value={sortBy}
@@ -314,11 +345,21 @@ const ProductCatalog: React.FC = () => {
                 </div>
                 <h3 className="text-xl font-display font-bold text-slate-900 mb-2">No products found</h3>
                 <p className="text-slate-500 mb-6">
-                  {selectedCategory === 'all'
-                    ? "We're working on adding new products. Check back soon!"
-                    : `No products in the "${categories.find(c => c.id === selectedCategory)?.name}" category yet.`
+                  {searchQuery.trim()
+                    ? `No products match "${searchQuery.trim()}"${selectedCategory !== 'all' ? ` in ${categories.find(c => c.id === selectedCategory)?.name}` : ''}.`
+                    : selectedCategory === 'all'
+                      ? "We're working on adding new products. Check back soon!"
+                      : `No products in the "${categories.find(c => c.id === selectedCategory)?.name}" category yet.`
                   }
                 </p>
+                {searchQuery.trim() && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="px-6 py-2.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-medium transition-colors mr-3"
+                  >
+                    Clear Search
+                  </button>
+                )}
                 {selectedCategory !== 'all' && (
                   <button
                     onClick={() => setSelectedCategory('all')}

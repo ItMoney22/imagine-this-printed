@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts, adminApi } from '../lib/api'
+import { aiProducts, adminApi, API_BASE } from '../lib/api'
+import { buildProductGallery } from '../lib/product-gallery'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
@@ -111,7 +112,8 @@ const AdminDashboard: React.FC = () => {
     hoodies: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
     tumblers: ['12oz', '20oz', '30oz', '40oz'],
     'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
-    '3d-models': []
+    '3d-models': [],
+    'metal-art': ['4x6"', '8x11"']
   }
 
   // Preset colors for products
@@ -190,7 +192,7 @@ const AdminDashboard: React.FC = () => {
     if (!editingProductData) return
     setGeneratingGptText(true)
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/products/ai/${editingProductData.id}/generate-text`, {
+      const response = await fetch(`${API_BASE}/api/admin/products/ai/${editingProductData.id}/generate-text`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -246,29 +248,49 @@ const AdminDashboard: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
         console.error('No auth session for upload')
+        toast.error('Not authenticated', 'Please sign in to upload images.')
         return
       }
       const newImages: { url: string; file?: File }[] = []
+      let uploadFailed = false
       for (const file of Array.from(files)) {
-        if (!file.type.startsWith('image/')) continue
+        const isImage = file.type.startsWith('image/'); const isVector = file.name.match(/\.(stl|pdf|zip|ai|psd|svg|eps)$/i); if (!isImage && !isVector) { toast.warning('Unsupported file', file.name + ' is not a supported image or design file.'); continue; }
         const formData = new FormData()
         formData.append('image', file)
         formData.append('folder', 'products')
-        const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/upload-product-image`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: formData
-        })
-        if (response.ok) {
-          const data = await response.json()
-          newImages.push({ url: data.url, file })
+        try {
+          const response = await fetch(`${API_BASE}/api/admin/upload-product-image`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: formData
+          })
+          if (response.ok) {
+            const data = await response.json()
+            newImages.push({ url: data.url, file })
+          } else {
+            const errorText = await response.text()
+            console.error('Upload failed:', response.status, errorText)
+            uploadFailed = true
+          }
+        } catch (fileError) {
+          console.error('Error uploading file:', file)
+          uploadFailed = true
         }
       }
-      setUploadedImages(prev => [...prev, ...newImages])
+      if (newImages.length > 0) {
+        setUploadedImages(prev => [...prev, ...newImages])
+        toast.success('Images uploaded', `${newImages.length} image${newImages.length > 1 ? 's' : ''} uploaded successfully.`)
+      }
+      if (uploadFailed && newImages.length === 0) {
+        toast.error('Upload failed', 'Failed to upload images. Please check your connection and try again.')
+      } else if (uploadFailed && newImages.length > 0) {
+        toast.warning('Partial upload', `Uploaded ${newImages.length} of ${files.length} images. Some uploads failed.`)
+      }
     } catch (error) {
       console.error('Error uploading images:', error)
+      toast.error('Upload error', 'An unexpected error occurred during upload.')
     } finally {
       setUploadingImages(false)
     }
@@ -310,7 +332,7 @@ const AdminDashboard: React.FC = () => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('folder', 'digital-products')
-      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/upload-digital-file`, {
+      const response = await fetch(`${API_BASE}/api/admin/upload-digital-file`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`
@@ -343,7 +365,7 @@ const AdminDashboard: React.FC = () => {
         toast.error('Session expired', 'Please log in again to use AI assist.')
         return
       }
-      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/products/ai-suggest`, {
+      const response = await fetch(`${API_BASE}/api/products/ai-suggest`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -744,6 +766,20 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  const handleDuplicateProduct = async (productId: string) => {
+    try {
+      setLoadingAction(`duplicate-${productId}`)
+      const { product } = await aiProducts.duplicate(productId)
+      toast.success('Product duplicated', `Draft copy "${product.name}" created — edit and publish when ready.`)
+      await loadProducts()
+    } catch (error: any) {
+      console.error('Error duplicating product:', error)
+      toast.error('Failed to duplicate product', error.message)
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
   const handleRegenerateImages = async (productId: string) => {
     if (!confirm('Regenerate images for this product? This consumes AI credits.')) return
     try {
@@ -974,22 +1010,12 @@ const AdminDashboard: React.FC = () => {
         // Get all assets for this product
         const { data: assets } = await supabase
           .from('product_assets')
-          .select('url, kind')
+          .select('url, kind, asset_role, display_order, created_at')
           .eq('product_id', productId)
           .order('created_at', { ascending: false })
 
-        // Build images array: [mockups, source, nobg, upscaled]
-        const assetImages: string[] = []
-
-        if (assets && assets.length > 0) {
-          // Prioritize mockups for display
-          const mockups = assets.filter(a => a.kind === 'mockup').map(a => a.url)
-          const upscaled = assets.filter(a => a.kind === 'upscaled').map(a => a.url)
-          const nobg = assets.filter(a => a.kind === 'nobg').map(a => a.url)
-          const source = assets.filter(a => a.kind === 'source').map(a => a.url)
-
-          assetImages.push(...mockups, ...upscaled, ...nobg, ...source)
-        }
+        // Gallery contract: ghost mannequin → flat lay → ONE Mr Imagine → watermarked design.
+        const assetImages = buildProductGallery(assets || [])
 
         // Use asset images if available, otherwise PRESERVE existing images
         const finalImages = assetImages.length > 0
@@ -1067,20 +1093,12 @@ const AdminDashboard: React.FC = () => {
       if (field === 'status' && value === 'active') {
         const { data: assets } = await supabase
           .from('product_assets')
-          .select('url, kind')
+          .select('url, kind, asset_role, display_order, created_at')
           .eq('product_id', editingProductData.id)
           .order('created_at', { ascending: false })
 
-        const assetImages: string[] = []
-
-        if (assets && assets.length > 0) {
-          const mockups = assets.filter(a => a.kind === 'mockup').map(a => a.url)
-          const upscaled = assets.filter(a => a.kind === 'upscaled').map(a => a.url)
-          const nobg = assets.filter(a => a.kind === 'nobg').map(a => a.url)
-          const source = assets.filter(a => a.kind === 'source').map(a => a.url)
-
-          assetImages.push(...mockups, ...upscaled, ...nobg, ...source)
-        }
+        // Gallery contract: ghost mannequin → flat lay → ONE Mr Imagine → watermarked design.
+        const assetImages = buildProductGallery(assets || [])
 
         // Use asset images if available, otherwise PRESERVE existing images
         const finalImages = assetImages.length > 0
@@ -1839,6 +1857,36 @@ const AdminDashboard: React.FC = () => {
                     <div className="font-semibold text-amber-900">Manage Wallets</div>
                     <div className="text-sm text-amber-600">Credit/Debit user balances</div>
                   </button>
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <Link
+                      to="/admin/email"
+                      className="block text-left p-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors border border-indigo-100"
+                    >
+                      <div className="font-semibold text-indigo-900">Email Inbox</div>
+                      <div className="text-sm text-indigo-600">Company mailboxes</div>
+                    </Link>
+                    <Link
+                      to="/admin/toys"
+                      className="block text-left p-4 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors border border-cyan-100"
+                    >
+                      <div className="font-semibold text-cyan-900">Toy Lab</div>
+                      <div className="text-sm text-cyan-600">Toy Creator pipeline</div>
+                    </Link>
+                    <Link
+                      to="/admin/marketing"
+                      className="block text-left p-4 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors border border-rose-100"
+                    >
+                      <div className="font-semibold text-rose-900">Marketing Tools</div>
+                      <div className="text-sm text-rose-600">Campaigns & AI content</div>
+                    </Link>
+                    <Link
+                      to="/admin/cost-override"
+                      className="block text-left p-4 bg-teal-50 hover:bg-teal-100 rounded-xl transition-colors border border-teal-100"
+                    >
+                      <div className="font-semibold text-teal-900">Cost Override</div>
+                      <div className="text-sm text-teal-600">Pricing & cost controls</div>
+                    </Link>
+                  </div>
                 </div>
               </div>
 
@@ -2213,6 +2261,23 @@ const AdminDashboard: React.FC = () => {
                                   ) : (
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleDuplicateProduct(product.id)}
+                                  disabled={loadingAction === `duplicate-${product.id}`}
+                                  className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 p-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                  title="Duplicate Product (creates a draft copy)"
+                                >
+                                  {loadingAction === `duplicate-${product.id}` ? (
+                                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                     </svg>
                                   )}
                                 </button>
@@ -2711,7 +2776,7 @@ const AdminDashboard: React.FC = () => {
                       <input
                         type="file"
                         multiple
-                        accept="image/*"
+                        accept="image/*,.stl,.pdf,.zip,.ai,.psd,.svg,.eps"
                         onChange={(e) => handleImageUpload(e.target.files)}
                         className="hidden"
                         id="product-images"
@@ -2852,6 +2917,7 @@ const AdminDashboard: React.FC = () => {
                         <option value="tumblers">Tumblers</option>
                         <option value="dtf-transfers">DTF Transfers</option>
                         <option value="3d-models">3D Models</option>
+                        <option value="metal-art">Metal Art</option>
                       </select>
                     </div>
 
@@ -3480,6 +3546,7 @@ const AdminDashboard: React.FC = () => {
                             <option value="tumblers">Tumblers</option>
                             <option value="dtf-transfers">DTF Transfers</option>
                             <option value="3d-models">3D Models</option>
+                            <option value="metal-art">Metal Art</option>
                           </select>
                         </div>
                       </div>
@@ -3752,3 +3819,5 @@ const AdminDashboard: React.FC = () => {
 }
 
 export default AdminDashboard
+
+

@@ -88,7 +88,7 @@ const RealisticMockupGenerator: React.FC<RealisticMockupGeneratorProps> = ({
         })
       })
 
-      if (!response.ok) {
+      if (response.error || response.ok === false) {
         throw new Error(response.error || 'Generation failed')
       }
 
@@ -124,7 +124,7 @@ const RealisticMockupGenerator: React.FC<RealisticMockupGeneratorProps> = ({
       try {
         const response = await apiFetch(`/api/realistic-mockups/${generationId}/status`)
 
-        if (!response.ok) {
+        if (response.error || response.ok === false) {
           throw new Error('Failed to check status')
         }
 
@@ -165,7 +165,7 @@ const RealisticMockupGenerator: React.FC<RealisticMockupGeneratorProps> = ({
         method: 'POST'
       })
 
-      if (!response.ok) {
+      if (response.error || response.ok === false) {
         throw new Error(response.error || 'Failed to select mockup')
       }
 
@@ -201,7 +201,7 @@ const RealisticMockupGenerator: React.FC<RealisticMockupGeneratorProps> = ({
         method: 'POST'
       })
 
-      if (!response.ok) {
+      if (response.error || response.ok === false) {
         throw new Error(response.error || 'Failed to discard mockup')
       }
 

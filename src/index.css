@@ -573,3 +573,15 @@
 .animate-slideUp {
   animation: slideUp 0.4s ease-out forwards;
 }
+
+@keyframes gradient-text {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient-text {
+  background-size: 200% auto;
+  animation: gradient-text 4s linear infinite;
+}
+

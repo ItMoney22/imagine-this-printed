@@ -62,7 +62,7 @@ const AdminConnectManagement: React.FC = () => {
 
     try {
       const response = await apiFetch('/api/wallet/admin/connect/overview', { method: 'GET' })
-      if (response.ok) {
+      if (response && !response.error && response.ok !== false) {
         setAccounts(response.accounts || [])
         setCashouts(response.cashouts || [])
         setStats(response.stats || null)

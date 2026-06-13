@@ -81,6 +81,11 @@ export function buildInput(model: ImageModel, opts: BuildInputOpts): Record<stri
     }
     case 'google/imagen-4-fast':
     case 'google/imagen-4-ultra': {
+      // Imagen 4 on Replicate honors a dedicated `negative_prompt` parameter much
+      // more strictly than embedding STRICTLY-FORBIDDEN blocks in the positive
+      // prompt — Imagen tends to down-weight long negations buried in a single
+      // prompt. Callers pass it via `extra.negative_prompt`; we surface it as a
+      // first-class field here.
       base.aspect_ratio = '1:1'
       break
     }

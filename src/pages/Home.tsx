@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabase'
 
 // Lazy load heavy components - they load AFTER initial render
 const ProductRecommendations = lazy(() => import('../components/ProductRecommendations'))
-const FeaturedSocialContent = lazy(() => import('../components/FeaturedSocialContent'))
 const DesignStudioModal = lazy(() => import('../components/DesignStudioModal'))
 
 // Loading skeleton for lazy-loaded sections
@@ -35,6 +34,8 @@ const Home: React.FC = () => {
     featuredProductsCache?.data || []
   )
   const [isLoading, setIsLoading] = useState(!featuredProductsCache)
+  const [communityProducts, setCommunityProducts] = useState<Product[]>([])
+  const [communityLoading, setCommunityLoading] = useState(true)
 
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const autoScrollRef = React.useRef<NodeJS.Timeout | null>(null)
@@ -116,6 +117,57 @@ const Home: React.FC = () => {
     }
 
     fetchFeaturedProducts()
+  }, [])
+
+  // Fetch user-generated products for community showcase
+  useEffect(() => {
+    const fetchCommunityProducts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, description, price, images, category, is_active, is_featured, is_user_generated')
+          .eq('is_user_generated', true)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(8)
+
+        if (error) throw error
+
+        if (data) {
+          const products: Product[] = data.map((p) => {
+            const row = p as {
+              id: string
+              name: string
+              description: string | null
+              price: number | null
+              images: string[] | null
+              category: Product['category'] | null
+              is_active: boolean | null
+              is_featured: boolean | null
+              is_user_generated: boolean | null
+            }
+            return {
+              id: row.id,
+              name: row.name,
+              description: row.description || '',
+              price: row.price || 0,
+              images: row.images || [],
+              category: row.category || 'shirts',
+              inStock: row.is_active !== false,
+              is_featured: row.is_featured ?? false,
+              is_user_generated: row.is_user_generated ?? false,
+            } satisfies Product
+          })
+          setCommunityProducts(products)
+        }
+      } catch (error) {
+        console.error('Error fetching community products:', error)
+      } finally {
+        setCommunityLoading(false)
+      }
+    }
+
+    fetchCommunityProducts()
   }, [])
 
   /* Scroll-triggered video logic */
@@ -218,70 +270,118 @@ const Home: React.FC = () => {
               How It <span className="text-gradient">Works</span>
             </h2>
             <p className="text-muted text-sm sm:text-lg max-w-2xl mx-auto px-4 sm:px-0">
-              From idea to printed product in just three simple steps
+              From idea to printed product in four simple steps
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8 lg:gap-12">
-            {/* Step 1 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
+            {/* Step 1 — Dream it */}
             <div className="relative group">
-              <div className="card-editorial p-5 sm:p-8 h-full text-center">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-purple-200 group-hover:scale-110 transition-transform duration-300">
-                  <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <div className="card-editorial overflow-hidden h-full flex flex-col">
+                <div className="relative aspect-[4/3] overflow-hidden rounded-t-2xl">
+                  <img
+                    src="/home/how-1-dream.webp"
+                    alt="Dream it — describe your idea to Mr. Imagine"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute top-3 left-3 w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-display font-bold text-sm shadow-lg">
+                    1
+                  </div>
                 </div>
-                <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-purple-100 rounded-full flex items-center justify-center font-display text-purple-600 text-base sm:text-lg font-bold">
-                  1
+                <div className="p-5 flex flex-col flex-1">
+                  <h3 className="font-display text-lg text-text mb-2">Dream it</h3>
+                  <p className="text-muted text-sm leading-relaxed">
+                    Describe any idea — Mr. Imagine's AI brings it to life in seconds.
+                  </p>
                 </div>
-                <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Imagine Your Design</h3>
-                <p className="text-muted text-sm sm:text-base">
-                  Describe your vision to our AI or use our design tools to create your perfect design
-                </p>
               </div>
             </div>
 
-            {/* Step 2 */}
+            {/* Step 2 — Design it */}
             <div className="relative group">
-              <div className="card-editorial p-5 sm:p-8 h-full text-center">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform duration-300">
-                  <Palette className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <div className="card-editorial overflow-hidden h-full flex flex-col">
+                <div className="relative aspect-[4/3] overflow-hidden rounded-t-2xl">
+                  <img
+                    src="/home/how-2-create.webp"
+                    alt="Design it — apply your art to products in our studios"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute top-3 left-3 w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-display font-bold text-sm shadow-lg">
+                    2
+                  </div>
                 </div>
-                <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center font-display text-blue-600 text-base sm:text-lg font-bold">
-                  2
+                <div className="p-5 flex flex-col flex-1">
+                  <h3 className="font-display text-lg text-text mb-2">Design it</h3>
+                  <p className="text-muted text-sm leading-relaxed">
+                    Put it on shirts, toys, metal art and more with our studios.
+                  </p>
                 </div>
-                <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Choose Your Product</h3>
-                <p className="text-muted text-sm sm:text-base">
-                  Select from our wide range of premium products — t-shirts, hoodies, mugs, and more
-                </p>
               </div>
             </div>
 
-            {/* Step 3 */}
+            {/* Step 3 — We print it */}
             <div className="relative group">
-              <div className="card-editorial p-5 sm:p-8 h-full text-center">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-lg shadow-pink-200 group-hover:scale-110 transition-transform duration-300">
-                  <Heart className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <div className="card-editorial overflow-hidden h-full flex flex-col">
+                <div className="relative aspect-[4/3] overflow-hidden rounded-t-2xl">
+                  <img
+                    src="/home/how-3-print.webp"
+                    alt="We print it — DTF and 3D printers, shipped to your door"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute top-3 left-3 w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-display font-bold text-sm shadow-lg">
+                    3
+                  </div>
                 </div>
-                <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-8 h-8 sm:w-10 sm:h-10 bg-pink-100 rounded-full flex items-center justify-center font-display text-pink-600 text-base sm:text-lg font-bold">
-                  3
+                <div className="p-5 flex flex-col flex-1">
+                  <h3 className="font-display text-lg text-text mb-2">We print it</h3>
+                  <p className="text-muted text-sm leading-relaxed">
+                    Printed in-house on real DTF printers and 3D printers, shipped to your door.
+                  </p>
                 </div>
-                <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">We Print & Ship</h3>
-                <p className="text-muted text-sm sm:text-base">
-                  Our professional team prints your design with care and ships it directly to you
-                </p>
+              </div>
+            </div>
+
+            {/* Step 4 — You earn */}
+            <div className="relative group">
+              <div className="card-editorial overflow-hidden h-full flex flex-col">
+                <div className="relative aspect-[4/3] overflow-hidden rounded-t-2xl">
+                  <img
+                    src="/home/how-4-earn.webp"
+                    alt="You earn — 15% on every sale of your design"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute top-3 left-3 w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center font-display font-bold text-sm shadow-lg">
+                    4
+                  </div>
+                </div>
+                <div className="p-5 flex flex-col flex-1">
+                  <h3 className="font-display text-lg text-text mb-2">You earn</h3>
+                  <p className="text-muted text-sm leading-relaxed">
+                    Publish your design to the store and earn 15% on every single sale.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* CTA */}
-          <div className="text-center mt-12">
-            <button
-              onClick={() => setShowDesignModal(true)}
-              className="btn-primary group"
+          {/* Become a creator strip */}
+          <div className="mt-12 sm:mt-16 card-editorial p-6 sm:p-10 text-center max-w-3xl mx-auto">
+            <h3 className="font-display text-xl sm:text-2xl text-text mb-3">Become a creator</h3>
+            <p className="text-muted text-sm sm:text-base leading-relaxed mb-6">
+              Anyone can sell on Imagine This Printed. Create a design, submit it for approval, and the moment someone buys it you get paid — 15% of every sale, automatically, in ITC you can cash out.
+            </p>
+            <Link
+              to="/my-designs"
+              className="inline-flex items-center gap-2 btn-primary group"
             >
               <Sparkles className="w-5 h-5" />
               Start Creating Now
               <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-            </button>
+            </Link>
           </div>
         </div>
       </section>
@@ -483,27 +583,44 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* Social Showcase */}
-      <section className="py-12 sm:py-24 bg-bg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-8 sm:mb-12">
-            <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-pink-100 text-pink-700 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
-              <Heart className="w-3 h-3 sm:w-4 sm:h-4" />
-              Community
-            </span>
-            <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text mb-3 sm:mb-4">
-              Customer <span className="text-gradient-pink">Showcase</span>
-            </h2>
-            <p className="text-muted text-sm sm:text-lg max-w-2xl mx-auto px-4 sm:px-0">
-              See how our customers are using our products and sharing their amazing creations
-            </p>
-          </div>
+      {/* Customer Showcase — user-generated products */}
+      {!communityLoading && communityProducts.length > 0 && (
+        <section className="py-12 sm:py-24 bg-bg">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between mb-6 sm:mb-12">
+              <div>
+                <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-pink-100 text-pink-700 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
+                  <Heart className="w-3 h-3 sm:w-4 sm:h-4" />
+                  Community
+                </span>
+                <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-text mb-2">
+                  Made by our <span className="text-gradient-pink">creators</span>
+                </h2>
+                <p className="text-muted text-sm sm:text-base max-w-xl">
+                  Real products designed by the community — every sale pays the creator.
+                </p>
+              </div>
+              <Link
+                to="/community"
+                className="inline-flex items-center gap-2 text-primary font-medium hover:gap-3 transition-all mt-4 md:mt-0"
+              >
+                See all community designs
+                <ArrowRight className="w-5 h-5" />
+              </Link>
+            </div>
 
-          <Suspense fallback={<SectionSkeleton />}>
-            <FeaturedSocialContent limit={5} />
-          </Suspense>
-        </div>
-      </section>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+              {communityProducts.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  showSocialBadges={false}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Personalized Recommendations */}
       <section className="py-12 sm:py-24 bg-gradient-to-b from-bg to-purple-50/30">

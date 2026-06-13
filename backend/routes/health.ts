@@ -28,67 +28,67 @@ router.get('/database', async (req: Request, res: Response) => {
   }
 })
 
-// Email health check (Brevo transactional)
+// Email health check (Resend transactional)
 router.get('/email', async (req: Request, res: Response): Promise<any> => {
   try {
-    const brevoApiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com';
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const fromAddress =
+      process.env.EMAIL_FROM ||
+      `Imagine This Printed <${process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com'}>`;
+    const toAddress = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com';
 
-    if (!brevoApiKey) {
+    if (!resendApiKey) {
+      // Degrade gracefully: report which fallback key exists
+      const hasBrevo = !!process.env.BREVO_API_KEY;
       return res.status(500).json({
         ok: false,
-        error: 'BREVO_API_KEY not configured'
+        error: 'RESEND_API_KEY not configured',
+        brevoFallbackAvailable: hasBrevo
       });
     }
 
-    console.log('[health:email] Testing Brevo API with key:', tail(brevoApiKey));
-    console.log('[health:email] Sender email:', senderEmail);
+    console.log('[health:email] Testing Resend API with key:', tail(resendApiKey));
 
-    // Send test email via Brevo API
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        'accept': 'application/json',
-        'api-key': brevoApiKey,
-        'content-type': 'application/json'
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        sender: {
-          name: process.env.BREVO_SENDER_NAME || 'Imagine This Printed',
-          email: senderEmail
-        },
-        to: [{ email: senderEmail }],
+        from: fromAddress,
+        to: [toAddress],
         subject: 'ITP Email Health OK',
-        htmlContent: '<p>Email service is operational. This is an automated health check.</p>'
-      })
+        html: '<p>Email service is operational. This is an automated health check.</p>',
+      }),
     });
 
-    const result: any = await response.json();
+    const result: any = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error('[health:email] Brevo API error:', result);
+      console.error('[health:email] Resend API error:', result);
       return res.status(500).json({
         ok: false,
-        error: 'Brevo API call failed',
+        error: 'Resend API call failed',
         details: result,
-        apiKeyTail: tail(brevoApiKey)
+        apiKeyTail: tail(resendApiKey)
       });
     }
 
-    console.log('[health:email] ✅ Test email sent successfully, messageId:', result.messageId);
+    console.log('[health:email] ✅ Test email sent successfully, id:', result.id);
 
     return res.status(200).json({
       ok: true,
-      messageId: result.messageId,
-      sender: senderEmail,
-      apiKeyTail: tail(brevoApiKey)
+      messageId: result.id,
+      sender: fromAddress,
+      apiKeyTail: tail(resendApiKey)
     });
   } catch (error: any) {
     console.error('[health:email] Exception:', error);
     res.status(500).json({
       ok: false,
       error: error.message || 'Email health check failed',
-      apiKeyTail: tail(process.env.BREVO_API_KEY)
+      apiKeyTail: tail(process.env.RESEND_API_KEY)
     });
   }
 })

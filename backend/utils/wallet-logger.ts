@@ -68,18 +68,26 @@ export async function logItcTransaction(params: LogItcTransactionParams) {
       description
     })
 
+    // Live schema (verified 2026-06-12 via information_schema):
+    // itc_transactions(id, user_id, type, amount, reference, balance_after, metadata, created_at).
+    // The previous insert used transaction_type/balance_before/description/related_entity_*
+    // — columns that DON'T exist — so every helper call silently failed (the table
+    // had 3 rows from Nov 10 while wallet balances changed for 7 months).
     const { data, error } = await supabase
       .from('itc_transactions')
       .insert({
         user_id: userId,
         amount,
-        transaction_type: type,
-        balance_before: balanceBefore,
+        type,
         balance_after: balanceAfter,
-        description,
-        metadata,
-        related_entity_type: relatedEntityType,
-        related_entity_id: relatedEntityId,
+        reference: relatedEntityId ?? null,
+        metadata: {
+          ...metadata,
+          description,
+          balance_before: balanceBefore,
+          related_entity_type: relatedEntityType,
+          related_entity_id: relatedEntityId,
+        },
         created_at: new Date().toISOString()
       })
       .select()
@@ -187,7 +195,7 @@ export async function getItcTransactionHistory(
       .range(offset, offset + limit - 1)
 
     if (type) {
-      query = query.eq('transaction_type', type)
+      query = query.eq('type', type)
     }
 
     if (startDate) {
@@ -246,7 +254,7 @@ export async function getPointsTransactionHistory(
       .range(offset, offset + limit - 1)
 
     if (type) {
-      query = query.eq('transaction_type', type)
+      query = query.eq('type', type)
     }
 
     if (startDate) {

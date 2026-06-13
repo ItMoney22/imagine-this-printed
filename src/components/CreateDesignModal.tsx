@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X, Coins, Wand2, ArrowRight, RefreshCw, Save, Mic, MicOff, Loader2, Sparkles, Send, Volume2, Eraser, ZoomIn, Paintbrush, ChevronDown, ChevronUp, CheckCircle, PartyPopper, Image as ImageIcon, MessageCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { API_BASE } from '../lib/api'
 import confetti from 'canvas-confetti'
 
 interface GeneratedDesign {
@@ -244,7 +245,7 @@ export function CreateDesignModal({
         return
       }
 
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
 
       // Build context message for GPT
       let contextMessage = ''
@@ -385,7 +386,7 @@ export function CreateDesignModal({
       }
 
       // Call the Mr. Imagine voice API
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const response = await fetch(`${apiBase}/api/ai/voice/synthesize`, {
         method: 'POST',
         headers: {
@@ -500,7 +501,7 @@ export function CreateDesignModal({
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) throw new Error('Not authenticated')
 
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const response = await fetch(`${apiBase}/api/imagination-station/ai/use-upload`, {
         method: 'POST',
         headers: {
@@ -551,7 +552,7 @@ export function CreateDesignModal({
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) throw new Error('Not authenticated')
 
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const response = await fetch(`${apiBase}/api/ai/mr-imagine/chat`, {
         method: 'POST',
         headers: {
@@ -653,7 +654,7 @@ export function CreateDesignModal({
       // With a reference image: /reimagine, tiered (standard=nano-banana 1 ITC,
       // premium=gpt-image-2 50 ITC). Without a reference: text-to-image via
       // Flux 1.1 Pro Ultra at the standard generate price.
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const useReference = !!referenceImage
       const endpoint = useReference
         ? `${apiBase}/api/imagination-station/ai/reimagine`
@@ -729,7 +730,7 @@ export function CreateDesignModal({
 
   // Poll for async results
   const pollForResults = async (jobId: string, token: string) => {
-    const apiBase = import.meta.env.VITE_API_BASE || ''
+    const apiBase = API_BASE
     let attempts = 0
     const maxAttempts = 60 // 2 minutes max
 
@@ -806,7 +807,7 @@ export function CreateDesignModal({
       // Save current image to history before modifying
       setEditHistory(prev => [...prev, currentImage])
 
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const response = await fetch(`${apiBase}/api/imagination-station/ai/remove-bg`, {
         method: 'POST',
         headers: {
@@ -870,7 +871,7 @@ export function CreateDesignModal({
       // Save current image to history before modifying
       setEditHistory(prev => [...prev, currentImage])
 
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const response = await fetch(`${apiBase}/api/imagination-station/ai/upscale`, {
         method: 'POST',
         headers: {
@@ -938,7 +939,7 @@ export function CreateDesignModal({
       // Save current image to history before modifying
       setEditHistory(prev => [...prev, currentImage])
 
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
       const response = await fetch(`${apiBase}/api/imagination-station/ai/reimagine`, {
         method: 'POST',
         headers: {
@@ -1017,7 +1018,7 @@ export function CreateDesignModal({
       }
 
       const selectedDesign = generatedDesigns[selectedDesignIndex]
-      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const apiBase = API_BASE
 
       console.log('[CreateDesignModal] Submitting design to:', `${apiBase}/api/imagination-station/designs/submit`)
       console.log('[CreateDesignModal] Design data:', {
@@ -1560,6 +1561,12 @@ export function CreateDesignModal({
                             ;(e.target as HTMLImageElement).style.display = 'none'
                           }}
                         />
+                        {/* Recommended badge */}
+                        {(style.id === 'realistic' || style.id === 'cartoon') && (
+                          <div className="absolute top-1.5 left-1.5 z-20 px-1.5 py-0.5 rounded-md bg-amber-500 text-[9px] font-bold text-slate-900 shadow-lg">
+                            Recommended
+                          </div>
+                        )}
                         {/* Bottom label gradient overlay */}
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 py-1.5 flex items-center gap-1">
                           <span className="text-sm">{style.emoji}</span>
@@ -1708,3 +1715,4 @@ export function CreateDesignModal({
     </div>
   )
 }
+

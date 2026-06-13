@@ -791,6 +791,11 @@ const MarketingTools: React.FC = () => {
                     placeholder="G-XXXXXXXXXX"
                     className="w-full px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
                   />
+                  <p className="mt-1 text-xs text-muted">
+                    Format <code className="text-purple-400">G-XXXXXXXXXX</code>. Find it in Google Analytics → Admin → Data Streams → your stream → Measurement ID. (
+                    <a href="https://support.google.com/analytics/answer/9539598" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">help</a>
+                    )
+                  </p>
                 </div>
 
                 <div>
@@ -802,6 +807,11 @@ const MarketingTools: React.FC = () => {
                     placeholder="123456789012345"
                     className="w-full px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
                   />
+                  <p className="mt-1 text-xs text-muted">
+                    15-digit numeric ID. Find it in Meta Events Manager → Data Sources → your Pixel → Settings. (
+                    <a href="https://www.facebook.com/business/help/952192354843755" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">help</a>
+                    )
+                  </p>
                 </div>
 
                 <div className="flex items-center">

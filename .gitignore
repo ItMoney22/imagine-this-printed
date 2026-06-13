@@ -41,3 +41,10 @@ nul
 .watchtower/
 scripts/image_storage_report_*.json
 .claude/scheduled_tasks.lock
+
+# Agent/session scratch (not for the repo)
+.handoffs/
+.prompts/
+te
+test.txt
+test_modify.txt

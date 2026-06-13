@@ -37,6 +37,13 @@ export interface EditRequest {
   extra?: Record<string, unknown>
   /** Run prompt through enhancer (instruction-style for edits). */
   enhance?: boolean
+  /**
+   * Strict design-fidelity mode: wraps the instruction with hard preservation
+   * rules so the model applies ONLY the requested change (no extra wings).
+   * Intended for single-image design refinement; skipped automatically for
+   * multi-image compositing requests.
+   */
+  preserveDesign?: boolean
 }
 
 export type EditResponse =
@@ -96,6 +103,20 @@ export async function edit(req: EditRequest): Promise<EditResponse> {
       model,
     })
     finalPrompt = enhancerResult.enhanced
+  }
+
+  // Design-fidelity wrapper. GPT Image 2's playbook: edits behave best when
+  // told what changes AND what must stay identical. Only for single-image
+  // edits — compositing prompts (refImageUrls) legitimately restructure.
+  if (req.preserveDesign && (req.refImageUrls ?? []).length === 0) {
+    finalPrompt =
+      `Edit the provided image. Requested change: ${finalPrompt}\n\n` +
+      `STRICT EDIT RULES — the input image is the ground truth. Apply ONLY the requested change. ` +
+      `Everything else must remain IDENTICAL to the original: the exact same subject with the exact same ` +
+      `number of parts and elements (do not add, duplicate, remove, or mirror any element that was not ` +
+      `explicitly mentioned), the same pose and composition, the same art style and line work, the same ` +
+      `color palette, and the same background. The result must read as the original image with one precise ` +
+      `modification applied — not a reinterpretation or regeneration.`
   }
 
   const inputImages = [src.url, ...(req.refImageUrls ?? [])]

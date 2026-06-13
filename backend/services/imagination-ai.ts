@@ -7,6 +7,7 @@ import { AI_STYLES } from '../config/imagination-presets.js';
 import { removeBackgroundWithRemoveBg } from './removebg.js';
 import * as gcsStorage from './gcs-storage.js';
 import { uploadImageFromBase64 } from './google-cloud-storage.js';
+import { pickFanOutModels, runImageFlowMultiGenerate } from './image-flow/worker-helpers.js';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!
@@ -137,6 +138,30 @@ export interface ProcessImageParams {
   itcBalance: number;
 }
 
+export interface GenerateImagesMultiParams {
+  userId: string;
+  prompt: string;
+  style?: string;
+  itcBalance: number;
+  count: number;
+}
+
+export interface MultiImageResult {
+  url: string;
+  modelId: string;
+  modelLabel: string;
+  /** The model-specific prompt that actually produced this image. */
+  prompt?: string;
+}
+
+export interface GenerateImagesMultiResult {
+  images: MultiImageResult[];
+  cost: number;
+  perImageCost: number;
+  freeTrialUsed: boolean;
+  failures: { modelId: string; error: string }[];
+}
+
 export class ImaginationAIService {
 
   async generateImage(params: GenerateImageParams) {
@@ -201,6 +226,10 @@ export class ImaginationAIService {
       // CRITICAL: Persist to GCS to prevent Replicate URL expiration
       imageUrl = await persistToGCS(imageUrl, userId, 'ai-generated');
 
+      if (!imageUrl) {
+        throw new Error('Image processing completed but no output URL was produced. You were not charged.');
+      }
+
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
         return {
@@ -221,7 +250,7 @@ export class ImaginationAIService {
           position_y: 0,
           width: 100,
           height: 100,
-          z_index: Date.now(),
+          z_index: Math.floor(Date.now() / 1000),
           metadata: { prompt, style, model: 'black-forest-labs/flux-1.1-pro-ultra' }
         })
         .select()
@@ -229,10 +258,18 @@ export class ImaginationAIService {
 
       if (error) throw error;
 
-      // Update sheet ITC spent
+      // Update sheet ITC spent — read current value first, then write the
+      // incremented number.  We intentionally do NOT use a non-existent
+      // increment_itc_spent RPC; a simple read-then-write is safe here because
+      // the column is for auditing only, not a financial balance.
+      const { data: sheetRow } = await supabase
+        .from('imagination_sheets')
+        .select('itc_spent')
+        .eq('id', sheetId)
+        .single();
       await supabase
         .from('imagination_sheets')
-        .update({ itc_spent: supabase.rpc('increment_itc_spent', { amount: costCheck.cost }) })
+        .update({ itc_spent: (sheetRow?.itc_spent ?? 0) + costCheck.cost })
         .eq('id', sheetId);
 
       return { layer, cost: costCheck.cost, freeTrialUsed: costCheck.useFreeTrial };
@@ -281,6 +318,10 @@ export class ImaginationAIService {
       }
       // Persist Replicate output to GCS so the URL doesn't expire.
       processedUrl = await persistToGCS(processedUrl, userId, 'bg-removed');
+
+      if (!processedUrl) {
+        throw new Error('Image processing completed but no output URL was produced. You were not charged.');
+      }
 
       console.log('[imagination-ai] removeBackground processedUrl:', processedUrl.substring(0, 100) + '...');
 
@@ -355,6 +396,10 @@ export class ImaginationAIService {
       // CRITICAL: Persist to GCS to prevent Replicate URL expiration
       processedUrl = await persistToGCS(processedUrl, userId, 'upscaled');
 
+      if (!processedUrl) {
+        throw new Error('Image processing completed but no output URL was produced. You were not charged.');
+      }
+
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
         return {
@@ -422,6 +467,10 @@ export class ImaginationAIService {
       // CRITICAL: Persist to GCS to prevent Replicate URL expiration
       processedUrl = await persistToGCS(processedUrl, userId, 'enhanced');
 
+      if (!processedUrl) {
+        throw new Error('Image processing completed but no output URL was produced. You were not charged.');
+      }
+
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
         return {
@@ -460,11 +509,27 @@ export class ImaginationAIService {
     const tier = params.tier === 'premium' ? 'premium' : 'standard';
     const isStandalone = layerId === 'standalone';
 
-    // Tiered reimagine pricing — explicit per-tier costs replace the prior
-    // pricingService.checkCost('generate') lookup. Standard = nano-banana
-    // (fast, cheap, the original behavior at a lower price). Premium = openai
-    // gpt-image-2 (multi-ref capable, much higher fidelity, hence 50 ITC).
-    const cost = tier === 'premium' ? 50 : 1;
+    // Tiered reimagine pricing — look up from imagination_pricing table first;
+    // fall back to hardcoded values (1 / 50) if the rows haven't been seeded yet
+    // so nothing breaks without the migration.
+    const FALLBACK_COST_STANDARD = 1;
+    const FALLBACK_COST_PREMIUM = 50;
+
+    let cost: number;
+    const featureKey = tier === 'premium' ? 'reimagine_premium' : 'reimagine_standard';
+    try {
+      const pricingRow = await pricingService.getPricing(featureKey);
+      if (pricingRow) {
+        cost = pricingRow.current_cost;
+      } else {
+        // Table not seeded — use hardcoded fallbacks
+        cost = tier === 'premium' ? FALLBACK_COST_PREMIUM : FALLBACK_COST_STANDARD;
+      }
+    } catch {
+      // Any error fetching pricing — use hardcoded fallbacks
+      cost = tier === 'premium' ? FALLBACK_COST_PREMIUM : FALLBACK_COST_STANDARD;
+    }
+
     const balance = itcBalance ?? 0;
     if (balance < cost) {
       throw new Error(`Insufficient ITC for ${tier} reimagine (need ${cost} ITC, have ${balance}).`);
@@ -527,6 +592,10 @@ export class ImaginationAIService {
       // CRITICAL: Persist to GCS to prevent Replicate URL expiration
       processedUrl = await persistToGCS(processedUrl, userId, 'reimagined');
 
+      if (!processedUrl) {
+        throw new Error('Image processing completed but no output URL was produced. You were not charged.');
+      }
+
       // For standalone operations, return the URL without persisting
       if (isStandalone) {
         return {
@@ -555,6 +624,119 @@ export class ImaginationAIService {
       await pricingService.refundITC(userId, cost, `reimagine_${tier}_failed`);
       throw error;
     }
+  }
+
+  /**
+   * Generate 1–4 images in parallel, each from a different top model, using
+   * the platform's current model registry and fan-out model selector.
+   * Charges ITC up-front and refunds for any failed slots.
+   */
+  async generateImagesMulti(params: GenerateImagesMultiParams): Promise<GenerateImagesMultiResult> {
+    const { userId, prompt, style, itcBalance } = params;
+    // Clamp count to 1–4
+    const count = Math.min(4, Math.max(1, Math.floor(params.count)));
+
+    // Look up per-image base price
+    const pricingRow = await pricingService.getPricing('generate');
+    const perImage: number = pricingRow ? pricingRow.current_cost : 0;
+
+    // checkCost handles free-trial and promo for the FIRST image
+    const costCheck = await pricingService.checkCost(userId, 'generate', itcBalance);
+    if (!costCheck.canProceed) {
+      throw new Error(costCheck.reason || 'Cannot proceed with generation');
+    }
+
+    // First image cost is costCheck.cost (0 if trial/promo); remaining images cost perImage each
+    const firstImageCost = costCheck.cost;
+    const additionalCost = perImage * (count - 1);
+    const totalCharge = firstImageCost + additionalCost;
+
+    // Validate user can afford full batch
+    if (itcBalance < totalCharge) {
+      throw new Error(`Not enough ITC: need ${totalCharge}, have ${itcBalance}`);
+    }
+
+    // Deduct ITC up-front (one call for the total)
+    if (totalCharge > 0) {
+      await pricingService.deductITC(userId, totalCharge, 'generate');
+    } else if (costCheck.useFreeTrial) {
+      await pricingService.consumeFreeTrial(userId, 'generate');
+    }
+
+    // Build final prompt. CRITICAL: the transparent-background mandate is only
+    // correct for DTF/sticker/toy art (cutout artwork). For wall art (metal
+    // prints, posters) a transparent background produces broken, washed-out, or
+    // empty results — these want a full-bleed image that fills the frame. The
+    // old code appended the transparent mandate UNCONDITIONALLY, which is why
+    // metal-art generation looked broken / produced nothing usable.
+    const isDTF = prompt.includes('CRITICAL REQUIREMENTS') || prompt.includes('DO NOT include any t-shirt');
+    const isWallArt = style === 'metal-art' || style === 'poster' || style === 'wall-art';
+    const skipEnhance = isDTF;
+    const finalPrompt = isWallArt
+      ? `${prompt}\n\nFull-bleed artwork that fills the entire frame edge to edge, gallery print quality, vivid saturated color, sharp high detail, dramatic composition. No text, no watermark, no border, no transparent areas.`
+      : `${prompt}\n\nMANDATORY: transparent background, PNG with alpha channel.`;
+
+    // Pick models
+    const modelIds = pickFanOutModels(prompt, style).slice(0, count);
+
+    // Run parallel generation
+    const multiResults = await runImageFlowMultiGenerate({
+      prompt: finalPrompt,
+      modelIds,
+      imageStyle: style,
+      skipEnhance,
+    });
+
+    // Persist succeeded results to GCS
+    const images: MultiImageResult[] = [];
+    const failures: { modelId: string; error: string }[] = [];
+
+    await Promise.all(
+      multiResults.map(async (r) => {
+        if (r.status === 'failed' || !r.url) {
+          failures.push({ modelId: r.modelId, error: r.error || 'Generation failed' });
+          return;
+        }
+        const persistedUrl = await persistToGCS(r.url, userId, 'ai-generated');
+        if (!persistedUrl) {
+          failures.push({ modelId: r.modelId, error: 'GCS persistence returned empty URL' });
+          return;
+        }
+        images.push({ url: persistedUrl, modelId: r.modelId, modelLabel: r.modelLabel, prompt: r.tailoredPrompt || finalPrompt });
+      })
+    );
+
+    const succeededCount = images.length;
+    const failedCount = failures.length;
+
+    // Compute refund for failed slots:
+    // total charged − (succeeded × perImage), clamped to [0, totalCharge]
+    const refundAmount = Math.min(totalCharge, Math.max(0, totalCharge - succeededCount * perImage));
+
+    if (succeededCount === 0) {
+      // Refund everything and throw — user was not charged
+      if (totalCharge > 0) {
+        await pricingService.refundITC(userId, totalCharge, 'generate_multi_all_failed');
+      } else if (costCheck.useFreeTrial) {
+        // Re-issue the free trial consume was already done; refund not needed for free trial
+        // but we still have nothing to show — throw with clear message
+      }
+      throw new Error('All image generations failed. You were not charged.');
+    }
+
+    if (failedCount > 0 && refundAmount > 0) {
+      await pricingService.refundITC(userId, refundAmount, 'generate_multi_partial_refund');
+    }
+
+    const netCost = totalCharge - refundAmount;
+
+    return {
+      images,
+      cost: netCost,
+      perImageCost: perImage,
+      freeTrialUsed: costCheck.useFreeTrial,
+      failures,
+    };
   }
 }
 

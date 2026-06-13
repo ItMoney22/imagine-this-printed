@@ -2,6 +2,11 @@ import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 
+// Same DEBUG_MARKETING gate as routes/marketing.ts — these admin-curated
+// flows aren't hot, but each request emits 1-2 trace lines that drown the
+// happy-path log stream over time. Errors still log unconditionally below.
+const debugLog: typeof console.log = process.env.DEBUG_MARKETING ? console.log.bind(console) : () => {}
+
 const router = Router()
 
 // Platform URL validators
@@ -117,7 +122,7 @@ router.post('/submissions', requireAuth, async (req: Request, res: Response): Pr
       return res.status(500).json({ error: error.message })
     }
 
-    console.log(`[social] New submission created: ${data.id} from ${userId}`)
+    debugLog(`[social] New submission created: ${data.id} from ${userId}`)
     return res.status(201).json({ submission: data })
   } catch (error: any) {
     console.error('[social] Submission error:', error)
@@ -196,14 +201,72 @@ router.post('/submissions/:id/process', requireAuth, requireRole(['admin', 'mana
         return res.status(500).json({ error: postError.message })
       }
 
-      console.log(`[social] Submission ${id} approved, post ${post.id} created`)
+      debugLog(`[social] Submission ${id} approved, post ${post.id} created`)
       return res.json({ message: 'Submission approved', post })
     }
 
-    console.log(`[social] Submission ${id} rejected`)
+    debugLog(`[social] Submission ${id} rejected`)
     return res.json({ message: 'Submission rejected' })
   } catch (error: any) {
     console.error('[social] Process error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// POST /api/social/ugc-inbound — Watchtower UGC bridge.
+// The Watchtower marketing pipeline produces UGC content (TikTok posts, product
+// videos/photos) and pushes the published result here so it appears on the ITP
+// site (FeaturedSocialContent / community social wall) automatically. Content is
+// first-party, so it lands pre-approved. Auth: same shared bearer the print
+// factory uses (PRINT_BRIDGE_TOKEN) — one trust channel for Watchtower ↔ ITP.
+router.post('/ugc-inbound', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const token = process.env.PRINT_BRIDGE_TOKEN
+    const auth = req.header('authorization') || ''
+    if (!token || auth !== `Bearer ${token}`) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const {
+      platform,
+      url,
+      title,
+      description,
+      author = 'Imagine This Printed',
+      product_ids = [],
+      tags = [],
+    } = req.body || {}
+
+    if (!platform || !url) {
+      return res.status(400).json({ error: 'platform and url are required' })
+    }
+
+    const { data: post, error } = await supabase
+      .from('social_posts')
+      .insert({
+        platform,
+        url,
+        embed_code: generateEmbedCode(platform, url),
+        title: title || description?.substring(0, 100) || 'Imagine This Printed',
+        description: description || null,
+        author_username: author,
+        author_display_name: author,
+        status: 'approved',
+        tags: ['ugc', 'watchtower', ...(Array.isArray(tags) ? tags : [])],
+        product_ids: Array.isArray(product_ids) ? product_ids : [],
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      console.error('[social] ugc-inbound insert error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    debugLog(`[social] UGC inbound from Watchtower → post ${post.id} (${platform})`)
+    return res.json({ ok: true, post_id: post.id })
+  } catch (error: any) {
+    console.error('[social] ugc-inbound error:', error)
     return res.status(500).json({ error: error.message })
   }
 })
@@ -276,7 +339,7 @@ router.post('/posts/:id/feature', requireAuth, requireRole(['admin', 'manager', 
       return res.status(500).json({ error: error.message })
     }
 
-    console.log(`[social] Post ${id} feature status: ${featured}`)
+    debugLog(`[social] Post ${id} feature status: ${featured}`)
     return res.json({ post: data })
   } catch (error: any) {
     console.error('[social] Feature toggle error:', error)
@@ -372,7 +435,7 @@ router.delete('/posts/:id', requireAuth, requireRole(['admin', 'manager', 'found
       return res.status(500).json({ error: error.message })
     }
 
-    console.log(`[social] Post ${id} deleted`)
+    debugLog(`[social] Post ${id} deleted`)
     return res.json({ message: 'Post deleted' })
   } catch (error: any) {
     console.error('[social] Delete error:', error)

@@ -97,7 +97,7 @@ export function Footer() {
         {/* Bottom Bar */}
         <div className="mt-12 pt-8 border-t border-muted/20 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-sm text-muted">
-            © {currentYear} Imagine This Printed. All rights reserved.
+            © {currentYear} Imagine This Printed. All rights reserved. <span className="mx-2 opacity-20">|</span> <span className="italic font-serif opacity-60 hover:opacity-100 transition-opacity cursor-default" title="I AM GOD, Ch. 3">Truth cannot be killed.</span>
           </p>
 
           {/* Social Links */}

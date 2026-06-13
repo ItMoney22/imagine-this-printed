@@ -430,38 +430,27 @@ const Referrals: React.FC = () => {
       {selectedTab === 'leaderboard' && (
         <div className="space-y-6">
           <div className="bg-card rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-text mb-6">Top Referrers This Month</h3>
+            <h3 className="text-lg font-semibold text-text mb-6">Your Referral Standing</h3>
+            {/* Real numbers only — the old version showed invented competitors
+                (Sarah W., Mike J., …). A true cross-user leaderboard needs a
+                backend aggregate; until that ships, show the user's own stats. */}
             <div className="space-y-4">
-              {[
-                { rank: 1, name: 'Sarah W.', referrals: 12, earnings: 650, badge: '🥇' },
-                { rank: 2, name: 'Mike J.', referrals: 8, earnings: 420, badge: '🥈' },
-                { rank: 3, name: 'Emma L.', referrals: 6, earnings: 315, badge: '🥉' },
-                { rank: 4, name: 'You', referrals: totalReferrals, earnings: totalEarnings, badge: '👤' },
-                { rank: 5, name: 'David R.', referrals: 4, earnings: 210, badge: '🔥' }
-              ].map((user) => (
-                <div 
-                  key={user.rank} 
-                  className={`flex items-center justify-between p-4 rounded-lg border ${
-                    user.name === 'You' ? 'border-purple-200 bg-purple-50' : 'card-border'
-                  }`}
-                >
-                  <div className="flex items-center">
-                    <span className="text-2xl mr-3">{user.badge}</span>
-                    <div>
-                      <div className={`font-medium ${user.name === 'You' ? 'text-purple-900' : 'text-text'}`}>
-                        #{user.rank} {user.name}
-                      </div>
-                      <div className="text-sm text-muted">{user.referrals} referrals</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`font-semibold ${user.name === 'You' ? 'text-purple-600' : 'text-green-600'}`}>
-                      {user.earnings} points
-                    </div>
-                    <div className="text-sm text-muted">≈ ${(user.earnings * 0.01).toFixed(2)}</div>
+              <div className="flex items-center justify-between p-4 rounded-lg border border-purple-200 bg-purple-50">
+                <div className="flex items-center">
+                  <span className="text-2xl mr-3">👤</span>
+                  <div>
+                    <div className="font-medium text-purple-900">You</div>
+                    <div className="text-sm text-muted">{totalReferrals} referral{totalReferrals === 1 ? '' : 's'}</div>
                   </div>
                 </div>
-              ))}
+                <div className="text-right">
+                  <div className="font-semibold text-purple-600">{totalEarnings} points</div>
+                  <div className="text-sm text-muted">≈ ${(totalEarnings * 0.01).toFixed(2)}</div>
+                </div>
+              </div>
+              <p className="text-sm text-muted text-center py-2">
+                Community leaderboard unlocks as more referrers join — keep sharing your link to claim the top spot.
+              </p>
             </div>
           </div>
 

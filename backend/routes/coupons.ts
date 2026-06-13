@@ -7,7 +7,9 @@ dotenv.config()
 const router = Router()
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // Anon fallback would silently re-enable RLS on privileged queries and mask a misconfigured deploy — dev only.
+  || (process.env.NODE_ENV !== 'production' ? process.env.VITE_SUPABASE_ANON_KEY : undefined)
 
 if (!supabaseUrl || !supabaseKey) {
     console.error('Missing Supabase credentials for Coupons routes')

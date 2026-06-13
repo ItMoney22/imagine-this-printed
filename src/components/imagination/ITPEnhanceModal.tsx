@@ -6,15 +6,14 @@ import {
   X,
   Wand2,
   Loader2,
-  Check,
-  AlertCircle,
+  ArrowRight,
   Image as ImageIcon,
   Maximize2,
   Sparkles,
-  ArrowRight,
   RefreshCw
 } from 'lucide-react';
 import type { ImaginationLayer } from '../../types';
+import { CHECKERBOARD_BG } from './checkerboard';
 
 interface ITPEnhanceModalProps {
   isOpen: boolean;
@@ -78,15 +77,14 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
 
   const imageUrl = selectedLayer?.processed_url || selectedLayer?.source_url;
 
+  // Tool definitions — accent gradient stays; card bg/border/text use semantic tokens
   const tools = [
     {
       id: 'bg_remove',
       name: 'Remove Background',
       description: 'AI removes background, keeping only the subject',
       icon: ImageIcon,
-      color: 'from-red-400 to-rose-500',
-      bgColor: 'bg-red-50',
-      borderColor: 'border-red-200',
+      accentGradient: 'from-red-400 to-rose-500',
       freeTrials: getFreeTrial('bg_remove'),
       price: getFeaturePrice('bg_remove'),
       isLoading: isRemovingBg,
@@ -97,9 +95,7 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
       name: 'Upscale 2x',
       description: 'Double the resolution with AI enhancement',
       icon: Maximize2,
-      color: 'from-blue-400 to-cyan-500',
-      bgColor: 'bg-blue-50',
-      borderColor: 'border-blue-200',
+      accentGradient: 'from-blue-400 to-cyan-500',
       freeTrials: getFreeTrial('upscale_2x'),
       price: getFeaturePrice('upscale_2x'),
       isLoading: isUpscaling,
@@ -110,9 +106,7 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
       name: 'Enhance Quality',
       description: 'Improve colors, contrast, and clarity',
       icon: Sparkles,
-      color: 'from-purple-400 to-violet-500',
-      bgColor: 'bg-purple-50',
-      borderColor: 'border-purple-200',
+      accentGradient: 'from-purple-400 to-violet-500',
       freeTrials: getFreeTrial('enhance'),
       price: getFeaturePrice('enhance'),
       isLoading: isEnhancing,
@@ -123,9 +117,7 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
       name: 'Reimagine It',
       description: 'Transform your image with AI magic',
       icon: RefreshCw,
-      color: 'from-pink-400 to-rose-500',
-      bgColor: 'bg-pink-50',
-      borderColor: 'border-pink-200',
+      accentGradient: 'from-pink-400 to-rose-500',
       freeTrials: 0,
       price: getFeaturePrice('generate'),
       isLoading: false,
@@ -137,9 +129,9 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-card text-text rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header — brand gradient stays */}
         <div className="relative bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 px-6 py-5">
           <button
             onClick={onClose}
@@ -154,9 +146,7 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
             </div>
 
             <div>
-              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                ITP Enhance
-              </h2>
+              <h2 className="text-2xl font-bold text-white">ITP Enhance</h2>
               <p className="text-white/80 text-sm mt-1">
                 AI-powered tools to perfect your images
               </p>
@@ -175,18 +165,18 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
         <div className="flex-1 overflow-y-auto p-6">
           {!hasSelectedImage ? (
             <div className="text-center py-12">
-              <div className="w-20 h-20 mx-auto mb-4 bg-stone-100 rounded-full flex items-center justify-center">
-                <ImageIcon className="w-10 h-10 text-stone-400" />
+              <div className="w-20 h-20 mx-auto mb-4 bg-primary/10 rounded-full flex items-center justify-center">
+                <ImageIcon className="w-10 h-10 text-muted" />
               </div>
-              <h3 className="text-lg font-semibold text-stone-800 mb-2">
+              <h3 className="text-lg font-semibold text-text mb-2">
                 No Image Selected
               </h3>
-              <p className="text-stone-500 text-sm max-w-sm mx-auto">
+              <p className="text-muted text-sm max-w-sm mx-auto">
                 Please select an image layer on your canvas to use enhancement tools.
               </p>
               <button
                 onClick={onClose}
-                className="mt-6 px-6 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors"
+                className="mt-6 px-6 py-2.5 bg-primary/10 hover:bg-primary/20 text-text rounded-lg font-medium transition-colors"
               >
                 Close
               </button>
@@ -195,10 +185,10 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
             <div className="grid md:grid-cols-2 gap-6">
               {/* Left: Preview */}
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-stone-500 uppercase tracking-wider">
+                <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">
                   Selected Image
                 </h3>
-                <div className="aspect-square bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjVmNWY1Ii8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmNWY1ZjUiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] rounded-xl border border-stone-200 overflow-hidden flex items-center justify-center">
+                <div className={`aspect-square ${CHECKERBOARD_BG} rounded-xl border border-primary/20 overflow-hidden flex items-center justify-center`}>
                   {imageUrl && (
                     <img
                       src={imageUrl}
@@ -207,14 +197,14 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
                     />
                   )}
                 </div>
-                <p className="text-xs text-stone-500 text-center">
+                <p className="text-xs text-muted text-center">
                   {selectedLayer?.metadata?.name || 'Image Layer'}
                 </p>
               </div>
 
               {/* Right: Tools */}
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-stone-500 uppercase tracking-wider">
+                <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">
                   Enhancement Tools
                 </h3>
 
@@ -228,9 +218,10 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
                       key={tool.id}
                       onClick={tool.onClick}
                       disabled={isDisabled || tool.isLoading}
-                      className={`w-full p-4 rounded-xl text-left transition-all flex items-center gap-4 ${tool.bgColor} ${tool.borderColor} border hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed`}
+                      className="w-full p-4 rounded-xl text-left transition-all flex items-center gap-4 bg-bg border border-primary/20 hover:border-primary/40 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} flex items-center justify-center flex-shrink-0`}>
+                      {/* Colored icon chip — accent gradient stays */}
+                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tool.accentGradient} flex items-center justify-center flex-shrink-0`}>
                         {tool.isLoading ? (
                           <Loader2 className="w-6 h-6 text-white animate-spin" />
                         ) : (
@@ -238,21 +229,21 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-stone-800">
+                        <div className="font-semibold text-text">
                           {tool.isLoading ? `${tool.name}...` : tool.name}
                         </div>
-                        <div className="text-xs text-stone-500 mt-0.5">
+                        <div className="text-xs text-muted mt-0.5">
                           {tool.description}
                         </div>
                         <div className="text-xs mt-1 font-medium">
                           {tool.freeTrials > 0 ? (
-                            <span className="text-green-600">{tool.freeTrials} free remaining</span>
+                            <span className="text-green-400">{tool.freeTrials} free remaining</span>
                           ) : (
-                            <span className="text-amber-600">{tool.price} ITC</span>
+                            <span className="text-amber-400">{tool.price} ITC</span>
                           )}
                         </div>
                       </div>
-                      <ArrowRight className="w-5 h-5 text-stone-400 flex-shrink-0" />
+                      <ArrowRight className="w-5 h-5 text-muted flex-shrink-0" />
                     </button>
                   );
                 })}
@@ -262,13 +253,13 @@ const ITPEnhanceModal: React.FC<ITPEnhanceModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-stone-50 border-t border-stone-200 flex items-center justify-between">
-          <p className="text-xs text-stone-500">
+        <div className="px-6 py-4 bg-bg border-t border-primary/20 flex items-center justify-between">
+          <p className="text-xs text-muted">
             Tip: Enhancements are applied to the selected layer
           </p>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-stone-600 hover:text-stone-800 font-medium transition-colors"
+            className="px-4 py-2 text-muted hover:text-text font-medium transition-colors"
           >
             Close
           </button>

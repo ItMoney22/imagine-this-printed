@@ -8,6 +8,7 @@ import ProtectedImage from './ProtectedImage'
 import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
+import { usdToItcLabel } from '../lib/itc-pricing'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -93,27 +94,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const featuredPlatforms = getFeaturedPlatforms()
   const topPlatform = getMostEngagedPlatform()
 
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [isHovered, setIsHovered] = useState(false)
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-
-    if (isHovered && product.images && product.images.length > 1) {
-      interval = setInterval(() => {
-        setCurrentImageIndex((prev) => (prev + 1) % product.images.length)
-      }, 1500)
-    } else {
-      setCurrentImageIndex(0)
-    }
-
-    return () => clearInterval(interval)
-  }, [isHovered, product.images])
-
-  // Fallback image if no images available
-  const productImage = product.images && product.images.length > 0
-    ? product.images[currentImageIndex]
-    : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+  // Gallery contract: images[0] = ghost mannequin, images[1] = flat lay,
+  // images[2] = Mr. Imagine mockup. Show [0] always; crossfade to [1] (or [2]
+  // when [1] is absent) on hover. If only one image, no hover swap.
+  const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+  const imgs = product.images && product.images.length > 0 ? product.images : [FALLBACK]
+  const primaryImage = imgs[0]
+  const hoverImage = imgs.length > 1 ? (imgs[1] || imgs[2] || null) : null
 
   return (
     <div
@@ -123,15 +112,27 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
     >
       <div className="relative aspect-square overflow-hidden">
         <Link to={`/product/${product.id}`}>
+          {/* Primary image — ghost mannequin (images[0]) */}
           <ProtectedImage
-            src={productImage}
+            src={primaryImage}
             alt={product.name}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 transition-opacity"
+            className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-105 ${hoverImage ? (isHovered ? 'opacity-0' : 'opacity-100') : ''}`}
             onError={(e) => {
-              // Fallback if image fails to load
-              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+              (e.target as HTMLImageElement).src = FALLBACK
             }}
           />
+          {/* Hover image — flat lay (images[1]) or Mr. Imagine (images[2]); lazy-loaded */}
+          {hoverImage && (
+            <ProtectedImage
+              src={hoverImage}
+              alt={`${product.name} alternate view`}
+              loading="lazy"
+              className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-105 ${isHovered ? 'opacity-100' : 'opacity-0'}`}
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = FALLBACK
+              }}
+            />
+          )}
         </Link>
 
         {/* Social Badges Overlay */}
@@ -209,20 +210,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         )}
 
         <div className="flex justify-between items-center mb-4">
-          <span className="flex items-baseline gap-2">
-            <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
-            {(() => {
-              const promo = getPromoBadge(product)
-              if (!promo) return null
-              return (
-                <>
-                  <span className="text-sm text-muted line-through">${promo.originalPrice.toFixed(2)}</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500 text-slate-900 shadow-[0_0_8px_rgba(245,158,11,0.6)]">
-                    {promo.percentOff}% off
-                  </span>
-                </>
-              )
-            })()}
+          <span className="flex flex-col">
+            <span className="flex items-baseline gap-2">
+              <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+              {(() => {
+                const promo = getPromoBadge(product)
+                if (!promo) return null
+                return (
+                  <>
+                    <span className="text-sm text-muted line-through">${promo.originalPrice.toFixed(2)}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500 text-slate-900 shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+                      {promo.percentOff}% off
+                    </span>
+                  </>
+                )
+              })()}
+            </span>
+            {Number(product.price) > 0 && (
+              <span className="text-[11px] text-muted">or {usdToItcLabel(Number(product.price))}</span>
+            )}
           </span>
           {selectedSize && (
             <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">

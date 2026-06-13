@@ -163,17 +163,13 @@ const SocialContentManagement: React.FC = () => {
   const handleReviewSubmission = async () => {
     if (!selectedSubmission) return
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) return
-
     setProcessing(true)
     try {
-      const response = await fetch(`/api/social/submissions/${selectedSubmission.id}/process`, {
+      // apiFetch handles the Bearer token internally and returns parsed
+      // JSON (or throws on non-2xx with the response body). Cleaner than
+      // hand-rolling getSession + headers per call.
+      const result = await apiFetch(`/api/social/submissions/${selectedSubmission.id}/process`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
         body: JSON.stringify({
           action: reviewForm.action,
           tags: reviewForm.tags,
@@ -185,21 +181,12 @@ const SocialContentManagement: React.FC = () => {
         })
       })
 
-      if (!response.ok) {
-        const { error: errMsg } = await response.json()
-        throw new Error(errMsg || 'Failed to process submission')
-      }
-
       // If approved and should feature, toggle feature
       if (reviewForm.action === 'approve' && reviewForm.shouldFeature) {
-        const { post } = await response.json()
-        if (post?.id) {
-          await fetch(`/api/social/posts/${post.id}/feature`, {
+        const postId = result?.post?.id
+        if (postId) {
+          await apiFetch(`/api/social/posts/${postId}/feature`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`
-            },
             body: JSON.stringify({ featured: true })
           })
         }
@@ -218,26 +205,17 @@ const SocialContentManagement: React.FC = () => {
   }
 
   const toggleFeaturePost = async (postId: string, currentlyFeatured: boolean) => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) return
-
     try {
-      const response = await fetch(`/api/social/posts/${postId}/feature`, {
+      await apiFetch(`/api/social/posts/${postId}/feature`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
         body: JSON.stringify({ featured: !currentlyFeatured })
       })
 
-      if (response.ok) {
-        setApprovedPosts(prev => prev.map(post =>
-          post.id === postId
-            ? { ...post, is_featured: !currentlyFeatured, featured_at: !currentlyFeatured ? new Date().toISOString() : null }
-            : post
-        ))
-      }
+      setApprovedPosts(prev => prev.map(post =>
+        post.id === postId
+          ? { ...post, is_featured: !currentlyFeatured, featured_at: !currentlyFeatured ? new Date().toISOString() : null }
+          : post
+      ))
     } catch (err) {
       console.error('[social] Error toggling feature:', err)
     }
@@ -246,18 +224,11 @@ const SocialContentManagement: React.FC = () => {
   const deletePost = async (postId: string) => {
     if (!confirm('Are you sure you want to delete this post?')) return
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) return
-
     try {
-      const response = await fetch(`/api/social/posts/${postId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      await apiFetch(`/api/social/posts/${postId}`, {
+        method: 'DELETE'
       })
-
-      if (response.ok) {
-        setApprovedPosts(prev => prev.filter(post => post.id !== postId))
-      }
+      setApprovedPosts(prev => prev.filter(post => post.id !== postId))
     } catch (err) {
       console.error('[social] Error deleting post:', err)
     }

@@ -75,9 +75,9 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
   switch (quality) {
     case 'excellent':
       return {
-        color: 'text-green-600',
-        bgColor: 'bg-green-50',
-        borderColor: 'border-green-300',
+        color: 'text-green-500',
+        bgColor: 'bg-green-500/10',
+        borderColor: 'border-green-500/40',
         indicatorColor: 'bg-green-500',
         label: 'Excellent',
         icon: '✓',
@@ -85,9 +85,9 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
       };
     case 'good':
       return {
-        color: 'text-green-600',
-        bgColor: 'bg-green-50',
-        borderColor: 'border-green-300',
+        color: 'text-green-500',
+        bgColor: 'bg-green-500/10',
+        borderColor: 'border-green-500/40',
         indicatorColor: 'bg-green-500',
         label: 'Good',
         icon: '✓',
@@ -95,9 +95,9 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
       };
     case 'warning':
       return {
-        color: 'text-amber-600',
-        bgColor: 'bg-amber-50',
-        borderColor: 'border-amber-300',
+        color: 'text-amber-500',
+        bgColor: 'bg-amber-500/10',
+        borderColor: 'border-amber-500/40',
         indicatorColor: 'bg-amber-500',
         label: 'Low Quality',
         icon: '⚠',
@@ -105,9 +105,9 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
       };
     case 'danger':
       return {
-        color: 'text-red-600',
-        bgColor: 'bg-red-50',
-        borderColor: 'border-red-300',
+        color: 'text-red-500',
+        bgColor: 'bg-red-500/10',
+        borderColor: 'border-red-500/40',
         indicatorColor: 'bg-red-500',
         label: 'Poor Quality',
         icon: '✕',

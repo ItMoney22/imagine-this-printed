@@ -227,7 +227,7 @@ const ProfileEdit: React.FC = () => {
         body: JSON.stringify(profileData)
       })
 
-      if (response.ok) {
+      if (response && !response.error && response.ok !== false) {
         console.log('[ProfileEdit] ✅ Profile updated successfully')
         alert('Profile updated successfully!')
         navigate('/account/profile')

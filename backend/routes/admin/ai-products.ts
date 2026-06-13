@@ -8,10 +8,76 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
 import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
-import { uploadImageFromUrl, uploadImageFromBase64 } from '../../services/google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
+import { addWatermark } from '../../services/watermark.js'
 
 const replicateClient = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
 const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+// Per-user rate limiter for the expensive AI generation endpoints. In-memory
+// (resets on deploy) — enough to stop runaway scripts and double-submits from
+// burning real model spend.
+const aiRateBuckets = new Map<string, number[]>()
+function rateLimitAI(maxPerMinute: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const key = req.user?.sub || req.ip || 'anon'
+    const windowStart = Date.now() - 60_000
+    const hits = (aiRateBuckets.get(key) || []).filter((t) => t > windowStart)
+    if (hits.length >= maxPerMinute) {
+      res.status(429).json({ error: `Rate limit: max ${maxPerMinute} AI generations per minute — try again shortly` })
+      return
+    }
+    hits.push(Date.now())
+    aiRateBuckets.set(key, hits)
+    next()
+  }
+}
+
+/**
+ * Gallery contract slot 4: a watermarked copy of the chosen design for
+ * storefront display — the raw design never ships unprotected. Exactly one
+ * per product (replaces any prior design_watermarked asset).
+ */
+async function createWatermarkedDesignAsset(
+  productId: string,
+  sourceAsset: { id: string; url: string },
+): Promise<void> {
+  try {
+    const watermarked = await addWatermark(sourceAsset.url)
+    const { data: product } = await supabase
+      .from('products')
+      .select('slug')
+      .eq('id', productId)
+      .single()
+    const slug = product?.slug || productId.substring(0, 8)
+    const gcsPath = `graphics/${slug}/watermarked/${slug}-design-watermarked-${Date.now()}.png`
+    const { publicUrl, path } = await uploadImageFromBuffer(watermarked, gcsPath, 'image/png')
+
+    await supabase
+      .from('product_assets')
+      .delete()
+      .eq('product_id', productId)
+      .eq('asset_role', 'design_watermarked')
+
+    const { error } = await supabase.from('product_assets').insert({
+      product_id: productId,
+      kind: 'design_preview',
+      path,
+      url: publicUrl,
+      asset_role: 'design_watermarked',
+      is_primary: false,
+      display_order: 4,
+      metadata: {
+        parent_asset_id: sourceAsset.id,
+        watermarked_at: new Date().toISOString(),
+      },
+    })
+    if (error) throw new Error(error.message)
+    console.log('[ai-products] 🔒 Watermarked design asset created for product:', productId)
+  } catch (err: any) {
+    console.error('[ai-products] ⚠️ Watermarked design asset failed:', err.message)
+  }
+}
 
 /**
  * Process a multi-model image job inline (in the API process) instead of via the worker queue.
@@ -43,12 +109,13 @@ async function processImageJobInline(job: any): Promise<void> {
   }
 
   try {
-    await updateProgress('🎨 Generating with 4 models in parallel (Recraft V4, Grok Imagine, Imagen 4 Ultra, Wan 2.7 Pro)...', 1, 3)
+    await updateProgress('🧠 Tailoring your prompt per model, then generating with the 4 best-fit models in parallel...', 1, 3)
     const results = await runImageFlowMultiGenerate({
       prompt: promptInput,
       category: product?.category ?? job.input?.category,
       shirtColor: job.input?.shirtColor,
       printStyle: job.input?.printStyle,
+      imageStyle: job.input?.imageStyle,
     })
 
     const succeeded = results.filter((r) => r.status === 'succeeded' && r.url)
@@ -83,6 +150,7 @@ async function processImageJobInline(job: any): Promise<void> {
             model_name: r.modelLabel,
             provider: 'replicate',
             original_prompt: promptInput,
+            tailored_prompt: r.tailoredPrompt ?? null,
             multi_model: true,
             generated_at: new Date().toISOString(),
           },
@@ -157,7 +225,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction): Pr
 }
 
 // POST /api/admin/products/ai/create
-router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Request, res: Response): Promise<any> => {
   try {
     const {
       prompt,
@@ -387,7 +455,7 @@ router.post('/create', requireAuth, requireAdmin, async (req: Request, res: Resp
  *
  * Returns: { product: { id, name, image_url }, processingTimeSec }
  */
-router.post('/one-shot', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+router.post('/one-shot', requireAuth, requireAdmin, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   const t0 = Date.now()
   try {
     const { prompt, productType = 'tshirt', shirtColor = 'black', style } = req.body
@@ -661,7 +729,7 @@ async function runWithConcurrency<T, R>(
  * `ok: false` so the admin sees which prompts hit OpenAI safety filters / rate
  * limits / etc and can retry just those.
  */
-router.post('/bulk', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+router.post('/bulk', requireAuth, requireAdmin, rateLimitAI(2), async (req: Request, res: Response): Promise<any> => {
   const t0 = Date.now()
   try {
     const { prompts, productType = 'tshirt', shirtColor = 'black', style } = req.body
@@ -1042,6 +1110,31 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       return res.status(404).json({ error: 'Product not found' })
     }
 
+    // Refresh the watermarked design copy alongside the mockups (fire-and-forget).
+    {
+      let designAsset: { id: string; url: string } | null = null
+      if (selectedAssetId) {
+        const { data } = await supabase
+          .from('product_assets')
+          .select('id, url')
+          .eq('id', selectedAssetId)
+          .single()
+        if (data?.url) designAsset = data
+      }
+      if (!designAsset) {
+        const { data } = await supabase
+          .from('product_assets')
+          .select('id, url')
+          .eq('product_id', id)
+          .eq('kind', 'source')
+          .eq('is_primary', true)
+          .limit(1)
+          .maybeSingle()
+        if (data?.url) designAsset = data
+      }
+      if (designAsset) void createWatermarkedDesignAsset(id, designAsset)
+    }
+
     // Get image job for DTF settings
     const { data: imageJob } = await supabase
       .from('ai_jobs')
@@ -1123,6 +1216,120 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
   }
 })
 
+// POST /api/admin/products/ai/:id/duplicate
+// Clone a product as a draft copy: fields, variants, tags, and asset rows
+// (assets reference the same GCS files — no file copy needed).
+router.post('/:id/duplicate', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (error || !product) return res.status(404).json({ error: 'Product not found' })
+
+    const baseSlug = slugify(`${product.name} copy`)
+    const { data: slugRows } = await supabase
+      .from('products')
+      .select('slug')
+      .like('slug', `${baseSlug}%`)
+    const slug = generateUniqueSlug(baseSlug, (slugRows || []).map((r: any) => r.slug))
+
+    const { id: _oldId, created_at: _c, updated_at: _u, ...rest } = product
+    const { data: newProduct, error: insErr } = await supabase
+      .from('products')
+      .insert({
+        ...rest,
+        name: `${product.name} (Copy)`,
+        slug,
+        status: 'draft',
+        is_active: false,
+        metadata: {
+          ...(product.metadata || {}),
+          duplicated_from: id,
+          duplicated_at: new Date().toISOString(),
+        },
+      })
+      .select()
+      .single()
+    if (insErr || !newProduct) {
+      return res.status(500).json({ error: insErr?.message || 'Failed to insert copy' })
+    }
+
+    const copyChildRows = async (table: string) => {
+      const { data: rows } = await supabase.from(table).select('*').eq('product_id', id)
+      if (rows && rows.length > 0) {
+        const clones = rows.map(({ id: _i, created_at: _cc, updated_at: _uu, ...r }: any) => ({
+          ...r,
+          product_id: newProduct.id,
+        }))
+        const { error: cErr } = await supabase.from(table).insert(clones)
+        if (cErr) console.warn(`[ai-products] ⚠️ duplicate: ${table} copy failed:`, cErr.message)
+      }
+    }
+    await copyChildRows('product_variants')
+    await copyChildRows('product_tags')
+    await copyChildRows('product_assets')
+
+    req.log?.info({ from: id, to: newProduct.id }, '[ai-products] 📋 Product duplicated')
+    return res.json({ product: newProduct })
+  } catch (error: any) {
+    req.log?.error({ error }, '[ai-products] ❌ Duplicate error')
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// POST /api/admin/products/ai/jobs/:jobId/retry
+// Reset a failed job so it runs again. Worker-processed types go back to
+// 'queued' (the worker picks them up within one poll cycle); inline
+// multi-model image jobs reprocess in this process.
+router.post('/jobs/:jobId/retry', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { jobId } = req.params
+
+    const { data: job, error } = await supabase
+      .from('ai_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .single()
+    if (error || !job) return res.status(404).json({ error: 'Job not found' })
+    if (job.status !== 'failed') {
+      return res.status(400).json({ error: `Only failed jobs can be retried (status: ${job.status})` })
+    }
+
+    const isInline = job.type === 'replicate_image_v2'
+    const { data: updated, error: upErr } = await supabase
+      .from('ai_jobs')
+      .update({
+        status: isInline ? 'running' : 'queued',
+        error: null,
+        prediction_id: null,
+        output: { message: '🔁 Retrying…', retried_at: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', jobId)
+      .select()
+      .single()
+    if (upErr) return res.status(500).json({ error: upErr.message })
+
+    if (isInline) {
+      void processImageJobInline(updated).catch(async (e: any) => {
+        await supabase
+          .from('ai_jobs')
+          .update({ status: 'failed', error: e.message || 'Retry failed', updated_at: new Date().toISOString() })
+          .eq('id', jobId)
+      })
+    }
+
+    req.log?.info({ jobId, type: job.type, inline: isInline }, '[ai-products] 🔁 Job retry queued')
+    return res.json({ job: updated })
+  } catch (error: any) {
+    req.log?.error({ error }, '[ai-products] ❌ Job retry error')
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 // POST /api/admin/products/ai/:id/select-image
 // Select an image from the 3 generated options and trigger mockup generation
 router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
@@ -1162,6 +1369,10 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
         }
       })
       .eq('id', selectedAssetId)
+
+    // Watermarked design copy for the storefront gallery (fire-and-forget —
+    // it's ready long before the admin reaches Approve).
+    void createWatermarkedDesignAsset(id, { id: selectedAsset.id, url: selectedAsset.url })
 
     // DELETE non-selected source and DTF images
     // Keep: selected source asset + its corresponding DTF asset (matching model_id)

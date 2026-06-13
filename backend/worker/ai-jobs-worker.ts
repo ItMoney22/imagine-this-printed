@@ -1,10 +1,9 @@
 import { supabase } from '../lib/supabase.js'
-import { generateMockup, removeBackground, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { generateMockup, removeBackgroundSync, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate } from '../services/image-flow/worker-helpers.js'
-import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
-import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, type Style3D } from '../services/nano-banana-3d.js'
+import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, COLOR4_CLAUSE, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
 import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
@@ -444,9 +443,11 @@ async function startJob(job: any) {
     }
 
     try {
-      // Remove background using Remove.bg (returns image directly)
-      await updateJobProgress(job.id, '✂️ Removing background with AI (Remove.bg)...', 2, 3)
-      const base64Image = await removeBackgroundWithRemoveBg(sourceAsset.url)
+      // Remove background via Replicate 851-labs (returns a URL). Switched off
+      // Remove.bg — that account has 0 credits so every call 402'd. Replicate is
+      // already in the bill (~$0.001/call) and gives full-res RGBA output.
+      await updateJobProgress(job.id, '✂️ Removing background with AI...', 2, 3)
+      const rembgUrl = await removeBackgroundSync(sourceAsset.url)
 
       // Generate organized path for GCS
       const productSlug = await getProductSlug(job.product_id)
@@ -457,8 +458,8 @@ async function startJob(job: any) {
       console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
       await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
 
-      // Upload to Google Cloud Storage
-      const { publicUrl, path } = await uploadImageFromBase64(base64Image, gcsPath)
+      // Persist the Replicate output to Google Cloud Storage
+      const { publicUrl, path } = await uploadImageFromUrl(rembgUrl, gcsPath)
 
       console.log('[worker] ✅ No-background image uploaded to GCS:', publicUrl)
 
@@ -765,11 +766,16 @@ async function startJob(job: any) {
     console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
 
     let mockupImageUrl: string
+    let mockupModelId: string = 'google/nano-banana'
 
     try {
-      // All three templates (flat_lay, ghost_mannequin, mr_imagine) now run through
-      // image-flow → gpt-image-2. mr_imagine composites two inputs (character + design);
-      // the others use the design alone.
+      // Template routing (see worker-helpers.runImageFlowMockup):
+      //   - mr_imagine        → single call to google/nano-banana with [character, design]
+      //   - flat_lay          → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana (composite)
+      //   - ghost_mannequin   → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana (composite)
+      // The 2-step path exists specifically to defeat Money's recurring
+      // "all three mockups come back as Mr. Imagine" bug — gpt-image-2 used
+      // to handle both halves and kept hallucinating the mascot.
       let characterImageUrl: string | undefined
       if (template === 'mr_imagine') {
         const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
@@ -780,8 +786,8 @@ async function startJob(job: any) {
         characterImageUrl = `${siteUrl}${path}`
       }
 
-      console.log('[worker] 🎭 Generating', template, 'with image-flow (gpt-image-2)')
-      await updateJobProgress(job.id, `🎭 Generating ${templateName} with GPT Image 2...`, 1, 3)
+      console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana for flat_lay/ghost_mannequin, Nano Banana for mr_imagine)')
+      await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
       const mockupResult = await runImageFlowMockup({
         template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine',
@@ -793,6 +799,7 @@ async function startJob(job: any) {
       })
 
       mockupImageUrl = mockupResult.url
+      mockupModelId = mockupResult.modelId
       console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
     } catch (mockupError: any) {
       console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
@@ -845,7 +852,18 @@ async function startJob(job: any) {
         .eq('is_primary', true)
     }
 
-    // Save to product_assets
+    // One asset per mockup role, ever — replace any prior asset for this role
+    // (kills the "duplicate Mr. Imagine mockups" accumulation when mockups re-run).
+    await supabase
+      .from('product_assets')
+      .delete()
+      .eq('product_id', job.product_id)
+      .eq('asset_role', assetRole)
+
+    // Save to product_assets — record the model that actually produced the
+    // final image (mockupResult.modelId), not a hardcoded value. The
+    // 2-step pipeline returns the composite model (google/nano-banana) for
+    // flat_lay/ghost_mannequin; mr_imagine also returns google/nano-banana.
     const { error: assetError } = await supabase
       .from('product_assets')
       .insert({
@@ -861,7 +879,7 @@ async function startJob(job: any) {
         metadata: {
           template: template,
           generated_with: 'image-flow',
-          model_id: 'openai/gpt-image-2',
+          model_id: mockupModelId,
           generated_at: new Date().toISOString(),
         },
       })
@@ -1208,14 +1226,29 @@ async function refundItc(userId: string, amount: number, description: string): P
 
 /**
  * Process 3D model concept generation job
+ *
+ * Uses openai/gpt-image-2 on Replicate for both the fresh text-to-image path
+ * and the remix image-to-image path (when input.source_image_url is present).
+ *
+ * gpt-image-2 input schema:
+ *   prompt           string
+ *   quality          'low' | 'medium' | 'high' | 'auto'
+ *   aspect_ratio     '1:1' | ...
+ *   output_format    'png' | 'webp' | 'jpeg'
+ *   background       'auto' | 'opaque'
+ *   input_images?    string[]   — present for remix/i2i path
+ *   number_of_images number     — we always request 1
+ *
+ * Output is an array of image URLs (same shape the existing extraction handles).
  */
 async function process3DModelConcept(job: any) {
-  const { model_id, user_id, prompt, style } = job.input
-  console.log('[worker] 🎨 Starting 3D concept generation for model:', model_id)
+  const { model_id, user_id, prompt, style, source_image_url } = job.input
+  const isRemix = !!source_image_url
+  console.log('[worker] 🎨 Starting 3D concept generation for model:', model_id, isRemix ? '(remix)' : '(fresh)')
 
   try {
     // Deduct ITC
-    const deducted = await deductItc(user_id, ITC_3D_COSTS.concept, 'Concept generation')
+    const deducted = await deductItc(user_id, ITC_3D_COSTS.concept, isRemix ? 'Concept remix' : 'Concept generation')
     if (!deducted) {
       throw new Error('Insufficient ITC balance')
     }
@@ -1226,23 +1259,54 @@ async function process3DModelConcept(job: any) {
       .update({ status: 'generating_concept', updated_at: new Date().toISOString() })
       .eq('id', model_id)
 
-    await updateJobProgress(job.id, '🎨 Generating 3D figurine concept with NanoBanana...', 1, 2)
+    await updateJobProgress(job.id, `🎨 ${isRemix ? 'Remixing' : 'Generating'} 3D figurine concept with gpt-image-2...`, 1, 3)
 
-    // Build prompt for NanoBanana
-    const conceptPrompt = buildConceptPrompt(prompt, style as Style3D)
-    console.log('[worker] 📝 Concept prompt:', conceptPrompt.substring(0, 100) + '...')
+    // Check if this is a toy-creator job so we can apply toy-optimized prompt language
+    const { data: modelRow } = await supabase
+      .from('user_3d_models')
+      .select('metadata')
+      .eq('id', model_id)
+      .single()
+    const toyMode = (modelRow?.metadata as any)?.source === 'toy_creator'
+    const colorMode: 'grey' | 'color4' = (modelRow?.metadata as any)?.color_mode === 'color4' ? 'color4' : 'grey'
 
-    // Generate with NanoBanana (google/nano-banana on Replicate)
-    // Use predictions.create with wait to ensure we get the result
-    console.log('[worker] 🚀 Creating NanoBanana prediction...')
+    // Build the prompt sent to gpt-image-2.
+    // Remix path: use a preservation-framed instruction so the model edits the
+    //   source image rather than generating from scratch.  Toy/color4 safety
+    //   clauses are appended identically on both paths.
+    // Fresh path: use the full t2i buildConceptPrompt framing.
+    let finalPrompt: string
+    if (isRemix) {
+      const clauses: string[] = [
+        `Edit the provided character concept image. Requested change: ${prompt}. Keep everything else IDENTICAL to the original character — same overall creature, same pose, same style, same proportions`
+      ]
+      if (toyMode) clauses.push(TOY_MODE_CLAUSE)
+      if (colorMode === 'color4') clauses.push(COLOR4_CLAUSE)
+      finalPrompt = clauses.join('. ')
+    } else {
+      finalPrompt = buildConceptPrompt(prompt, style as Style3D, { toyMode, colorMode })
+    }
+
+    console.log('[worker] 📝 Concept prompt (toyMode=' + toyMode + ', colorMode=' + colorMode + ', remix=' + isRemix + '):', finalPrompt.substring(0, 120) + '...')
+
+    // Build gpt-image-2 input — conditionally include input_images for remix
+    const replicateInput: Record<string, any> = {
+      prompt: finalPrompt,
+      quality: 'high',
+      aspect_ratio: '1:1',
+      output_format: 'png',
+      background: 'auto',
+      number_of_images: 1,
+    }
+    if (isRemix) {
+      replicateInput.input_images = [source_image_url]
+    }
+
+    console.log('[worker] 🚀 Creating gpt-image-2 prediction...')
 
     let prediction = await replicate.predictions.create({
-      model: 'google/nano-banana',
-      input: {
-        prompt: conceptPrompt,
-        aspect_ratio: '1:1',
-        output_format: 'png'
-      }
+      model: 'openai/gpt-image-2',
+      input: replicateInput
     })
 
     console.log('[worker] ⏳ Prediction created:', prediction.id, 'status:', prediction.status)
@@ -1251,26 +1315,27 @@ async function process3DModelConcept(job: any) {
     prediction = await replicate.wait(prediction)
 
     console.log('[worker] ✅ Prediction completed:', prediction.id, 'status:', prediction.status)
-    console.log('[worker] 🔍 NanoBanana output:', JSON.stringify(prediction.output).substring(0, 500))
+    console.log('[worker] 🔍 gpt-image-2 output:', JSON.stringify(prediction.output).substring(0, 500))
 
     if (prediction.status === 'failed') {
-      throw new Error(`NanoBanana prediction failed: ${prediction.error || 'Unknown error'}`)
+      throw new Error(`gpt-image-2 prediction failed: ${prediction.error || 'Unknown error'}`)
     }
 
     if (prediction.status === 'canceled') {
-      throw new Error('NanoBanana prediction was canceled')
+      throw new Error('gpt-image-2 prediction was canceled')
     }
 
-    // Extract URL from output
+    // Extract URL from output.
+    // gpt-image-2 returns an array of image URLs; fall back to string/object
+    // shapes for forward-compatibility with any schema variation.
     let imageUrl: string
     const output = prediction.output
 
-    if (typeof output === 'string') {
-      imageUrl = output
-    } else if (Array.isArray(output) && output.length > 0) {
+    if (Array.isArray(output) && output.length > 0) {
       imageUrl = output[0] as string
+    } else if (typeof output === 'string') {
+      imageUrl = output
     } else if (output && typeof output === 'object') {
-      // Handle object response
       const obj = output as Record<string, any>
       imageUrl = obj.url || obj.image || obj.output
       if (!imageUrl) {
@@ -1279,11 +1344,11 @@ async function process3DModelConcept(job: any) {
         imageUrl = urlValue as string
       }
     } else {
-      throw new Error(`Unexpected output format from NanoBanana: ${JSON.stringify(output).substring(0, 200)}`)
+      throw new Error(`Unexpected output format from gpt-image-2: ${JSON.stringify(output).substring(0, 200)}`)
     }
 
     if (!imageUrl) {
-      throw new Error(`No image URL in NanoBanana output: ${JSON.stringify(output).substring(0, 200)}`)
+      throw new Error(`No image URL in gpt-image-2 output: ${JSON.stringify(output).substring(0, 200)}`)
     }
 
     console.log('[worker] 📸 Concept image generated:', imageUrl.substring(0, 80) + '...')
@@ -1312,22 +1377,22 @@ async function process3DModelConcept(job: any) {
       })
       .eq('id', model_id)
 
-    // Mark job as succeeded
+    // Mark job as succeeded — record the generating model in metadata
     await supabase
       .from('ai_jobs')
       .update({
         status: 'succeeded',
-        output: { concept_url: publicUrl },
+        output: { concept_url: publicUrl, model: 'openai/gpt-image-2' },
         updated_at: new Date().toISOString()
       })
       .eq('id', job.id)
 
-    console.log('[worker] ✅ 3D concept job completed:', model_id)
+    console.log('[worker] ✅ 3D concept job completed:', model_id, isRemix ? '(remix)' : '')
   } catch (error: any) {
     console.error('[worker] ❌ 3D concept generation failed:', error.message)
 
     // Refund ITC on failure
-    await refundItc(user_id, ITC_3D_COSTS.concept, 'Concept generation failed')
+    await refundItc(user_id, ITC_3D_COSTS.concept, isRemix ? 'Concept remix failed' : 'Concept generation failed')
 
     // Update model status
     await supabase
@@ -2024,6 +2089,15 @@ async function checkJobStatus(job: any) {
     } else {
       legacyAssetRole = 'auxiliary'
       legacyDisplayOrder = 99
+    }
+
+    // One asset per mockup role, ever — replace any prior asset for this role
+    if (assetKind === 'mockup') {
+      await supabase
+        .from('product_assets')
+        .delete()
+        .eq('product_id', job.product_id)
+        .eq('asset_role', legacyAssetRole)
     }
 
     // Save to product_assets with GCS URL

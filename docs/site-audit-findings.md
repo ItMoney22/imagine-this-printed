@@ -19,7 +19,7 @@ Legend: 🔴 Broken | 🟡 Confusing/UX | 🟢 Works well | ⚡ Speed issue
 | 8 | Wallet & Points System | ✅ 2026-04-29 (re-audit) |
 | 9 | CRM & Customer Management | ✅ 2026-04-29 (re-audit) |
 | 10 | Messaging & Communications | ✅ 2026-04-29 (re-audit) |
-| 11 | Marketing & Content Tools | ✅ 2026-04-28 (re-audit) |
+| 11 | Marketing & Content Tools | ✅ 2026-04-29 (re-audit) |
 | 12 | Community & Creator Features | ✅ 2026-04-28 (re-audit) |
 | 13 | 3D Models & Printing | ✅ 2026-04-28 (re-audit) |
 | 14 | Mockup & Preview Generation | ✅ 2026-04-28 (re-audit) |
@@ -2424,6 +2424,38 @@ A silently-broken voice-product chat path (`gpt-5.1` invalid-model) and 174 line
 ### Verdict
 The reverse-tabnab fix is the marquee item — small change, real exploit class closed. Two of the original nine findings (duplicate GPT logic, FeaturedSocialContent null-return) are confirmed fixed. The rest of the area's debt is a coherent "social content pipeline" rewrite that the audit cycle has correctly deferred. Frontend is clean of OpenAI keys.
 
+### Re-audit 2026-04-29
+
+**What changed since 2026-04-28:** Reverse-tabnab fix on `SocialShareButtons` still in place. `SocialContentManagement.tsx` was still hand-rolling 4 raw `fetch()` calls + 3 `supabase.auth.getSession()` calls instead of using `apiFetch` (which already lives in the same import). Pixel Tracking inputs in `MarketingTools.tsx` had no help text — admins were typing IDs into placeholder-only inputs. Marketing/social backend logs still emitted unconditionally.
+
+**Status of prior findings:**
+- 🟡 → 🟢 **Inconsistent API client in `SocialContentManagement.tsx`** — Migrated all 4 raw `fetch()` sites (lines 171, 197, 225, 253) to `apiFetch()`. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Multiple `supabase.auth.getSession()` calls** — Removed all 3 redundant calls (lines 166, 221, 249). `apiFetch` handles the Bearer token internally. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Pixel tracking inputs lack help text** — Added per-input help paragraph naming the format, the dashboard path (Google: Admin → Data Streams → Measurement ID; Facebook: Events Manager → Data Sources → Pixel → Settings), and a help-link to the official docs. *(Fix applied this cycle.)*
+- 🟡 → 🟢 **Console.log noise in marketing/social backend** — Added `debugLog` helper gated on `process.env.DEBUG_MARKETING` to both `backend/routes/marketing.ts` and `backend/routes/social.ts`. Migrated all 7 trace logs (2 in marketing, 5 in social). Errors still log unconditionally. Same pattern as cycle #10's `DEBUG_VOICE` and cycle #28's `AdminCreateProductWizard`. *(Fix applied this cycle.)*
+- 🟡 **Disconnected social flows** (`SocialShareButtons` → `SocialContentManagement` → `FeaturedSocialContent`) — Unchanged. Defer.
+- 🟡 **Analytics tab "coming soon"** — Unchanged. Defer (real metric integration).
+- 🟡 **Review modal not extracted/lazy-loaded** — Unchanged. Defer.
+- 🟡 **`MarketingTools.tsx` tabs not code-split** — Mostly mitigated by cycle #26's lazy-loading of `MarketingTools` itself; nested tab splitting is a smaller follow-up.
+- 🟡 **Backend social embed code not sanitized** — Unchanged. Defer (current consumers don't `dangerouslySetInnerHTML`, but flagged for the next backend cleanup).
+
+**New findings:**
+- 🟢 **`SocialContentManagement.tsx` `supabase` import** — Re-confirmed needed for the two direct `social_submissions` / `social_posts` table reads at lines 86, 102 (admin queue browsing). Kept as-is; only the auth-token wrappers were redundant.
+- 🟢 **No new TODO/FIXME / no new endpoints** in marketing/social since 2026-04-28.
+
+### Fixes Applied (re-audit)
+- ✅ `src/pages/SocialContentManagement.tsx:163-272` — Replaced 4 raw `fetch()` calls and 3 `supabase.auth.getSession()` calls with `apiFetch()`. Net -30 LOC and centralized error/auth handling.
+- ✅ `src/pages/MarketingTools.tsx:786-810` — Added per-input help paragraphs (with `target="_blank" rel="noopener noreferrer"` on the help links) for both Google Analytics and Facebook Pixel ID fields.
+- ✅ `backend/routes/marketing.ts:1-12, 84, 169` — Added `debugLog` helper gated on `DEBUG_MARKETING`; migrated 2 sites.
+- ✅ `backend/routes/social.ts:1-10, 121, 200, 204, 280, 376` — Same `debugLog` pattern; migrated 5 sites.
+
+### Deferred (re-audit)
+- Build the share → review → featured pipeline so user-shared content flows end-to-end (matches `social-service.ts` mock removal in #12).
+- Replace placeholder Analytics tab with real metric integration.
+- Extract review modal in `SocialContentManagement.tsx:710-887` and lazy-load (or extract to a sibling file).
+- Tab-level code split in `MarketingTools.tsx` (lazy nested tab bodies).
+- Sanitize/structured embed in `backend/routes/social.ts` (move to URL+variant on the server, mount official embed script on the client) so the API isn't a latent XSS vector if anyone wires `dangerouslySetInnerHTML`.
+
 ---
 
 ## Community & Creator Features — Re-audit (2026-04-28)
@@ -2971,5 +3003,77 @@ Out-of-band feature work, not a re-audit. Added a bulk promo-pricing flow:
 - New `src/utils/product-promo.ts` `getPromoBadge()` helper. Reads `metadata.original_price`, returns `{originalPrice, promoPrice, percentOff}` only when active (and tolerates the case where admin manually edited price upward post-promo without clearing metadata — treats that as inactive).
 - ProductCard + ProductPage display: original price strikethrough + bold promo price + amber "X% OFF" badge.
 - Cart/checkout/payment-intent code unchanged — they already read `product.price` which is now the promo'd value, so the discount carries through automatically with zero plumbing churn.
+
+---
+
+---
+
+## E2E Patrol Checklist (2026-06-12 — David: "continue to test it end-to-end")
+Cycle one area per 2-hour pass; mark ✅ + date when audited; restart the cycle when all six are done.
+
+| # | Patrol Area | Status |
+|---|------------|--------|
+| P1 | Home + catalog + product page + cart/checkout flow | ✅ 2026-06-12 |
+| P2 | Imagination Station editor + AI tools | ✅ 2026-06-13 |
+| P3 | Toy Creator + 3D model pipeline + Toy Lab admin | ⬜ |
+| P4 | Metal Art Studio + Creator Hub + community/user products + royalties | ⬜ |
+| P5 | Email system (mailboxes, send/receive, assistant) + transactional senders | ⬜ |
+| P6 | Wallet + ITC + payouts + admin dashboard tabs + order management | ⬜ |
+
+## P1: Home + Catalog + Product Page + Cart/Checkout (2026-06-12, patrol cycle 1)
+
+**What was checked:** All frontend→backend contracts in Home/ProductCatalog/ProductPage/Cart/Checkout/ProductCard/CartContext; live-schema alignment for orders, order_items, discount_codes, coupon_usage, gift_cards, itc_transactions; UX + speed sweep.
+
+### Correctness / DB schema
+- 🔴 **ITC purchase ledger insert used nonexistent columns** — `reason`/`stripe_payment_intent_id`/`usd_value` don't exist on live `itc_transactions` (`type/amount/reference/balance_after/metadata`); every ITC coin purchase credited the wallet with NO ledger row, error swallowed.
+  - **Fix applied:** live-schema insert. File: `backend/routes/stripe.ts:763`
+- 🔴 **Webhook dedupe never worked → double-credit risk** — duplicate check filtered `.eq('stripe_payment_intent_id', …)` on a nonexistent column; a retried Stripe webhook would credit ITC twice.
+  - **Fix applied:** dedupe on `type='purchase' AND reference=<payment_intent>` + error surfaced. File: `backend/routes/stripe.ts:723`
+- 🔴 **Full-ITC order payment had no ledger entry** — wrote `reference_type/reference_id/description` (nonexistent), error not captured; ITC deducted for orders with zero transaction history.
+  - **Fix applied:** live-schema insert + error logging. File: `backend/routes/wallet.ts:969`
+- 🔴 **Shared wallet-logger helper broken since creation** — wrote `transaction_type/balance_before/description/related_entity_*`; live table had **3 rows total (all 2025-11-10)** while balances changed for 7 months. Every caller routed through the helper silently failed.
+  - **Fix applied:** live-schema insert (extras preserved in `metadata`), history-query filter fixed. File: `backend/utils/wallet-logger.ts:71,190`
+- 🔴 **Purchase-confirmation email lookup wrong column** — `user_profiles.eq('user_id', …)`; PK is `id`.
+  - **Fix applied:** `backend/routes/stripe.ts:912`
+- 🟢 orders/order_items inserts match live schema (today's wave-7 fixes verified in place: tax_amount/shipping_amount/discount_amount, snapshot metadata, uuid-safe product_id).
+- 🟢 All traced HTTP contracts match (checkout-payment-intent, coupons/validate, process-full-itc-payment, imagination-station sheet endpoints).
+
+### Flagged for P6 (wallet pass) — NOT fixed this cycle
+- 🔴 **~25 more direct `itc_transactions` insert sites** across community.ts, gift-cards.ts, referral-service.ts, imagination-pricing.ts, user-products.ts, stripe-connect.ts, webhooks.ts, wallet.ts (5 more), admin/wallet.ts, ai-jobs-worker.ts — each must be audited against the live shape; many likely silently failing the same way. The platform-wide ledger backfill is impossible (data never written) — going forward only.
+
+### Duplicate UX
+- 🟡 **Mixed-cart ITC payment UI is scaffolding to a dead endpoint** (`/api/wallet/process-itc-payment` doesn't exist); graceful card fallback hides it. Remove or wire. `src/pages/Checkout.tsx:481,1195-1243`
+
+### Site Speed
+- ⚡ **ProductCard fires a social-posts query per card** (12+ queries per grid) and isn't memo()-wrapped — batch or memoize. `src/components/ProductCard.tsx:18-65`
+- 🟢 ProductPage queries parallelized; shipping recalc debounced; Home heavy components lazy-loaded.
+
+### Verdict
+5 production money/ledger bugs fixed (same silent-schema-drift class as order_items). 1 UX + 1 speed item documented. Backend tsc + frontend typecheck clean. **The ledger fixes ship with the pending deploy.**
+
+---
+
+## P2: Imagination Station editor + AI tools (2026-06-13, patrol cycle 2)
+
+**What was checked:** All imaginationApi contracts + raw fetches across ImaginationStation.tsx and src/components/imagination/*; live-schema alignment for imagination_sheets/layers/pricing/free_trials + itc_transactions + wallet_transactions + products(/designs/submit); UX + speed.
+
+### Correctness / DB schema
+- 🔴 **Imagination Station ITC ledger silently broken** — `imagination-pricing.ts` deductITC + refundITC inserted `reason`/`status` into `itc_transactions`; live schema is `type/amount/reference/balance_after/metadata` (no such columns). Every AI spend (generate/upscale/enhance/remove-bg/reimagine) and every refund went unlogged. Same class as the P1 ledger bug.
+  - **Fix applied:** rewritten to live schema (reason→reference + metadata, status→metadata), errors now surfaced. File: `backend/services/imagination-pricing.ts:184,208`
+- 🔴 **Auto-Nest / Smart Fill wallet_transactions inserts failed** — both wrote a `metadata` column that doesn't exist on `wallet_transactions` (live: transaction_type/amount/balance_*/reference_*/description). Layout-op charges went unlogged.
+  - **Fix applied:** dropped metadata, moved detail into description + reference_type, errors surfaced. File: `backend/routes/imagination-station.ts:1001,1100`
+- 🟡 **/designs/submit stamped creator_royalty_percent: 10** in product metadata while platform pays 15%.
+  - **Fix applied:** → 15. File: `backend/routes/imagination-station.ts:1322`
+- 🟢 All HTTP contracts align (ai/generate multi-image + aliases, reimagine tier, use-upload, saveProject, layout ops, designs/submit). products insert columns (slug/category_id/status/created_by_user_id/is_user_generated) all exist. imagination_sheets/layers/pricing/free_trials writes match live schema.
+
+### UX
+- 🟡 **Loading splash is dark** (`from-indigo-950…fuchsia-950`) on an otherwise light site — jarring dark→light flash on first load. Documented (cosmetic; the editor itself was intentionally restyled light). `src/pages/ImaginationStation.tsx:~1478`
+
+### Site Speed
+- ⚡ **getPricing() then getPresets() awaited sequentially** on editor mount (~300-500ms). Promise.all candidate. `src/pages/ImaginationStation.tsx:432-461` (documented; non-blocking, wallet already parallel)
+- 🟢 SheetCanvas memoizes CanvasImage; typical 5-15 layer sheets fine (no virtualization needed under ~50).
+
+### Verdict
+2 ledger bugs fixed (both silent-schema-drift, both ITC money paths), 1 stale royalty value fixed. 1 UX + 1 speed documented. Backend + frontend typecheck clean.
 
 ---

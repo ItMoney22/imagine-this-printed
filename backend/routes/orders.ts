@@ -114,18 +114,24 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
       }
     }
 
-    // Collect all product IDs to fetch images in one query
+    // Collect product IDs to fetch images in one query. Only valid uuids may
+    // be queried: products.id is a uuid column, and a single custom
+    // client-side id ('3d-print-<id>', 'imagination-sheet-<id>',
+    // 'metal-art-custom-<ts>') used to abort the whole lookup with 22P02 and
+    // strip images from every order in the response. Custom items render
+    // from the order_items/orders metadata snapshot instead.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     const allProductIds = new Set<string>()
     for (const order of orders || []) {
       const items = orderItemsMap[order.id] || []
       for (const item of items) {
-        if (item.product_id) allProductIds.add(item.product_id)
+        if (item.product_id && UUID_RE.test(String(item.product_id))) allProductIds.add(item.product_id)
       }
       // Also check metadata items
       if (order.metadata?.items) {
         for (const item of order.metadata.items) {
-          if (item.id) allProductIds.add(item.id)
-          if (item.product?.id) allProductIds.add(item.product.id)
+          if (item.id && UUID_RE.test(String(item.id))) allProductIds.add(item.id)
+          if (item.product?.id && UUID_RE.test(String(item.product.id))) allProductIds.add(item.product.id)
         }
       }
     }
@@ -133,11 +139,15 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
     // Fetch product images
     let productImagesMap: Record<string, string> = {}
     if (allProductIds.size > 0) {
-      const { data: products } = await supabase
+      const { data: products, error: productsError } = await supabase
         .from('products')
         .select('id, images')
         .in('id', Array.from(allProductIds))
 
+      if (productsError) {
+        // Non-fatal — items fall back to their snapshot image
+        console.error('[orders/my] Product image lookup failed:', productsError.message)
+      }
       for (const product of products || []) {
         if (product.images && product.images.length > 0) {
           productImagesMap[product.id] = product.images[0]
@@ -148,36 +158,61 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
     // Attach items to orders, parse metadata for items if no order_items
     const ordersWithItems = (orders || []).map(order => {
       const items = orderItemsMap[order.id] || []
-      if (items.length === 0 && order.metadata?.items) {
-        // Items from metadata - map with product images
+      const metaItems: any[] = Array.isArray(order.metadata?.items) ? order.metadata.items : []
+      if (items.length === 0 && metaItems.length > 0) {
+        // No order_items rows (all orders before the order_items schema fix)
+        // — render from the orders.metadata.items snapshot.
         return {
           ...order,
-          order_items: order.metadata.items.map((item: any) => {
+          order_items: metaItems.map((item: any) => {
             const productId = item.product?.id || item.id
-            const imageUrl = item.product?.images?.[0] || item.imageUrl || item.image_url || productImagesMap[productId] || null
+            const imageUrl = item.product?.images?.[0] || item.image || item.imageUrl || item.image_url || productImagesMap[productId] || null
             return {
               id: productId || 'unknown',
               product_id: productId,
               product_name: item.product?.name || item.name || 'Unknown Product',
               quantity: item.quantity || 1,
-              price: item.product?.price || item.price || 0,
-              total: (item.product?.price || item.price || 0) * (item.quantity || 1),
+              price: item.product?.price ?? item.price ?? 0,
+              total: (item.product?.price ?? item.price ?? 0) * (item.quantity || 1),
               image_url: imageUrl,
-              variations: { size: item.selectedSize, color: item.selectedColor },
-              personalization: item.customDesign ? { designUrl: item.customDesign } : {}
+              variations: { size: item.size ?? item.selectedSize, color: item.color ?? item.selectedColor },
+              personalization: (item.customDesign || item.custom_design) ? { designUrl: item.customDesign || item.custom_design } : {}
             }
           })
         }
       }
-      // Items from order_items table - add product images
+      // Items from order_items table — name/image/variations come from the
+      // per-item metadata snapshot first (custom items have product_id null
+      // and no products row), then the order-level snapshot, then products.
+      const metaById = new Map<string, any>()
+      const metaByName = new Map<string, any>()
+      for (const m of metaItems) {
+        const mid = m?.product?.id || m?.id
+        if (mid && !metaById.has(String(mid))) metaById.set(String(mid), m)
+        const mname = m?.product?.name || m?.name
+        if (mname && !metaByName.has(String(mname))) metaByName.set(String(mname), m)
+      }
       return {
         ...order,
-        order_items: items.map((item: any) => ({
-          ...item,
-          price: item.unit_price || item.price || 0,
-          total: item.subtotal || item.total || (item.unit_price || 0) * (item.quantity || 1),
-          image_url: item.image_url || productImagesMap[item.product_id] || null
-        }))
+        order_items: items.map((item: any) => {
+          const snap = (item.metadata && typeof item.metadata === 'object') ? item.metadata : {}
+          const clientId = snap.client_product_id || item.product_id
+          const meta = (clientId && metaById.get(String(clientId)))
+            || (item.product_id && metaById.get(String(item.product_id)))
+            || metaByName.get(String(item.product_name))
+          const size = snap.size ?? meta?.size ?? meta?.selectedSize
+          const color = snap.color ?? meta?.color ?? meta?.selectedColor
+          const designUrl = snap.custom_design ?? meta?.customDesign
+          return {
+            ...item,
+            product_id: clientId || item.product_id,
+            price: item.unit_price ?? item.price ?? 0,
+            total: item.subtotal ?? item.total ?? ((item.unit_price ?? 0) * (item.quantity || 1)),
+            image_url: item.image_url || snap.image_url || meta?.image || (item.product_id && productImagesMap[item.product_id]) || null,
+            variations: (size || color) ? { size, color } : (item.variations || {}),
+            personalization: designUrl ? { designUrl } : (item.personalization || {})
+          }
+        })
       }
     })
 

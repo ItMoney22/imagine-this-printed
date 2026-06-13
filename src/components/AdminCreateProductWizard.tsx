@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import confetti from 'canvas-confetti'
 import {
   Sparkles,
+  Shirt,
   Wand2,
   Scissors,
   ArrowRight,
@@ -11,8 +12,11 @@ import {
   History,
   Check,
   Download,
+  Upload,
+  X,
 } from 'lucide-react'
 import { aiProducts, imageFlow } from '../lib/api'
+import { buildProductGallery } from '../lib/product-gallery'
 import type { AIProductCreationRequest, AIProductCreationResponse, AIJob } from '../types'
 import { supabase } from '../lib/supabase'
 
@@ -22,7 +26,153 @@ import { supabase } from '../lib/supabase'
 // in `vite build`, so all callers below are dead-code-eliminated for prod.
 const debugLog: typeof console.log = import.meta.env.DEV ? console.log.bind(console) : () => {}
 
+// --- DTF settings selectors: real garment imagery + glass tile system -------
+// Branded, transparent Mr. Imagine garment mockups stand in for the old emoji.
+// The product-type tiles color-sync to the chosen shirt color; hoodie/tank have
+// no gray asset, so the resolver falls back to the nearest available color.
+const GARMENT_MOCKUPS: Record<'tshirt' | 'hoodie' | 'tank', Partial<Record<'black' | 'white' | 'gray', string>>> = {
+  tshirt: {
+    black: '/mr-imagine/mockups/mr-imagine-tshirt-black-front.png',
+    white: '/mr-imagine/mockups/mr-imagine-tshirt-white-front.png',
+    gray: '/mr-imagine/mockups/mr-imagine-tshirt-gray-front.png',
+  },
+  hoodie: {
+    black: '/mr-imagine/mockups/mr-imagine-hoodie-black-front.png',
+    white: '/mr-imagine/mockups/mr-imagine-hoodie-white-front.png',
+    gray: '/mr-imagine/mockups/mr-imagine-hoodie-gray-front.png',
+  },
+  tank: {
+    black: '/mr-imagine/mockups/mr-imagine-tank-black-front.png',
+    white: '/mr-imagine/mockups/mr-imagine-tank-white-front.png',
+    gray: '/mr-imagine/mockups/mr-imagine-tank-gray-front.png',
+  },
+}
+
+function garmentImage(type: 'tshirt' | 'hoodie' | 'tank', color: 'black' | 'white' | 'gray'): string {
+  const set = GARMENT_MOCKUPS[type] ?? GARMENT_MOCKUPS.tshirt
+  return set[color] ?? set.black ?? set.white ?? GARMENT_MOCKUPS.tshirt.black!
+}
+
+// Shared frosted-glass tile shell used by all three DTF pickers so the product
+// type, color, and placement selectors read as one cohesive control surface.
+const glassTileBase =
+  'group relative overflow-hidden rounded-2xl border backdrop-blur-md transition-all duration-300 ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60'
+const glassTileState = (active: boolean): string =>
+  active
+    ? 'border-primary/60 bg-primary/10 shadow-[0_12px_34px_-10px_rgba(168,85,247,0.6)] ring-1 ring-primary/30'
+    : 'border-white/10 bg-white/[0.045] hover:border-white/25 hover:bg-white/[0.08] hover:-translate-y-0.5'
+
+// Top sheen + selected-state check that every glass tile shares.
+function TileChrome({ active }: { active: boolean }) {
+  return (
+    <>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent opacity-60"
+      />
+      {active && (
+        <span className="absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.7)]">
+          <Check className="h-3 w-3" strokeWidth={3} />
+        </span>
+      )}
+    </>
+  )
+}
+
+// Minimal print-placement glyph: a shirt silhouette with the active print zone
+// lit in the theme's primary color. Replaces the old emoji placement icons.
+function PlacementGlyph({
+  kind,
+  active,
+}: {
+  kind: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  active: boolean
+}) {
+  const shirt = 'M18 5 L10 10 L13 19 L17 17 L17 43 L31 43 L31 17 L35 19 L38 10 L30 5 C28 8 20 8 18 5 Z'
+  const zoneOpacity = active ? 1 : 0.5
+  return (
+    <span className={active ? 'text-primary' : 'text-muted'}>
+      <svg viewBox="0 0 48 48" className="mx-auto h-9 w-9" fill="none">
+        <path
+          d={shirt}
+          fill="currentColor"
+          fillOpacity={0.16}
+          stroke="currentColor"
+          strokeOpacity={0.4}
+          strokeWidth={1.2}
+          strokeLinejoin="round"
+        />
+        {kind === 'front-center' && (
+          <rect x="19" y="21" width="10" height="12" rx="1.5" fill="currentColor" fillOpacity={zoneOpacity} />
+        )}
+        {kind === 'left-pocket' && (
+          <rect x="25.5" y="19" width="5" height="5" rx="1" fill="currentColor" fillOpacity={zoneOpacity} />
+        )}
+        {kind === 'back-only' && (
+          <rect x="18" y="18" width="12" height="18" rx="1.5" fill="currentColor" fillOpacity={zoneOpacity} />
+        )}
+        {kind === 'pocket-front-back-full' && (
+          <>
+            <rect x="25.5" y="19" width="5" height="5" rx="1" fill="currentColor" fillOpacity={zoneOpacity} />
+            <rect x="18" y="27" width="12" height="9" rx="1.5" fill="currentColor" fillOpacity={active ? 0.6 : 0.3} />
+          </>
+        )}
+      </svg>
+    </span>
+  )
+}
+
 type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'enhance-image' | 'success'
+
+// Draft autosave — losing a half-finished generation (paid AI output) to a
+// refresh or crash was the top admin complaint. Versioned key so a future
+// schema change can ignore stale drafts.
+const WIZARD_DRAFT_KEY = 'itp-admin-wizard-draft-v1'
+
+interface WizardDraft {
+  savedAt: string
+  currentStep: WizardStep
+  prompt: string
+  priceTarget: number
+  mockupStyle: 'flat' | 'human'
+  background: 'transparent' | 'studio'
+  tone: 'professional' | 'playful' | 'minimal'
+  imageStyle: 'realistic' | 'cartoon' | 'semi-realistic'
+  category: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+  targetAudience: string
+  primaryColors: string
+  designStyle: string
+  numImages: number
+  uploadedImageUrl: string | null
+  useSearch: boolean
+  productType: 'tshirt' | 'hoodie' | 'tank'
+  shirtColor: 'black' | 'white' | 'gray'
+  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printStyle: 'clean' | 'halftone' | 'grunge'
+  normalized: NormalizedProduct | null
+  productId: string | null
+  selectedImageId: string | null
+}
+
+function readWizardDraft(): WizardDraft | null {
+  try {
+    const raw = window.localStorage.getItem(WIZARD_DRAFT_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw) as WizardDraft
+    return d && (d.productId || d.prompt?.trim()) ? d : null
+  } catch {
+    return null
+  }
+}
+
+function clearWizardDraft(): void {
+  try {
+    window.localStorage.removeItem(WIZARD_DRAFT_KEY)
+  } catch {
+    // ignore
+  }
+}
 
 interface NormalizedProduct {
   title: string
@@ -47,6 +197,7 @@ export default function AdminCreateProductWizard() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('describe')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Step 1: Describe
   const [prompt, setPrompt] = useState('')
@@ -60,6 +211,8 @@ export default function AdminCreateProductWizard() {
   const [primaryColors, setPrimaryColors] = useState('')
   const [designStyle, setDesignStyle] = useState('')
   const [numImages, setNumImages] = useState(1)
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [useSearch, setUseSearch] = useState(false) // Default OFF - only enable for pop culture/trending topics
 
   // DTF Print Optimization Settings
@@ -89,7 +242,38 @@ export default function AdminCreateProductWizard() {
   const [editPrompt, setEditPrompt] = useState('')
   const [editing, setEditing] = useState(false)
   const [editModel, setEditModel] = useState<'openai/gpt-image-2' | 'fal-ai/gemini-3-pro-image-preview/edit'>('openai/gpt-image-2')
+  // Design lock: strict-fidelity edits — only the requested change, nothing added/removed
+  const [strictEdit, setStrictEdit] = useState(true)
+  // Edit progress (elapsed-time based; the upstream API gives no progress events)
+  const [editElapsed, setEditElapsed] = useState(0)
+  // Hold-to-compare against the previous version in the refine studio
+  const [comparingPrev, setComparingPrev] = useState(false)
+
+  useEffect(() => {
+    if (!editing) { setEditElapsed(0); return }
+    const startedAt = Date.now()
+    const tick = setInterval(() => setEditElapsed((Date.now() - startedAt) / 1000), 200)
+    return () => clearInterval(tick)
+  }, [editing])
   const [upscaling, setUpscaling] = useState(false)
+
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
+
+  // Unfinished draft found in localStorage — offered as a resume banner on the
+  // describe step until the admin resumes or discards it.
+  const [resumableDraft, setResumableDraft] = useState<WizardDraft | null>(() => readWizardDraft())
+
+  // Describe step: secondary options live behind one "Advanced settings"
+  // toggle so the default path is prompt → category → DTF settings → Next.
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // DTF halftone (local dot-screen engine — free)
+  const [halftoning, setHalftoning] = useState(false)
+  const [showHalftoneOptions, setShowHalftoneOptions] = useState(false)
+  const [halftoneFrequency, setHalftoneFrequency] = useState(35)
+  const [halftoneShape, setHalftoneShape] = useState<'round' | 'line'>('round')
+  const [halftoneMethod, setHalftoneMethod] = useState<'halftone' | 'diffusion'>('halftone')
+  const [halftoneInvert, setHalftoneInvert] = useState(false)
 
   // Step 4: Success
   const [finalProduct, setFinalProduct] = useState<any>(null)
@@ -195,6 +379,151 @@ export default function AdminCreateProductWizard() {
     }
   }, [currentStep, productId, selectedImageId])
 
+  // Autosave the wizard draft on every meaningful change. Cleared on Approve
+  // and Start Over. Success step is terminal — nothing left worth resuming.
+  useEffect(() => {
+    if (currentStep === 'success') return
+    if (!prompt.trim() && !productId) return
+    const draft: WizardDraft = {
+      savedAt: new Date().toISOString(),
+      currentStep, prompt, priceTarget, mockupStyle, background, tone, imageStyle,
+      category, targetAudience, primaryColors, designStyle, numImages,
+      uploadedImageUrl, useSearch, productType, shirtColor, printPlacement,
+      printStyle, normalized, productId, selectedImageId,
+    }
+    try {
+      window.localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(draft))
+    } catch {
+      // quota exceeded — non-fatal
+    }
+  }, [currentStep, prompt, priceTarget, mockupStyle, background, tone, imageStyle,
+    category, targetAudience, primaryColors, designStyle, numImages, uploadedImageUrl,
+    useSearch, productType, shirtColor, printPlacement, printStyle, normalized,
+    productId, selectedImageId])
+
+  const handleDiscardDraft = () => {
+    clearWizardDraft()
+    setResumableDraft(null)
+  }
+
+  const handleResumeDraft = async () => {
+    const d = resumableDraft
+    if (!d) return
+    setResumableDraft(null)
+    setError(null)
+
+    // Restore describe-step fields
+    setPrompt(d.prompt)
+    setPriceTarget(d.priceTarget)
+    setMockupStyle(d.mockupStyle)
+    setBackground(d.background)
+    setTone(d.tone)
+    setImageStyle(d.imageStyle)
+    setCategory(d.category)
+    setTargetAudience(d.targetAudience)
+    setPrimaryColors(d.primaryColors)
+    setDesignStyle(d.designStyle)
+    setNumImages(d.numImages)
+    setUploadedImageUrl(d.uploadedImageUrl)
+    setUseSearch(d.useSearch)
+    setProductType(d.productType)
+    setShirtColor(d.shirtColor)
+    setPrintPlacement(d.printPlacement)
+    setPrintStyle(d.printStyle)
+    setNormalized(d.normalized)
+
+    if (!d.productId) {
+      setCurrentStep(d.currentStep === 'review' && d.normalized ? 'review' : 'describe')
+      return
+    }
+
+    // Generation had started — rebuild live state from the server (source of
+    // truth) and land on the right step.
+    setProductId(d.productId)
+    setLoading(true)
+    try {
+      const response = await aiProducts.getStatus(d.productId)
+      const liveJobs = response.jobs || []
+      const liveAssets = response.assets || []
+      setJobs(liveJobs)
+      setFinalProduct(response.product)
+      setProductAssets(liveAssets)
+      const sourceAssets = liveAssets.filter((a: any) => a.kind === 'source')
+      setSourceImages(sourceAssets)
+
+      const mockupJobs = liveJobs.filter((j: any) =>
+        j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2' || j.type === 'ghost_mannequin')
+      const selectedStillExists = !!d.selectedImageId && sourceAssets.some((a: any) => a.id === d.selectedImageId)
+      if (selectedStillExists) setSelectedImageId(d.selectedImageId)
+
+      if (mockupJobs.length > 0) {
+        // Mockups were already kicked off — monitor them (polling lands on
+        // success once they're all complete).
+        mockupsTriggeredRef.current = true
+        setCurrentStep('generate')
+      } else if (selectedStillExists && d.currentStep === 'enhance-image') {
+        setCurrentStep('enhance-image')
+      } else {
+        mockupsTriggeredRef.current = false
+        setSelectedImageId(null)
+        setCurrentStep('generate') // polling routes to select-image when sources are ready
+      }
+    } catch (e: any) {
+      console.error('[Wizard] ❌ Resume failed:', e)
+      setError(e.message || 'Failed to resume draft')
+      setCurrentStep(d.normalized ? 'review' : 'describe')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    setError(null)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error("Please sign in to upload images.")
+      }
+
+      const formData = new FormData()
+      formData.append("image", file)
+      formData.append("folder", "products")
+
+      const apiBase = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:4000" : "")
+      const response = await fetch(`${apiBase}/api/admin/upload-product-image`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error || "Failed to upload image")
+      }
+
+      const data = await response.json()
+      setUploadedImageUrl(data.url)
+      
+      if (!prompt.trim()) {
+        setPrompt(file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " "))
+      }
+    } catch (err: any) {
+      console.error("[Wizard] Upload error:", err)
+      setError(err.message || "Failed to upload image")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+
   const handleDescribe = async () => {
     if (!prompt.trim()) {
       setError('Please describe your product idea')
@@ -248,6 +577,8 @@ export default function AdminCreateProductWizard() {
   }
 
   const handleStartOver = () => {
+    clearWizardDraft()
+    setResumableDraft(null)
     setCurrentStep('describe')
     setPrompt('')
     setNormalized(null)
@@ -267,16 +598,9 @@ export default function AdminCreateProductWizard() {
 
     setApproving(true)
     try {
-      // Build the images[] from mockup + selected source asset (mockups first, ghost mannequin primary).
-      const orderedAssets = [...productAssets].sort((a, b) => (a.display_order ?? 99) - (b.display_order ?? 99))
-      const imageUrls: string[] = []
-      // Ghost mannequin / mockups first (display_order 1-3)
-      for (const a of orderedAssets) {
-        if (a.kind === 'mockup' && a.url) imageUrls.push(a.url)
-      }
-      // Then the chosen source design as the design reference
-      const selectedSource = orderedAssets.find(a => a.id === selectedImageId && a.kind === 'source')
-      if (selectedSource?.url) imageUrls.push(selectedSource.url)
+      // Gallery contract: ghost mannequin → flat lay → ONE Mr Imagine → watermarked design.
+      // Raw (un-watermarked) design never ships to the storefront.
+      const imageUrls = buildProductGallery(productAssets)
 
       const { error } = await supabase
         .from('products')
@@ -288,6 +612,8 @@ export default function AdminCreateProductWizard() {
         .eq('id', finalProduct.id)
 
       if (error) throw error
+
+      clearWizardDraft()
 
       confetti({
         particleCount: 150,
@@ -424,6 +750,7 @@ export default function AdminCreateProductWizard() {
         parentAssetId: selectedImageId,
         prompt: editPrompt,
         forceModel: editModel,
+        preserveDesign: strictEdit, // design lock: apply ONLY the requested change
         confirmedCost: editModel === 'fal-ai/gemini-3-pro-image-preview/edit', // Gemini 3 is gated at $0.15
       })
       debugLog('[Wizard] ✅ Edited:', result.assetId, result.url)
@@ -475,6 +802,55 @@ export default function AdminCreateProductWizard() {
       setError(e.message || 'Failed to upscale')
     } finally {
       setUpscaling(false)
+    }
+  }
+
+  const handleRetryJob = async (jobId: string) => {
+    setRetryingJobId(jobId)
+    setError(null)
+    try {
+      await aiProducts.retryJob(jobId)
+      // Optimistic flip to queued — polling takes over within 2s.
+      setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: 'queued', error: undefined } : j)))
+    } catch (e: any) {
+      console.error('[Wizard] ❌ Retry failed:', e)
+      setError(e.message || 'Failed to retry job')
+    } finally {
+      setRetryingJobId(null)
+    }
+  }
+
+  const handleHalftone = async () => {
+    if (!productId || !selectedImageId) return
+    setHalftoning(true)
+    setError(null)
+    try {
+      const result = await imageFlow.halftone({
+        parentAssetId: selectedImageId,
+        method: halftoneMethod,
+        frequency: halftoneFrequency,
+        shape: halftoneShape,
+        invertDark: halftoneInvert,
+      })
+      if (result.assetId) {
+        setSourceImages((prev) => [
+          ...prev,
+          {
+            id: result.assetId,
+            url: result.url,
+            width: result.width,
+            height: result.height,
+            metadata: { model_name: `DTF Halftone (${halftoneFrequency} LPI ${halftoneShape})` },
+          },
+        ])
+        setSelectedImageId(result.assetId)
+        setShowHalftoneOptions(false)
+      }
+    } catch (e: any) {
+      console.error('[Wizard] ❌ Halftone failed:', e)
+      setError(e.message || 'Failed to apply halftone')
+    } finally {
+      setHalftoning(false)
     }
   }
 
@@ -619,6 +995,35 @@ export default function AdminCreateProductWizard() {
       )}
 
       {/* Step 1: Describe */}
+      {currentStep === 'describe' && resumableDraft && (
+        <div className="mb-6 bg-amber-500/10 border border-amber-400/30 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <History className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-semibold text-text">Unfinished product draft found</p>
+              <p className="text-sm text-muted truncate">
+                {resumableDraft.prompt ? `“${resumableDraft.prompt.slice(0, 90)}${resumableDraft.prompt.length > 90 ? '…' : ''}”` : 'Generation in progress'}
+                {' · saved '}{new Date(resumableDraft.savedAt).toLocaleString()}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleResumeDraft}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white text-sm font-bold rounded-xl transition-all"
+            >
+              Resume draft
+            </button>
+            <button
+              onClick={handleDiscardDraft}
+              className="px-4 py-2 bg-bg/60 border border-white/10 text-muted hover:text-text text-sm font-semibold rounded-xl transition-all"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
       {currentStep === 'describe' && (
         <div className="bg-card/30 rounded-3xl shadow-2xl p-8 border border-white/10 backdrop-blur-sm">
           <div className="mb-8">
@@ -648,6 +1053,49 @@ export default function AdminCreateProductWizard() {
               <p className="text-xs text-muted mt-2 ml-1">
                 Be as detailed as you want. Mention style, colors, themes, target audience, etc.
               </p>
+              <div className="mt-4 flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-text hover:bg-white/10 transition-all disabled:opacity-50"
+                  >
+                    {uploading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {uploadedImageUrl ? "Change Design Image" : "Upload Design Image"}
+                  </button>
+                  {uploadedImageUrl && (
+                    <span className="text-xs text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      Image uploaded
+                    </span>
+                  )}
+                </div>
+
+                {uploadedImageUrl && (
+                  <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-white/10 shadow-lg">
+                    <img src={uploadedImageUrl} alt="Uploaded" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setUploadedImageUrl(null)}
+                      className="absolute top-1 right-1 bg-red-500/80 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -681,6 +1129,29 @@ export default function AdminCreateProductWizard() {
                 />
               </div>
 
+            </div>
+
+            {/* Advanced settings — everything inside has sane defaults; most
+                products ship without touching any of it. Keeping it collapsed
+                turns the page into: idea → category/price → DTF settings → Next. */}
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="w-full flex items-center justify-between px-5 py-3.5 rounded-xl bg-bg/40 border border-white/10 hover:border-white/20 transition-all"
+            >
+              <span className="text-sm font-semibold text-text flex items-center gap-2">
+                <Wand2 className="w-4 h-4 text-primary" />
+                Advanced settings
+                <span className="text-xs font-normal text-muted hidden sm:inline">
+                  audience · art style · scene · web search — all optional
+                </span>
+              </span>
+              <span className="text-muted text-xl leading-none">{showAdvanced ? '−' : '+'}</span>
+            </button>
+
+            {showAdvanced && (
+            <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-semibold text-text mb-2">
                   Target Audience
@@ -905,11 +1376,20 @@ export default function AdminCreateProductWizard() {
                 </div>
               </div>
             </div>
+            </>
+            )}
 
             {/* DTF Print Optimization Settings */}
-            <div className="bg-gradient-to-br from-purple-500/10 to-indigo-500/10 dark:from-purple-500/5 dark:to-indigo-500/5 rounded-2xl p-6 border border-purple-300/30 dark:border-purple-700/30">
-              <h3 className="text-xl font-bold text-text mb-2 flex items-center space-x-2">
-                <span className="text-2xl">🎨</span>
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] dark:bg-white/[0.025] backdrop-blur-2xl p-6 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)]">
+              {/* Atmospheric glass orbs + hairline top highlight */}
+              <span aria-hidden className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full bg-purple-500/20 blur-3xl" />
+              <span aria-hidden className="pointer-events-none absolute -bottom-24 -left-20 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl" />
+              <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+              <div className="relative">
+              <h3 className="text-xl font-bold text-text mb-2 flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-[0_8px_22px_-6px_rgba(99,102,241,0.7)] ring-1 ring-white/20">
+                  <Shirt className="h-5 w-5" />
+                </span>
                 <span>DTF Print Settings</span>
               </h3>
               <p className="text-muted text-sm mb-6">
@@ -921,46 +1401,40 @@ export default function AdminCreateProductWizard() {
                 <label className="block text-sm font-semibold text-text mb-3">
                   Product Type
                 </label>
-                <div className="grid grid-cols-3 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setProductType('tshirt')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${productType === 'tshirt'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <span className="text-3xl">👕</span>
-                      <p className="font-semibold text-text mt-2">T-Shirt</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductType('hoodie')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${productType === 'hoodie'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <span className="text-3xl">🧥</span>
-                      <p className="font-semibold text-text mt-2">Hoodie</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductType('tank')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${productType === 'tank'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <span className="text-3xl">🎽</span>
-                      <p className="font-semibold text-text mt-2">Tank Top</p>
-                    </div>
-                  </button>
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  {([
+                    { type: 'tshirt', label: 'T-Shirt' },
+                    { type: 'hoodie', label: 'Hoodie' },
+                    { type: 'tank', label: 'Tank Top' },
+                  ] as const).map(({ type, label }) => {
+                    const active = productType === type
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setProductType(type)}
+                        className={`${glassTileBase} ${glassTileState(active)} p-3 sm:p-4`}
+                      >
+                        <TileChrome active={active} />
+                        <div className="relative flex flex-col items-center">
+                          <div className="relative flex h-24 w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-b from-white/[0.08] to-black/20 ring-1 ring-inset ring-white/10">
+                            <span
+                              aria-hidden
+                              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(255,255,255,0.18),transparent_70%)]"
+                            />
+                            <img
+                              src={garmentImage(type, shirtColor)}
+                              alt={`${label} preview`}
+                              loading="lazy"
+                              draggable={false}
+                              className="relative h-[5.5rem] w-auto object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,0.45)] transition-transform duration-300 group-hover:scale-[1.06]"
+                            />
+                          </div>
+                          <p className="mt-2.5 text-sm font-semibold text-text">{label}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -969,49 +1443,31 @@ export default function AdminCreateProductWizard() {
                 <label className="block text-sm font-semibold text-text mb-3">
                   {productType === 'tshirt' ? 'Shirt' : productType === 'hoodie' ? 'Hoodie' : 'Tank'} Color
                 </label>
-                <div className="grid grid-cols-3 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setShirtColor('black')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${shirtColor === 'black'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="w-10 h-10 rounded-full bg-gray-900 border-2 border-white/20 mx-auto mb-2"></div>
-                      <p className="font-semibold text-text">Black</p>
-                      <p className="text-xs text-muted">Vibrant colors</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShirtColor('white')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${shirtColor === 'white'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="w-10 h-10 rounded-full bg-white border-2 border-gray-300 mx-auto mb-2"></div>
-                      <p className="font-semibold text-text">White</p>
-                      <p className="text-xs text-muted">High contrast</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShirtColor('gray')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${shirtColor === 'gray'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="w-10 h-10 rounded-full bg-gray-500 border-2 border-gray-400 mx-auto mb-2"></div>
-                      <p className="font-semibold text-text">Gray</p>
-                      <p className="text-xs text-muted">Bold saturated</p>
-                    </div>
-                  </button>
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  {([
+                    { value: 'black', label: 'Black', hint: 'Vibrant colors', sw: 'bg-gray-900 ring-white/25' },
+                    { value: 'white', label: 'White', hint: 'High contrast', sw: 'bg-white ring-gray-300' },
+                    { value: 'gray', label: 'Gray', hint: 'Bold saturated', sw: 'bg-gray-500 ring-gray-400' },
+                  ] as const).map(({ value, label, hint, sw }) => {
+                    const active = shirtColor === value
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setShirtColor(value)}
+                        className={`${glassTileBase} ${glassTileState(active)} p-4`}
+                      >
+                        <TileChrome active={active} />
+                        <div className="relative flex flex-col items-center">
+                          <span
+                            className={`h-10 w-10 rounded-full ring-2 ${sw} shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform duration-300 group-hover:scale-110`}
+                          />
+                          <p className="mt-2 text-sm font-semibold text-text">{label}</p>
+                          <p className="text-xs text-muted">{hint}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -1020,63 +1476,30 @@ export default function AdminCreateProductWizard() {
                 <label className="block text-sm font-semibold text-text mb-3">
                   Print Placement
                 </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setPrintPlacement('front-center')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'front-center'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="text-2xl mb-1">📍</div>
-                      <p className="font-semibold text-text text-sm">Front Center</p>
-                      <p className="text-xs text-muted">Classic placement</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintPlacement('left-pocket')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'left-pocket'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="text-2xl mb-1">👈</div>
-                      <p className="font-semibold text-text text-sm">Left Pocket</p>
-                      <p className="text-xs text-muted">Small logo/icon</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintPlacement('back-only')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'back-only'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="text-2xl mb-1">🔙</div>
-                      <p className="font-semibold text-text text-sm">Back Only</p>
-                      <p className="text-xs text-muted">Full back print</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintPlacement('pocket-front-back-full')}
-                    className={`p-4 rounded-xl border transition-all duration-300 ${printPlacement === 'pocket-front-back-full'
-                      ? 'border-primary bg-primary/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 bg-card/50 hover:border-primary/50'
-                      }`}
-                  >
-                    <div className="text-center">
-                      <div className="text-2xl mb-1">✨</div>
-                      <p className="font-semibold text-text text-sm">Pocket + Back</p>
-                      <p className="text-xs text-muted">Front pocket + back</p>
-                    </div>
-                  </button>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                  {([
+                    { value: 'front-center', label: 'Front Center', hint: 'Classic placement' },
+                    { value: 'left-pocket', label: 'Left Pocket', hint: 'Small logo/icon' },
+                    { value: 'back-only', label: 'Back Only', hint: 'Full back print' },
+                    { value: 'pocket-front-back-full', label: 'Pocket + Back', hint: 'Front pocket + back' },
+                  ] as const).map(({ value, label, hint }) => {
+                    const active = printPlacement === value
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setPrintPlacement(value)}
+                        className={`${glassTileBase} ${glassTileState(active)} p-4`}
+                      >
+                        <TileChrome active={active} />
+                        <div className="relative flex flex-col items-center">
+                          <PlacementGlyph kind={value} active={active} />
+                          <p className="mt-1.5 text-sm font-semibold text-text">{label}</p>
+                          <p className="text-xs text-muted">{hint}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -1124,6 +1547,7 @@ export default function AdminCreateProductWizard() {
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
             </div>
 
@@ -1490,13 +1914,31 @@ export default function AdminCreateProductWizard() {
                       )}
                     </div>
                   </div>
-                  <span
-                    className={`px-5 py-2 rounded-xl text-sm font-bold uppercase shadow-md relative z-10 backdrop-blur-md border ${getJobStatusColor(
-                      job.status
-                    )}`}
-                  >
-                    {job.status}
-                  </span>
+                  <div className="flex items-center gap-3 relative z-10">
+                    {job.status === 'failed' && (
+                      <button
+                        onClick={() => handleRetryJob(job.id)}
+                        disabled={retryingJobId === job.id}
+                        className="px-5 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-400 hover:to-orange-400 text-white shadow-md disabled:opacity-50 transition-all flex items-center"
+                      >
+                        {retryingJobId === job.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Retrying…
+                          </>
+                        ) : (
+                          'Retry'
+                        )}
+                      </button>
+                    )}
+                    <span
+                      className={`px-5 py-2 rounded-xl text-sm font-bold uppercase shadow-md backdrop-blur-md border ${getJobStatusColor(
+                        job.status
+                      )}`}
+                    >
+                      {job.status}
+                    </span>
+                  </div>
                 </div>
               ))
             )}
@@ -1668,11 +2110,12 @@ export default function AdminCreateProductWizard() {
               return (
                 <div
                   key={image.id}
-                  className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl border transition-all overflow-hidden ${
+                  className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl border transition-all duration-300 overflow-hidden animate-fade-in hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(168,85,247,0.25)] ${
                     isSelected
                       ? 'border-primary/70 ring-2 ring-primary/50 shadow-[0_0_30px_rgba(168,85,247,0.3)]'
                       : 'border-white/10 hover:border-primary/40'
                   }`}
+                  style={{ animationDelay: `${index * 140}ms`, animationFillMode: 'backwards' }}
                 >
                   <div className="aspect-square bg-bg/60 overflow-hidden">
                     <img
@@ -1686,6 +2129,14 @@ export default function AdminCreateProductWizard() {
                       <span className="text-xs font-semibold text-primary truncate" title={modelLabel}>{modelLabel}</span>
                       <span className="text-[11px] text-text/70 flex-shrink-0">{image.width}×{image.height}</span>
                     </div>
+                    {image.metadata?.tailored_prompt && (
+                      <p
+                        className="text-[11px] text-muted/80 mb-3 line-clamp-2 italic"
+                        title={image.metadata.tailored_prompt}
+                      >
+                        Prompt tuned for this model: “{image.metadata.tailored_prompt}”
+                      </p>
+                    )}
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleSelectImage(image.id)}
@@ -1730,6 +2181,8 @@ export default function AdminCreateProductWizard() {
       {currentStep === 'enhance-image' && selectedImageId && (() => {
         const currentImage = sourceImages.find(img => img.id === selectedImageId)
         const versions = sourceImages
+        const currentVersionIdx = versions.findIndex(v => v.id === selectedImageId)
+        const prevVersion = currentVersionIdx > 0 ? versions[currentVersionIdx - 1] : null
         const QUICK_EDITS = [
           { label: 'Bolder colors', prompt: 'Boost color saturation and contrast for a punchier look. Keep the design composition exactly the same.' },
           { label: 'Cleaner lines', prompt: 'Sharpen and clean up the line work. Keep the design composition, colors, and subject identical.' },
@@ -1766,17 +2219,55 @@ export default function AdminCreateProductWizard() {
                   {currentImage ? (
                     <>
                       <img
-                        src={currentImage.url}
+                        src={comparingPrev && prevVersion ? prevVersion.url : currentImage.url}
                         alt="Current design"
                         className="w-full h-full object-contain"
                       />
-                      {editing && (
-                        <div className="absolute inset-0 bg-bg/80 backdrop-blur-sm flex flex-col items-center justify-center">
-                          <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                          <p className="text-text font-medium">Editing with GPT Image 2…</p>
-                          <p className="text-muted text-sm mt-1">~10 seconds</p>
+                      {comparingPrev && prevVersion && (
+                        <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-bg/80 backdrop-blur-md border border-white/20 text-xs text-text font-medium">
+                          Previous version (v{currentVersionIdx})
                         </div>
                       )}
+                      {editing && (() => {
+                        // No progress events from the API — drive a believable bar off
+                        // elapsed time vs the model's typical duration, asymptotic to 94%.
+                        const isGpt = editModel === 'openai/gpt-image-2'
+                        const expected = isGpt ? 25 : 8
+                        const pct = Math.min(94, Math.round(100 * (1 - Math.exp(-editElapsed / (expected * 0.85)))))
+                        const stage = pct < 18
+                          ? 'Sending your design…'
+                          : pct < 72
+                            ? `${isGpt ? 'GPT Image 2' : 'Gemini 3 Pro'} is repainting…`
+                            : 'Polishing & saving…'
+                        return (
+                          <div className="absolute inset-0 bg-bg/85 backdrop-blur-sm flex flex-col items-center justify-center px-10">
+                            <img
+                              src="/mr-imagine/mr-imagine-waving.png"
+                              alt=""
+                              className="w-16 h-16 object-contain mb-3 animate-bounce"
+                              style={{ animationDuration: '2s' }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                            <p className="text-text font-semibold">{stage}</p>
+                            <p className="text-muted text-xs mt-1 mb-4">
+                              {Math.floor(editElapsed)}s elapsed · usually ~{expected}s
+                            </p>
+                            <div className="w-full max-w-xs h-2.5 bg-white/10 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-primary via-purple-400 to-secondary rounded-full transition-[width] duration-300 ease-out shadow-[0_0_12px_rgba(168,85,247,0.6)]"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <p className="text-muted/80 text-[11px] mt-2">{pct}%</p>
+                            {strictEdit && (
+                              <div className="mt-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/15 border border-primary/40">
+                                <Check className="w-3 h-3 text-primary" />
+                                <span className="text-[11px] text-text/90 font-medium">Design lock on — only your change</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                       {removingBackground && (
                         <div className="absolute inset-0 bg-bg/80 backdrop-blur-sm flex flex-col items-center justify-center">
                           <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
@@ -1791,6 +2282,20 @@ export default function AdminCreateProductWizard() {
                       >
                         <Download className="w-4 h-4" />
                       </button>
+                      {/* Hold to compare with the previous version */}
+                      {prevVersion && !editing && (
+                        <button
+                          onPointerDown={() => setComparingPrev(true)}
+                          onPointerUp={() => setComparingPrev(false)}
+                          onPointerLeave={() => setComparingPrev(false)}
+                          onContextMenu={(e) => e.preventDefault()}
+                          className="absolute bottom-3 left-3 px-3.5 py-2 rounded-full bg-bg/70 backdrop-blur-md border border-white/10 flex items-center gap-2 text-xs text-text/80 hover:text-text hover:bg-bg/90 transition-all select-none"
+                          title="Press and hold to see the version before this edit"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          Hold to compare
+                        </button>
+                      )}
                     </>
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center text-muted">Loading…</div>
@@ -1851,7 +2356,7 @@ export default function AdminCreateProductWizard() {
                       } disabled:opacity-40`}
                     >
                       <p className="font-semibold">GPT Image 2</p>
-                      <p className="text-[10px] text-muted/80 mt-0.5">~25s · $0.04</p>
+                      <p className="text-[10px] text-muted/80 mt-0.5">~25s Â· $0.04</p>
                     </button>
                     <button
                       onClick={() => setEditModel('fal-ai/gemini-3-pro-image-preview/edit')}
@@ -1863,9 +2368,41 @@ export default function AdminCreateProductWizard() {
                       } disabled:opacity-40`}
                     >
                       <p className="font-semibold">Gemini 3 Pro</p>
-                      <p className="text-[10px] text-muted/80 mt-0.5">~8s · $0.15</p>
+                      <p className="text-[10px] text-muted/80 mt-0.5">~8s Â· $0.15</p>
                     </button>
                   </div>
+                </div>
+
+                {/* Design lock — strict-fidelity edits */}
+                <div className="mb-4">
+                  <button
+                    onClick={() => setStrictEdit(s => !s)}
+                    disabled={editing}
+                    className={`w-full px-3.5 py-3 rounded-xl text-left transition-all border flex items-center gap-3 ${
+                      strictEdit
+                        ? 'bg-primary/10 border-primary/40'
+                        : 'bg-bg/40 border-white/10 hover:border-white/20'
+                    } disabled:opacity-40`}
+                    title="When on, the model is instructed to change ONLY what you ask for — nothing added, removed, or redrawn"
+                  >
+                    <span
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                        strictEdit ? 'bg-primary' : 'bg-white/15'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          strictEdit ? 'translate-x-[18px]' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-text">Stay true to the design</span>
+                      <span className="block text-[11px] text-muted mt-0.5">
+                        Locks subject, composition, colors & style — applies only your requested change. Turn off for big reimaginings.
+                      </span>
+                    </span>
+                  </button>
                 </div>
 
                 {/* Prompt-edit (primary) */}
@@ -1982,6 +2519,91 @@ export default function AdminCreateProductWizard() {
                     <ArrowRight className="w-4 h-4 text-muted" />
                   )}
                 </button>
+
+                {/* DTF Halftone */}
+                <button
+                  onClick={() => setShowHalftoneOptions((v) => !v)}
+                  disabled={halftoning || upscaling || removingBackground || loading || editing}
+                  className="w-full bg-bg/40 hover:bg-bg/60 border border-white/10 hover:border-white/20 rounded-xl p-4 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between mt-3"
+                >
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500/30 to-orange-500/30 border border-amber-400/30 flex items-center justify-center mr-3">
+                      <svg className="w-5 h-5 text-amber-300" fill="currentColor" viewBox="0 0 24 24">
+                        <circle cx="5" cy="5" r="2.4" /><circle cx="12" cy="5" r="1.8" /><circle cx="19" cy="5" r="1.2" />
+                        <circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="0.9" />
+                        <circle cx="5" cy="19" r="1.2" /><circle cx="12" cy="19" r="0.9" /><circle cx="19" cy="19" r="0.6" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-text text-sm">DTF Halftone</p>
+                      <p className="text-muted text-xs">Real dot-screen for breathable prints — free</p>
+                    </div>
+                  </div>
+                  {halftoning ? (
+                    <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                  ) : (
+                    <ArrowRight className={`w-4 h-4 text-muted transition-transform ${showHalftoneOptions ? 'rotate-90' : ''}`} />
+                  )}
+                </button>
+
+                {showHalftoneOptions && (
+                  <div className="mt-2 bg-bg/60 border border-amber-400/20 rounded-xl p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-muted block mb-1">Dot frequency (LPI)</label>
+                        <select
+                          value={halftoneFrequency}
+                          onChange={(e) => setHalftoneFrequency(Number(e.target.value))}
+                          className="w-full bg-bg/80 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-text"
+                        >
+                          <option value={25}>25 — chunky retro</option>
+                          <option value={35}>35 — classic DTF</option>
+                          <option value={45}>45 — fine detail</option>
+                          <option value={60}>60 — extra fine</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted block mb-1">Style</label>
+                        <select
+                          value={halftoneMethod === 'diffusion' ? 'diffusion' : halftoneShape}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            if (v === 'diffusion') { setHalftoneMethod('diffusion') }
+                            else { setHalftoneMethod('halftone'); setHalftoneShape(v as 'round' | 'line') }
+                          }}
+                          className="w-full bg-bg/80 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-text"
+                        >
+                          <option value="round">Round dots</option>
+                          <option value="line">Line screen</option>
+                          <option value="diffusion">Grain (diffusion)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <label className="flex items-center text-sm text-text/80 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={halftoneInvert}
+                        onChange={(e) => setHalftoneInvert(e.target.checked)}
+                        className="mr-2 accent-amber-400"
+                      />
+                      Invert for dark shirts
+                    </label>
+                    <button
+                      onClick={handleHalftone}
+                      disabled={halftoning}
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-semibold py-2.5 rounded-lg disabled:opacity-40 transition-all flex items-center justify-center text-sm"
+                    >
+                      {halftoning ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Screening…
+                        </>
+                      ) : (
+                        'Apply halftone'
+                      )}
+                    </button>
+                  </div>
+                )}
 
                 {/* Spacer */}
                 <div className="flex-1" />
@@ -2214,4 +2836,7 @@ export default function AdminCreateProductWizard() {
     </div>
   )
 }
+
+
+
 

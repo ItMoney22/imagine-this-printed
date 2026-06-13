@@ -1,5 +1,5 @@
 // src/components/imagination/MrImagineModal.tsx
-// Mr. Imagine Lightbox with DTF-style prompting and enhanced UX
+// Mr. Imagine Lightbox with DTF-style prompting, multi-image generation, and enhanced UX
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { AutoLayoutPricing, FreeTrials } from '../../types';
 import { imaginationApi } from '../../lib/api';
+import { CHECKERBOARD_BG } from './checkerboard';
 
 interface MrImagineModalProps {
   isOpen: boolean;
@@ -30,6 +31,12 @@ interface MrImagineModalProps {
 }
 
 type GenerationState = 'idle' | 'generating' | 'complete' | 'error';
+
+interface GeneratedImageResult {
+  url: string;
+  modelLabel: string;
+  added: boolean;
+}
 
 // DTF-compatible style presets matching AI Product Builder
 const DTF_STYLES = [
@@ -113,7 +120,7 @@ function buildDTFPrompt(
   userPrompt: string,
   style: typeof DTF_STYLES[number],
   shirtColor: string,
-  background: string
+  background: string // eslint-disable-line @typescript-eslint/no-unused-vars
 ): string {
   // Critical DTF requirements - MUST come first - DESIGN ONLY, NO SHIRT
   const criticalDTF = `CRITICAL REQUIREMENTS:
@@ -167,10 +174,12 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
   const [background, setBackground] = useState<string>('transparent');
   const [outputSize, setOutputSize] = useState<string>('1024');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [imageCount, setImageCount] = useState(1);
 
   // Generation state
   const [generationState, setGenerationState] = useState<GenerationState>('idle');
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImageResult[]>([]);
+  const [failureCount, setFailureCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // Trial tracking (synced with localStorage)
@@ -183,17 +192,38 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
     }
   }, [isOpen]);
 
-  const useTrial = () => {
+  const consumeTrial = () => {
     const newTrials = Math.max(0, trialsRemaining - 1);
     setTrialsRemaining(newTrials);
     localStorage.setItem('itp-ai-generation-trials', newTrials.toString());
   };
+
+  // Cost calculation: free trial only covers first image
+  const chargeable = Math.max(0, imageCount - (trialsRemaining > 0 ? 1 : 0));
+  const totalCost = chargeable * pricing.aiGeneration;
+  const isFreeFirst = trialsRemaining > 0;
+  const canAfford = itcBalance >= totalCost;
 
   // Random example prompt
   const getRandomExample = useCallback(() => {
     const randomIndex = Math.floor(Math.random() * EXAMPLE_PROMPTS.length);
     setPrompt(EXAMPLE_PROMPTS[randomIndex]);
   }, []);
+
+  // Build a human-readable label for the generate button
+  const getGenerateLabel = () => {
+    if (generationState === 'generating') return 'Generating...';
+    if (imageCount === 1) {
+      return isFreeFirst ? 'Generate Free' : `Generate (${pricing.aiGeneration} ITC)`;
+    }
+    if (isFreeFirst && chargeable === 0) {
+      return `Generate ${imageCount} designs (Free)`;
+    }
+    if (isFreeFirst) {
+      return `Generate ${imageCount} designs (Free + ${chargeable * pricing.aiGeneration} ITC)`;
+    }
+    return `Generate ${imageCount} designs (${totalCost} ITC)`;
+  };
 
   // Handle generation
   const handleGenerate = async () => {
@@ -202,15 +232,15 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
       return;
     }
 
-    const isFree = trialsRemaining > 0;
-    if (!isFree && itcBalance < pricing.aiGeneration) {
+    if (!canAfford) {
       setError('Insufficient ITC balance. Purchase more ITC to continue.');
       return;
     }
 
     setError(null);
     setGenerationState('generating');
-    setGeneratedImage(null);
+    setGeneratedImages([]);
+    setFailureCount(0);
 
     try {
       // Build DTF-aware prompt
@@ -219,58 +249,71 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
       const { data } = await imaginationApi.generateImage({
         prompt: dtfPrompt,
         style: selectedStyle.key,
-        useTrial: isFree,
+        useTrial: isFreeFirst,
+        count: imageCount,
       });
 
-      if (isFree) {
-        useTrial();
+      if (isFreeFirst) {
+        consumeTrial();
       }
 
-      const imageUrl = data.imageUrl || data.url || data.output || data.processedUrl;
-      if (imageUrl) {
-        setGeneratedImage(imageUrl);
-        setGenerationState('complete');
-
-        // Save to recent generations
-        const saved = localStorage.getItem('itp-recent-generations');
-        const recent = saved ? JSON.parse(saved) : [];
-        const updated = [imageUrl, ...recent.slice(0, 5)];
-        localStorage.setItem('itp-recent-generations', JSON.stringify(updated));
+      // Normalise response: new multi-image format or legacy single-image
+      let images: GeneratedImageResult[] = [];
+      if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+        images = data.images.map((img: { url: string; modelId?: string; modelLabel?: string }) => ({
+          url: img.url,
+          modelLabel: img.modelLabel || img.modelId || 'AI Model',
+          added: false,
+        }));
       } else {
+        // Legacy fallback: single imageUrl
+        const legacyUrl = data.imageUrl || data.url || data.output || data.processedUrl;
+        if (legacyUrl) {
+          images = [{ url: legacyUrl, modelLabel: 'AI Model', added: false }];
+        }
+      }
+
+      if (images.length === 0) {
         throw new Error('No image URL in response');
       }
+
+      // Count failures reported by backend
+      const failures = data.failures?.length || 0;
+      setFailureCount(failures);
+
+      // Save first to recent generations
+      const saved = localStorage.getItem('itp-recent-generations');
+      const recent = saved ? JSON.parse(saved) : [];
+      const updated = [images[0].url, ...recent.slice(0, 5)];
+      localStorage.setItem('itp-recent-generations', JSON.stringify(updated));
+
+      setGeneratedImages(images);
+      setGenerationState('complete');
     } catch (err: any) {
       setError(err.message || 'Failed to generate image. Please try again.');
       setGenerationState('error');
     }
   };
 
-  // Use generated image in canvas
-  const handleUseImage = () => {
-    if (generatedImage) {
-      onImageGenerated(generatedImage);
-      onClose();
-    }
+  // Add a specific generated image to the sheet
+  const handleAddToSheet = (index: number) => {
+    const img = generatedImages[index];
+    if (!img || img.added) return;
+    onImageGenerated(img.url);
+    setGeneratedImages(prev =>
+      prev.map((item, i) => (i === index ? { ...item, added: true } : item))
+    );
   };
 
-  // Regenerate with same settings
-  const handleRegenerate = () => {
-    setGeneratedImage(null);
-    setGenerationState('idle');
-    handleGenerate();
-  };
-
-  // Download image
-  const handleDownload = async () => {
-    if (!generatedImage) return;
-
-    let url: string | null = null;
+  // Download a specific image
+  const handleDownloadImage = async (url: string) => {
+    let objectUrl: string | null = null;
     try {
-      const response = await fetch(generatedImage);
+      const response = await fetch(url);
       const blob = await response.blob();
-      url = URL.createObjectURL(blob);
+      objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = objectUrl;
       a.download = `mr-imagine-${Date.now()}.png`;
       document.body.appendChild(a);
       a.click();
@@ -278,8 +321,15 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
     } catch (err) {
       console.error('Download failed:', err);
     } finally {
-      if (url) URL.revokeObjectURL(url);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
+  };
+
+  // Regenerate with same settings
+  const handleRegenerate = () => {
+    setGeneratedImages([]);
+    setGenerationState('idle');
+    handleGenerate();
   };
 
   // Keyboard shortcuts
@@ -300,8 +350,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isFree = trialsRemaining > 0;
-  const canGenerate = prompt.trim().length > 0 && (isFree || itcBalance >= pricing.aiGeneration);
+  const canGenerate = prompt.trim().length > 0 && canAfford;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -341,13 +390,13 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
 
           {/* Cost indicator */}
           <div className="absolute bottom-4 right-4 flex items-center gap-2">
-            {isFree ? (
+            {isFreeFirst ? (
               <span className="px-3 py-1 bg-green-500/20 text-green-300 text-xs font-medium rounded-full border border-green-500/30">
-                {trialsRemaining} Free Generations Left
+                {trialsRemaining} Free Generation{trialsRemaining !== 1 ? 's' : ''} Left
               </span>
             ) : (
               <span className="px-3 py-1 bg-purple-500/20 text-purple-200 text-xs font-medium rounded-full border border-purple-500/30">
-                {pricing.aiGeneration} ITC per generation
+                {pricing.aiGeneration} ITC per design
               </span>
             )}
           </div>
@@ -393,6 +442,32 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                   <span>Be specific about colors, style, and composition</span>
                   <span>{prompt.length}/500</span>
                 </div>
+              </div>
+
+              {/* How many designs? */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-text">How many designs?</label>
+                </div>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setImageCount(n)}
+                      disabled={generationState === 'generating'}
+                      className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 ${
+                        imageCount === n
+                          ? 'bg-primary text-white shadow-md'
+                          : 'bg-bg border border-primary/30 text-text hover:border-primary/50'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-muted">
+                  Each design comes from a different top AI model
+                </p>
               </div>
 
               {/* Style Preset (always visible) */}
@@ -513,15 +588,15 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
 
             {/* Right column: Preview & Results */}
             <div className="flex flex-col">
-              {/* Preview area */}
+              {/* Preview / Results area */}
               <div className="flex-1 bg-bg rounded-xl border border-primary/20 overflow-hidden flex items-center justify-center min-h-[300px]">
-                {generationState === 'idle' && !generatedImage && (
+                {generationState === 'idle' && generatedImages.length === 0 && (
                   <div className="text-center p-6">
                     <div className="w-20 h-20 mx-auto mb-4 bg-primary/10 rounded-full flex items-center justify-center">
                       <Wand2 className="w-10 h-10 text-primary/50" />
                     </div>
                     <p className="text-muted text-sm">
-                      Your generated image will appear here
+                      Your generated {imageCount === 1 ? 'image' : 'images'} will appear here
                     </p>
                     <p className="text-muted/60 text-xs mt-2">
                       Press Ctrl+Enter to generate
@@ -541,18 +616,80 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                         <Loader2 className="w-8 h-8 text-primary animate-spin" />
                       </div>
                     </div>
-                    <p className="text-text font-medium">Creating your masterpiece...</p>
-                    <p className="text-muted text-xs mt-2">This usually takes 10-30 seconds</p>
+                    <p className="text-text font-medium">Creating your masterpiece{imageCount > 1 ? 's' : ''}...</p>
+                    <p className="text-muted text-xs mt-2">
+                      {imageCount > 1
+                        ? `Generating ${imageCount} designs across top AI models`
+                        : 'This usually takes 10-30 seconds'}
+                    </p>
                   </div>
                 )}
 
-                {generationState === 'complete' && generatedImage && (
-                  <div className="relative w-full h-full bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjVmNWY1Ii8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmNWY1ZjUiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] p-4">
-                    <img
-                      src={generatedImage}
-                      alt="Generated design"
-                      className="w-full h-full object-contain rounded-lg shadow-lg"
-                    />
+                {generationState === 'complete' && generatedImages.length > 0 && (
+                  <div className="w-full h-full p-3 overflow-y-auto">
+                    {/* Failure notice */}
+                    {failureCount > 0 && (
+                      <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                        <p className="text-xs text-amber-500">
+                          {failureCount} model{failureCount !== 1 ? 's' : ''} failed — you were only charged for successful images.
+                        </p>
+                      </div>
+                    )}
+                    {/* Grid: 1 image = large single; 2-4 = 2-column grid */}
+                    <div className={`${generatedImages.length === 1 ? '' : 'grid grid-cols-2 gap-3'}`}>
+                      {generatedImages.map((img, index) => (
+                        <div
+                          key={index}
+                          className="flex flex-col rounded-xl overflow-hidden border border-primary/20 bg-card shadow-sm"
+                        >
+                          {/* Image with checkerboard bg + model badge */}
+                          <div className={`relative ${CHECKERBOARD_BG} flex items-center justify-center ${generatedImages.length === 1 ? 'min-h-[220px]' : 'min-h-[130px]'}`}>
+                            <img
+                              src={img.url}
+                              alt={`Design ${index + 1}`}
+                              className="w-full h-full object-contain rounded-t-xl"
+                              style={{ maxHeight: generatedImages.length === 1 ? 260 : 150 }}
+                            />
+                            {/* Model badge */}
+                            <span className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 text-white text-[10px] font-medium rounded-full backdrop-blur-sm">
+                              {img.modelLabel}
+                            </span>
+                          </div>
+                          {/* Action buttons */}
+                          <div className="flex gap-2 p-2">
+                            <button
+                              onClick={() => handleAddToSheet(index)}
+                              disabled={img.added}
+                              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                                img.added
+                                  ? 'bg-green-500/15 text-green-500 cursor-default'
+                                  : 'bg-primary hover:bg-primary/90 text-white'
+                              }`}
+                            >
+                              {img.added ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  Added
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  Add to Sheet
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleDownloadImage(img.url)}
+                              className="w-8 h-8 flex items-center justify-center bg-bg border border-primary/30 text-text hover:border-primary rounded-lg transition-colors shrink-0"
+                              title="Download image"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -571,29 +708,15 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                 )}
               </div>
 
-              {/* Action buttons for generated image */}
-              {generationState === 'complete' && generatedImage && (
-                <div className="flex gap-2 mt-4">
-                  <button
-                    onClick={handleUseImage}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium transition-colors"
-                  >
-                    <Check className="w-5 h-5" />
-                    Use in Sheet
-                  </button>
+              {/* Regenerate button shown after complete */}
+              {generationState === 'complete' && generatedImages.length > 0 && (
+                <div className="mt-3">
                   <button
                     onClick={handleRegenerate}
-                    className="flex items-center justify-center gap-2 px-4 py-3 bg-bg border border-primary/30 text-text hover:border-primary rounded-lg font-medium transition-colors"
-                    title="Generate again"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-bg border border-primary/30 text-text hover:border-primary rounded-lg font-medium transition-colors"
                   >
-                    <RefreshCw className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={handleDownload}
-                    className="flex items-center justify-center gap-2 px-4 py-3 bg-bg border border-primary/30 text-text hover:border-primary rounded-lg font-medium transition-colors"
-                    title="Download image"
-                  >
-                    <Download className="w-5 h-5" />
+                    <RefreshCw className="w-4 h-4" />
+                    Regenerate
                   </button>
                 </div>
               )}
@@ -612,7 +735,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
               onClick={onClose}
               className="px-4 py-2.5 text-muted hover:text-text transition-colors font-medium"
             >
-              Cancel
+              Close
             </button>
 
             {generationState !== 'complete' && (
@@ -633,7 +756,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                 ) : (
                   <>
                     <Sparkles className="w-5 h-5" />
-                    {isFree ? 'Generate Free' : `Generate (${pricing.aiGeneration} ITC)`}
+                    {getGenerateLabel()}
                   </>
                 )}
               </button>

@@ -640,3 +640,31 @@ export async function upscaleImage(imageUrl: string) {
 export async function getPrediction(predictionId: string) {
   return await replicate.predictions.get(predictionId)
 }
+
+/**
+ * Synchronous background removal via Replicate 851-labs/background-remover.
+ * Returns a (temporary) image URL — the caller persists it to GCS.
+ *
+ * Replaces the old Remove.bg path for the admin product builder: the Remove.bg
+ * account has ZERO credits (every `size:auto` call 402s), and the platform
+ * already pays for Replicate. Mirrors the Imagination Station fix.
+ */
+export async function removeBackgroundSync(imageUrl: string): Promise<string> {
+  console.log('[replicate] 🎨 Removing background (851-labs, sync):', imageUrl.substring(0, 80))
+  const output = await replicate.run(
+    '851-labs/background-remover' as `${string}/${string}`,
+    { input: { image: imageUrl, format: 'png', background_type: 'rgba' } }
+  )
+  const extractUrl = (item: any): string => {
+    if (!item) return ''
+    if (typeof item === 'string') return item
+    if (item instanceof URL) return item.href
+    if (typeof item.href === 'string') return item.href
+    if (typeof item.url === 'function') { const u = item.url(); return u instanceof URL ? u.href : String(u) }
+    if (typeof item.url === 'string') return item.url
+    return ''
+  }
+  const url = Array.isArray(output) ? extractUrl(output[0]) : extractUrl(output)
+  if (!url) throw new Error('Background remover returned no image URL')
+  return url
+}

@@ -1,0 +1,241 @@
+{
+  "items": {
+    "mind": [
+      {
+        "slug": "raptor",
+        "label": "raptor",
+        "file": "/toy-creator/items/mind-raptor.webp",
+        "phrase": "the clever mind of a raptor"
+      },
+      {
+        "slug": "owl",
+        "label": "owl",
+        "file": "/toy-creator/items/mind-owl.webp",
+        "phrase": "the clever mind of a owl"
+      },
+      {
+        "slug": "fox",
+        "label": "fox",
+        "file": "/toy-creator/items/mind-fox.webp",
+        "phrase": "the clever mind of a fox"
+      },
+      {
+        "slug": "dolphin",
+        "label": "dolphin",
+        "file": "/toy-creator/items/mind-dolphin.webp",
+        "phrase": "the clever mind of a dolphin"
+      },
+      {
+        "slug": "octopus",
+        "label": "octopus",
+        "file": "/toy-creator/items/mind-octopus.webp",
+        "phrase": "the clever mind of a octopus"
+      },
+      {
+        "slug": "robot",
+        "label": "robot",
+        "file": "/toy-creator/items/mind-robot.webp",
+        "phrase": "the clever mind of a robot"
+      },
+      {
+        "slug": "wizard",
+        "label": "wizard",
+        "file": "/toy-creator/items/mind-wizard.webp",
+        "phrase": "the clever mind of a wizard"
+      },
+      {
+        "slug": "cat",
+        "label": "cat",
+        "file": "/toy-creator/items/mind-cat.webp",
+        "phrase": "the clever mind of a cat"
+      }
+    ],
+    "strength": [
+      {
+        "slug": "gorilla",
+        "label": "gorilla",
+        "file": "/toy-creator/items/strength-gorilla.webp",
+        "phrase": "the mighty strength of a gorilla"
+      },
+      {
+        "slug": "t-rex",
+        "label": "t-rex",
+        "file": "/toy-creator/items/strength-t-rex.webp",
+        "phrase": "the mighty strength of a t-rex"
+      },
+      {
+        "slug": "bear",
+        "label": "bear",
+        "file": "/toy-creator/items/strength-bear.webp",
+        "phrase": "the mighty strength of a bear"
+      },
+      {
+        "slug": "rhino",
+        "label": "rhino",
+        "file": "/toy-creator/items/strength-rhino.webp",
+        "phrase": "the mighty strength of a rhino"
+      },
+      {
+        "slug": "elephant",
+        "label": "elephant",
+        "file": "/toy-creator/items/strength-elephant.webp",
+        "phrase": "the mighty strength of a elephant"
+      },
+      {
+        "slug": "bull",
+        "label": "bull",
+        "file": "/toy-creator/items/strength-bull.webp",
+        "phrase": "the mighty strength of a bull"
+      },
+      {
+        "slug": "tiger",
+        "label": "tiger",
+        "file": "/toy-creator/items/strength-tiger.webp",
+        "phrase": "the mighty strength of a tiger"
+      },
+      {
+        "slug": "crocodile",
+        "label": "crocodile",
+        "file": "/toy-creator/items/strength-crocodile.webp",
+        "phrase": "the mighty strength of a crocodile"
+      }
+    ],
+    "body": [
+      {
+        "slug": "shark",
+        "label": "shark",
+        "file": "/toy-creator/items/body-shark.webp",
+        "phrase": "the body of a shark"
+      },
+      {
+        "slug": "lion",
+        "label": "lion",
+        "file": "/toy-creator/items/body-lion.webp",
+        "phrase": "the body of a lion"
+      },
+      {
+        "slug": "dragon",
+        "label": "dragon",
+        "file": "/toy-creator/items/body-dragon.webp",
+        "phrase": "the body of a dragon"
+      },
+      {
+        "slug": "unicorn",
+        "label": "unicorn",
+        "file": "/toy-creator/items/body-unicorn.webp",
+        "phrase": "the body of a unicorn"
+      },
+      {
+        "slug": "wolf",
+        "label": "wolf",
+        "file": "/toy-creator/items/body-wolf.webp",
+        "phrase": "the body of a wolf"
+      },
+      {
+        "slug": "eagle",
+        "label": "eagle",
+        "file": "/toy-creator/items/body-eagle.webp",
+        "phrase": "the body of a eagle"
+      },
+      {
+        "slug": "panda",
+        "label": "panda",
+        "file": "/toy-creator/items/body-panda.webp",
+        "phrase": "the body of a panda"
+      },
+      {
+        "slug": "cheetah",
+        "label": "cheetah",
+        "file": "/toy-creator/items/body-cheetah.webp",
+        "phrase": "the body of a cheetah"
+      },
+      {
+        "slug": "axolotl",
+        "label": "axolotl",
+        "file": "/toy-creator/items/body-axolotl.webp",
+        "phrase": "the body of a axolotl"
+      },
+      {
+        "slug": "dinosaur",
+        "label": "dinosaur",
+        "file": "/toy-creator/items/body-dinosaur.webp",
+        "phrase": "the body of a dinosaur"
+      },
+      {
+        "slug": "robot",
+        "label": "robot",
+        "file": "/toy-creator/items/body-robot.webp",
+        "phrase": "the body of a robot"
+      },
+      {
+        "slug": "frog",
+        "label": "frog",
+        "file": "/toy-creator/items/body-frog.webp",
+        "phrase": "the body of a frog"
+      }
+    ],
+    "powerup": [
+      {
+        "slug": "mighty-wings",
+        "label": "mighty wings",
+        "file": "/toy-creator/items/powerup-mighty-wings.webp",
+        "phrase": "equipped with mighty wings"
+      },
+      {
+        "slug": "hero-armor",
+        "label": "hero armor",
+        "file": "/toy-creator/items/powerup-hero-armor.webp",
+        "phrase": "equipped with hero armor"
+      },
+      {
+        "slug": "laser-eyes",
+        "label": "laser eyes",
+        "file": "/toy-creator/items/powerup-laser-eyes.webp",
+        "phrase": "equipped with laser eyes"
+      },
+      {
+        "slug": "rocket-boots",
+        "label": "rocket boots",
+        "file": "/toy-creator/items/powerup-rocket-boots.webp",
+        "phrase": "equipped with rocket boots"
+      },
+      {
+        "slug": "royal-crown",
+        "label": "royal crown",
+        "file": "/toy-creator/items/powerup-royal-crown.webp",
+        "phrase": "equipped with royal crown"
+      },
+      {
+        "slug": "super-cape",
+        "label": "super cape",
+        "file": "/toy-creator/items/powerup-super-cape.webp",
+        "phrase": "equipped with super cape"
+      },
+      {
+        "slug": "ice-powers",
+        "label": "ice powers",
+        "file": "/toy-creator/items/powerup-ice-powers.webp",
+        "phrase": "equipped with ice powers"
+      },
+      {
+        "slug": "fire-breath",
+        "label": "fire breath",
+        "file": "/toy-creator/items/powerup-fire-breath.webp",
+        "phrase": "equipped with fire breath"
+      }
+    ]
+  },
+  "voice": {
+    "intro": "/toy-creator/voice/intro.mp3",
+    "listening": "/toy-creator/voice/listening.mp3",
+    "got-it": "/toy-creator/voice/got-it.mp3",
+    "splicing": "/toy-creator/voice/splicing.mp3",
+    "reveal": "/toy-creator/voice/reveal.mp3",
+    "pick-size": "/toy-creator/voice/pick-size.mp3",
+    "incubation": "/toy-creator/voice/incubation.mp3",
+    "alive": "/toy-creator/voice/alive.mp3",
+    "alive-color": "/toy-creator/voice/alive-color.mp3",
+    "error": "/toy-creator/voice/error.mp3"
+  },
+  "generated_at": "2026-06-13T01:18:02.350Z"
+}

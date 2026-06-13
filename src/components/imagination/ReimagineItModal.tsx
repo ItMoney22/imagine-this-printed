@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { imaginationApi } from '../../lib/api';
+import { CHECKERBOARD_BG } from './checkerboard';
 
 interface ReimagineItModalProps {
   isOpen: boolean;
@@ -8,9 +9,14 @@ interface ReimagineItModalProps {
   layerName: string;
   onAcceptReimaged: (newImageUrl: string) => void;
   onKeepOriginal: () => void;
+  /** ITC cost for the standard (Nano Banana) tier. Default 1. */
+  standardCost?: number;
+  /** ITC cost for the premium (GPT Image 2) tier. Default 50. */
+  premiumCost?: number;
 }
 
 type ViewMode = 'input' | 'compare' | 'loading';
+type Tier = 'standard' | 'premium';
 
 const EXAMPLE_PROMPTS = [
   'Add a crown on top',
@@ -30,8 +36,11 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
   layerName,
   onAcceptReimaged,
   onKeepOriginal,
+  standardCost = 1,
+  premiumCost = 50,
 }) => {
   const [prompt, setPrompt] = useState('');
+  const [tier, setTier] = useState<Tier>('standard');
   const [viewMode, setViewMode] = useState<ViewMode>('input');
   const [reimaginedUrl, setReimaginedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +60,7 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
       const { data } = await imaginationApi.reimagineImage({
         imageUrl,
         prompt: prompt.trim(),
+        tier,
       });
 
       const newUrl = data.processedUrl || data.imageUrl || data.url;
@@ -65,7 +75,7 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
       setError(err.response?.data?.error || err.message || 'Failed to reimagine image');
       setViewMode('input');
     }
-  }, [imageUrl, prompt]);
+  }, [imageUrl, prompt, tier]);
 
   const handleAccept = useCallback(() => {
     if (reimaginedUrl) {
@@ -130,13 +140,63 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
               {/* Current Image Preview */}
               <div className="text-center">
                 <p className="text-muted text-sm mb-2">Current Image: {layerName}</p>
-                <div className="inline-block rounded-xl overflow-hidden border-2 border-primary/30 bg-[url('/checkered-bg.png')] bg-repeat">
+                <div className={`inline-block rounded-xl overflow-hidden border-2 border-primary/30 ${CHECKERBOARD_BG}`}>
                   <img
                     src={imageUrl}
                     alt="Current"
                     className="max-w-[300px] max-h-[200px] object-contain"
                     crossOrigin="anonymous"
                   />
+                </div>
+              </div>
+
+              {/* Tier Selector */}
+              <div>
+                <label className="block text-sm font-medium text-text mb-3">Quality Tier</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Standard */}
+                  <button
+                    onClick={() => setTier('standard')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      tier === 'standard'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-text/10 bg-bg hover:border-primary/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-sm text-text">Standard</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        tier === 'standard'
+                          ? 'bg-primary text-white'
+                          : 'bg-text/10 text-muted'
+                      }`}>
+                        {standardCost} ITC
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted">Nano Banana — fast results</p>
+                  </button>
+
+                  {/* Premium */}
+                  <button
+                    onClick={() => setTier('premium')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      tier === 'premium'
+                        ? 'border-fuchsia-500 bg-fuchsia-500/10'
+                        : 'border-text/10 bg-bg hover:border-fuchsia-400/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-sm text-text">Premium</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        tier === 'premium'
+                          ? 'bg-fuchsia-500 text-white'
+                          : 'bg-text/10 text-muted'
+                      }`}>
+                        {premiumCost} ITC
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted">GPT Image 2 — best quality edits, follows complex instructions</p>
+                  </button>
                 </div>
               </div>
 
@@ -190,7 +250,15 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
                 className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-xl disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <span className="text-xl">&#10024;</span>
-                <span>Reimagine It</span>
+                <span>
+                  Reimagine It
+                  {tier === 'premium' && (
+                    <span className="ml-2 text-sm font-normal opacity-90">({premiumCost} ITC)</span>
+                  )}
+                  {tier === 'standard' && standardCost > 0 && (
+                    <span className="ml-2 text-sm font-normal opacity-90">({standardCost} ITC)</span>
+                  )}
+                </span>
               </button>
             </div>
           )}
@@ -208,6 +276,9 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
               <div className="text-center">
                 <p className="text-lg font-semibold text-text">Mr. Imagine is working his magic...</p>
                 <p className="text-sm text-muted">Adding "{prompt}" to your image</p>
+                {tier === 'premium' && (
+                  <p className="text-xs text-fuchsia-400 mt-1">Using GPT Image 2 for best quality</p>
+                )}
               </div>
             </div>
           )}
@@ -243,7 +314,7 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted mb-2">Original</p>
-                    <div className="rounded-xl overflow-hidden border-2 border-primary/30 bg-[url('/checkered-bg.png')] bg-repeat">
+                    <div className={`rounded-xl overflow-hidden border-2 border-primary/30 ${CHECKERBOARD_BG}`}>
                       <img
                         src={imageUrl}
                         alt="Original"
@@ -254,7 +325,7 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-purple-500 mb-2">Reimagined</p>
-                    <div className="rounded-xl overflow-hidden border-2 border-purple-500/50 bg-[url('/checkered-bg.png')] bg-repeat">
+                    <div className={`rounded-xl overflow-hidden border-2 border-purple-500/50 ${CHECKERBOARD_BG}`}>
                       <img
                         src={reimaginedUrl}
                         alt="Reimagined"

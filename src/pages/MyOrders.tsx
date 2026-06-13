@@ -16,6 +16,14 @@ interface OrderItem {
   personalization?: any
 }
 
+interface PrintStatus {
+  status?: string
+  railStatus?: string | null
+  printer?: string | null
+  jobId?: string | null
+  updatedAt?: string
+}
+
 interface Order {
   id: string
   order_number: string
@@ -29,6 +37,40 @@ interface Order {
   tracking_number: string | null
   created_at: string
   order_items: OrderItem[]
+  metadata?: { print?: PrintStatus } | null
+}
+
+// Customer-facing 3D-print status, mirrored from the Watchtower print factory
+// (Batman / Levosa) onto orders.metadata.print. Renders only when present, so
+// it's a no-op for every non-print order.
+const printStatusConfig: Record<string, { label: string; color: string; bgColor: string }> = {
+  received: { label: 'Print received', color: 'text-slate-600', bgColor: 'bg-slate-100' },
+  in_production: { label: 'In production', color: 'text-blue-600', bgColor: 'bg-blue-50' },
+  printing: { label: 'On the printer', color: 'text-cyan-700', bgColor: 'bg-cyan-50' },
+  shipped_soon: { label: 'Printed — shipping soon', color: 'text-green-600', bgColor: 'bg-green-50' },
+  rejected: { label: 'Needs changes', color: 'text-red-600', bgColor: 'bg-red-50' },
+  issue: { label: 'Print issue — we’re on it', color: 'text-orange-600', bgColor: 'bg-orange-50' },
+}
+
+// Carrier detection from tracking-number shape — UPS (1Z…), USPS (9x… 20-22
+// digits), FedEx (12/15 digits). Unknown formats fall back to a Google search.
+function getCarrier(tracking: string): { name: string; url: string } | null {
+  const t = tracking.trim().replace(/\s+/g, '')
+  if (/^1Z[0-9A-Z]{16}$/i.test(t)) {
+    return { name: 'UPS', url: `https://www.ups.com/track?tracknum=${encodeURIComponent(t)}` }
+  }
+  if (/^(9[2-5]\d{18,24}|\d{20,22})$/.test(t)) {
+    return { name: 'USPS', url: `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(t)}` }
+  }
+  if (/^\d{12}$|^\d{15}$/.test(t)) {
+    return { name: 'FedEx', url: `https://www.fedex.com/fedextrack/?tracknumbers=${encodeURIComponent(t)}` }
+  }
+  return null
+}
+
+function getTrackingUrl(tracking: string): string {
+  return getCarrier(tracking)?.url
+    ?? `https://www.google.com/search?q=${encodeURIComponent(`track package ${tracking.trim()}`)}`
 }
 
 const statusConfig: Record<string, { icon: React.ReactNode; color: string; bgColor: string; label: string }> = {
@@ -148,6 +190,24 @@ export default function MyOrders() {
   const draftOrders = orders.filter(isDraftOrder)
   const paidOrders = orders.filter(o => !isDraftOrder(o))
 
+  // Group into sections: in the "all" view, unpaid drafts get their own
+  // "Drafts — awaiting payment" section above the paid orders so a
+  // pre-payment order is never lost in the list.
+  const sections: { key: string; title: string | null; subtitle: string | null; orders: Order[] }[] =
+    filter === 'all' && draftOrders.length > 0
+      ? [
+          {
+            key: 'drafts',
+            title: 'Drafts — awaiting payment',
+            subtitle: 'These orders haven’t been paid yet. Pay now to complete them, or edit to update the items.',
+            orders: draftOrders
+          },
+          ...(paidOrders.length > 0
+            ? [{ key: 'paid', title: 'Your orders', subtitle: null, orders: paidOrders }]
+            : [])
+        ]
+      : [{ key: 'list', title: null, subtitle: null, orders: filteredOrders }]
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 py-8 px-4">
@@ -252,8 +312,23 @@ export default function MyOrders() {
 
         {/* Orders List */}
         {!isLoading && filteredOrders.length > 0 && (
-          <div className="space-y-6">
-            {filteredOrders.map((order) => {
+          <div className="space-y-10">
+            {sections.map((section) => (
+              <section key={section.key}>
+                {section.title && (
+                  <div className="mb-4">
+                    <h2 className="text-xl font-display font-bold text-gray-900 flex items-center gap-2">
+                      {section.key === 'drafts'
+                        ? <FileText className="w-5 h-5 text-orange-500" />
+                        : <Package className="w-5 h-5 text-purple-600" />}
+                      {section.title}
+                      <span className="text-sm font-medium text-gray-400">({section.orders.length})</span>
+                    </h2>
+                    {section.subtitle && <p className="text-sm text-gray-500 mt-1">{section.subtitle}</p>}
+                  </div>
+                )}
+                <div className="space-y-6">
+            {section.orders.map((order) => {
               const status = getStatusConfig(order)
               const isExpanded = expandedOrderId === order.id
               const isDraft = isDraftOrder(order)
@@ -274,6 +349,13 @@ export default function MyOrders() {
                             {status.icon}
                             {status.label}
                           </span>
+                          {order.metadata?.print?.status && printStatusConfig[order.metadata.print.status] && (
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${printStatusConfig[order.metadata.print.status].bgColor} ${printStatusConfig[order.metadata.print.status].color}`}>
+                              <Package className="w-3.5 h-3.5" />
+                              {printStatusConfig[order.metadata.print.status].label}
+                              {order.metadata.print.printer ? ` · ${order.metadata.print.printer}` : ''}
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-slate-500">
                           {new Date(order.created_at).toLocaleDateString('en-US', {
@@ -411,12 +493,24 @@ export default function MyOrders() {
 
                         {/* Tracking Info */}
                         {order.tracking_number && (
-                          <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl">
-                            <Truck className="w-5 h-5 text-blue-600 flex-shrink-0" />
-                            <div>
-                              <p className="text-sm font-medium text-blue-900">Tracking Number</p>
-                              <p className="text-sm text-blue-700 font-mono">{order.tracking_number}</p>
+                          <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-blue-50 rounded-xl">
+                            <div className="flex items-center gap-3">
+                              <Truck className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                              <div>
+                                <p className="text-sm font-medium text-blue-900">
+                                  Tracking Number{getCarrier(order.tracking_number) ? ` · ${getCarrier(order.tracking_number)!.name}` : ''}
+                                </p>
+                                <p className="text-sm text-blue-700 font-mono">{order.tracking_number}</p>
+                              </div>
                             </div>
+                            <a
+                              href={getTrackingUrl(order.tracking_number)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                            >
+                              Track Package
+                            </a>
                           </div>
                         )}
                       </div>
@@ -444,6 +538,9 @@ export default function MyOrders() {
                 </div>
               )
             })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </div>

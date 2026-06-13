@@ -104,14 +104,14 @@ const CanvasImage: React.FC<{
           const newWidthInches = newWidthPixels / PIXELS_PER_INCH;
           const newHeightInches = newHeightPixels / PIXELS_PER_INCH;
 
-          // Recalculate DPI if we have original dimensions
+          // Recalculate DPI if we have original dimensions (calculateDpi expects canvas size in PIXELS)
           let newDpiInfo: DpiInfo | undefined = undefined;
           if (layer.metadata?.originalWidth && layer.metadata?.originalHeight) {
             newDpiInfo = calculateDpi(
               layer.metadata.originalWidth,
               layer.metadata.originalHeight,
-              newWidthInches,
-              newHeightInches
+              newWidthPixels,
+              newHeightPixels
             );
           }
 
@@ -503,50 +503,50 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Reset pan when zoom changes significantly or sheet changes
-  useEffect(() => {
-    // Don't reset pan automatically - let user control it
-  }, [zoom, sheet.id]);
-
   // Center sheet in view (with pan offset for navigation)
   const baseOffsetX = (stageSize.width - sheetWidth * zoom) / 2;
   const baseOffsetY = (stageSize.height - sheetHeight * zoom) / 2;
   const offsetX = baseOffsetX + panOffset.x;
   const offsetY = baseOffsetY + panOffset.y;
 
-  // Constrain pan to keep sheet visible
+  // Constrain pan to keep sheet visible.
+  // Invariant: the absolute offset (baseOffset + pan) must stay within
+  // [-(scaledSize - margin), stageSize - margin] so part of the sheet is
+  // always on screen. NOTE: pan = 0 (centered) is always inside this range.
   const constrainPan = useCallback((newPanX: number, newPanY: number) => {
     const scaledWidth = sheetWidth * zoom;
     const scaledHeight = sheetHeight * zoom;
-
-    // Allow panning with some margin (50px) to ensure sheet is always partially visible
     const margin = 50;
-    const minX = -(scaledWidth - margin);
-    const maxX = stageSize.width - margin;
-    const minY = -(scaledHeight - margin);
-    const maxY = stageSize.height - margin;
 
     // If sheet fits in view, center it
     if (scaledWidth <= stageSize.width) {
       newPanX = 0;
     } else {
-      // Constrain horizontal pan
-      const effectiveMinX = minX - baseOffsetX;
-      const effectiveMaxX = maxX - baseOffsetX - scaledWidth;
-      newPanX = Math.max(effectiveMinX, Math.min(effectiveMaxX, newPanX));
+      const minOffsetX = -(scaledWidth - margin);
+      const maxOffsetX = stageSize.width - margin;
+      newPanX = Math.max(minOffsetX - baseOffsetX, Math.min(maxOffsetX - baseOffsetX, newPanX));
     }
 
     if (scaledHeight <= stageSize.height) {
       newPanY = 0;
     } else {
-      // Constrain vertical pan
-      const effectiveMinY = minY - baseOffsetY;
-      const effectiveMaxY = maxY - baseOffsetY - scaledHeight;
-      newPanY = Math.max(effectiveMinY, Math.min(effectiveMaxY, newPanY));
+      const minOffsetY = -(scaledHeight - margin);
+      const maxOffsetY = stageSize.height - margin;
+      newPanY = Math.max(minOffsetY - baseOffsetY, Math.min(maxOffsetY - baseOffsetY, newPanY));
     }
 
     return { x: newPanX, y: newPanY };
   }, [sheetWidth, sheetHeight, zoom, stageSize, baseOffsetX, baseOffsetY]);
+
+  // Re-validate pan whenever zoom / sheet / viewport changes so the view never
+  // jumps on the next interaction (stale pan from a previous zoom level used to
+  // snap the board to the bottom edge).
+  useEffect(() => {
+    setPanOffset(prev => {
+      const next = constrainPan(prev.x, prev.y);
+      return next.x === prev.x && next.y === prev.y ? prev : next;
+    });
+  }, [zoom, sheet.id, stageSize.width, stageSize.height, constrainPan]);
 
   // Mouse wheel zoom (with Ctrl) or pan (without Ctrl)
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {

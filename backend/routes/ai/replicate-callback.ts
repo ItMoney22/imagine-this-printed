@@ -10,8 +10,14 @@ function verifySignature(req: Request): boolean {
   const secret = process.env.AI_WEBHOOK_SECRET
 
   if (!secret) {
-    console.warn('[replicate-callback] ⚠️ AI_WEBHOOK_SECRET not configured, skipping signature verification')
-    return true // Allow in development without signature
+    // A missing secret must never silently disable verification in production —
+    // a forged callback could mark arbitrary jobs succeeded/failed.
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[replicate-callback] ❌ AI_WEBHOOK_SECRET not configured — rejecting webhook')
+      return false
+    }
+    console.warn('[replicate-callback] ⚠️ AI_WEBHOOK_SECRET not configured, skipping signature verification (non-production only)')
+    return true
   }
 
   const signature = req.headers['x-replicate-signature'] as string

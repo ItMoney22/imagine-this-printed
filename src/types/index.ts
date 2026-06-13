@@ -4,7 +4,7 @@ export interface Product {
   description: string
   price: number
   images: string[]
-  category: 'dtf-transfers' | 'shirts' | 'tumblers' | 'hoodies' | '3d-models'
+  category: 'dtf-transfers' | 'shirts' | 'tumblers' | 'hoodies' | '3d-models' | '3d-prints' | 'metal-art'
   inStock: boolean
   vendorId?: string
   approved?: boolean
@@ -377,7 +377,7 @@ export interface WholesaleProduct {
   retailPrice: number
   wholesalePricing: WholesalePricing[]
   images: string[]
-  category: 'dtf-transfers' | 'shirts' | 'tumblers' | 'hoodies' | '3d-models'
+  category: 'dtf-transfers' | 'shirts' | 'tumblers' | 'hoodies' | '3d-models' | '3d-prints' | 'metal-art'
   inStock: boolean
   vendorId?: string
   approved?: boolean

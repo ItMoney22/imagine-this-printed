@@ -2,7 +2,7 @@
 import { supabase } from "../lib/supabase";
 import type { AIProductCreationRequest, AIProductCreationResponse } from '../types'
 
-const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:4000'
+export const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : '')
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const { data } = await supabase.auth.getSession();
@@ -46,7 +46,7 @@ const api = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }))
-      throw new Error(error.message || `HTTP ${response.status}`)
+      throw new Error(error.error || error.message || `HTTP ${response.status}`)
     }
 
     return { data: await response.json() }
@@ -76,7 +76,7 @@ const api = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }))
-      throw new Error(error.message || `HTTP ${response.status}`)
+      throw new Error(error.error || error.message || `HTTP ${response.status}`)
     }
 
     return { data: await response.json() }
@@ -97,7 +97,7 @@ const api = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }))
-      throw new Error(error.message || `HTTP ${response.status}`)
+      throw new Error(error.error || error.message || `HTTP ${response.status}`)
     }
 
     return { data: await response.json() }
@@ -117,7 +117,7 @@ const api = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }))
-      throw new Error(error.message || `HTTP ${response.status}`)
+      throw new Error(error.error || error.message || `HTTP ${response.status}`)
     }
 
     return { data: await response.json() }
@@ -155,6 +155,44 @@ export const aiProducts = {
 
     const response = await fetch(`${API_BASE}/api/admin/products/ai/${productId}/status`, {
       method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  duplicate: async (productId: string) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/products/ai/${productId}/duplicate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  retryJob: async (jobId: string) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/products/ai/jobs/${jobId}/retry`, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -261,6 +299,8 @@ export const imageFlow = {
     forceModel?: string
     enhance?: boolean
     confirmedCost?: boolean
+    /** Strict design-fidelity mode — apply only the requested change. */
+    preserveDesign?: boolean
   }): Promise<{
     status: 'ok'
     assetId: string | null
@@ -353,6 +393,39 @@ export const imageFlow = {
     }
     return response.json()
   },
+
+  halftone: async (params: {
+    parentAssetId: string
+    method?: 'halftone' | 'diffusion'
+    frequency?: number
+    angle?: number
+    shape?: 'round' | 'line'
+    invertDark?: boolean
+    cropBg?: boolean
+  }): Promise<{
+    status: 'ok'
+    assetId: string | null
+    url: string
+    path: string
+    width: number
+    height: number
+    costUsd: number
+    modelId: string
+    parentAssetId: string | null
+  }> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const response = await fetch(`${API_BASE}/api/image-flow/halftone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
 }
 
 // Imagination Station API
@@ -382,12 +455,12 @@ export const imaginationApi = {
     const formData = new FormData();
     formData.append('image', file);
     return api.post(`/api/imagination-station/sheets/${sheetId}/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: {}
     });
   },
 
   // AI operations - Component-friendly signatures
-  generateImage: (params: { prompt: string; style: string; useTrial?: boolean }) =>
+  generateImage: (params: { prompt: string; style: string; useTrial?: boolean; count?: number }) =>
     api.post('/api/imagination-station/ai/generate', params),
 
   removeBackground: (params: { imageUrl: string; useTrial?: boolean }) =>
@@ -400,7 +473,7 @@ export const imaginationApi = {
     api.post('/api/imagination-station/ai/enhance', params),
 
   // Reimagine It - add elements to existing images with AI
-  reimagineImage: (params: { imageUrl: string; prompt: string; useTrial?: boolean }) =>
+  reimagineImage: (params: { imageUrl: string; prompt: string; useTrial?: boolean; tier?: 'standard' | 'premium' }) =>
     api.post('/api/imagination-station/ai/reimagine', params),
 
   // Layout operations - Component-friendly signatures
@@ -484,3 +557,5 @@ export const adminApi = {
   resetImaginationPricing: () =>
     api.post('/api/admin/imagination-pricing/reset'),
 };
+
+

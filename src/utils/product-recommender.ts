@@ -46,12 +46,12 @@ export class ProductRecommender {
     const { limit = 6, excludeIds = [] } = context
 
     try {
-      // Optimized query - only fetch needed columns, smaller limit
+      // Fetch a wider buffer so context ranking has something to choose from.
       const { data, error } = await supabase
         .from('products')
         .select('id, name, description, price, images, category, is_active, is_featured')
         .eq('is_active', true)
-        .limit(limit + excludeIds.length + 5) // Just enough buffer for filtering
+        .limit(limit * 3 + excludeIds.length + 5)
 
       if (error) throw error
 
@@ -71,13 +71,27 @@ export class ProductRecommender {
           is_featured: p.is_featured
         }))
 
-      // Fast shuffle using Fisher-Yates
-      for (let i = products.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [products[i], products[j]] = [products[j], products[i]]
-      }
+      // Context-aware banding instead of a pure shuffle: same-category as the
+      // viewed/carted product ranks first, featured products next, with a
+      // random jitter inside each band so the rail isn't identical every load.
+      const contextCategories = new Set<string>(
+        [
+          context.currentProduct?.category,
+          ...(context.cartItems ?? []).map((ci: any) => ci?.product?.category),
+        ].filter(Boolean) as string[]
+      )
+      const ranked = products
+        .map((p) => ({
+          p,
+          score:
+            (contextCategories.has(p.category) ? 2 : 0) +
+            ((p as any).is_featured ? 1 : 0) +
+            Math.random(),
+        }))
+        .sort((a, b) => b.score - a.score)
+        .map((r) => r.p)
 
-      return products.slice(0, limit)
+      return ranked.slice(0, limit)
 
     } catch (error) {
       console.error('Error fetching recommendations:', error)

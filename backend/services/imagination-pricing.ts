@@ -180,15 +180,19 @@ export class ImaginationPricingService {
       throw new Error(`Failed to deduct ITC: ${updateError.message}`);
     }
 
-    // Log transaction
-    await supabase.from('itc_transactions').insert({
+    // Log transaction. Live itc_transactions schema is
+    // (type, amount, reference, balance_after, metadata) — there is NO
+    // `reason`/`status` column, so the previous insert silently failed and
+    // every Imagination Station AI spend went unlogged.
+    const { error: ledgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'debit',
       amount: -amount,
       balance_after: newBalance,
-      reason: `imagination_station:${reason}`,
-      status: 'completed'
+      reference: `imagination_station:${reason}`,
+      metadata: { source: 'imagination_station', reason, status: 'completed' }
     });
+    if (ledgerError) console.error('[imagination-pricing] deduct ledger insert failed:', ledgerError.message);
   }
 
   async refundITC(userId: string, amount: number, reason: string): Promise<void> {
@@ -205,14 +209,15 @@ export class ImaginationPricingService {
       .update({ itc_balance: newBalance })
       .eq('user_id', userId);
 
-    await supabase.from('itc_transactions').insert({
+    const { error: refundLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'credit',
       amount: amount,
       balance_after: newBalance,
-      reason: `imagination_station_refund:${reason}`,
-      status: 'completed'
+      reference: `imagination_station_refund:${reason}`,
+      metadata: { source: 'imagination_station', reason, status: 'refund' }
     });
+    if (refundLedgerError) console.error('[imagination-pricing] refund ledger insert failed:', refundLedgerError.message);
   }
 
   // Admin methods

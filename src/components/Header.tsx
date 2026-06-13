@@ -37,6 +37,34 @@ export function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
   const location = useLocation()
 
+  // Mascot of the day: Mr. Imagine wears a different store product daily
+  // (mr_imagine mockup assets, rotated server-side). Falls back to the
+  // static mascot when the endpoint has nothing or fails.
+  const [mascotUrl, setMascotUrl] = useState<string | null>(() =>
+    sessionStorage.getItem('itp-mascot-today') || null
+  )
+  const [mascotTitle, setMascotTitle] = useState<string | null>(() =>
+    sessionStorage.getItem('itp-mascot-today-name') || null
+  )
+  useEffect(() => {
+    if (mascotUrl) return
+    const base = import.meta.env.VITE_API_BASE || ''
+    fetch(`${base}/api/marketing/mascot-today`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data?.url) {
+          setMascotUrl(data.url)
+          sessionStorage.setItem('itp-mascot-today', data.url)
+          if (data.productName) {
+            setMascotTitle(data.productName)
+            sessionStorage.setItem('itp-mascot-today-name', data.productName)
+          }
+        }
+      })
+      .catch(() => { /* static fallback stays */ })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Pages that need a dark header (non-transparent) or dark text by default because they have light backgrounds
   const forceDarkHeader = ['/imagination-station', '/cart', '/checkout', '/account', '/product', '/catalog'].some(path => location.pathname.startsWith(path))
 
@@ -72,12 +100,19 @@ export function Header() {
       }`}>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
-          {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2">
+          {/* Logo — Mr. Imagine wearing today's featured product */}
+          <Link to="/" className="flex items-center space-x-2" title={mascotTitle ? `Mr. Imagine is wearing: ${mascotTitle}` : undefined}>
             <img
-              src="/mr-imagine/mr-imagine-waist-up.png"
+              src={mascotUrl || '/mr-imagine/mr-imagine-waist-up.png'}
               alt="Mr. Imagine"
-              className="h-14 w-auto"
+              className={mascotUrl ? 'h-14 w-14 rounded-full object-cover object-top ring-2 ring-purple-200' : 'h-14 w-auto'}
+              onError={(e) => {
+                const img = e.target as HTMLImageElement
+                if (img.src !== `${window.location.origin}/mr-imagine/mr-imagine-waist-up.png`) {
+                  img.src = '/mr-imagine/mr-imagine-waist-up.png'
+                  img.className = 'h-14 w-auto'
+                }
+              }}
             />
           </Link>
 

@@ -965,16 +965,20 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
       return res.status(500).json({ error: 'Failed to process payment' })
     }
 
-    // Log the ITC transaction
-    await supabase.from('itc_transactions').insert({
+    // Log the ITC transaction (live schema: type/amount/reference/balance_after/metadata —
+    // the old reference_type/reference_id/description columns don't exist, so this
+    // insert silently failed and ITC order payments had no ledger entry)
+    const { error: ledgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'purchase_payment',
       amount: -itcAmount,
       balance_after: newBalance,
-      reference_type: 'order',
-      reference_id: order.id,
-      description: `Order payment: ${orderNumber}`
+      reference: order.id,
+      metadata: { reference_type: 'order', order_number: orderNumber, description: `Order payment: ${orderNumber}` }
     })
+    if (ledgerError) {
+      console.error('[wallet/process-full-itc-payment] Ledger insert failed:', ledgerError)
+    }
 
     console.log('[wallet/process-full-itc-payment] ✅ Order created:', {
       orderId: order.id,

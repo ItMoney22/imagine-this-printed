@@ -8,6 +8,7 @@ import { generate } from '../services/image-flow/api/generate.js'
 import { edit } from '../services/image-flow/api/edit.js'
 import { bgRemove } from '../services/image-flow/api/bg-remove.js'
 import { upscale } from '../services/image-flow/api/upscale.js'
+import { halftone } from '../services/image-flow/api/halftone.js'
 import { enhancePrompt } from '../services/image-flow/prompt-enhancer.js'
 import {
   MODELS,
@@ -103,6 +104,17 @@ router.post('/bg-remove', requireAuth, requireAdmin, async (req: Request, res: R
     return res.json(result)
   } catch (err: any) {
     req.log?.error({ err: err.message }, '[image-flow] bg-remove failed')
+    return res.status(500).json({ error: err.message ?? 'unknown error' })
+  }
+})
+
+// POST /api/image-flow/halftone — local DTF dot-screen (free, deterministic)
+router.post('/halftone', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await halftone({ ...req.body })
+    return res.json(result)
+  } catch (err: any) {
+    req.log?.error({ err: err.message }, '[image-flow] halftone failed')
     return res.status(500).json({ error: err.message ?? 'unknown error' })
   }
 })
