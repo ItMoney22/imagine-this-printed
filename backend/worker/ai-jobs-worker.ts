@@ -2212,7 +2212,7 @@ async function cleanupIncompleteOrders() {
     // Log to audit
     await supabase.from('audit_logs').insert({
       action: 'cleanup_incomplete_orders',
-      details: {
+      metadata: {
         deleted_count: oldOrders.length,
         order_numbers: oldOrders.map(o => o.order_number),
         cleanup_date: new Date().toISOString()

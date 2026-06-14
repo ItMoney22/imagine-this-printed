@@ -296,7 +296,7 @@ export async function logWalletAction(params: LogWalletActionParams) {
     const { error } = await supabase.from('audit_logs').insert({
       user_id: adminId || userId,
       action: `wallet_${action}`,
-      entity_type: 'wallet',
+      entity: 'wallet',
       entity_id: userId,
       metadata: { ...metadata, currency, amount, targetUserId: userId },
       created_at: new Date().toISOString()
@@ -326,7 +326,7 @@ export async function logWalletError(params: LogWalletErrorParams) {
     const { error: logError } = await supabase.from('audit_logs').insert({
       user_id: userId,
       action: `wallet_${action}_error`,
-      entity_type: 'wallet',
+      entity: 'wallet',
       entity_id: userId,
       metadata: { ...metadata, error, currency },
       created_at: new Date().toISOString()
