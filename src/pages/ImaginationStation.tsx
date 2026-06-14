@@ -446,6 +446,7 @@ const ImaginationStation: React.FC = () => {
 
   const loadInitialData = async () => {
     setIsLoading(true);
+    let merged: any = null;
     try {
       // Load pricing and free trials (combined endpoint)
       try {
@@ -461,8 +462,8 @@ const ImaginationStation: React.FC = () => {
       try {
         const { data: presetData } = await imaginationApi.getPresets();
         // Merge API data with UI config
-        const merged: any = {};
         if (presetData) {
+          merged = {};
           Object.keys(presetData).forEach(key => {
             merged[key] = {
               ...presetData[key],
@@ -487,6 +488,9 @@ const ImaginationStation: React.FC = () => {
         // Load layers directly - they're already in ImaginationLayer format
         if (sheetData.layers) {
           setLayers(sheetData.layers);
+          // Returning to a sheet that already has work → open the Imagination
+          // Sheet drawer so the user sees it (otherwise it looks "empty").
+          if (sheetData.layers.length > 0) setSheetOpen(true);
         }
         // Load canvas state if available
         if (sheetData.canvas_state) {
@@ -502,12 +506,37 @@ const ImaginationStation: React.FC = () => {
           }
         }
       } else {
-        // Load recent sheets
+        // STUDIO-FIRST: never gate on the sheet-type picker. Open the most
+        // recent sheet, or auto-create a sensible default, so the user lands
+        // straight in the imagine studio and can generate/reimagine right away.
+        // The picker is still reachable via "New sheet"/Projects — it's just no
+        // longer a wall in front of "I just want to imagine an image".
         try {
           const { data: sheetsData } = await imaginationApi.getSheets();
           setRecentSheets(sheetsData || []);
+          if (sheetsData && sheetsData.length > 0) {
+            navigate(`/imagination-station/${sheetsData[0].id}`, { replace: true });
+            return; // remount loads it via the id branch above
+          }
+          // No sheets yet → auto-create a default so the studio + drawer are ready.
+          if (merged) {
+            const keys = Object.keys(merged);
+            const defaultType = (keys.includes('dtf') ? 'dtf' : keys[0]) as PrintType;
+            const p = defaultType ? merged[defaultType] : null;
+            if (p) {
+              const defaultHeight = (Array.isArray(p.heights) && p.heights[0]) || 12;
+              const { data } = await imaginationApi.createSheet({
+                name: `${p.name} Sheet`,
+                print_type: defaultType,
+                sheet_height: defaultHeight,
+              });
+              navigate(`/imagination-station/${data.id}`, { replace: true });
+              return;
+            }
+          }
+          // Fallback: presets unavailable → leave sheet null so the picker shows.
         } catch (e) {
-          console.log('Could not load recent sheets');
+          console.log('Could not load/auto-create sheet — falling back to picker');
         }
       }
     } catch (error) {
