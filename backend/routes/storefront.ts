@@ -29,6 +29,7 @@ const DEFAULT_SUCCESS_URL = process.env.STOREFRONT_SUCCESS_URL || 'https://earth
 const DEFAULT_CANCEL_URL = process.env.STOREFRONT_CANCEL_URL || 'https://earth019.com/cart'
 
 const isHttpUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function withParams(base: string, params: Record<string, string>): string {
   const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join('&')
@@ -214,17 +215,28 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
       return res.status(500).json({ error: 'Failed to create order', message: orderError.message })
     }
 
-    // Order items (design URL kept in personalization so ITP can print it).
+    // Order items — live order_items schema is unit_price/subtotal/metadata.
+    // The old price/total/variations/personalization columns DON'T exist, so this
+    // insert was silently failing (logged, non-fatal) and external-storefront
+    // orders had NO line items. Map to the real columns and keep the design URL,
+    // size, color + client product id in metadata (the print bridge reads
+    // metadata.client_product_id / design_url to fulfill). product_id must be a
+    // UUID or null (external ids aren't ITP UUIDs).
     const { error: itemsError } = await supabase.from('order_items').insert(
       lines.map(l => ({
         order_id: order.id,
-        product_id: l.productId,
+        product_id: (typeof l.productId === 'string' && UUID_RE.test(l.productId)) ? l.productId : null,
         product_name: l.name,
         quantity: l.quantity,
-        price: l.unitAmount / 100,
-        total: (l.unitAmount * l.quantity) / 100,
-        variations: (l.size || l.color) ? { size: l.size, color: l.color } : {},
-        personalization: l.designUrl ? { designUrl: l.designUrl } : {}
+        unit_price: l.unitAmount / 100,
+        subtotal: (l.unitAmount * l.quantity) / 100,
+        metadata: {
+          client_product_id: l.productId ?? null,
+          design_url: l.designUrl ?? null,
+          image_url: l.image ?? null,
+          size: l.size ?? null,
+          color: l.color ?? null,
+        }
       }))
     )
     if (itemsError) {
