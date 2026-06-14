@@ -303,9 +303,9 @@ export const CreatorAnalytics = () => {
         <div className="flex items-start gap-4">
           <span className="text-3xl">💎</span>
           <div>
-            <h3 className="font-semibold text-text">Earn 10% on Every Sale</h3>
+            <h3 className="font-semibold text-text">Earn 15% on Every Sale</h3>
             <p className="text-sm text-muted mt-1">
-              Every time someone purchases a product with your design, you automatically earn 10% of the sale in ITC credits.
+              Every time someone purchases a product with your design, you automatically earn 15% of the sale in ITC credits.
               Use your ITC to pay for products or generate more AI designs!
             </p>
           </div>
