@@ -1,5 +1,5 @@
-// src/pages/ImaginationStation.tsx
-// Imagination Station - Imagination Sheet™ Builder with Editorial Design
+﻿// src/pages/ImaginationStation.tsx
+// Imagination Station - Imagination Sheet Builder with Editorial Design
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
@@ -59,7 +59,10 @@ import {
   ShoppingBag,
   Undo2,
   Redo2,
-  Expand
+  Expand,
+  X,
+  Download,
+  ChevronLeft
 } from 'lucide-react';
 
 // Sheet preset configurations
@@ -71,21 +74,21 @@ const PRESET_UI_CONFIG: Record<string, any> = {
     bgColor: 'bg-purple-50',
     borderColor: 'border-purple-200',
     textColor: 'text-purple-700',
-    icon: '🎨',
+    icon: 'ðŸŽ¨',
   },
   uv_dtf: {
     color: 'from-blue-500 to-cyan-500',
     bgColor: 'bg-blue-50',
     borderColor: 'border-blue-200',
     textColor: 'text-blue-700',
-    icon: '✨',
+    icon: 'âœ¨',
   },
   sublimation: {
     color: 'from-pink-500 to-rose-500',
     bgColor: 'bg-pink-50',
     borderColor: 'border-pink-200',
     textColor: 'text-pink-700',
-    icon: '🌈',
+    icon: 'ðŸŒˆ',
   }
 };
 
@@ -93,6 +96,17 @@ const PRESET_UI_CONFIG: Record<string, any> = {
 const PIXELS_PER_INCH = 96;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3;
+
+// Studio design type for the gallery (separate from sheet layers)
+interface StudioDesign {
+  id: string;
+  name: string;
+  url: string;
+  originalUrl: string;
+  history: string[];
+  createdAt: string;
+  meta?: Record<string, any>;
+}
 
 const ImaginationStation: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -169,6 +183,12 @@ const ImaginationStation: React.FC = () => {
   const [freeTrials, setFreeTrials] = useState<FreeTrialStatus[]>([]);
 
   const [showAddElementPanel, setShowAddElementPanel] = useState(false);
+
+  // Studio designs (separate from sheet layers)
+  const [designs, setDesigns] = useState<StudioDesign[]>([]);
+  const [activeDesignId, setActiveDesignId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [reimagineDesignId, setReimagineDesignId] = useState<string | null>(null);
 
   // Processing states for individual tools
   const [isRemovingBg, setIsRemovingBg] = useState(false);
@@ -502,7 +522,7 @@ const ImaginationStation: React.FC = () => {
     setIsCreating(true);
     try {
       if (!presets) {
-        toast.info('One moment', 'Sheet options are still loading — try again in a second.');
+        toast.info('One moment', 'Sheet options are still loading â€” try again in a second.');
         setIsCreating(false);
         return;
       }
@@ -606,7 +626,7 @@ const ImaginationStation: React.FC = () => {
 
   };
 
-  // calculateDpi expects the print size in PIXELS — layer width/height are stored in INCHES
+  // calculateDpi expects the print size in PIXELS â€” layer width/height are stored in INCHES
   const calcDpiInches = (originalPxW: number, originalPxH: number, widthInches: number, heightInches: number): DpiInfo =>
     calculateDpi(originalPxW, originalPxH, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
 
@@ -685,7 +705,7 @@ const ImaginationStation: React.FC = () => {
   const handleAddElement = (element: SimpleLayer) => {
     if (!sheet) return;
 
-    // AddElementPanel emits PIXEL units — convert everything to inches for storage
+    // AddElementPanel emits PIXEL units â€” convert everything to inches for storage
     // (width/height were previously stored raw, producing 200-inch shapes)
     const widthInches = element.width / PIXELS_PER_INCH;
     const heightInches = Math.max(element.height / PIXELS_PER_INCH, element.type === 'shape' && element.height === 0 ? 0 : 0.25);
@@ -752,111 +772,43 @@ const ImaginationStation: React.FC = () => {
     }
   };
 
-  // Handle image generated from MrImagineModal
+  // Handle image generated from MrImagineModal â€” pushes to studio gallery
   const handleMrImagineImageGenerated = useCallback(async (imageUrl: string) => {
-    if (!sheet) {
-      console.error('[handleMrImagineImageGenerated] No sheet available');
-      return;
-    }
-
-    try {
-      // Load the image to get dimensions
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => {
-          // Calculate size - max 6 inches (never larger than the sheet) while maintaining aspect ratio
-          const maxSizeInches = Math.max(0.5, Math.min(6, sheet.sheet_width - 0.5, sheet.sheet_height - 0.5));
-          const aspectRatio = img.width / img.height;
-          let widthInches: number;
-          let heightInches: number;
-
-          if (aspectRatio >= 1) {
-            // Landscape or square
-            widthInches = maxSizeInches;
-            heightInches = maxSizeInches / aspectRatio;
-          } else {
-            // Portrait
-            heightInches = maxSizeInches;
-            widthInches = maxSizeInches * aspectRatio;
-          }
-
-          // Calculate DPI based on original image size (calculateDpi expects pixels)
-          const dpiInfo = calculateDpi(
-            img.width,
-            img.height,
-            widthInches * PIXELS_PER_INCH,
-            heightInches * PIXELS_PER_INCH
-          );
-
-          // Create new layer with proper ImaginationLayer type
-          const newLayer: ImaginationLayer = {
-            id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            sheet_id: sheet.id,
-            layer_type: 'ai_generated',
-            source_url: imageUrl,
-            processed_url: null,
-            position_x: (sheet.sheet_width - widthInches) / 2, // Center horizontally
-            position_y: (sheet.sheet_height - heightInches) / 2, // Center vertically
-            width: widthInches,
-            height: heightInches,
-            rotation: 0,
-            scale_x: 1,
-            scale_y: 1,
-            z_index: layers.length,
-            metadata: {
-              name: 'Mr. Imagine Design',
-              originalWidth: img.width,
-              originalHeight: img.height,
-              generatedBy: 'mr_imagine_modal',
-              dpiInfo,
-              source: 'mr-imagine'
-            },
-            created_at: new Date().toISOString(),
-          };
-
-          setLayers(prev => [...prev, newLayer]);
-          setSaveStatus('unsaved');
-          fitSheetToView();
-          toast.success('Added to sheet', 'AI design added to your sheet');
-          resolve();
-        };
-        img.onerror = () => {
-          // Fallback with default dimensions
-          const newLayer: ImaginationLayer = {
-            id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            sheet_id: sheet.id,
-            layer_type: 'ai_generated',
-            source_url: imageUrl,
-            processed_url: null,
-            position_x: (sheet.sheet_width - 6) / 2,
-            position_y: (sheet.sheet_height - 6) / 2,
-            width: 6,
-            height: 6,
-            rotation: 0,
-            scale_x: 1,
-            scale_y: 1,
-            z_index: layers.length,
-            metadata: {
-              name: 'Mr. Imagine Design',
-              generatedBy: 'mr_imagine_modal',
-              source: 'mr-imagine'
-            },
-            created_at: new Date().toISOString(),
-          };
-          setLayers(prev => [...prev, newLayer]);
-          setSaveStatus('unsaved');
-          fitSheetToView();
-          toast.success('Added to sheet', 'AI design added to your sheet');
-          resolve();
-        };
-        img.src = imageUrl;
-      });
-    } catch (err) {
-      console.error('[handleMrImagineImageGenerated] Error:', err);
-    }
-  }, [sheet, layers.length, setLayers, setSaveStatus, fitSheetToView, toast]);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const newDesign: StudioDesign = {
+        id: `design-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: 'Mr. Imagine Design',
+        url: imageUrl,
+        originalUrl: imageUrl,
+        history: [imageUrl],
+        createdAt: new Date().toISOString(),
+        meta: {
+          originalWidth: img.naturalWidth,
+          originalHeight: img.naturalHeight,
+          source: 'mr-imagine',
+        },
+      };
+      setDesigns(prev => [...prev, newDesign]);
+      setActiveDesignId(newDesign.id);
+      toast.success('Design added', 'Your AI design is ready in the gallery');
+    };
+    img.onerror = () => {
+      const newDesign: StudioDesign = {
+        id: `design-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: 'Mr. Imagine Design',
+        url: imageUrl,
+        originalUrl: imageUrl,
+        history: [imageUrl],
+        createdAt: new Date().toISOString(),
+      };
+      setDesigns(prev => [...prev, newDesign]);
+      setActiveDesignId(newDesign.id);
+      toast.success('Design added', 'Your AI design is ready in the gallery');
+    };
+    img.src = imageUrl;
+  }, [toast]);
 
   // Calculate sheet price based on size
   const calculateSheetPrice = (printType: PrintType, height: number): number => {
@@ -892,7 +844,7 @@ const ImaginationStation: React.FC = () => {
       const layerNames = dangerLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
       toast.error(
         `${dangerLayers.length} design${dangerLayers.length !== 1 ? 's' : ''} too low quality to print`,
-        `${layerNames} — shrink them, upload a higher-resolution version, or use the Upscale tool.`,
+        `${layerNames} â€” shrink them, upload a higher-resolution version, or use the Upscale tool.`,
         8000
       );
       return;
@@ -915,7 +867,7 @@ const ImaginationStation: React.FC = () => {
 
     setIsProcessing(true);
     try {
-      // First, save the current sheet state — if this fails we abort the add-to-cart
+      // First, save the current sheet state â€” if this fails we abort the add-to-cart
       await persistSheet();
 
       // Generate a preview thumbnail from the canvas
@@ -940,7 +892,7 @@ const ImaginationStation: React.FC = () => {
       const imaginationSheetProduct: Product = {
         id: `imagination-sheet-${sheet.id}`,
         name: sheet.name,
-        description: `${preset.name} Imagination Sheet™ - ${sheet.sheet_width}" × ${sheet.sheet_height}" with ${layers.length} design${layers.length !== 1 ? 's' : ''}`,
+        description: `${preset.name} Imagination Sheet - ${sheet.sheet_width}" x ${sheet.sheet_height}" with ${layers.length} design${layers.length !== 1 ? 's' : ''}`,
         price: price,
         category: 'dtf-transfers',
         images: [thumbnailUrl || '/placeholder-imagination-sheet.png'],
@@ -972,7 +924,7 @@ const ImaginationStation: React.FC = () => {
       );
 
       // Show success message and navigate
-      toast.success('Added to cart', `Imagination Sheet™ • $${price.toFixed(2)}`);
+      toast.success('Added to cart', `Imagination Sheet - $${price.toFixed(2)}`);
       navigate('/cart');
     } catch (error) {
       console.error('Failed to add to cart:', error);
@@ -1021,7 +973,7 @@ const ImaginationStation: React.FC = () => {
         }));
         setSaveStatus('unsaved');
         const efficiencyNote = typeof data.efficiency === 'number'
-          ? ` • ${Math.round(data.efficiency)}% of sheet used`
+          ? ` - ${Math.round(data.efficiency)}% of sheet used`
           : '';
         toast.success('Auto-Nest complete', `Arranged ${placedCount} design${placedCount !== 1 ? 's' : ''}${efficiencyNote}`);
       }
@@ -1337,40 +1289,231 @@ const ImaginationStation: React.FC = () => {
     setShowReimagineItModal(true);
   };
 
-  // Handle accepting reimagined image from Reimagine It
+  // Handle accepting reimagined image â€” works for both designs and layers
   const handleReimagineItAccept = useCallback((newImageUrl: string) => {
-    if (!reimagineItLayerId) return;
-
-    setLayers(prev => prev.map(l => {
-      if (l.id === reimagineItLayerId) {
-        const originalUrl = l.processed_url || l.source_url;
-        return {
-          ...l,
-          processed_url: newImageUrl,
-          metadata: {
-            ...l.metadata,
-            reimagined: true,
-            beforeReimageUrl: originalUrl,
-          }
-        };
-      }
-      return l;
-    }));
-    setSaveStatus('unsaved');
-    setShowReimagineItModal(false);
-    setReimagineItLayerId(null);
-  }, [reimagineItLayerId]);
+    if (reimagineDesignId) {
+      setDesigns(prev => prev.map(d =>
+        d.id === reimagineDesignId ? { ...d, url: newImageUrl, history: [...d.history, newImageUrl] } : d
+      ));
+      setShowReimagineItModal(false);
+      setReimagineDesignId(null);
+    } else if (reimagineItLayerId) {
+      setLayers(prev => prev.map(l => {
+        if (l.id === reimagineItLayerId) {
+          const originalUrl = l.processed_url || l.source_url;
+          return {
+            ...l,
+            processed_url: newImageUrl,
+            metadata: {
+              ...l.metadata,
+              reimagined: true,
+              beforeReimageUrl: originalUrl,
+            }
+          };
+        }
+        return l;
+      }));
+      setSaveStatus('unsaved');
+      setShowReimagineItModal(false);
+      setReimagineItLayerId(null);
+    }
+  }, [reimagineDesignId, reimagineItLayerId]);
 
   // Handle keeping original in Reimagine It (just close modal)
   const handleReimagineItKeepOriginal = useCallback(() => {
     setShowReimagineItModal(false);
     setReimagineItLayerId(null);
+    setReimagineDesignId(null);
   }, []);
 
-  // Get the layer for Reimagine It modal
+  // Get the layer/design for Reimagine It modal â€” handles both designs and layers
   const reimagineItLayer = useMemo(() => {
+    if (reimagineDesignId) {
+      const design = designs.find(d => d.id === reimagineDesignId);
+      if (!design) return null;
+      return {
+        id: design.id,
+        processed_url: null,
+        source_url: design.url,
+        metadata: { name: design.name }
+      } as unknown as ImaginationLayer;
+    }
     return reimagineItLayerId ? layers.find(l => l.id === reimagineItLayerId) : null;
-  }, [reimagineItLayerId, layers]);
+  }, [reimagineDesignId, reimagineItLayerId, layers, designs]);
+
+  // Open Reimagine It modal for a design
+  const openReimagineItForDesign = (designId: string) => {
+    setReimagineDesignId(designId);
+    setReimagineItLayerId(null);
+    setShowReimagineItModal(true);
+  };
+
+  // Remove a design from the gallery
+  const removeDesign = (id: string) => {
+    setDesigns(prev => {
+      const remaining = prev.filter(d => d.id !== id);
+      if (activeDesignId === id) {
+        setActiveDesignId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+      }
+      return remaining;
+    });
+  };
+
+  // Send a studio design to the Imagination Sheet
+  const sendDesignToSheet = (design: StudioDesign) => {
+    if (!sheet) return;
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const maxSizeInches = Math.max(0.5, Math.min(6, sheet.sheet_width - 0.5, sheet.sheet_height - 0.5));
+      const aspectRatio = img.naturalWidth / img.naturalHeight;
+      const widthInches = aspectRatio >= 1 ? maxSizeInches : maxSizeInches * aspectRatio;
+      const heightInches = aspectRatio >= 1 ? maxSizeInches / aspectRatio : maxSizeInches;
+      const dpiInfo = calculateDpi(img.naturalWidth, img.naturalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+      const newLayer: ImaginationLayer = {
+        id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        sheet_id: sheet.id,
+        layer_type: 'ai_generated',
+        source_url: design.url,
+        processed_url: null,
+        position_x: (sheet.sheet_width - widthInches) / 2,
+        position_y: (sheet.sheet_height - heightInches) / 2,
+        width: widthInches,
+        height: heightInches,
+        rotation: 0,
+        scale_x: 1,
+        scale_y: 1,
+        z_index: layers.length,
+        metadata: { name: design.name, visible: true, locked: false, opacity: 1, dpiInfo, originalWidth: img.naturalWidth, originalHeight: img.naturalHeight },
+        created_at: new Date().toISOString(),
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setSelectedLayerIds([newLayer.id]);
+      setSaveStatus('unsaved');
+      setSheetOpen(true);
+    };
+    img.onerror = () => {
+      const newLayer: ImaginationLayer = {
+        id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        sheet_id: sheet.id,
+        layer_type: 'ai_generated',
+        source_url: design.url,
+        processed_url: null,
+        position_x: (sheet.sheet_width - 4) / 2,
+        position_y: (sheet.sheet_height - 4) / 2,
+        width: 4,
+        height: 4,
+        rotation: 0,
+        scale_x: 1,
+        scale_y: 1,
+        z_index: layers.length,
+        metadata: { name: design.name, visible: true, locked: false, opacity: 1 },
+        created_at: new Date().toISOString(),
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setSheetOpen(true);
+    };
+    img.src = design.url;
+  };
+
+  // Upload file to designs gallery (not directly to sheet)
+  const handleFileUploadToDesigns = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsProcessing(true);
+    try {
+      for (const file of Array.from(files)) {
+        const localUrl = URL.createObjectURL(file);
+        let finalUrl = localUrl;
+        if (sheet) {
+          try {
+            const { data: uploadedLayer } = await imaginationApi.uploadImage(sheet.id, file);
+            finalUrl = uploadedLayer.source_url;
+          } catch {
+            // keep localUrl
+          }
+        }
+        // eslint-disable-next-line no-loop-func
+        const img = new window.Image();
+        img.onload = () => {
+          const newDesign: StudioDesign = {
+            id: `design-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name.replace(/\.[^/.]+$/, ''),
+            url: finalUrl,
+            originalUrl: finalUrl,
+            history: [finalUrl],
+            createdAt: new Date().toISOString(),
+            meta: { originalWidth: img.naturalWidth, originalHeight: img.naturalHeight },
+          };
+          setDesigns(prev => [...prev, newDesign]);
+          setActiveDesignId(newDesign.id);
+        };
+        img.src = finalUrl;
+      }
+      toast.success('Upload complete', `${files.length} image${files.length !== 1 ? 's' : ''} added to your designs`);
+    } finally {
+      setIsProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Design-level tools (operate on activeDesign, not sheet layers)
+  const handleDesignRemoveBg = async () => {
+    const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
+    if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    const imageUrl = activeDesign.url;
+    const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
+    setIsRemovingBg(true);
+    try {
+      const useTrial = getFreeTrial('bg_remove') > 0;
+      const { data } = await imaginationApi.removeBackground({ imageUrl, useTrial });
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (newUrl) {
+        setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
+        setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Remove Background', revert: revertSnapshot });
+        if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
+      } else { toast.error('Remove background failed', 'No image returned.'); }
+    } catch (err: any) { toast.error('Remove background failed', err.response?.data?.error || 'Please try again.'); }
+    finally { setIsRemovingBg(false); }
+  };
+
+  const handleDesignUpscale = async () => {
+    const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
+    if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    const imageUrl = activeDesign.url;
+    const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
+    setIsUpscaling(true);
+    try {
+      const useTrial = getFreeTrial('upscale_2x') > 0;
+      const { data } = await imaginationApi.upscaleImage({ imageUrl, factor: 2, useTrial });
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (newUrl) {
+        setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
+        setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Upscale 2x', revert: revertSnapshot });
+        if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
+      } else { toast.error('Upscale failed', 'No image returned.'); }
+    } catch (err: any) { toast.error('Upscale failed', err.response?.data?.error || 'Please try again.'); }
+    finally { setIsUpscaling(false); }
+  };
+
+  const handleDesignEnhance = async () => {
+    const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
+    if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    const imageUrl = activeDesign.url;
+    const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
+    setIsEnhancing(true);
+    try {
+      const useTrial = getFreeTrial('enhance') > 0;
+      const { data } = await imaginationApi.enhanceImage({ imageUrl, useTrial });
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (newUrl) {
+        setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
+        setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Enhance', revert: revertSnapshot });
+        if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
+      } else { toast.error('Enhance failed', 'No image returned.'); }
+    } catch (err: any) { toast.error('Enhance failed', err.response?.data?.error || 'Please try again.'); }
+    finally { setIsEnhancing(false); }
+  };
 
   // Clear selection
   const clearSelection = () => {
@@ -1653,7 +1796,7 @@ const ImaginationStation: React.FC = () => {
                             <div className="flex items-center justify-between">
                               <div>
                                 <span className="font-semibold text-white group-hover/btn:text-white">
-                                  {preset.width}" × {height}"
+                                  {preset.width}" x {height}"
                                 </span>
                                 <span className="ml-2 text-xs text-white/50 group-hover/btn:text-white/70">
                                   ({sqInches} sq in)
@@ -1750,7 +1893,7 @@ const ImaginationStation: React.FC = () => {
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <div className="w-16 h-16 bg-gradient-to-br from-violet-500/30 to-fuchsia-500/30 rounded-2xl flex items-center justify-center text-3xl">
-                              {presetData?.icon || '📄'}
+                              {presetData?.icon || 'ðŸ“„'}
                             </div>
                           </div>
                         )}
@@ -1772,14 +1915,14 @@ const ImaginationStation: React.FC = () => {
                           {s.name}
                         </h3>
                         <p className="text-xs text-white/50 mb-2">
-                          {s.sheet_width}" × {s.sheet_height}" {presetData?.name || s.print_type}
+                          {s.sheet_width}" x {s.sheet_height}" {presetData?.name || s.print_type}
                         </p>
                         <div className="flex items-center gap-3 text-xs text-white/40">
                           <span className="flex items-center gap-1">
                             <Layers className="w-3 h-3" />
                             {layerCount} layer{layerCount !== 1 ? 's' : ''}
                           </span>
-                          <span>•</span>
+                          <span>-</span>
                           <span>{new Date(s.updated_at).toLocaleDateString()}</span>
                         </div>
                       </div>
@@ -1814,7 +1957,7 @@ const ImaginationStation: React.FC = () => {
 
           {/* Footer tagline */}
           <div className="text-center mt-12 text-white/30 text-sm">
-            <p>Powered by <span className="text-cyan-400/60">Mr. Imagine</span> • AI-Driven Print Design</p>
+            <p>Powered by <span className="text-cyan-400/60">Mr. Imagine</span> - AI-Driven Print Design</p>
           </div>
         </div>
 
@@ -1832,11 +1975,14 @@ const ImaginationStation: React.FC = () => {
     );
   }
 
+
+
   // Main Editor View
   const selectedLayers = layers.filter(l => selectedLayerIds.includes(l.id));
   const hasSelectedImage = selectedLayers.some(l => l.layer_type === 'image' || l.layer_type === 'ai_generated');
   const sheetPrice = calculateSheetPrice(sheet.print_type as PrintType, sheet.sheet_height);
   const preset = presets ? presets[sheet.print_type as PrintType] : { name: sheet.print_type };
+  const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
 
   // Resize the selected layer to a preset width (height follows aspect ratio)
   const applyQuickSize = (newWidth: number) => {
@@ -1856,1036 +2002,663 @@ const ImaginationStation: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col bg-bg text-text overflow-hidden">
-      {/* Top Bar - Mobile Responsive */}
+
+      {/* HEADER */}
       <header className="h-12 bg-card border-b border-text/10 flex items-center justify-between px-2 sm:px-3 shrink-0 shadow-sm">
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
-          {/* Logo / Home */}
-          <Link
-            to="/"
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0"
-            title="Back to Home"
-          >
+          <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0" title="Back to Home">
             <img src="/itp-logo-v3.png" alt="ITP" className="h-6 sm:h-7 w-auto" />
           </Link>
-          <div className="hidden sm:block w-px h-5 bg-text/10"></div>
-
-          {/* Quick Nav - Hidden on mobile */}
+          <div className="hidden sm:block w-px h-5 bg-text/10" />
           <div className="hidden sm:flex items-center gap-1">
-            <Link
-              to="/catalog"
-              className="p-1.5 text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-              title="Products"
-            >
+            <Link to="/catalog" className="p-1.5 text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Products">
               <ShoppingBag className="w-4 h-4" />
             </Link>
-            <Link
-              to="/wallet"
-              className="p-1.5 text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-              title="Wallet"
-            >
+            <Link to="/wallet" className="p-1.5 text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Wallet">
               <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
             </Link>
           </div>
-          <div className="hidden sm:block w-px h-5 bg-text/10"></div>
-
-          {/* Sheet Info - Truncated on mobile */}
+          <div className="hidden sm:block w-px h-5 bg-text/10" />
           <div className="flex items-center gap-1 sm:gap-2 min-w-0">
             <span className="text-base sm:text-lg shrink-0">{preset?.icon}</span>
             <input
               type="text"
               value={sheet.name}
-              onChange={(e) => {
-                setSheet({ ...sheet, name: e.target.value });
-                setSaveStatus('unsaved');
-              }}
-              className="bg-transparent text-text font-medium text-xs sm:text-sm border-none focus:outline-none focus:ring-0 max-w-[80px] sm:max-w-[200px]"
+              onChange={(e) => { setSheet({ ...sheet, name: e.target.value }); setSaveStatus('unsaved'); }}
+              className="bg-transparent text-text font-medium text-xs sm:text-sm border-none focus:outline-none focus:ring-0 max-w-[80px] sm:max-w-[160px]"
               title="Project name"
             />
           </div>
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2">
-          {/* Mobile: Toggle Left Panel */}
-          <button
-            onClick={() => setLeftSidebarVisible(!leftSidebarVisible)}
-            className="md:hidden p-1.5 rounded-lg transition-colors text-muted hover:text-primary hover:bg-primary/10"
-            title="Tools Panel"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </button>
-
-          {/* Undo/Redo Buttons */}
           <div className="flex items-center gap-0.5 sm:gap-1 bg-bg rounded-lg p-0.5 sm:p-1">
-            <button
-              onClick={handleUndo}
-              disabled={historyIndex <= 0}
-              className="p-1 sm:p-1.5 rounded-md hover:bg-card transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Undo (Ctrl+Z)"
-            >
+            <button onClick={handleUndo} disabled={historyIndex <= 0} className="p-1 sm:p-1.5 rounded-md hover:bg-card transition-colors disabled:opacity-30" title="Undo (Ctrl+Z)">
               <Undo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-muted" />
             </button>
-            <button
-              onClick={handleRedo}
-              disabled={historyIndex >= layerHistory.length - 1}
-              className="p-1 sm:p-1.5 rounded-md hover:bg-card transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Redo (Ctrl+Shift+Z)"
-            >
+            <button onClick={handleRedo} disabled={historyIndex >= layerHistory.length - 1} className="p-1 sm:p-1.5 rounded-md hover:bg-card transition-colors disabled:opacity-30" title="Redo">
               <Redo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-muted" />
             </button>
           </div>
-          <div className="hidden sm:block w-px h-5 bg-text/10"></div>
-
-          {/* Save Status + Button */}
+          <div className="hidden sm:block w-px h-5 bg-text/10" />
           <div className="flex items-center gap-1 sm:gap-1.5">
             {saveStatus === 'saved' && <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" />}
             {saveStatus === 'saving' && <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500 animate-spin" />}
             {saveStatus === 'unsaved' && <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />}
-            <button
-              onClick={saveSheet}
-              disabled={saveStatus === 'saved'}
-              className="px-2 sm:px-3 py-1 sm:py-1.5 bg-primary text-white rounded-lg text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-            >
+            <button onClick={saveSheet} disabled={saveStatus === 'saved'} className="px-2 sm:px-3 py-1 sm:py-1.5 bg-primary text-white rounded-lg text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1">
               <Save className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               <span className="hidden sm:inline">Save</span>
             </button>
           </div>
-
-          {/* Projects button - Hidden on mobile */}
-          <button
-            onClick={() => setShowProjectsModal(true)}
-            className="hidden sm:flex px-3 py-1.5 bg-card text-text border border-text/10 rounded-lg text-sm font-medium hover:bg-primary/5 transition-colors items-center gap-1.5"
-            title="My Projects"
-          >
+          <button onClick={() => setShowProjectsModal(true)} className="hidden sm:flex px-3 py-1.5 bg-card text-text border border-text/10 rounded-lg text-sm font-medium hover:bg-primary/5 transition-colors items-center gap-1.5" title="My Projects">
             <Layers className="w-3.5 h-3.5" />
             Projects
           </button>
-
-          {/* ITC Balance - Compact on mobile */}
-          <Link
-            to="/wallet"
-            className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors"
-            title="ITC balance — click to top up"
-          >
+          <Link to="/wallet" className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors" title="ITC balance">
             <img src="/itc-coin.png" alt="ITC" className="w-3.5 h-3.5 object-contain" />
             <span className="font-bold text-primary text-sm">{itcBalance}</span>
             <span className="text-primary/70 text-xs">ITC</span>
           </Link>
-
-          {/* Profile - Hidden on mobile */}
-          <Link
-            to="/account/profile"
-            className="hidden sm:flex w-7 h-7 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-            title="Profile"
-          >
+          <Link to="/account/profile" className="hidden sm:flex w-7 h-7 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Profile">
             <User className="w-4 h-4" />
           </Link>
-
-          {/* Mobile: Toggle Right Panel */}
           <button
-            onClick={() => setRightSidebarVisible(!rightSidebarVisible)}
-            className="md:hidden p-1.5 rounded-lg transition-colors text-muted hover:text-primary hover:bg-primary/10"
-            title="Design & Order Panel"
+            onClick={() => setSheetOpen(o => !o)}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border transition-colors ${
+              sheetOpen ? 'bg-primary text-white border-primary' : 'bg-card text-text border-text/20 hover:border-primary/50 hover:text-primary'
+            }`}
+            title="Toggle Imagination Sheet"
           >
-            <PanelRight className="w-4 h-4" />
-          </button>
-
-          {/* Order / checkout shortcut */}
-          <button
-            onClick={() => {
-              setActivePanel('order');
-              setRightSidebarVisible(true);
-            }}
-            className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg transition-colors ${activePanel === 'order'
-              ? 'text-primary bg-primary/15'
-              : 'text-muted hover:text-primary hover:bg-primary/10'
-              }`}
-            title="Order this sheet"
-          >
-            <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Imagination Sheet</span>
+            {layers.length > 0 && (
+              <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-xs font-bold px-1 ${sheetOpen ? 'bg-white text-primary' : 'bg-primary text-white'}`}>
+                {layers.length}
+              </span>
+            )}
           </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Sidebar - Tools - Overlay on mobile */}
-        {leftSidebarVisible && (
-          <>
-            {/* Mobile backdrop */}
-            <div
-              className="md:hidden fixed inset-0 bg-black/50 z-30"
-              onClick={() => setLeftSidebarVisible(false)}
-            />
-            <aside className="w-64 bg-card border-r border-text/10 flex flex-col shrink-0 absolute md:relative z-40 h-full md:h-auto shadow-xl md:shadow-none">
-              {/* Hide button */}
-              <button
-                onClick={() => setLeftSidebarVisible(false)}
-                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded transition-colors z-10"
-                title="Hide panel"
-              >
-                <PanelLeft className="w-4 h-4" />
-              </button>
-            {/* Sheet Configuration (Admins Only) */}
-            {presets && presets[sheet.print_type as PrintType] && user?.role === 'admin' && (
-              <div className="p-4 border-b border-text/10">
-                <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Sheet Size</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 p-2 bg-bg rounded-lg border border-text/10">
-                    <div className="flex items-center justify-center w-8 h-8 rounded bg-card shadow-sm text-lg">
-                      {presets[sheet.print_type as PrintType].icon}
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-[10px] text-muted font-medium uppercase tracking-wider">Type</div>
-                      <div className="text-sm font-semibold text-text">{presets[sheet.print_type as PrintType].name}</div>
-                    </div>
-                  </div>
+      {/* MAIN CONTENT */}
+      <div className="flex-1 flex overflow-hidden">
 
-                  <div>
-                    <label className="text-xs text-muted font-medium block mb-1.5 ml-1">Sheet Height</label>
-                    <div className="relative">
-                      <select
-                        value={sheet.sheet_height}
-                        onChange={(e) => {
-                          const h = parseInt(e.target.value);
-                          setSheet(prev => prev ? { ...prev, sheet_height: h } : null);
-                          setSaveStatus('unsaved');
-                        }}
-                        className="w-full pl-3 pr-8 py-2.5 bg-card border border-text/10 rounded-xl text-sm font-medium text-text focus:ring-2 focus:ring-primary focus:border-primary transition-shadow appearance-none cursor-pointer hover:border-primary/40"
-                        style={{ backgroundImage: 'none' }}
-                      >
-                        {presets[sheet.print_type as PrintType].heights.map((h: number) => {
-                          const width = presets[sheet.print_type as PrintType].width;
-                          const price = Math.round(width * h * 0.02 * 100) / 100;
-                          return (
-                            <option key={h} value={h}>{width}" x {h}" - ${price.toFixed(2)}</option>
-                          );
-                        })}
-                      </select>
-                      <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-muted">
-                        <ChevronDown className="w-4 h-4" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+        {/* LEFT TOOLS RAIL */}
+        <aside className="w-14 md:w-52 bg-card border-r border-text/10 flex flex-col shrink-0 overflow-y-auto">
 
-            {/* Add to sheet */}
-            <div className="p-4 border-b border-text/10 space-y-2">
-              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-1">Add to Sheet</h3>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isProcessing}
-                className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-purple-700 hover:to-purple-800 transition-all shadow-lg shadow-purple-500/20 disabled:opacity-50"
-              >
-                <Upload className="w-5 h-5" />
-                Upload Images
-              </button>
-              <button
-                onClick={() => setShowMrImagineModal(true)}
-                className="w-full px-4 py-3 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-fuchsia-700 hover:to-pink-700 transition-all shadow-lg shadow-fuchsia-500/20"
-              >
-                <Sparkles className="w-5 h-5" />
-                <span className="flex-1 text-left">Mr. Imagine AI</span>
-                <span className="text-[10px] font-semibold bg-white/20 rounded-full px-2 py-0.5">
+          {/* Create section */}
+          <div className="p-2 md:p-3 border-b border-text/10">
+            <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Create</p>
+            <button
+              onClick={() => setShowMrImagineModal(true)}
+              className="w-full mb-1.5 flex flex-col md:flex-row items-center md:items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-medium hover:from-fuchsia-700 hover:to-pink-700 transition-all shadow-sm"
+              title="Generate AI image"
+            >
+              <Sparkles className="w-5 h-5 shrink-0" />
+              <div className="hidden md:flex flex-col items-start">
+                <span className="text-sm font-semibold leading-tight">Imagine</span>
+                <span className="text-[10px] text-white/70">
                   {getFreeTrial('generate') > 0 ? `${getFreeTrial('generate')} free` : `${getFeaturePrice('generate')} ITC`}
                 </span>
+              </div>
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUploadToDesigns} className="hidden" />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessing}
+              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium hover:from-purple-700 hover:to-purple-800 transition-all shadow-sm disabled:opacity-50"
+              title="Upload images"
+            >
+              <Upload className="w-5 h-5 shrink-0" />
+              <span className="hidden md:block text-sm font-semibold">Upload</span>
+            </button>
+          </div>
+
+          {/* Edit Design section */}
+          <div className="p-2 md:p-3 border-b border-text/10">
+            <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Edit Design</p>
+            <button
+              onClick={() => { if (activeDesign) openReimagineItForDesign(activeDesign.id); else toast.warning('Select a design first', 'Click a design in your gallery.'); }}
+              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30"
+              title="Reimagine active design"
+            >
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0">
+                <RefreshCw className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
+              </div>
+              <div className="hidden md:flex flex-col">
+                <span className="font-medium text-sm">Reimagine</span>
+                <span className="text-xs text-muted">{getFeaturePrice('reimagine_standard') || 1} ITC</span>
+              </div>
+            </button>
+            <button
+              onClick={handleDesignEnhance}
+              disabled={isEnhancing || !activeDesignId}
+              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
+              title="Enhance active design"
+            >
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
+                {isEnhancing ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <Wand2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
+              </div>
+              <div className="hidden md:flex flex-col">
+                <span className="font-medium text-sm">Enhance</span>
+                <span className="text-xs text-muted">{getFreeTrial('enhance') > 0 ? `${getFreeTrial('enhance')} free` : `${getFeaturePrice('enhance')} ITC`}</span>
+              </div>
+            </button>
+            <button
+              onClick={handleDesignRemoveBg}
+              disabled={isRemovingBg || !activeDesignId}
+              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
+              title="Remove background from active design"
+            >
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
+                {isRemovingBg ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <Scissors className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
+              </div>
+              <div className="hidden md:flex flex-col">
+                <span className="font-medium text-sm">Remove BG</span>
+                <span className="text-xs text-muted">{getFreeTrial('bg_remove') > 0 ? `${getFreeTrial('bg_remove')} free` : `${getFeaturePrice('bg_remove')} ITC`}</span>
+              </div>
+            </button>
+            <button
+              onClick={handleDesignUpscale}
+              disabled={isUpscaling || !activeDesignId}
+              className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
+              title="Upscale active design"
+            >
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shrink-0">
+                {isUpscaling ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <ZoomIn className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
+              </div>
+              <div className="hidden md:flex flex-col">
+                <span className="font-medium text-sm">Upscale 2x</span>
+                <span className="text-xs text-muted">{getFreeTrial('upscale_2x') > 0 ? `${getFreeTrial('upscale_2x')} free` : `${getFeaturePrice('upscale_2x')} ITC`}</span>
+              </div>
+            </button>
+          </div>
+
+          {/* Sheet Tools - only shown when sheet has layers */}
+          {layers.length > 0 && (
+            <div className="p-2 md:p-3 border-b border-text/10">
+              <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Sheet Tools</p>
+              <button
+                onClick={handleAutoNest}
+                disabled={isProcessing || layers.length === 0}
+                className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
+                title="Auto-Nest: optimize layout"
+              >
+                <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
+                  {isProcessing ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <LayoutGrid className="w-3.5 h-3.5 text-white" />}
+                </div>
+                <div className="hidden md:flex flex-col">
+                  <span className="font-medium text-sm">Auto-Nest</span>
+                  <span className="text-xs text-muted">{getFeaturePrice('auto_nest')} ITC</span>
+                </div>
               </button>
               <button
-                onClick={() => setShowAddElementPanel(true)}
-                disabled={isProcessing}
-                className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-blue-700 hover:to-cyan-700 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+                onClick={handleSmartFill}
+                disabled={isProcessing || layers.length === 0}
+                className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
+                title="Smart Fill: fill empty space"
               >
-                <Plus className="w-5 h-5" />
-                Text & Shapes
+                <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shrink-0">
+                  <Copy className="w-3.5 h-3.5 text-white" />
+                </div>
+                <div className="hidden md:flex flex-col">
+                  <span className="font-medium text-sm">Smart Fill</span>
+                  <span className="text-xs text-muted">{getFeaturePrice('smart_fill')} ITC</span>
+                </div>
               </button>
             </div>
+          )}
 
-            {/* Improve & arrange */}
-            <div className="p-4 border-b border-text/10">
-              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Improve & Arrange</h3>
-              <div className="space-y-2">
-                <button
-                  onClick={() => setShowITPEnhanceModal(true)}
-                  className="w-full px-3 py-2.5 rounded-xl text-left transition-all flex items-center gap-3 bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30"
-                  title={hasSelectedImage ? 'Open enhancement tools' : 'Select an image layer first'}
-                >
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
-                    <Wand2 className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">ITP Enhance</div>
-                    <div className="text-xs text-muted truncate">BG remove • Upscale • Reimagine</div>
-                  </div>
-                </button>
+          {/* Text & Shapes */}
+          <div className="p-2 md:p-3">
+            <button
+              onClick={() => setShowAddElementPanel(true)}
+              disabled={isProcessing}
+              className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium hover:from-blue-700 hover:to-cyan-700 transition-all shadow-sm disabled:opacity-50"
+              title="Add text or shapes to sheet"
+            >
+              <Plus className="w-5 h-5 shrink-0" />
+              <span className="hidden md:block text-sm font-semibold">Text & Shapes</span>
+            </button>
+          </div>
+        </aside>
 
-                <button
-                  onClick={handleAutoNest}
-                  disabled={isProcessing || layers.length === 0}
-                  className="w-full px-3 py-2.5 rounded-xl text-left transition-all flex items-center gap-3 bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-                  title="Automatically arrange designs to minimize wasted space"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
-                    {isProcessing ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <LayoutGrid className="w-4 h-4 text-white" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">Auto-Nest</div>
-                    <div className="text-xs text-muted truncate">Tidy layout • {getFeaturePrice('auto_nest')} ITC</div>
-                  </div>
-                </button>
+        {/* CENTER - Studio area */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-                <button
-                  onClick={handleSmartFill}
-                  disabled={isProcessing || layers.length === 0}
-                  className="w-full px-3 py-2.5 rounded-xl text-left transition-all flex items-center gap-3 bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-                  title="Fill empty space with copies of your designs"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shrink-0">
-                    {isProcessing ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <Copy className="w-4 h-4 text-white" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">Smart Fill</div>
-                    <div className="text-xs text-muted truncate">Fill with copies • {getFeaturePrice('smart_fill')} ITC</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            {/* Layers Panel */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-4 pb-2 flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Layers</h3>
-                <span className="text-xs text-muted/70">{layers.length}</span>
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 pb-4">
-                {layers.length === 0 ? (
-                  <div className="text-center py-8 text-muted/70">
-                    <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No layers yet</p>
-                    <p className="text-xs">Upload images to get started</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {[...layers].reverse().map(layer => {
-                      const imageUrl = layer.processed_url || layer.source_url;
-                      const isVisible = layer.metadata?.visible !== false;
-                      const isLocked = layer.metadata?.locked === true;
-                      const layerName = layer.metadata?.name || `Layer ${layer.z_index + 1}`;
-                      const dpiInfo = layer.metadata?.dpiInfo as DpiInfo | undefined;
-                      const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality) : null;
-
-                      return (
-                        <div
-                          key={layer.id}
-                          onClick={() => selectLayer(layer.id)}
-                          className={`p-2 rounded-lg cursor-pointer transition-all flex items-center gap-2 ${selectedLayerIds.includes(layer.id)
-                            ? 'bg-primary/15 border border-primary/40'
-                            : 'hover:bg-text/5 border border-transparent'
-                            }`}
-                        >
-                          {/* Layer thumbnail */}
-                          <div className="w-8 h-8 rounded bg-bg flex items-center justify-center overflow-hidden shrink-0 relative">
-                            {(layer.layer_type === 'image' || layer.layer_type === 'ai_generated') && imageUrl ? (
-                              <img src={imageUrl} alt="" className="w-full h-full object-cover" />
-                            ) : layer.layer_type === 'text' ? (
-                              <Type className="w-4 h-4 text-muted" />
-                            ) : (
-                              <Square className="w-4 h-4 text-muted" />
-                            )}
-                            {/* DPI quality indicator badge */}
-                            {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
-                              <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border border-card ${dpiDisplay?.indicatorColor}`} />
-                            )}
-                          </div>
-
-                          {/* Layer name */}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-text truncate">{layerName}</p>
-                            {/* DPI warning text */}
-                            {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
-                              <p className={`text-xs ${dpiDisplay?.color} truncate`}>
-                                {dpiInfo.dpi} DPI - {dpiDisplay?.label}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Layer controls */}
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer.id); }}
-                              className="p-1 text-muted/70 hover:text-text"
-                              title={isVisible ? 'Hide layer' : 'Show layer'}
-                            >
-                              {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleLayerLock(layer.id); }}
-                              className="p-1 text-muted/70 hover:text-text"
-                              title={isLocked ? 'Unlock layer' : 'Lock layer'}
-                            >
-                              {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Layer actions */}
-              {selectedLayerIds.length > 0 && (
-                <div className="p-4 border-t border-text/10 flex gap-2">
+          {/* Active Design Preview */}
+          <div className="flex-1 relative bg-bg flex items-center justify-center overflow-hidden p-4">
+            {activeDesign ? (
+              <div className="flex flex-col items-center gap-4 max-w-2xl w-full h-full">
+                <div className="flex-1 flex items-center justify-center w-full">
+                  <img
+                    src={activeDesign.url}
+                    alt={activeDesign.name}
+                    className="max-w-full max-h-full object-contain rounded-xl shadow-lg"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pb-1">
                   <button
-                    onClick={duplicateSelectedLayers}
-                    className="flex-1 px-3 py-2 bg-bg text-text rounded-lg text-sm font-medium hover:bg-text/10 transition-colors flex items-center justify-center gap-1"
+                    onClick={() => openReimagineItForDesign(activeDesign.id)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors"
                   >
-                    <Copy className="w-4 h-4" />
-                    Duplicate
+                    <RefreshCw className="w-4 h-4" />
+                    Reimagine
                   </button>
                   <button
-                    onClick={deleteSelectedLayers}
-                    className="flex-1 px-3 py-2 bg-red-500/10 text-red-500 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors flex items-center justify-center gap-1"
+                    onClick={handleDesignEnhance}
+                    disabled={isEnhancing}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
                   >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
+                    {isEnhancing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                    Enhance
+                  </button>
+                  <button
+                    onClick={handleDesignRemoveBg}
+                    disabled={isRemovingBg}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
+                  >
+                    {isRemovingBg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
+                    Remove BG
+                  </button>
+                  <button
+                    onClick={handleDesignUpscale}
+                    disabled={isUpscaling}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
+                  >
+                    {isUpscaling ? <Loader2 className="w-4 h-4 animate-spin" /> : <ZoomIn className="w-4 h-4" />}
+                    Upscale
+                  </button>
+                  <a
+                    href={activeDesign.url}
+                    download={`${activeDesign.name}.png`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download
+                  </a>
+                  <button
+                    onClick={() => sendDesignToSheet(activeDesign)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg text-sm font-semibold hover:from-purple-700 hover:to-purple-800 transition-all shadow-sm"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                    Send to Imagination Sheet
                   </button>
                 </div>
-              )}
-            </div>
-          </aside>
-          </>
-        )}
-
-        {/* Show Left Sidebar Button - Hidden on mobile (use header toggle) */}
-        {!leftSidebarVisible && (
-          <button
-            onClick={() => setLeftSidebarVisible(true)}
-            className="hidden md:flex w-8 bg-card border-r border-text/10 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
-            title="Show left panel"
-          >
-            <PanelRight className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Canvas Area */}
-        <div className="flex-1 relative overflow-hidden bg-bg" ref={canvasRef}>
-          {/* Konva SheetCanvas Component */}
-          <SheetCanvas
-            sheet={sheet}
-            layers={layers}
-            setLayers={setLayers}
-            selectedLayerIds={selectedLayerIds}
-            selectLayer={selectLayer}
-            clearSelection={clearSelection}
-            zoom={zoom}
-            setZoom={setZoom}
-            gridEnabled={gridEnabled}
-            snapEnabled={snapEnabled}
-            canvasState={canvasState}
-            updateCanvasState={updateCanvasState}
-            showCutLines={showCutLines}
-            mirrorForSublimation={mirrorForSublimation}
-            showSafeMargin={showSafeMargin}
-          />
-
-          {/* Empty sheet onboarding overlay */}
-          {layers.length === 0 && !isProcessing && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 p-4">
-              <div className="pointer-events-auto bg-card/95 backdrop-blur-sm border border-text/10 rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center">
-                <img
-                  src="/mr-imagine/mr-imagine-waving.png"
-                  alt="Mr. Imagine"
-                  className="w-20 h-20 object-contain mx-auto mb-3"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-                <h3 className="font-bold text-text text-lg mb-1">Your sheet is empty</h3>
-                <p className="text-sm text-muted mb-4">
-                  Add your own artwork or let Mr. Imagine create something for you.
+              </div>
+            ) : (
+              <div className="text-center max-w-sm">
+                <div className="w-20 h-20 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Sparkles className="w-10 h-10 text-primary/60" />
+                </div>
+                <h3 className="text-lg font-bold text-text mb-2">Imagine your first design</h3>
+                <p className="text-sm text-muted mb-6">
+                  Generate AI art, upload your own artwork, or reimagine something new. Your designs stay here until you send them to the Imagination Sheet.
                 </p>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => setShowMrImagineModal(true)}
+                    className="px-5 py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-semibold hover:from-fuchsia-700 hover:to-pink-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Generate with Mr. Imagine
+                  </button>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-purple-700 hover:to-purple-800 transition-all"
+                    className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-semibold hover:from-purple-700 hover:to-purple-800 transition-all flex items-center justify-center gap-2"
                   >
                     <Upload className="w-4 h-4" />
                     Upload Images
                   </button>
-                  <button
-                    onClick={() => setShowMrImagineModal(true)}
-                    className="w-full px-4 py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-fuchsia-700 hover:to-pink-700 transition-all"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    Generate with AI
-                  </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Zoom Controls */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 sm:gap-2 bg-card px-2 sm:px-4 py-2 rounded-full shadow-lg border border-text/10 z-10 max-w-[calc(100%-1rem)]">
-            <button
-              onClick={() => setZoom(z => Math.max(MIN_ZOOM, z - 0.1))}
-              className="w-8 h-8 flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
-              title="Zoom out"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-medium text-text w-12 sm:w-14 text-center">
-              {Math.round(zoom * 100)}%
-            </span>
-            <button
-              onClick={() => setZoom(z => Math.min(MAX_ZOOM, z + 0.1))}
-              className="w-8 h-8 flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
-              title="Zoom in"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            <div className="w-px h-6 bg-text/10 mx-1 sm:mx-2"></div>
-            <button
-              onClick={() => setGridEnabled(g => !g)}
-              className={`px-2 sm:px-3 py-1 text-sm rounded-full transition-colors ${gridEnabled ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-text/5'
-                }`}
-              title="Toggle Grid"
-            >
-              <Grid3X3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setSnapEnabled(s => !s)}
-              className={`px-2 sm:px-3 py-1 text-sm rounded-full transition-colors ${snapEnabled ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-text/5'
-                }`}
-              title="Toggle Snap"
-            >
-              <Magnet className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setShowSafeMargin(s => !s)}
-              className={`px-2 sm:px-3 py-1 text-sm rounded-full transition-colors ${showSafeMargin ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-text/5'
-                }`}
-              title="Toggle Safe Margin"
-            >
-              <Maximize className="w-4 h-4" />
-            </button>
-            <div className="w-px h-6 bg-text/10 mx-1 sm:mx-2"></div>
-            <button
-              onClick={fitSheetToView}
-              className="w-8 h-8 flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-full transition-colors"
-              title="Fit whole board in view"
-            >
-              <Expand className="w-4 h-4" />
-            </button>
-            <button
-              onClick={resetCanvas}
-              disabled={layers.length === 0}
-              className="px-2 sm:px-3 py-1 text-sm rounded-full text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Reset Canvas"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
+            )}
           </div>
-        </div>
 
-        {/* Right Sidebar - Context Panel */}
-        {/* Show Right Sidebar Button - Hidden on mobile (use header toggle) */}
-        {!rightSidebarVisible && (
-          <button
-            onClick={() => setRightSidebarVisible(true)}
-            className="hidden md:flex w-8 bg-card border-l border-text/10 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
-            title="Show right panel"
-          >
-            <PanelLeft className="w-4 h-4" />
-          </button>
-        )}
-
-        {rightSidebarVisible && (
-          <>
-            {/* Mobile backdrop */}
-            <div
-              className="md:hidden fixed inset-0 bg-black/50 z-30"
-              onClick={() => setRightSidebarVisible(false)}
-            />
-            <aside className="w-72 sm:w-80 bg-card border-l border-text/10 flex flex-col shrink-0 absolute md:relative right-0 z-40 h-full md:h-auto shadow-xl md:shadow-none">
-              {/* Hide button */}
-              <button
-                onClick={() => setRightSidebarVisible(false)}
-                className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded transition-colors z-10"
-                title="Hide panel"
-              >
-                <PanelRight className="w-4 h-4" />
-              </button>
-            {/* Panel Header */}
-            <div className="p-4 pr-10 border-b border-text/10">
-              <div className="flex gap-1 bg-bg p-1 rounded-lg">
-                {[
-                  { id: 'design', label: 'Design', icon: Settings },
-                  { id: 'order', label: 'Order', icon: ShoppingCart },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActivePanel(tab.id as typeof activePanel)}
-                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-1.5 ${activePanel === tab.id
-                      ? 'bg-card text-primary shadow-sm'
-                      : 'text-muted hover:text-text'
-                      }`}
+          {/* My Designs Gallery Strip */}
+          {designs.length > 0 && (
+            <div className="h-28 border-t border-text/10 bg-card flex-shrink-0">
+              <div className="h-full flex items-center gap-2 px-3 overflow-x-auto">
+                <span className="text-xs font-semibold text-muted uppercase tracking-wider whitespace-nowrap shrink-0 hidden md:block">My Designs</span>
+                {designs.map(design => (
+                  <div
+                    key={design.id}
+                    onClick={() => setActiveDesignId(design.id)}
+                    className={`relative shrink-0 w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all group ${
+                      design.id === activeDesignId ? 'border-primary shadow-md' : 'border-transparent hover:border-primary/40'
+                    }`}
                   >
-                    <tab.icon className="w-4 h-4" />
-                    {tab.label}
-                  </button>
+                    <img src={design.url} alt={design.name} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1 gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); sendDesignToSheet(design); }}
+                        className="flex-1 flex items-center justify-center bg-primary/90 rounded text-white p-1"
+                        title="Send to Imagination Sheet"
+                      >
+                        <LayoutGrid className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeDesign(design.id); }}
+                        className="flex items-center justify-center bg-red-500/90 rounded text-white p-1"
+                        title="Remove design"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
+          )}
+        </div>
 
-            {/* Panel Content */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {/* Design / Properties Panel */}
-              {activePanel === 'design' && (
-                <div className="space-y-6">
-                  {selectedLayers.length > 0 ? (
-                    <>
-                      <div>
-                        <h3 className="text-sm font-semibold text-text mb-3">Selected Layer</h3>
-                        <p className="text-muted">{selectedLayers[0].metadata?.name || `Layer ${selectedLayers[0].z_index + 1}`}</p>
-                      </div>
+        {/* RIGHT DRAWER - Imagination Sheet */}
+        {sheetOpen && (
+          <>
+            <div className="md:hidden fixed inset-0 bg-black/50 z-30" onClick={() => setSheetOpen(false)} />
+            <aside className="w-72 sm:w-80 lg:w-96 bg-card border-l border-text/10 flex flex-col shrink-0 absolute md:relative right-0 z-40 h-full md:h-auto shadow-xl md:shadow-none">
 
-                      {/* DPI Quality Warning */}
-                      {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && (
-                        <div className={`p-4 rounded-xl border ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
-                          ? 'bg-red-500/10 border-red-500/40'
-                          : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                            ? 'bg-amber-500/10 border-amber-500/40'
-                            : 'bg-green-500/10 border-green-500/40'
-                          }`}>
-                          <div className="flex items-start gap-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
-                              ? 'bg-red-500/20'
-                              : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                ? 'bg-amber-500/20'
-                                : 'bg-green-500/20'
-                              }`}>
-                              <span className="text-lg">{getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).icon}</span>
+              {/* Drawer header */}
+              <div className="h-10 px-3 border-b border-text/10 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="w-4 h-4 text-primary" />
+                  <span className="font-semibold text-text text-sm">Imagination Sheet</span>
+                  {layers.length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] bg-primary text-white rounded-full text-xs font-bold px-1">
+                      {layers.length}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSheetOpen(false)}
+                  className="w-6 h-6 flex items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded transition-colors"
+                  title="Close Imagination Sheet"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* SheetCanvas area */}
+              <div className="flex-1 relative overflow-hidden bg-bg min-h-0" ref={canvasRef}>
+                <SheetCanvas
+                  sheet={sheet}
+                  layers={layers}
+                  setLayers={setLayers}
+                  selectedLayerIds={selectedLayerIds}
+                  selectLayer={selectLayer}
+                  clearSelection={clearSelection}
+                  zoom={zoom}
+                  setZoom={setZoom}
+                  gridEnabled={gridEnabled}
+                  snapEnabled={snapEnabled}
+                  canvasState={canvasState}
+                  updateCanvasState={updateCanvasState}
+                  showCutLines={showCutLines}
+                  mirrorForSublimation={mirrorForSublimation}
+                  showSafeMargin={showSafeMargin}
+                />
+
+                {layers.length === 0 && !isProcessing && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 p-4">
+                    <div className="pointer-events-auto text-center">
+                      <LayoutGrid className="w-10 h-10 text-muted/40 mx-auto mb-2" />
+                      <p className="text-sm text-muted font-medium">Imagination Sheet is empty</p>
+                      <p className="text-xs text-muted/70 mt-1">Send a design here to start building your sheet</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Zoom controls */}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-card px-2 py-1.5 rounded-full shadow border border-text/10 z-10">
+                  <button onClick={() => setZoom(z => Math.max(MIN_ZOOM, z - 0.1))} className="w-6 h-6 flex items-center justify-center text-muted hover:text-primary rounded-full transition-colors">
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-xs font-medium text-text w-10 text-center">{Math.round(zoom * 100)}%</span>
+                  <button onClick={() => setZoom(z => Math.min(MAX_ZOOM, z + 0.1))} className="w-6 h-6 flex items-center justify-center text-muted hover:text-primary rounded-full transition-colors">
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-px h-4 bg-text/10 mx-0.5" />
+                  <button onClick={() => setGridEnabled(g => !g)} className={`px-1.5 py-0.5 text-xs rounded-full transition-colors ${gridEnabled ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-text/5'}`} title="Grid">
+                    <Grid3X3 className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => setSnapEnabled(s => !s)} className={`px-1.5 py-0.5 text-xs rounded-full transition-colors ${snapEnabled ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-text/5'}`} title="Snap">
+                    <Magnet className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => setShowSafeMargin(s => !s)} className={`px-1.5 py-0.5 text-xs rounded-full transition-colors ${showSafeMargin ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-text/5'}`} title="Safe Margin">
+                    <Maximize className="w-3 h-3" />
+                  </button>
+                  <button onClick={fitSheetToView} className="w-6 h-6 flex items-center justify-center text-muted hover:text-primary rounded-full transition-colors" title="Fit to view">
+                    <Expand className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={resetCanvas} disabled={layers.length === 0} className="px-1.5 py-0.5 text-xs rounded-full text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50" title="Reset">
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Sheet panel - tabs: Layers + Order */}
+              <div className="border-t border-text/10 flex flex-col" style={{ maxHeight: '300px' }}>
+                <div className="px-3 pt-2 pb-0 flex gap-1 bg-card">
+                  {[
+                    { id: 'design', label: 'Layers', icon: Layers },
+                    { id: 'order', label: 'Order', icon: ShoppingCart },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActivePanel(tab.id as typeof activePanel)}
+                      className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center justify-center gap-1 ${
+                        activePanel === tab.id ? 'bg-bg text-primary shadow-sm' : 'text-muted hover:text-text'
+                      }`}
+                    >
+                      <tab.icon className="w-3.5 h-3.5" />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-3">
+                  {/* Layers tab */}
+                  {activePanel === 'design' && (
+                    <div>
+                      {selectedLayers.length > 0 ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-text truncate">{selectedLayers[0].metadata?.name || `Layer ${selectedLayers[0].z_index + 1}`}</p>
+                            <button onClick={deleteSelectedLayers} className="p-1 text-red-500 hover:bg-red-500/10 rounded" title="Delete layer">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && selectedLayers[0].metadata.dpiInfo.quality !== 'good' && (
+                            <div className={`p-2 rounded-lg border text-xs ${selectedLayers[0].metadata.dpiInfo.quality === 'danger' ? 'bg-red-500/10 border-red-500/40 text-red-500' : 'bg-amber-500/10 border-amber-500/40 text-amber-600'}`}>
+                              Print quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).label} ({selectedLayers[0].metadata.dpiInfo.dpi} DPI)
                             </div>
-                            <div className="flex-1">
-                              <h4 className={`font-semibold text-sm mb-1 ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
-                                ? 'text-red-500'
-                                : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                  ? 'text-amber-500'
-                                  : 'text-green-500'
-                                }`}>
-                                Print Quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).label}
-                              </h4>
-                              <p className={`text-xs mb-2 ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
-                                ? 'text-red-500/90'
-                                : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                  ? 'text-amber-500/90'
-                                  : 'text-green-500/90'
-                                }`}>
-                                {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).description}
-                              </p>
-                              <div className={`text-xs ${selectedLayers[0].metadata.dpiInfo.quality === 'danger'
-                                ? 'text-red-500'
-                                : selectedLayers[0].metadata.dpiInfo.quality === 'warning'
-                                  ? 'text-amber-500'
-                                  : 'text-green-500'
-                                }`}>
-                                <div className="flex justify-between mb-1">
-                                  <span>Current DPI:</span>
-                                  <span className="font-bold">{selectedLayers[0].metadata.dpiInfo.dpi}</span>
-                                </div>
-                                <div className="flex justify-between mb-1">
-                                  <span>Original size:</span>
-                                  <span>{selectedLayers[0].metadata.dpiInfo.originalWidth} × {selectedLayers[0].metadata.dpiInfo.originalHeight}px</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Print size:</span>
-                                  <span>{selectedLayers[0].metadata.dpiInfo.canvasSizeInches.width}" × {selectedLayers[0].metadata.dpiInfo.canvasSizeInches.height}"</span>
-                                </div>
-                              </div>
-                              {selectedLayers[0].metadata.dpiInfo.quality === 'danger' && (
-                                <div className="mt-2 pt-2 border-t border-red-200">
-                                  <p className="text-xs text-red-800 font-medium">
-                                    Recommendation: Reduce the size or use a higher resolution image
-                                  </p>
-                                </div>
-                              )}
-                              {selectedLayers[0].metadata.dpiInfo.quality === 'warning' && (
-                                <div className="mt-2 pt-2 border-t border-amber-200">
-                                  <p className="text-xs text-amber-800 font-medium">
-                                    Tip: For best results, reduce size or consider upscaling
-                                  </p>
-                                </div>
-                              )}
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-xs text-muted block mb-1">X (in)</label>
+                              <input type="number" value={selectedLayers[0].position_x.toFixed(2)} onChange={(e) => { const val = parseFloat(e.target.value); setLayers(prev => prev.map(l => l.id === selectedLayers[0].id ? { ...l, position_x: val } : l)); setSaveStatus('unsaved'); }} className="w-full px-2 py-1.5 bg-bg border border-text/10 rounded text-xs text-text" step="0.1" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted block mb-1">Y (in)</label>
+                              <input type="number" value={selectedLayers[0].position_y.toFixed(2)} onChange={(e) => { const val = parseFloat(e.target.value); setLayers(prev => prev.map(l => l.id === selectedLayers[0].id ? { ...l, position_y: val } : l)); setSaveStatus('unsaved'); }} className="w-full px-2 py-1.5 bg-bg border border-text/10 rounded text-xs text-text" step="0.1" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted block mb-1">W (in)</label>
+                              <input type="number" value={selectedLayers[0].width.toFixed(2)} onChange={(e) => { const val = parseFloat(e.target.value) || 0.1; const cur = selectedLayers[0]; setLayers(prev => prev.map(l => { if (l.id === cur.id) { const newDpi = recalculateDpi(l, val, l.height); return { ...l, width: val, metadata: { ...l.metadata, dpiInfo: newDpi || l.metadata?.dpiInfo } }; } return l; })); setSaveStatus('unsaved'); }} className="w-full px-2 py-1.5 bg-bg border border-text/10 rounded text-xs text-text" step="0.25" min="0.25" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted block mb-1">H (in)</label>
+                              <input type="number" value={selectedLayers[0].height.toFixed(2)} onChange={(e) => { const val = parseFloat(e.target.value) || 0.1; const cur = selectedLayers[0]; setLayers(prev => prev.map(l => { if (l.id === cur.id) { const newDpi = recalculateDpi(l, l.width, val); return { ...l, height: val, metadata: { ...l.metadata, dpiInfo: newDpi || l.metadata?.dpiInfo } }; } return l; })); setSaveStatus('unsaved'); }} className="w-full px-2 py-1.5 bg-bg border border-text/10 rounded text-xs text-text" step="0.25" min="0.25" />
                             </div>
                           </div>
+
+                          <div>
+                            <label className="text-xs text-muted block mb-1">Rotation: {selectedLayers[0].rotation}&deg;</label>
+                            <input type="range" min="0" max="360" value={selectedLayers[0].rotation} onChange={(e) => { setLayers(prev => prev.map(l => l.id === selectedLayers[0].id ? { ...l, rotation: parseInt(e.target.value) } : l)); setSaveStatus('unsaved'); }} className="w-full accent-primary" />
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-muted mb-1">Quick sizes:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {[{label:'11"F', w:11},{label:'10"F', w:10},{label:'3.5"P', w:3.5},{label:'12"B', w:12}].map(qs => (
+                                <button key={qs.label} onClick={() => applyQuickSize(qs.w)} className="px-1.5 py-0.5 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded transition-colors">{qs.label}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button onClick={duplicateSelectedLayers} className="flex-1 px-2 py-1.5 bg-bg text-text rounded text-xs font-medium hover:bg-text/10 transition-colors flex items-center justify-center gap-1">
+                              <Copy className="w-3 h-3" /> Dup
+                            </button>
+                            <button onClick={() => { setLayers(prev => prev.filter(l => !selectedLayerIds.includes(l.id))); setSelectedLayerIds([]); setSaveStatus('unsaved'); }} className="flex-1 px-2 py-1.5 bg-red-500/10 text-red-500 rounded text-xs font-medium hover:bg-red-500/20 flex items-center justify-center gap-1">
+                              <Trash2 className="w-3 h-3" /> Delete
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          {layers.length === 0 ? (
+                            <div className="text-center py-4 text-muted/60">
+                              <Layers className="w-7 h-7 mx-auto mb-2 opacity-50" />
+                              <p className="text-xs">No layers yet</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              {[...layers].reverse().map(layer => {
+                                const imageUrl = layer.processed_url || layer.source_url;
+                                const isVisible = layer.metadata?.visible !== false;
+                                const isLocked = layer.metadata?.locked === true;
+                                const layerName = layer.metadata?.name || `Layer ${layer.z_index + 1}`;
+                                const dpiInfo = layer.metadata?.dpiInfo as DpiInfo | undefined;
+                                const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality) : null;
+                                return (
+                                  <div key={layer.id} onClick={() => selectLayer(layer.id)} className={`p-2 rounded-lg cursor-pointer transition-all flex items-center gap-2 ${selectedLayerIds.includes(layer.id) ? 'bg-primary/15 border border-primary/40' : 'hover:bg-text/5 border border-transparent'}`}>
+                                    <div className="w-7 h-7 rounded bg-bg flex items-center justify-center overflow-hidden shrink-0 relative">
+                                      {(layer.layer_type === 'image' || layer.layer_type === 'ai_generated') && imageUrl ? (
+                                        <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+                                      ) : layer.layer_type === 'text' ? (
+                                        <Type className="w-3 h-3 text-muted" />
+                                      ) : (
+                                        <Square className="w-3 h-3 text-muted" />
+                                      )}
+                                      {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
+                                        <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-card ${dpiDisplay?.indicatorColor}`} />
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-medium text-text truncate">{layerName}</p>
+                                      {dpiInfo && (dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger') && (
+                                        <p className={`text-xs ${dpiDisplay?.color} truncate`}>{dpiInfo.dpi} DPI</p>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-0.5">
+                                      <button onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer.id); }} className="p-0.5 text-muted/70 hover:text-text">
+                                        {isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                      </button>
+                                      <button onClick={(e) => { e.stopPropagation(); toggleLayerLock(layer.id); }} className="p-0.5 text-muted/70 hover:text-text">
+                                        {isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      <div>
-                        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Position</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-xs text-muted block mb-1">X (inches)</label>
-                            <input
-                              type="number"
-                              value={selectedLayers[0].position_x.toFixed(2)}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                setLayers(prev => prev.map(l =>
-                                  l.id === selectedLayers[0].id ? { ...l, position_x: val } : l
-                                ));
-                                setSaveStatus('unsaved');
-                              }}
-                              className="w-full px-3 py-2 bg-bg border border-text/10 rounded-lg text-sm text-text focus:ring-2 focus:ring-primary focus:border-transparent"
-                              step="0.1"
-                            />
+                  {/* Order tab */}
+                  {activePanel === 'order' && (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-primary/10 rounded-xl border border-primary/20">
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted">Sheet</span>
+                            <span className="font-medium text-text">{sheet.sheet_width}&quot; x {sheet.sheet_height}&quot; {preset?.name}</span>
                           </div>
-                          <div>
-                            <label className="text-xs text-muted block mb-1">Y (inches)</label>
-                            <input
-                              type="number"
-                              value={selectedLayers[0].position_y.toFixed(2)}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                setLayers(prev => prev.map(l =>
-                                  l.id === selectedLayers[0].id ? { ...l, position_y: val } : l
-                                ));
-                                setSaveStatus('unsaved');
-                              }}
-                              className="w-full px-3 py-2 bg-bg border border-text/10 rounded-lg text-sm text-text focus:ring-2 focus:ring-primary focus:border-transparent"
-                              step="0.1"
-                            />
+                          <div className="flex justify-between">
+                            <span className="text-muted">Designs on sheet</span>
+                            <span className="font-medium text-text">{layers.length}</span>
+                          </div>
+                          <div className="flex justify-between pt-1 border-t border-primary/20">
+                            <span className="text-muted">Total</span>
+                            <span className="font-bold text-primary">${sheetPrice.toFixed(2)}</span>
                           </div>
                         </div>
                       </div>
 
-                      <div>
-                        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Size (inches)</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-xs text-muted block mb-1">Width</label>
-                            <input
-                              type="number"
-                              value={selectedLayers[0].width.toFixed(2)}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0.1;
-                                const currentLayer = selectedLayers[0];
-                                setLayers(prev => prev.map(l => {
-                                  if (l.id === currentLayer.id) {
-                                    const newDpiInfo = recalculateDpi(l, val, l.height);
-                                    return {
-                                      ...l,
-                                      width: val,
-                                      metadata: {
-                                        ...l.metadata,
-                                        dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
-                                      }
-                                    };
-                                  }
-                                  return l;
-                                }));
-                                setSaveStatus('unsaved');
-                              }}
-                              className="w-full px-3 py-2 bg-bg border border-text/10 rounded-lg text-sm text-text focus:ring-2 focus:ring-primary focus:border-transparent"
-                              step="0.25"
-                              min="0.25"
-                            />
+                      {(() => {
+                        const dangerCount = layers.filter(l => (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'danger').length;
+                        const warningCount = layers.filter(l => (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'warning').length;
+                        if (dangerCount > 0 || warningCount > 0) {
+                          return (
+                            <div className={`p-2 rounded-xl border text-xs ${dangerCount > 0 ? 'bg-red-500/10 border-red-500/40' : 'bg-amber-500/10 border-amber-500/40'}`}>
+                              <div className="flex items-start gap-2">
+                                <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'}`} />
+                                <div>
+                                  <p className={`font-medium mb-0.5 ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                                    {dangerCount > 0 ? `${dangerCount} critical DPI issue${dangerCount !== 1 ? 's' : ''}` : `${warningCount} DPI warning${warningCount !== 1 ? 's' : ''}`}
+                                  </p>
+                                  <p className={dangerCount > 0 ? 'text-red-500/80' : 'text-amber-500/80'}>
+                                    {dangerCount > 0 ? 'Shrink or upscale affected designs before ordering.' : 'May appear pixelated. Consider upscaling.'}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="p-2 bg-green-500/10 rounded-xl border border-green-500/30 flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+                            <p className="text-xs text-green-500 font-medium">
+                              {layers.length > 0 ? 'All designs meet print quality standards' : 'Add designs to check quality'}
+                            </p>
                           </div>
-                          <div>
-                            <label className="text-xs text-muted block mb-1">Height</label>
-                            <input
-                              type="number"
-                              value={selectedLayers[0].height.toFixed(2)}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0.1;
-                                const currentLayer = selectedLayers[0];
-                                setLayers(prev => prev.map(l => {
-                                  if (l.id === currentLayer.id) {
-                                    const newDpiInfo = recalculateDpi(l, l.width, val);
-                                    return {
-                                      ...l,
-                                      height: val,
-                                      metadata: {
-                                        ...l.metadata,
-                                        dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
-                                      }
-                                    };
-                                  }
-                                  return l;
-                                }));
-                                setSaveStatus('unsaved');
-                              }}
-                              className="w-full px-3 py-2 bg-bg border border-text/10 rounded-lg text-sm text-text focus:ring-2 focus:ring-primary focus:border-transparent"
-                              step="0.25"
-                              min="0.25"
-                            />
-                          </div>
-                        </div>
+                        );
+                      })()}
 
-                        {/* Quick Size Presets for T-Shirts */}
-                        <div className="mt-3 pt-3 border-t border-text/10">
-                          <p className="text-xs text-muted mb-2">Quick sizes:</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {[
-                              { label: '11" Front', width: 11, hint: 'Front chest - Adult L/XL' },
-                              { label: '10" Front', width: 10, hint: 'Front chest - Adult M' },
-                              { label: '3.5" Pocket', width: 3.5, hint: 'Left chest pocket size' },
-                              { label: '12" Back', width: 12, hint: 'Full back print' },
-                              { label: '4" Sleeve', width: 4, hint: 'Sleeve print' },
-                            ].map(qs => (
-                              <button
-                                key={qs.label}
-                                onClick={() => applyQuickSize(qs.width)}
-                                className="px-2 py-1 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded transition-colors"
-                                title={qs.hint}
-                              >
-                                {qs.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Size Guide Reference */}
-                        <details className="mt-3">
-                          <summary className="text-xs text-primary cursor-pointer hover:opacity-80">
-                            T-Shirt Size Guide
-                          </summary>
-                          <div className="mt-2 p-2 bg-bg rounded-lg text-xs text-muted space-y-1">
-                            <p><strong>Front Chest (Full):</strong></p>
-                            <p className="pl-2">• Youth S-M: 7-8" wide</p>
-                            <p className="pl-2">• Youth L-XL: 8-9" wide</p>
-                            <p className="pl-2">• Adult S-M: 9-10" wide</p>
-                            <p className="pl-2">• Adult L-XL: 10-11" wide</p>
-                            <p className="pl-2">• Adult 2XL+: 11-12" wide</p>
-                            <p className="mt-2"><strong>Left Chest (Pocket):</strong> 3-4" wide</p>
-                            <p><strong>Full Back:</strong> 11-14" wide</p>
-                            <p><strong>Sleeve:</strong> 3-4" wide</p>
-                            <p className="mt-2 text-primary italic">Tip: Height auto-scales based on aspect ratio</p>
-                          </div>
-                        </details>
+                      <div className="p-3 bg-bg rounded-xl border border-text/10 space-y-2">
+                        <h4 className="text-xs font-medium text-text">Print Options</h4>
+                        {preset?.allowCutlines && (
+                          <label className="flex items-center gap-2 cursor-pointer text-xs">
+                            <input type="checkbox" checked={showCutLines} onChange={(e) => setShowCutLines(e.target.checked)} className="w-3.5 h-3.5 rounded border-text/20 text-primary focus:ring-primary" />
+                            <Scissors className="w-3.5 h-3.5 text-muted" />
+                            <span className="text-text">Include cut lines</span>
+                          </label>
+                        )}
+                        {preset?.allowMirror && (
+                          <label className="flex items-center gap-2 cursor-pointer text-xs">
+                            <input type="checkbox" checked={mirrorForSublimation} onChange={(e) => setMirrorForSublimation(e.target.checked)} className="w-3.5 h-3.5 rounded border-text/20 text-primary focus:ring-primary" />
+                            <FlipHorizontal className="w-3.5 h-3.5 text-muted" />
+                            <span className="text-text">Mirror for sublimation</span>
+                          </label>
+                        )}
+                        {!preset?.allowCutlines && !preset?.allowMirror && (
+                          <p className="text-xs text-muted italic">No additional print options for {preset?.name}</p>
+                        )}
                       </div>
-
-                      <div>
-                        <h4 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Transform</h4>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-xs text-muted block mb-1">Rotation (degrees)</label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="360"
-                              value={selectedLayers[0].rotation}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value);
-                                setLayers(prev => prev.map(l =>
-                                  l.id === selectedLayers[0].id ? { ...l, rotation: val } : l
-                                ));
-                                setSaveStatus('unsaved');
-                              }}
-                              className="w-full accent-primary"
-                            />
-                            <div className="text-right text-xs text-muted">{selectedLayers[0].rotation}°</div>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted block mb-1">Opacity</label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.01"
-                              value={selectedLayers[0].metadata?.opacity ?? 1}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                setLayers(prev => prev.map(l =>
-                                  l.id === selectedLayers[0].id ? {
-                                    ...l,
-                                    metadata: { ...l.metadata, opacity: val }
-                                  } : l
-                                ));
-                                setSaveStatus('unsaved');
-                              }}
-                              className="w-full accent-primary"
-                            />
-                            <div className="text-right text-xs text-muted">{Math.round((selectedLayers[0].metadata?.opacity ?? 1) * 100)}%</div>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-center py-12 text-muted/70">
-                      <Settings className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                      <p className="font-medium text-muted">No layer selected</p>
-                      <p className="text-sm">Click a design on the sheet to edit its size, position, and rotation</p>
                     </div>
                   )}
                 </div>
-              )}
 
-              {/* Order Panel */}
-              {activePanel === 'order' && (
-                <div className="space-y-5">
-                  <div>
-                    <h3 className="font-semibold text-text mb-3">Order Your Imagination Sheet™</h3>
-
-                    <div className="p-4 bg-primary/10 rounded-xl border border-primary/20">
-                      <div className="space-y-1.5 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted">Sheet</span>
-                          <span className="font-medium text-text">{sheet.sheet_width}" × {sheet.sheet_height}" {preset?.name}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted">Designs</span>
-                          <span className="font-medium text-text">{layers.length} layer{layers.length !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div className="flex justify-between pt-1.5 border-t border-primary/20">
-                          <span className="text-muted">Total</span>
-                          <span className="font-bold text-primary text-base">${sheetPrice.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* DPI Quality Summary */}
-                  {(() => {
-                    const dangerCount = layers.filter(l =>
-                      (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'danger'
-                    ).length;
-                    const warningCount = layers.filter(l =>
-                      (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'warning'
-                    ).length;
-
-                    if (dangerCount > 0 || warningCount > 0) {
-                      return (
-                        <div className={`p-4 rounded-xl border ${dangerCount > 0
-                          ? 'bg-red-500/10 border-red-500/40'
-                          : 'bg-amber-500/10 border-amber-500/40'
-                          }`}>
-                          <div className="flex items-start gap-3">
-                            <AlertCircle className={`w-5 h-5 shrink-0 mt-0.5 ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'
-                              }`} />
-                            <div className="flex-1">
-                              <p className={`text-sm font-medium mb-1 ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'
-                                }`}>
-                                {dangerCount > 0 ? 'Print Quality Issues' : 'Print Quality Warning'}
-                              </p>
-                              {dangerCount > 0 && (
-                                <p className="text-xs text-red-500/90 mb-2">
-                                  {dangerCount} image{dangerCount !== 1 ? 's' : ''} with critically low DPI (below 100). Cannot add to cart.
-                                </p>
-                              )}
-                              {warningCount > 0 && (
-                                <p className="text-xs text-amber-500/90 mb-2">
-                                  {warningCount} image{warningCount !== 1 ? 's' : ''} with low DPI (100-150). May appear pixelated.
-                                </p>
-                              )}
-                              <p className={`text-xs ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'
-                                }`}>
-                                {dangerCount > 0
-                                  ? 'Shrink the affected designs or use the Upscale tool, then try again.'
-                                  : 'Consider improving quality before ordering.'}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div className="p-3 bg-green-500/10 rounded-xl border border-green-500/30 flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                        <p className="text-xs text-green-500 font-medium">
-                          {layers.length > 0 ? 'All designs meet print quality standards' : 'Add designs to check print quality'}
-                        </p>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="p-4 bg-bg rounded-xl border border-text/10">
-                    <h4 className="font-medium text-text mb-3">Print Options</h4>
-                    <div className="space-y-3">
-                      {/* Show cutlines toggle only for UV DTF */}
-                      {preset?.allowCutlines && (
-                        <label className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={showCutLines}
-                            onChange={(e) => setShowCutLines(e.target.checked)}
-                            className="w-4 h-4 rounded border-text/20 text-primary focus:ring-primary"
-                          />
-                          <div className="flex items-center gap-2">
-                            <Scissors className="w-4 h-4 text-muted" />
-                            <span className="text-sm text-text">Include cut lines</span>
-                          </div>
-                        </label>
-                      )}
-
-                      {/* Show mirror toggle only for Sublimation */}
-                      {preset?.allowMirror && (
-                        <label className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={mirrorForSublimation}
-                            onChange={(e) => setMirrorForSublimation(e.target.checked)}
-                            className="w-4 h-4 rounded border-text/20 text-primary focus:ring-primary"
-                          />
-                          <div className="flex items-center gap-2">
-                            <FlipHorizontal className="w-4 h-4 text-muted" />
-                            <span className="text-sm text-text">Mirror for sublimation</span>
-                          </div>
-                        </label>
-                      )}
-
-                      {/* Show info if no options available */}
-                      {!preset?.allowCutlines && !preset?.allowMirror && (
-                        <div className="text-sm text-muted italic">
-                          No additional print options for {preset?.name}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-blue-500/10 rounded-xl border border-blue-500/30">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm text-blue-500 font-medium">Production Note</p>
-                        <p className="text-xs text-blue-500/80 mt-1">
-                          Your design will be saved and processed for printing after checkout. High-resolution print files will be generated by our production system.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                {/* Checkout footer */}
+                <div className="p-3 border-t border-text/10 bg-card shrink-0">
+                  <button
+                    onClick={handleAddToCart}
+                    disabled={isProcessing || layers.length === 0}
+                    className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-semibold hover:from-purple-700 hover:to-purple-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    {isProcessing ? <><Loader2 className="w-4 h-4 animate-spin" />Processing...</> : <><ShoppingCart className="w-4 h-4" />Add to Cart &mdash; ${sheetPrice.toFixed(2)}</>}
+                  </button>
                 </div>
-              )}
-            </div>
-
-            {/* Persistent checkout footer — always visible regardless of tab */}
-            <div className="p-4 border-t border-text/10 bg-card shrink-0">
-              <button
-                onClick={handleAddToCart}
-                disabled={isProcessing || layers.length === 0}
-                className="w-full px-4 py-3.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-semibold hover:from-purple-700 hover:to-purple-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20"
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCart className="w-5 h-5" />
-                    Add to Cart — ${sheetPrice.toFixed(2)}
-                  </>
-                )}
-              </button>
-            </div>
-          </aside>
+              </div>
+            </aside>
           </>
         )}
       </div>
@@ -2904,11 +2677,8 @@ const ImaginationStation: React.FC = () => {
           <div className="bg-card text-text rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-text/10 flex items-center justify-between">
               <h2 className="text-2xl font-serif font-bold text-text">My Projects</h2>
-              <button
-                onClick={() => setShowProjectsModal(false)}
-                className="w-8 h-8 flex items-center justify-center text-muted hover:text-text hover:bg-primary/10 rounded-lg transition-colors"
-              >
-                ✕
+              <button onClick={() => setShowProjectsModal(false)} className="w-8 h-8 flex items-center justify-center text-muted hover:text-text hover:bg-primary/10 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
@@ -2916,21 +2686,15 @@ const ImaginationStation: React.FC = () => {
                 <div className="text-center py-12">
                   <Layers className="w-16 h-16 mx-auto mb-4 text-muted/50" />
                   <h3 className="text-lg font-medium text-text mb-2">No projects yet</h3>
-                  <p className="text-muted">Create a new Imagination Sheet™ to get started!</p>
-                  <button
-                    onClick={() => {
-                      setShowProjectsModal(false);
-                      navigate('/imagination-station');
-                    }}
-                    className="mt-6 px-6 py-3 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
-                  >
+                  <p className="text-muted">Create a new Imagination Sheet to get started!</p>
+                  <button onClick={() => { setShowProjectsModal(false); navigate('/imagination-station'); }} className="mt-6 px-6 py-3 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity">
                     Create New Project
                   </button>
                 </div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
                   {recentSheets.map(s => {
-                    const preset = presets ? presets[s.print_type as PrintType] : null;
+                    const presetData = presets ? presets[s.print_type as PrintType] : null;
                     const layerCount = s.canvas_state?.layers?.length || 0;
                     const isCurrentProject = s.id === sheet?.id;
                     return (
@@ -2939,37 +2703,25 @@ const ImaginationStation: React.FC = () => {
                         onClick={() => {
                           if (!isCurrentProject) {
                             if (saveStatus === 'unsaved') {
-                              const confirmSwitch = window.confirm(
-                                'You have unsaved changes. Do you want to save before switching projects?'
-                              );
-                              if (confirmSwitch) {
-                                saveSheet().then(() => {
-                                  navigate(`/imagination-station/${s.id}`);
-                                  setShowProjectsModal(false);
-                                });
-                                return;
-                              }
+                              const confirmSwitch = window.confirm('You have unsaved changes. Do you want to save before switching projects?');
+                              if (confirmSwitch) { saveSheet().then(() => { navigate(`/imagination-station/${s.id}`); setShowProjectsModal(false); }); return; }
                             }
                             navigate(`/imagination-station/${s.id}`);
                             setShowProjectsModal(false);
                           }
                         }}
-                        className={`text-left border rounded-xl overflow-hidden hover:border-primary/50 hover:shadow-md transition-all duration-200 ${isCurrentProject ? 'border-primary ring-2 ring-primary/30' : 'border-text/10'
-                          }`}
+                        className={`text-left border rounded-xl overflow-hidden hover:border-primary/50 hover:shadow-md transition-all duration-200 ${isCurrentProject ? 'border-primary ring-2 ring-primary/30' : 'border-text/10'}`}
                       >
                         <div className="aspect-video bg-bg relative overflow-hidden">
                           {s.thumbnail_url ? (
                             <img src={s.thumbnail_url} alt={s.name} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
-                              <div className="w-16 h-16 bg-primary/10 rounded-xl flex items-center justify-center text-3xl">
-                                {preset?.icon || '📄'}
-                              </div>
+                              <div className="w-16 h-16 bg-primary/10 rounded-xl flex items-center justify-center text-3xl">{presetData?.icon || '📄'}</div>
                             </div>
                           )}
                           <div className="absolute top-2 right-2">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${s.status === 'draft' ? 'bg-black/60 text-white' : s.status === 'submitted' ? 'bg-purple-600/80 text-white' : 'bg-green-600/80 text-white'
-                              }`}>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${s.status === 'draft' ? 'bg-black/60 text-white' : s.status === 'submitted' ? 'bg-purple-600/80 text-white' : 'bg-green-600/80 text-white'}`}>
                               {s.status === 'draft' ? 'Draft' : s.status === 'submitted' ? 'Submitted' : s.status}
                             </span>
                           </div>
@@ -2981,14 +2733,9 @@ const ImaginationStation: React.FC = () => {
                         </div>
                         <div className="p-4">
                           <h3 className="font-medium text-text truncate mb-1">{s.name}</h3>
-                          <p className="text-xs text-muted mb-2">
-                            {s.sheet_width}" × {s.sheet_height}" {preset?.name || s.print_type}
-                          </p>
+                          <p className="text-xs text-muted mb-2">{s.sheet_width}&quot; x {s.sheet_height}&quot; {presetData?.name || s.print_type}</p>
                           <div className="flex items-center gap-3 text-xs text-muted/70">
-                            <span className="flex items-center gap-1">
-                              <Layers className="w-3 h-3" />
-                              {layerCount} layer{layerCount !== 1 ? 's' : ''}
-                            </span>
+                            <span className="flex items-center gap-1"><Layers className="w-3 h-3" />{layerCount} layer{layerCount !== 1 ? 's' : ''}</span>
                             <span>•</span>
                             <span>{new Date(s.updated_at).toLocaleDateString()}</span>
                           </div>
@@ -3000,19 +2747,10 @@ const ImaginationStation: React.FC = () => {
               )}
             </div>
             <div className="p-6 border-t border-text/10 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  setShowProjectsModal(false);
-                  navigate('/imagination-station');
-                }}
-                className="px-4 py-2 text-primary hover:opacity-80 font-medium"
-              >
+              <button onClick={() => { setShowProjectsModal(false); navigate('/imagination-station'); }} className="px-4 py-2 text-primary hover:opacity-80 font-medium">
                 Create New Project
               </button>
-              <button
-                onClick={() => setShowProjectsModal(false)}
-                className="px-6 py-2 bg-primary/10 text-text rounded-lg font-medium hover:bg-primary/20 transition-colors"
-              >
+              <button onClick={() => setShowProjectsModal(false)} className="px-6 py-2 bg-primary/10 text-text rounded-lg font-medium hover:bg-primary/20 transition-colors">
                 Close
               </button>
             </div>
@@ -3037,22 +2775,22 @@ const ImaginationStation: React.FC = () => {
             afterDpi: compareModal.afterDpi,
             operation: compareModal.operation,
           }}
-          onAccept={() => {
-            // Changes are already applied, just close the modal
-            setCompareModal(null);
-          }}
+          onAccept={() => setCompareModal(null)}
           onRevert={() => {
-            // Restore the exact pre-operation snapshot (processed_url + metadata)
-            setLayers(prev => prev.map(l =>
-              l.id === compareModal.layerId
-                ? {
-                  ...l,
-                  processed_url: compareModal.revert.processedUrl,
-                  metadata: compareModal.revert.metadata,
-                }
-                : l
-            ));
-            setSaveStatus('unsaved');
+            if (compareModal.layerId.startsWith('design-')) {
+              setDesigns(prev => prev.map(d =>
+                d.id === compareModal.layerId
+                  ? { ...d, url: compareModal.revert.processedUrl || d.originalUrl }
+                  : d
+              ));
+            } else {
+              setLayers(prev => prev.map(l =>
+                l.id === compareModal.layerId
+                  ? { ...l, processed_url: compareModal.revert.processedUrl, metadata: compareModal.revert.metadata }
+                  : l
+              ));
+              setSaveStatus('unsaved');
+            }
             setCompareModal(null);
           }}
         />
@@ -3081,13 +2819,14 @@ const ImaginationStation: React.FC = () => {
         onImageGenerated={handleMrImagineImageGenerated}
       />
 
-      {/* Reimagine It Modal - Transform existing images */}
+      {/* Reimagine It Modal */}
       {reimagineItLayer && (
         <ReimagineItModal
           isOpen={showReimagineItModal}
           onClose={() => {
             setShowReimagineItModal(false);
             setReimagineItLayerId(null);
+            setReimagineDesignId(null);
           }}
           imageUrl={reimagineItLayer.processed_url || reimagineItLayer.source_url || ''}
           layerName={reimagineItLayer.metadata?.name || 'Selected Image'}
@@ -3098,7 +2837,7 @@ const ImaginationStation: React.FC = () => {
         />
       )}
 
-      {/* ITP Enhance Modal - Image enhancement tools */}
+      {/* ITP Enhance Modal */}
       <ITPEnhanceModal
         isOpen={showITPEnhanceModal}
         onClose={() => setShowITPEnhanceModal(false)}
@@ -3112,7 +2851,6 @@ const ImaginationStation: React.FC = () => {
         onReimagine={() => {
           const selectedImageLayer = selectedLayers.find(l => l.layer_type === 'image' || l.layer_type === 'ai_generated');
           if (selectedImageLayer) {
-            // Close the enhance modal first so the two modals never stack
             setShowITPEnhanceModal(false);
             openReimagineIt(selectedImageLayer.id);
           }
@@ -3134,6 +2872,7 @@ const ImaginationStationWithErrorBoundary: React.FC = () => (
 );
 
 export default ImaginationStationWithErrorBoundary;
+
 
 
 
