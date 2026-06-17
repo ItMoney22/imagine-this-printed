@@ -47,21 +47,23 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
       return res.status(500).json({ error: 'Failed to fetch pending products' })
     }
 
-    // Get creator info for each product
-    const productsWithCreators = await Promise.all(
-      (products || []).map(async (product: any) => {
-        const creatorId = product.metadata?.creator_id
-        if (creatorId) {
-          const { data: creator } = await supabase
-            .from('user_profiles')
-            .select('id, username, email')
-            .eq('id', creatorId)
-            .single()
-          return { ...product, creator }
-        }
-        return product
-      })
-    )
+    // Get creator info for all products in ONE batched query (was an N+1:
+    // a separate user_profiles lookup per pending product).
+    const creatorIds = [...new Set(
+      (products || []).map((p: any) => p.metadata?.creator_id).filter(Boolean)
+    )]
+    let creatorMap = new Map<string, any>()
+    if (creatorIds.length > 0) {
+      const { data: creators } = await supabase
+        .from('user_profiles')
+        .select('id, username, email')
+        .in('id', creatorIds)
+      creatorMap = new Map((creators || []).map((c: any) => [c.id, c]))
+    }
+    const productsWithCreators = (products || []).map((product: any) => {
+      const creatorId = product.metadata?.creator_id
+      return creatorId ? { ...product, creator: creatorMap.get(creatorId) ?? null } : product
+    })
 
     res.json({ products: productsWithCreators })
   } catch (error: any) {
@@ -77,7 +79,7 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
 router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
-    const { colors, sizes, price } = req.body
+    const { colors, sizes, price, name, finish, addons, colorMode } = req.body
     const adminId = req.user?.sub
 
     // Get product
@@ -95,14 +97,86 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       return res.status(400).json({ error: 'This is not a user-submitted product' })
     }
 
+    // Generation-completeness gate: a design only goes 'active' (visible on the
+    // products tab) once all its expected generations exist. Otherwise it lands
+    // as 'incomplete' and stays off the storefront. (David: "before they hit the
+    // products tab they need to have all generations done, or be marked incomplete.")
+    const tmpl = String(product.metadata?.product_template || product.metadata?.category || '').toLowerCase()
+    const kind = (tmpl.includes('metal') || tmpl.includes('wall')) ? 'metal'
+      : (tmpl.includes('3d') || tmpl.includes('toy')) ? '3d' : 'apparel'
+    const assets = (product.metadata?.assets && typeof product.metadata.assets === 'object') ? product.metadata.assets : {}
+    const hasMockup = !!(product.metadata?.mockup_url || (Array.isArray(assets.mockups) && assets.mockups.length))
+    const missingGenerations: string[] = []
+    if (!assets.clean && !(Array.isArray(product.images) && product.images.length)) missingGenerations.push('clean design')
+    if (!hasMockup) missingGenerations.push('mockup')
+    if (kind === 'apparel') {
+      if (!assets.halftone) missingGenerations.push('halftone')
+      if (!assets.dtf) missingGenerations.push('DTF print-ready')
+    }
+    // Admin can still push a product live despite missing gens via { force: true }.
+    const generationStatus = (missingGenerations.length > 0 && !req.body?.force) ? 'incomplete' : 'active'
+
+    // Produce a watermarked PUBLIC display variant of the clean art (the clean
+    // original stays gated for paid digital delivery). Best-effort — never block
+    // approval on watermarking.
+    let displayUrl: string | undefined
+    const cleanSource = assets.clean || (Array.isArray(product.images) ? product.images[0] : undefined)
+    if (cleanSource) {
+      try {
+        const { watermarkUrlToGcs } = await import('../../services/watermark.js')
+        displayUrl = await watermarkUrlToGcs(cleanSource, `watermarked/${id}-display-${Date.now()}.png`)
+      } catch (e: any) {
+        console.error('[admin-approvals] ⚠️ watermark failed (display falls back to clean art):', e?.message)
+      }
+    }
+
     // Build update object with colors, sizes, and price
     const updateData: any = {
-      status: 'active',
+      status: generationStatus,
       metadata: {
         ...product.metadata,
         approved_at: new Date().toISOString(),
         approved_by: adminId,
+        missing_generations: missingGenerations,
+        // Role-tagged assets: `display` is the watermarked public hero; `clean`
+        // stays the un-watermarked deliverable for paid digital download.
+        assets: {
+          ...assets,
+          ...(displayUrl ? { display: displayUrl } : {}),
+        },
+        // Product-type-specific config (metal finish, add-ons) lives in metadata.
+        ...(finish ? { finish } : {}),
+        ...(Array.isArray(addons) ? { addons } : {}),
+        ...(colorMode ? { color_mode: colorMode } : {}),
       }
+    }
+
+    // Auto-enable a digital download product when the design carries
+    // deliverables (clean / halftone / DTF). Priced in ITC at checkout; admin
+    // can adjust digital_price later. Default $9.99 if unset.
+    const hasDeliverables = !!(assets.clean || assets.halftone || assets.dtf)
+    if (hasDeliverables) {
+      updateData.product_type = 'both'
+      if (!product.digital_price || Number(product.digital_price) <= 0) {
+        updateData.digital_price = 9.99
+      }
+    }
+
+    // Set the canonical `category` column so the storefront classifies the
+    // product correctly. Metal/3D submissions came in with a null category and
+    // were defaulting to T-Shirts everywhere (catalog filter, product card,
+    // product page). Derived from `kind` (computed above from product_template).
+    if (kind === 'metal') {
+      updateData.category = 'metal-art'
+    } else if (kind === '3d') {
+      updateData.category = '3d-prints'
+    } else if (!product.category) {
+      updateData.category = 'shirts'
+    }
+
+    // Admin can tweak the AI-generated title at approval time.
+    if (name && typeof name === 'string' && name.trim()) {
+      updateData.name = name.trim()
     }
 
     // Add colors if provided
@@ -203,9 +277,16 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       }
     }
 
-    console.log('[admin-approvals] ✅ Product approved:', id)
+    console.log(`[admin-approvals] ✅ Product approved (status=${generationStatus}${missingGenerations.length ? `, missing: ${missingGenerations.join(', ')}` : ''}):`, id)
 
-    res.json({ message: 'Product approved successfully', productId: id })
+    res.json({
+      message: generationStatus === 'active'
+        ? 'Product approved and published'
+        : `Saved as INCOMPLETE — missing: ${missingGenerations.join(', ')}. Generate these (or re-approve with force) before it goes live.`,
+      productId: id,
+      status: generationStatus,
+      missingGenerations,
+    })
   } catch (error: any) {
     console.error('[admin-approvals] ❌ Error:', error)
     res.status(500).json({ error: error.message })
@@ -365,21 +446,25 @@ router.get('/creators', requireAuth, requireAdmin, async (req: Request, res: Res
       .select('id, username, email')
       .in('id', creatorIds)
 
-    // Get royalties for each creator
+    // Get royalties for each creator. The LIVE table is `user_product_royalties`
+    // (keyed by user_id; status lifecycle pending -> credited as ITC is
+    // auto-credited to the creator's wallet on each sale). The old code queried a
+    // nonexistent `creator_royalties` table by creator_id with status 'paid', so
+    // every creator's earnings always read $0.
     const { data: royalties } = await supabase
-      .from('creator_royalties')
+      .from('user_product_royalties')
       .select('*')
-      .in('creator_id', creatorIds)
+      .in('user_id', creatorIds)
 
     // Combine data
     const creators = creatorIds.map(creatorId => {
       const data = creatorMap.get(creatorId)
       const profile = profiles?.find(p => p.id === creatorId)
-      const creatorRoyalties = royalties?.filter(r => r.creator_id === creatorId) || []
+      const creatorRoyalties = royalties?.filter(r => r.user_id === creatorId) || []
 
       const totalEarnings = creatorRoyalties.reduce((sum, r) => sum + (r.amount_cents || 0), 0)
       const pendingEarnings = creatorRoyalties.filter(r => r.status === 'pending').reduce((sum, r) => sum + (r.amount_cents || 0), 0)
-      const paidEarnings = creatorRoyalties.filter(r => r.status === 'paid').reduce((sum, r) => sum + (r.amount_cents || 0), 0)
+      const paidEarnings = creatorRoyalties.filter(r => r.status === 'credited').reduce((sum, r) => sum + (r.amount_cents || 0), 0)
 
       return {
         ...data,
@@ -412,7 +497,13 @@ router.post('/payout/:creatorId', requireAuth, requireAdmin, async (req: Request
       return res.status(400).json({ error: 'Valid amount required' })
     }
 
-    // Get pending royalties for this creator
+    // NOTE (P4 audit): this endpoint is not wired to any UI and queries the
+    // nonexistent `creator_royalties` table — so it always finds $0 pending and
+    // rejects. It implements a MANUAL cash-payout / mark-'paid' flow that does
+    // not match the live model: royalties live in `user_product_royalties` and
+    // are AUTO-CREDITED as ITC on sale (status pending -> credited). Resolve as a
+    // design decision (remove this endpoint, or rebuild it as a real cash-out
+    // against user_product_royalties) before wiring any "pay creator" button.
     const { data: pendingRoyalties } = await supabase
       .from('creator_royalties')
       .select('*')

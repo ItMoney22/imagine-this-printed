@@ -464,7 +464,12 @@ export async function logEmail(
       ai_personalization_used: aiUsed,
       message_id: messageId,
       status: messageId ? 'sent' : 'pending',
-      order_id: context.orderNumber ? undefined : undefined, // Could map order_number to id
+      // order_id is a uuid FK to orders.id, but EmailContext only carries the human
+      // order NUMBER (a string), not the uuid — so we leave it null here. Do NOT
+      // assign context.orderNumber: it would write a non-uuid string into a uuid
+      // column and the whole insert would throw (silently dropping the email log).
+      // Proper linkage = thread the real orders.id through EmailContext (TODO).
+      order_id: null,
       metadata: {
         items: context.items,
         total: context.total,

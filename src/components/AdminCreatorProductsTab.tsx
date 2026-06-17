@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import api from '../lib/api'
+import { useToast } from '../hooks/useToast'
 
 interface CreatorProduct {
   id: string
@@ -43,13 +44,63 @@ const SHIRT_COLORS = [
 
 const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
 
+// Metal-art config
+const METAL_SIZES = ['4x6', '8x11']
+const METAL_FINISHES = ['matte', 'glossy']
+const METAL_ADDONS: { id: string; name: string; price: number; printed: boolean }[] = [
+  { id: 'easel_stand', name: 'Tabletop easel stand', price: 7, printed: true },
+  { id: 'standoff_mount', name: 'Floating standoff wall mount', price: 10, printed: true },
+  { id: 'hanging_kit', name: 'Sawtooth hanging kit', price: 5, printed: true },
+  { id: 'gift_box', name: 'Gift packaging', price: 5, printed: false },
+]
+
+// 3D-art config
+const TIER_3D = ['mini', 'small', 'medium', 'large']
+const COLOR_MODES_3D: { id: string; name: string }[] = [
+  { id: 'grey', name: 'Grey PLA' },
+  { id: 'color4', name: 'Full color' },
+]
+
+type ProductKind = 'apparel' | 'metal' | '3d'
+
+/** Infer the product type from its category / metadata so we show the right config. */
+function productKind(p: { category?: string; metadata?: any }): ProductKind {
+  const c = (p.category || '').toLowerCase()
+  const t = (p.metadata?.product_template || '').toString().toLowerCase()
+  if (c.includes('metal') || t.includes('metal')) return 'metal'
+  if (c.includes('3d') || c.includes('print3d') || t.includes('3d') || t.includes('toy')) return '3d'
+  return 'apparel'
+}
+
+/** Which expected generations are missing (mirrors the backend approve gate).
+ *  A design with any missing gens is saved as 'incomplete' (off the products tab). */
+function missingGenerations(p: { category?: string; metadata?: any; images?: string[] }): string[] {
+  const kind = productKind(p)
+  const meta: any = p.metadata || {}
+  const assets = meta.assets && typeof meta.assets === 'object' ? meta.assets : {}
+  const hasMockup = !!(meta.mockup_url || (Array.isArray(assets.mockups) && assets.mockups.length))
+  const missing: string[] = []
+  if (!assets.clean && !(Array.isArray(p.images) && p.images.length)) missing.push('clean design')
+  if (!hasMockup) missing.push('mockup')
+  if (kind === 'apparel') {
+    if (!assets.halftone) missing.push('halftone')
+    if (!assets.dtf) missing.push('DTF')
+  }
+  return missing
+}
+
 interface ApprovalConfig {
-  colors: string[]
-  sizes: string[]
+  name: string
   price: number
+  colors: string[]   // apparel
+  sizes: string[]    // apparel sizes OR metal sizes
+  finish: string     // metal
+  addons: string[]   // metal add-on ids
+  colorMode: string  // 3d
 }
 
 export const AdminCreatorProductsTab: React.FC = () => {
+  const toast = useToast()
   const [products, setProducts] = useState<CreatorProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -57,10 +108,9 @@ export const AdminCreatorProductsTab: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
   const [showApproveModal, setShowApproveModal] = useState<string | null>(null)
+  const [approvalKind, setApprovalKind] = useState<ProductKind>('apparel')
   const [approvalConfig, setApprovalConfig] = useState<ApprovalConfig>({
-    colors: ['black', 'white'],
-    sizes: ['S', 'M', 'L', 'XL'],
-    price: 25
+    name: '', price: 25, colors: ['black', 'white'], sizes: ['S', 'M', 'L', 'XL'], finish: 'glossy', addons: [], colorMode: 'grey',
   })
 
   useEffect(() => {
@@ -81,47 +131,74 @@ export const AdminCreatorProductsTab: React.FC = () => {
     }
   }
 
-  const openApproveModal = (productId: string, currentPrice?: number) => {
+  const openApproveModal = (product: CreatorProduct) => {
+    const kind = productKind(product)
+    setApprovalKind(kind)
+    // products.price is dollars already; default per type.
+    const defaultPrice = product.price && product.price > 0
+      ? product.price
+      : kind === 'metal' ? 29.99 : kind === '3d' ? 18.99 : 25
     setApprovalConfig({
-      colors: ['black', 'white'],
-      sizes: ['S', 'M', 'L', 'XL'],
-      price: currentPrice ? currentPrice / 100 : 25
+      name: product.name || '',
+      price: defaultPrice,
+      colors: kind === 'apparel' ? ['black', 'white'] : [],
+      sizes: kind === 'metal' ? ['4x6', '8x11'] : kind === '3d' ? ['small'] : ['S', 'M', 'L', 'XL'],
+      finish: 'glossy',
+      addons: [],
+      colorMode: 'grey',
     })
-    setShowApproveModal(productId)
+    setShowApproveModal(product.id)
   }
 
   const toggleColor = (colorId: string) => {
     setApprovalConfig(prev => ({
       ...prev,
-      colors: prev.colors.includes(colorId)
-        ? prev.colors.filter(c => c !== colorId)
-        : [...prev.colors, colorId]
+      colors: prev.colors.includes(colorId) ? prev.colors.filter(c => c !== colorId) : [...prev.colors, colorId]
     }))
   }
 
   const toggleSize = (size: string) => {
     setApprovalConfig(prev => ({
       ...prev,
-      sizes: prev.sizes.includes(size)
-        ? prev.sizes.filter(s => s !== size)
-        : [...prev.sizes, size]
+      sizes: prev.sizes.includes(size) ? prev.sizes.filter(s => s !== size) : [...prev.sizes, size]
+    }))
+  }
+
+  const toggleAddon = (addonId: string) => {
+    setApprovalConfig(prev => ({
+      ...prev,
+      addons: prev.addons.includes(addonId) ? prev.addons.filter(a => a !== addonId) : [...prev.addons, addonId]
     }))
   }
 
   const handleApprove = async (productId: string) => {
     try {
       setActionLoading(productId)
-      await api.post(`/api/admin/user-products/${productId}/approve`, {
-        colors: approvalConfig.colors,
-        sizes: approvalConfig.sizes,
-        price: approvalConfig.price, // dollars — products.price column is dollars
-      })
+      const payload: any = { name: approvalConfig.name, price: approvalConfig.price }
+      if (approvalKind === 'apparel') {
+        payload.colors = approvalConfig.colors
+        payload.sizes = approvalConfig.sizes
+      } else if (approvalKind === 'metal') {
+        payload.sizes = approvalConfig.sizes
+        payload.finish = approvalConfig.finish
+        payload.addons = approvalConfig.addons
+      } else {
+        payload.sizes = approvalConfig.sizes
+        payload.colorMode = approvalConfig.colorMode
+      }
+      const { data } = await api.post(`/api/admin/user-products/${productId}/approve`, payload)
       setProducts(products.filter(p => p.id !== productId))
       setShowApproveModal(null)
-      alert('Product approved! Creator has been notified.')
+      // Backend gates incomplete designs to status 'incomplete' (off the
+      // products tab) and returns what's missing — surface that to the admin.
+      if (data?.status === 'incomplete') {
+        toast.warning('Saved as incomplete', data?.message || 'Missing generations — won\'t show on storefront yet.', 8000)
+      } else {
+        toast.success('Product approved', data?.message || 'Creator has been notified.')
+      }
     } catch (err: any) {
       console.error('Failed to approve product:', err)
-      alert(`Failed to approve: ${err.message}`)
+      toast.error('Failed to approve', err.message)
     } finally {
       setActionLoading(null)
     }
@@ -136,10 +213,10 @@ export const AdminCreatorProductsTab: React.FC = () => {
       setProducts(products.filter(p => p.id !== productId))
       setShowRejectModal(null)
       setRejectReason('')
-      alert('Product rejected. Creator has been notified.')
+      toast.success('Product rejected', 'Creator has been notified.')
     } catch (err: any) {
       console.error('Failed to reject product:', err)
-      alert(`Failed to reject: ${err.message}`)
+      toast.error('Failed to reject', err.message)
     } finally {
       setActionLoading(null)
     }
@@ -220,9 +297,23 @@ export const AdminCreatorProductsTab: React.FC = () => {
                       <h3 className="text-lg font-semibold text-text">{product.name}</h3>
                       <p className="text-sm text-muted">{product.category}</p>
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      Pending Review
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Pending Review
+                      </span>
+                      {(() => {
+                        const missing = missingGenerations(product)
+                        return missing.length === 0 ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            ✓ All generations ready
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800" title="Approving now will save as INCOMPLETE (off the products tab)">
+                            Incomplete — missing: {missing.join(', ')}
+                          </span>
+                        )
+                      })()}
+                    </div>
                   </div>
 
                   <p className="mt-2 text-sm text-text">{product.description}</p>
@@ -280,11 +371,11 @@ export const AdminCreatorProductsTab: React.FC = () => {
                   {/* Actions */}
                   <div className="mt-6 flex gap-3">
                     <button
-                      onClick={() => openApproveModal(product.id, product.price)}
+                      onClick={() => openApproveModal(product)}
                       disabled={actionLoading === product.id}
                       className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white rounded-lg font-medium transition-colors"
                     >
-                      ✓ Configure & Approve
+                      Configure &amp; Approve
                     </button>
                     <button
                       onClick={() => setShowRejectModal(product.id)}
@@ -343,80 +434,137 @@ export const AdminCreatorProductsTab: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-card rounded-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-text mb-4">Configure & Approve Product</h3>
-            <p className="text-sm text-muted mb-6">
-              Set the available colors, sizes, and price before approving.
+            <p className="text-sm text-muted mb-1">
+              {approvalKind === 'metal' ? 'Metal wall art' : approvalKind === '3d' ? '3D print' : 'Apparel'} — set the details before approving.
             </p>
+            <p className="text-xs text-muted mb-6">Mr. Imagine already wrote the title &amp; description — tweak if you like.</p>
+
+            {/* Title (AI-generated, editable) */}
+            <div className="mb-5">
+              <label className="block text-sm font-medium text-text mb-2">Title</label>
+              <input
+                type="text"
+                value={approvalConfig.name}
+                onChange={(e) => setApprovalConfig(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
 
             {/* Price */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-text mb-2">Price ($)</label>
               <input
                 type="number"
-                min="10"
-                max="100"
+                min="1"
                 step="0.01"
                 value={approvalConfig.price}
-                onChange={(e) => setApprovalConfig(prev => ({ ...prev, price: parseFloat(e.target.value) || 25 }))}
+                onChange={(e) => setApprovalConfig(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
                 className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
 
-            {/* Colors */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-text mb-2">
-                Available Colors ({approvalConfig.colors.length} selected)
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {SHIRT_COLORS.map(color => (
-                  <button
-                    key={color.id}
-                    onClick={() => toggleColor(color.id)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
-                      approvalConfig.colors.includes(color.id)
-                        ? 'border-purple-500 bg-purple-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <span
-                      className="w-5 h-5 rounded-full border border-gray-300"
-                      style={{ backgroundColor: color.hex }}
-                    />
-                    <span className="text-sm text-text">{color.name}</span>
-                    {approvalConfig.colors.includes(color.id) && (
-                      <span className="text-purple-500">✓</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* APPAREL — colors + sizes */}
+            {approvalKind === 'apparel' && (
+              <>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Available Colors ({approvalConfig.colors.length})</label>
+                  <div className="flex flex-wrap gap-2">
+                    {SHIRT_COLORS.map(color => (
+                      <button key={color.id} onClick={() => toggleColor(color.id)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${approvalConfig.colors.includes(color.id) ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <span className="w-5 h-5 rounded-full border border-gray-300" style={{ backgroundColor: color.hex }} />
+                        <span className="text-sm text-text">{color.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Available Sizes ({approvalConfig.sizes.length})</label>
+                  <div className="flex flex-wrap gap-2">
+                    {SHIRT_SIZES.map(size => (
+                      <button key={size} onClick={() => toggleSize(size)}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${approvalConfig.sizes.includes(size) ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300 text-text'}`}>
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
-            {/* Sizes */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-text mb-2">
-                Available Sizes ({approvalConfig.sizes.length} selected)
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {SHIRT_SIZES.map(size => (
-                  <button
-                    key={size}
-                    onClick={() => toggleSize(size)}
-                    className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
-                      approvalConfig.sizes.includes(size)
-                        ? 'border-purple-500 bg-purple-50 text-purple-700'
-                        : 'border-gray-200 hover:border-gray-300 text-text'
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* METAL — sizes + finish + add-ons */}
+            {approvalKind === 'metal' && (
+              <>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Available Sizes ({approvalConfig.sizes.length})</label>
+                  <div className="flex flex-wrap gap-2">
+                    {METAL_SIZES.map(size => (
+                      <button key={size} onClick={() => toggleSize(size)}
+                        className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${approvalConfig.sizes.includes(size) ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300 text-text'}`}>
+                        {size}"
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Finish</label>
+                  <div className="flex gap-2">
+                    {METAL_FINISHES.map(f => (
+                      <button key={f} onClick={() => setApprovalConfig(prev => ({ ...prev, finish: f }))}
+                        className={`px-4 py-2 rounded-lg border-2 capitalize text-sm font-medium ${approvalConfig.finish === f ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300 text-text'}`}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Add-ons ({approvalConfig.addons.length})</label>
+                  <div className="space-y-2">
+                    {METAL_ADDONS.map(a => (
+                      <button key={a.id} onClick={() => toggleAddon(a.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border-2 text-left transition-all ${approvalConfig.addons.includes(a.id) ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <span className="text-sm text-text">{a.name}{a.printed && <span className="text-xs text-purple-500"> · 3D-printed</span>}</span>
+                        <span className="text-sm font-medium text-text">+${a.price}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
-            {/* Validation warning */}
-            {(approvalConfig.colors.length === 0 || approvalConfig.sizes.length === 0) && (
+            {/* 3D — size tier + color mode */}
+            {approvalKind === '3d' && (
+              <>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Available Sizes ({approvalConfig.sizes.length})</label>
+                  <div className="flex flex-wrap gap-2">
+                    {TIER_3D.map(size => (
+                      <button key={size} onClick={() => toggleSize(size)}
+                        className={`px-4 py-2 rounded-lg border-2 capitalize transition-all text-sm font-medium ${approvalConfig.sizes.includes(size) ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300 text-text'}`}>
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-text mb-2">Color mode</label>
+                  <div className="flex gap-2">
+                    {COLOR_MODES_3D.map(m => (
+                      <button key={m.id} onClick={() => setApprovalConfig(prev => ({ ...prev, colorMode: m.id }))}
+                        className={`px-4 py-2 rounded-lg border-2 text-sm font-medium ${approvalConfig.colorMode === m.id ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-gray-300 text-text'}`}>
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Validation */}
+            {((approvalKind === 'apparel' && (approvalConfig.colors.length === 0 || approvalConfig.sizes.length === 0)) || (approvalKind !== 'apparel' && approvalConfig.sizes.length === 0)) && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <p className="text-sm text-yellow-700">
-                  Please select at least one color and one size.
+                  {approvalKind === 'apparel' ? 'Select at least one color and one size.' : 'Select at least one size.'}
                 </p>
               </div>
             )}
@@ -424,10 +572,10 @@ export const AdminCreatorProductsTab: React.FC = () => {
             <div className="flex gap-3">
               <button
                 onClick={() => handleApprove(showApproveModal)}
-                disabled={actionLoading === showApproveModal || approvalConfig.colors.length === 0 || approvalConfig.sizes.length === 0}
+                disabled={actionLoading === showApproveModal || (approvalKind === 'apparel' ? (approvalConfig.colors.length === 0 || approvalConfig.sizes.length === 0) : approvalConfig.sizes.length === 0)}
                 className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white rounded-lg font-medium"
               >
-                {actionLoading === showApproveModal ? 'Approving...' : '✓ Approve Product'}
+                {actionLoading === showApproveModal ? 'Approving...' : 'Approve Product'}
               </button>
               <button
                 onClick={() => setShowApproveModal(null)}

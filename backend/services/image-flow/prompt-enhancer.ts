@@ -16,7 +16,7 @@ export interface EnhanceResult {
 
 const PURPOSE_HINT: Record<Purpose, string> = {
   product:
-    'DTF apparel print or product hero. Clean subject, transparent or studio-clean background, designed to print well on fabric.',
+    'A single isolated graphic illustration meant to be printed. Describe ONLY the artwork itself — one clear subject, bold clean shapes, strong central focal point, crisp edges. NEVER describe a t-shirt, hoodie, garment, person, model, mannequin, or mockup, and never use the words "fabric" or "transparent background". Assume the art sits centered on a solid color background.',
   'product-edit':
     'Edit pass on an existing product/design image. Preserve identity and overall composition unless explicitly asked to change them.',
   mockup:

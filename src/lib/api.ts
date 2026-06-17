@@ -460,7 +460,7 @@ export const imaginationApi = {
   },
 
   // AI operations - Component-friendly signatures
-  generateImage: (params: { prompt: string; style: string; useTrial?: boolean; count?: number }) =>
+  generateImage: (params: { prompt: string; style: string; useTrial?: boolean; count?: number; background?: 'black' | 'white' | 'grey' | 'gray' | 'color' | 'transparent'; tier?: 'standard' | 'premium' }) =>
     api.post('/api/imagination-station/ai/generate', params),
 
   removeBackground: (params: { imageUrl: string; useTrial?: boolean }) =>
@@ -471,6 +471,10 @@ export const imaginationApi = {
 
   enhanceImage: (params: { imageUrl: string; useTrial?: boolean }) =>
     api.post('/api/imagination-station/ai/enhance', params),
+
+  // DTF halftone — dot-screen effect (free, local transform)
+  halftoneImage: (params: { imageUrl: string; frequency?: number; angle?: number; shape?: 'round' | 'line'; invertDark?: boolean }) =>
+    api.post('/api/imagination-station/ai/halftone', params),
 
   // Reimagine It - add elements to existing images with AI
   reimagineImage: (params: { imageUrl: string; prompt: string; useTrial?: boolean; tier?: 'standard' | 'premium' }) =>
@@ -529,6 +533,60 @@ export const imaginationApi = {
 
   listProjects: (params?: { status?: string; limit?: number }) =>
     api.get('/api/imagination-station/projects', { params }),
+
+  // Make a Product — realistic garment mockup of a finished design
+  generateMockup: (params: {
+    designImageUrl: string;
+    productTemplate: 'shirts' | 'hoodies' | 'tumblers';
+    modelDescription: Record<string, any>;
+    designElements?: any[];
+  }) => api.post('/api/realistic-mockups/generate', { designElements: [], ...params }),
+
+  getMockupStatus: (generationId: string) =>
+    api.get(`/api/realistic-mockups/${generationId}/status`),
+
+  selectMockup: (generationId: string) =>
+    api.post(`/api/realistic-mockups/${generationId}/select`),
+
+  discardMockup: (generationId: string) =>
+    api.post(`/api/realistic-mockups/${generationId}/discard`),
+
+  // Submit a finished design for admin approval -> shows in My Designs (pending)
+  // -> approved -> sellable. Same pipeline as CreateDesignModal.
+  submitDesign: (params: {
+    preview_url: string;
+    name?: string;
+    design_concept?: string;
+    style?: string;
+    category?: string;
+    mockup_url?: string;
+    product_template?: string;
+    model_description?: Record<string, any>;
+    source?: string;
+  }) => api.post('/api/imagination-station/designs/submit', params),
+
+  // Mr. Imagine studio brain — conversational brainstorm + fresh idea generator.
+  // mode 'wall-art' tunes it for gallery metal-art (full-bleed), 'dtf' for apparel.
+  brainstorm: (messages: Array<{ role: 'user' | 'assistant'; content: string }>, mode: 'dtf' | 'wall-art' = 'dtf') =>
+    api.post('/api/imagination-station/ai/brainstorm', { messages, mode }),
+
+  getRandomIdea: (seed?: string) =>
+    api.get('/api/imagination-station/ai/random-idea', { params: seed ? { seed } : {} }),
+
+  // "See it in your space" — gpt-image-2 places the metal art in a real room
+  // at true-to-life size (4x6 / 8x11).
+  roomMockup: (params: { imageUrl: string; location?: string; size?: string }) =>
+    api.post('/api/imagination-station/ai/room-mockup', params),
+
+  // Voice: speech-to-text (mic) and text-to-speech (Mr. Imagine's cloned voice)
+  transcribeAudio: (audio: Blob) => {
+    const formData = new FormData();
+    formData.append('audio', audio, 'recording.webm');
+    return api.post('/api/ai/transcribe', formData, { headers: {} });
+  },
+
+  synthesizeVoice: (text: string) =>
+    api.post('/api/ai/voice/synthesize', { text }),
 
   admin: {
     getProducts: () => api.get('/api/admin/imagination-products'),

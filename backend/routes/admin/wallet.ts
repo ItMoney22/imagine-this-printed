@@ -198,12 +198,13 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
       const { data: newWallet, error: createError } = await supabase
         .from('user_wallets')
         .insert({
+          // Live user_wallets columns only — points_balance/lifetime_*/wallet_status
+          // do NOT exist on the live table (it has points, itc_balance, total_earned,
+          // total_spent, usd_balance) and caused this insert to fail, so admin-crediting
+          // a user who had no wallet row yet returned 500.
           user_id: userId,
-          points_balance: 0,
           itc_balance: 0,
-          lifetime_points_earned: 0,
-          lifetime_itc_earned: 0,
-          wallet_status: 'active',
+          points: 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -259,7 +260,7 @@ router.post('/credit', async (req: Request, res: Response): Promise<any> => {
         type: 'admin_credit',
         amount,
         balance_after: balanceAfter,
-        description: reason,
+        reference: reason,
         metadata: { adminId, adminAction: 'credit', balanceBefore }
       })
 
@@ -390,7 +391,7 @@ router.post('/debit', async (req: Request, res: Response): Promise<any> => {
         type: 'admin_debit',
         amount: -amount,
         balance_after: balanceAfter,
-        description: reason,
+        reference: reason,
         metadata: { adminId, adminAction: 'debit', allowNegative, balanceBefore }
       })
 
@@ -511,7 +512,7 @@ router.post('/adjust', async (req: Request, res: Response): Promise<any> => {
         type: 'admin_adjust',
         amount: difference,
         balance_after: newBalance,
-        description: reason,
+        reference: reason,
         metadata: { adminId, adminAction: 'adjust', balanceBefore }
       })
 

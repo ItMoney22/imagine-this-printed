@@ -1023,9 +1023,6 @@ export default function AdminToyLab() {
                 </button>
               </div>
             )}
-
-            {/* Link to products management */}
-            {statusFilter === 'ready' || promoteTarget === null ? null : null}
           </>
         )}
 

@@ -9,6 +9,7 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
+import { productKindOf, defaultSizesFor, getGalleryImages } from '../lib/product-kind'
 import type { Product, SocialPost } from '../types'
 
 interface ProductCardProps {
@@ -27,12 +28,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [addedToCart, setAddedToCart] = useState(false)
 
+  // Product kind drives type-aware UI (metal/3D must not look like a t-shirt).
+  const kind = productKindOf(product)
+  const isApparel = kind === 'apparel'
+
   // Get sizes from product metadata
   const sizes = product.sizes || product.metadata?.sizes || []
   const hasSizes = sizes.length > 0
 
-  // Common apparel sizes for fallback
-  const defaultSizes = ['S', 'M', 'L', 'XL', '2XL']
+  // Fallback sizes are type-aware: metal → print sizes, 3D → tiers, else apparel.
+  const defaultSizes = defaultSizesFor(kind)
   const displaySizes = hasSizes ? sizes : defaultSizes
 
   // Get colors from product (admin saves them as hex strings on product.colors / metadata.colors)
@@ -96,11 +101,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   const [isHovered, setIsHovered] = useState(false)
 
-  // Gallery contract: images[0] = ghost mannequin, images[1] = flat lay,
-  // images[2] = Mr. Imagine mockup. Show [0] always; crossfade to [1] (or [2]
-  // when [1] is absent) on hover. If only one image, no hover swap.
+  // Display set is role-aware (getGalleryImages): contextual mockups first,
+  // then clean art — NEVER the halftone / DTF deliverables (a raw halftone
+  // looks bad as a grid thumbnail). Crossfade to the 2nd display image on hover.
   const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
-  const imgs = product.images && product.images.length > 0 ? product.images : [FALLBACK]
+  const galleryImgs = getGalleryImages(product)
+  const imgs = galleryImgs.length > 0 ? galleryImgs : [FALLBACK]
   const primaryImage = imgs[0]
   const hoverImage = imgs.length > 1 ? (imgs[1] || imgs[2] || null) : null
 
@@ -243,7 +249,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-muted font-medium">Select Size:</p>
-              {displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
+              {isApparel && displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
                 <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">
                   2XL+ = +$2.50
                 </span>
@@ -251,7 +257,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             </div>
             <div className="flex flex-wrap gap-1.5">
               {displaySizes.map((size: string) => {
-                const isPlusSize = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                const isPlusSize = isApparel && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                 return (
                   <button
                     key={size}
@@ -378,7 +384,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             View Details
           </Link>
 
-          {/* Add to Imagination Sheet Button - Collapsed */}
+          {/* Add to Imagination Sheet — DTF/apparel only (metal & 3D are
+              finished pieces, not designs to drop on a print sheet). */}
+          {isApparel && (
           <button
             onClick={async () => {
               setIsAddingToSheet(true)
@@ -430,10 +438,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             )}
             {isAddingToSheet ? 'Loading...' : 'Add to Imagination Sheet'}
           </button>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-export default ProductCard
+export default React.memo(ProductCard)

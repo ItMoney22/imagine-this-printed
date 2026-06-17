@@ -1,13 +1,16 @@
 // backend/services/imagination-ai.ts
 
 import Replicate from 'replicate';
+import { transparentFraction, detectSolidBg, keyOutSolidBackground } from './bg-key.js';
 import { createClient } from '@supabase/supabase-js';
 import { pricingService } from './imagination-pricing.js';
 import { AI_STYLES } from '../config/imagination-presets.js';
 import { removeBackgroundWithRemoveBg } from './removebg.js';
 import * as gcsStorage from './gcs-storage.js';
-import { uploadImageFromBase64 } from './google-cloud-storage.js';
+import { uploadImageFromBase64, uploadImageFromBuffer } from './google-cloud-storage.js';
 import { pickFanOutModels, runImageFlowMultiGenerate } from './image-flow/worker-helpers.js';
+import { brandFor } from './image-flow/models.js';
+import { runOpenAIImage } from './image-flow/providers/openai-image.js';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!
@@ -144,6 +147,35 @@ export interface GenerateImagesMultiParams {
   style?: string;
   itcBalance: number;
   count: number;
+  /**
+   * Background for the generated art. Solid shirt colors (black/white/grey/color)
+   * tell the models to fill the frame with that color — which matches the
+   * garment AND produces far cleaner results than forcing transparency (most
+   * models can't do real alpha and produce artifacts or fail). 'transparent'
+   * keeps the legacy cut-out behavior. Defaults to 'transparent' for callers
+   * that don't pass it.
+   */
+  background?: 'black' | 'white' | 'grey' | 'gray' | 'color' | 'transparent';
+  /** 'premium' uses GPT Image 2 (top quality + reliable text) at a premium rate. */
+  tier?: 'standard' | 'premium';
+}
+
+/** Background instruction injected into the generation prompt. */
+function backgroundClause(background?: string): string {
+  switch ((background || 'transparent').toLowerCase()) {
+    case 'black':
+      return 'MANDATORY: a SOLID BLACK background that completely fills the entire frame edge-to-edge (it matches a black shirt). No transparency, no white edges, no checkerboard pattern.';
+    case 'white':
+      return 'MANDATORY: a SOLID WHITE background that completely fills the entire frame edge-to-edge (it matches a white shirt). No transparency, no checkerboard pattern.';
+    case 'grey':
+    case 'gray':
+      return 'MANDATORY: a SOLID HEATHER-GREY background that completely fills the entire frame edge-to-edge (it matches a grey shirt). No transparency, no checkerboard pattern.';
+    case 'color':
+      return 'MANDATORY: a single SOLID color background that fills the entire frame edge-to-edge and complements the artwork. No transparency, no checkerboard pattern.';
+    case 'transparent':
+    default:
+      return 'MANDATORY: transparent background, PNG with alpha channel.';
+  }
 }
 
 export interface MultiImageResult {
@@ -287,6 +319,26 @@ export class ImaginationAIService {
     const { userId, sheetId, layerId, imageUrl, itcBalance } = params;
     const isStandalone = layerId === 'standalone';
 
+    // Fetch the source once — reused for the transparency check, solid-bg
+    // detection, and the local color-key knockout.
+    let sourceBuffer: Buffer | null = null;
+    try {
+      const resp = await fetch(imageUrl);
+      if (resp.ok) sourceBuffer = Buffer.from(await resp.arrayBuffer());
+    } catch { /* leave null → fall through to the URL-based AI path */ }
+
+    // Already-transparent design → nothing to remove; skip (and don't charge).
+    const transFrac = sourceBuffer ? await transparentFraction(sourceBuffer) : 0;
+    if (transFrac > 0.2) {
+      console.log(`[imagination-ai] removeBackground skipped — already ${Math.round(transFrac * 100)}% transparent`);
+      return {
+        layer: { processed_url: imageUrl, source_url: imageUrl },
+        cost: 0,
+        freeTrialUsed: false,
+        alreadyTransparent: true,
+      };
+    }
+
     const costCheck = await pricingService.checkCost(userId, 'bg_remove', itcBalance);
     if (!costCheck.canProceed) {
       throw new Error(costCheck.reason || 'Cannot proceed');
@@ -299,27 +351,35 @@ export class ImaginationAIService {
         await pricingService.consumeFreeTrial(userId, 'bg_remove');
       }
 
-      console.log('[imagination-ai] removeBackground using Replicate 851-labs/background-remover, input:', imageUrl.substring(0, 100) + '...');
+      let processedUrl: string | undefined;
 
-      // Use Replicate's 851-labs/background-remover (synchronous, high quality
-      // edges, alpha channel). Replaces the previous Remove.bg API call which
-      // was failing because the Remove.bg account had zero credits across
-      // subscription/payg/enterprise/free tiers — every call returned 402.
-      // Replicate is already in the bill, marginal cost ~$0.001/call.
-      const replicateOutput = await replicate.run(
-        // Pinned version — version-less form hits the official-models endpoint and
-        // 404s for this community model; the version routes through /predictions.
-        '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc' as `${string}/${string}:${string}`,
-        {
-          input: { image: imageUrl, format: 'png', background_type: 'rgba' },
+      // Solid black/white background → COLOR-KEY knockout. Removes ALL of the
+      // black (or white) field with a soft anti-aliased edge — which is what
+      // these DTF designs want. AI segmentation (below) leaves a dark halo and
+      // misses the inner field, so we only use it for complex/photo backgrounds.
+      const solidBg = sourceBuffer ? await detectSolidBg(sourceBuffer) : null;
+      if (sourceBuffer && solidBg) {
+        console.log(`[imagination-ai] removeBackground via color-key (${solidBg} background)`);
+        const keyed = await keyOutSolidBackground(sourceBuffer, solidBg);
+        const filename = `bg-removed-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+        const up = await uploadImageFromBuffer(keyed, `users/${userId}/bg-removed/${filename}`, 'image/png');
+        processedUrl = up.publicUrl;
+      } else {
+        // Complex / photographic background → AI subject segmentation.
+        console.log('[imagination-ai] removeBackground via Replicate 851-labs/background-remover');
+        const replicateOutput = await replicate.run(
+          // Pinned version — version-less form 404s for this community model.
+          '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc' as `${string}/${string}:${string}`,
+          {
+            input: { image: imageUrl, format: 'png', background_type: 'rgba' },
+          }
+        );
+        const url = extractUrlString(replicateOutput);
+        if (!url) {
+          throw new Error('Background remover returned no image URL');
         }
-      );
-      let processedUrl = extractUrlString(replicateOutput);
-      if (!processedUrl) {
-        throw new Error('Background remover returned no image URL');
+        processedUrl = await persistToGCS(url, userId, 'bg-removed');
       }
-      // Persist Replicate output to GCS so the URL doesn't expire.
-      processedUrl = await persistToGCS(processedUrl, userId, 'bg-removed');
 
       if (!processedUrl) {
         throw new Error('Image processing completed but no output URL was produced. You were not charged.');
@@ -635,21 +695,35 @@ export class ImaginationAIService {
    */
   async generateImagesMulti(params: GenerateImagesMultiParams): Promise<GenerateImagesMultiResult> {
     const { userId, prompt, style, itcBalance } = params;
+    const tier = params.tier === 'premium' ? 'premium' : 'standard';
+    const background = params.background || 'transparent';
     // Clamp count to 1–4
     const count = Math.min(4, Math.max(1, Math.floor(params.count)));
 
-    // Look up per-image base price
-    const pricingRow = await pricingService.getPricing('generate');
-    const perImage: number = pricingRow ? pricingRow.current_cost : 0;
+    // Premium uses GPT Image 2 (best quality, reliable, handles text/backgrounds)
+    // at a flat premium rate with NO free trial. Standard uses the fan-out roster
+    // at the table price with the free-trial/promo logic.
+    const PREMIUM_PER_IMAGE = 50; // 50 ITC = $0.50 per premium image
 
-    // checkCost handles free-trial and promo for the FIRST image
-    const costCheck = await pricingService.checkCost(userId, 'generate', itcBalance);
-    if (!costCheck.canProceed) {
-      throw new Error(costCheck.reason || 'Cannot proceed with generation');
+    let perImage: number;
+    let firstImageCost: number;
+    let useFreeTrial = false;
+    if (tier === 'premium') {
+      perImage = PREMIUM_PER_IMAGE;
+      firstImageCost = PREMIUM_PER_IMAGE;
+    } else {
+      const pricingRow = await pricingService.getPricing('generate');
+      perImage = pricingRow ? pricingRow.current_cost : 0;
+      // checkCost handles free-trial and promo for the FIRST image
+      const costCheck = await pricingService.checkCost(userId, 'generate', itcBalance);
+      if (!costCheck.canProceed) {
+        throw new Error(costCheck.reason || 'Cannot proceed with generation');
+      }
+      firstImageCost = costCheck.cost; // 0 if trial/promo
+      useFreeTrial = costCheck.useFreeTrial;
     }
 
-    // First image cost is costCheck.cost (0 if trial/promo); remaining images cost perImage each
-    const firstImageCost = costCheck.cost;
+    // First image cost is firstImageCost; remaining images cost perImage each
     const additionalCost = perImage * (count - 1);
     const totalCharge = firstImageCost + additionalCost;
 
@@ -661,52 +735,86 @@ export class ImaginationAIService {
     // Deduct ITC up-front (one call for the total)
     if (totalCharge > 0) {
       await pricingService.deductITC(userId, totalCharge, 'generate');
-    } else if (costCheck.useFreeTrial) {
+    } else if (useFreeTrial) {
       await pricingService.consumeFreeTrial(userId, 'generate');
     }
 
-    // Build final prompt. CRITICAL: the transparent-background mandate is only
-    // correct for DTF/sticker/toy art (cutout artwork). For wall art (metal
-    // prints, posters) a transparent background produces broken, washed-out, or
-    // empty results — these want a full-bleed image that fills the frame. The
-    // old code appended the transparent mandate UNCONDITIONALLY, which is why
-    // metal-art generation looked broken / produced nothing usable.
-    const isDTF = prompt.includes('CRITICAL REQUIREMENTS') || prompt.includes('DO NOT include any t-shirt');
+    // Build final prompt. Wall art (metal prints/posters) wants full-bleed.
+    // Everything else gets the chosen background — a solid shirt color by
+    // default for the studio (clean, matches the garment, and avoids the
+    // transparent-alpha artifacts that make most models fail), or transparent
+    // for legacy cut-out callers.
     const isWallArt = style === 'metal-art' || style === 'poster' || style === 'wall-art';
-    const skipEnhance = isDTF;
-    const finalPrompt = isWallArt
-      ? `${prompt}\n\nFull-bleed artwork that fills the entire frame edge to edge, gallery print quality, vivid saturated color, sharp high detail, dramatic composition. No text, no watermark, no border, no transparent areas.`
-      : `${prompt}\n\nMANDATORY: transparent background, PNG with alpha channel.`;
+    const bgClause = backgroundClause(background);
+    // Per-model prompt tailoring runs for the standard fan-out so each engine
+    // gets its OWN dialect-optimized prompt (Mr. Imagine "trained" on each
+    // model via its promptCraft playbook). Premium (GPT Image 2) and wall art
+    // use the prompt as-is. The hard background rule is appended AFTER tailoring
+    // (passed as backgroundClause, not baked into the prompt) so the enhancer
+    // can never drop or rewrite it.
+    const skipEnhance = tier === 'premium' || isWallArt;
+    // Metal / wall art is a flagship surface — render it ONLY on gpt-image-2 with
+    // a gallery-grade, full-bleed finishing wrap so it comes back stunning.
+    const promptForGen = isWallArt
+      ? `${prompt}\n\nMuseum-quality fine-art piece for a printed metal wall panel: full-bleed composition filling the entire frame edge-to-edge, ultra-high detail and clarity, rich vivid saturated color, dramatic lighting with strong depth and contrast, striking and gallery-worthy. No text, no watermark, no signature, no border.`
+      : prompt;
 
-    // Pick models
-    const modelIds = pickFanOutModels(prompt, style).slice(0, count);
-
-    // Run parallel generation
-    const multiResults = await runImageFlowMultiGenerate({
-      prompt: finalPrompt,
-      modelIds,
-      imageStyle: style,
-      skipEnhance,
-    });
-
-    // Persist succeeded results to GCS
     const images: MultiImageResult[] = [];
     const failures: { modelId: string; error: string }[] = [];
 
-    await Promise.all(
-      multiResults.map(async (r) => {
-        if (r.status === 'failed' || !r.url) {
-          failures.push({ modelId: r.modelId, error: r.error || 'Generation failed' });
-          return;
+    // gpt-image-2 (OpenAI-direct) for BOTH the premium tier AND all wall/metal
+    // art. Wall art keeps the standard price (computed above) — only tier
+    // 'premium' pays the premium rate; the model choice is independent of price.
+    const useOpenAIDirect = tier === 'premium' || isWallArt;
+
+    if (useOpenAIDirect) {
+      // Wall art → full-bleed gallery prompt + opaque (a complete image, never
+      // alpha-cut). Premium DTF → solid shirt-color background prompt.
+      const genPrompt = isWallArt ? promptForGen : `${prompt}\n\n${bgClause}`;
+      const bg: 'opaque' | 'transparent' = isWallArt
+        ? 'opaque'
+        : (background === 'transparent' ? 'transparent' : 'opaque');
+      const settled = await Promise.allSettled(
+        Array.from({ length: count }, () =>
+          runOpenAIImage({ prompt: genPrompt, userId, background: bg, quality: 'high' })
+        )
+      );
+      settled.forEach((s) => {
+        if (s.status === 'fulfilled' && s.value.url) {
+          images.push({ url: s.value.url, modelId: s.value.modelId, modelLabel: brandFor('openai/gpt-image-2'), prompt: genPrompt });
+        } else {
+          const err = s.status === 'rejected' ? (s.reason instanceof Error ? s.reason.message : String(s.reason)) : 'no image returned';
+          failures.push({ modelId: 'openai/gpt-image-2', error: err });
         }
-        const persistedUrl = await persistToGCS(r.url, userId, 'ai-generated');
-        if (!persistedUrl) {
-          failures.push({ modelId: r.modelId, error: 'GCS persistence returned empty URL' });
-          return;
-        }
-        images.push({ url: persistedUrl, modelId: r.modelId, modelLabel: r.modelLabel, prompt: r.tailoredPrompt || finalPrompt });
-      })
-    );
+      });
+    } else {
+      // STANDARD → fan-out roster on Replicate, each model dialect-tailored.
+      const modelIds = pickFanOutModels(prompt, style).slice(0, count);
+      const multiResults = await runImageFlowMultiGenerate({
+        prompt: promptForGen,
+        modelIds,
+        imageStyle: style,
+        skipEnhance,
+        backgroundClause: isWallArt ? undefined : bgClause,
+      });
+
+      // Persist succeeded results to GCS
+      await Promise.all(
+        multiResults.map(async (r) => {
+          if (r.status === 'failed' || !r.url) {
+            failures.push({ modelId: r.modelId, error: r.error || 'Generation failed' });
+            return;
+          }
+          const persistedUrl = await persistToGCS(r.url, userId, 'ai-generated');
+          if (!persistedUrl) {
+            failures.push({ modelId: r.modelId, error: 'GCS persistence returned empty URL' });
+            return;
+          }
+          // Brand the customer-facing label — never expose the underlying vendor/model.
+          images.push({ url: persistedUrl, modelId: r.modelId, modelLabel: brandFor(r.modelId), prompt: r.tailoredPrompt || promptForGen });
+        })
+      );
+    }
 
     const succeededCount = images.length;
     const failedCount = failures.length;
@@ -719,9 +827,9 @@ export class ImaginationAIService {
       // Refund everything and throw — user was not charged
       if (totalCharge > 0) {
         await pricingService.refundITC(userId, totalCharge, 'generate_multi_all_failed');
-      } else if (costCheck.useFreeTrial) {
-        // Re-issue the free trial consume was already done; refund not needed for free trial
-        // but we still have nothing to show — throw with clear message
+      } else if (useFreeTrial) {
+        // Free-trial consume already happened; nothing to refund, but there's
+        // nothing to show — throw with a clear message.
       }
       throw new Error('All image generations failed. You were not charged.');
     }
@@ -736,7 +844,7 @@ export class ImaginationAIService {
       images,
       cost: netCost,
       perImageCost: perImage,
-      freeTrialUsed: costCheck.useFreeTrial,
+      freeTrialUsed: useFreeTrial,
       failures,
     };
   }

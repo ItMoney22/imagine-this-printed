@@ -1,6 +1,6 @@
 /**
  * User Royalty Service
- * Handles 10% ITC royalty payments for user-generated products
+ * Handles 15% ITC royalty payments for user-generated products
  */
 
 import { supabase } from '../lib/supabase.js'

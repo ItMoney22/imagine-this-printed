@@ -43,13 +43,21 @@ export interface MultiGenerateResult {
  * cost and latency bias so cheaper, faster models win ties — e.g. a generic
  * brief drops the $0.08/30s model in favor of Grok at $0.02/4s.
  */
+// Imagen 4 ULTRA stays out of the design fan-out — its safety filter
+// false-positives hardest on benign design prompts (E005 "flagged as
+// sensitive" / "NSFW content detected"), and a deterministic pick killed half
+// of every batch. Imagen 4 FAST is kept in the rotation with the loosest
+// safety_filter_level (set in input-builder); as just one of a larger
+// randomized pool, a rare block only costs a single slot.
+const FANOUT_EXCLUDE = new Set(['google/imagen-4-ultra'])
+
 export function pickFanOutModels(prompt: string, imageStyle?: string): string[] {
   const p = prompt.toLowerCase()
   const wantsText = /"[^"]+"|\b(says?|text|typography|lettering|font|quote|slogan|wording)\b/.test(p)
   const wantsCartoon = imageStyle === 'cartoon' || /\b(cartoon|anime|chibi|illustrat\w*|comic|kawaii|mascot|sticker)\b/.test(p)
   const wantsPhotoreal = imageStyle === 'realistic' || /\b(photo\w*|realistic|photoreal\w*|portrait|cinematic)\b/.test(p)
 
-  const candidates = MODELS.filter((m) => ['workhorse', 'hero', 'text-in-image'].includes(m.tier))
+  const candidates = MODELS.filter((m) => ['workhorse', 'hero', 'text-in-image'].includes(m.tier) && !FANOUT_EXCLUDE.has(m.id))
   const scored = candidates.map((m) => {
     let score = m.tier === 'hero' ? 2 : 1
     if (wantsText && m.strengths.includes('text-in-image')) score += 3
@@ -61,7 +69,17 @@ export function pickFanOutModels(prompt: string, imageStyle?: string): string[] 
     return { id: m.id, score }
   })
   scored.sort((a, b) => b.score - a.score)
-  return scored.slice(0, 4).map((s) => s.id)
+
+  // ROTATE: keep the relevance ranking to form a strong top pool, then SHUFFLE
+  // it so repeat generations vary which engines run (so a 4-image batch isn't
+  // always the same four). Pool = top 8 by score; the caller slices to count.
+  const poolSize = Math.min(scored.length, 8)
+  const pool = scored.slice(0, poolSize).map((s) => s.id)
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+  }
+  return pool.slice(0, 4)
 }
 
 /**
@@ -85,6 +103,13 @@ export async function runImageFlowMultiGenerate(opts: {
   imageStyle?: string
   /** Skip the per-model LLM prompt rewrite (use the raw prompt everywhere). */
   skipEnhance?: boolean
+  /**
+   * Hard background instruction appended to EACH model's prompt AFTER the
+   * per-model rewrite — so the rule (e.g. "solid black background, no
+   * transparency") always survives verbatim, exactly like the DTF garment
+   * wrapping. Non-garment design path only.
+   */
+  backgroundClause?: string
 }): Promise<MultiGenerateResult[]> {
   // Dynamic roster: match the 4 models to what the brief is asking for,
   // unless the caller pins an explicit list.
@@ -120,7 +145,9 @@ export async function runImageFlowMultiGenerate(opts: {
           (opts.shirtColor === 'gray' ? 'grey' : opts.shirtColor) ?? 'black',
           opts.printStyle ?? 'clean'
         )
-      : t
+      : opts.backgroundClause
+        ? `${t}\n\n${opts.backgroundClause}`
+        : t
   )
 
   if (isGarment) {

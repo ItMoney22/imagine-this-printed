@@ -14,11 +14,14 @@ import {
   sendViaResend,
   verifyResendWebhook,
   fetchReceivedEmail,
+  fetchReceivedAttachments,
+  downloadAttachment,
   parseAddress,
   toAddressArray,
   EMAIL_DOMAIN,
   type InboundEmailData,
 } from '../services/email-resend.js';
+import { uploadFile } from '../services/gcs-storage.js';
 
 const router = Router();
 
@@ -29,7 +32,15 @@ const supabase = createClient(
 
 const requireAdmin = requireRole(['admin']);
 
-const MAX_STORED_ATTACHMENT_BYTES = 1_000_000; // keep payloads sane in JSONB
+// Inbound attachments are re-hosted in GCS (not stored inline in JSONB), so
+// this is just an abuse guard, not a payload-size constraint. 25 MB ≈ a typical
+// mail provider attachment limit.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+// GCS object names: keep them filesystem-safe and bounded.
+function sanitizeAttachmentName(name: string): string {
+  return (name || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'attachment';
+}
 
 function normalizeAddress(input: string): string {
   const raw = (input || '').trim().toLowerCase();
@@ -908,14 +919,46 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
       .in('address', ourRecipients)
       .eq('is_active', true);
 
-    const attachments = ((src.attachments as InboundEmailData['attachments']) || []).map(a => ({
-      filename: a.filename || 'attachment',
-      content_type: a.content_type || 'application/octet-stream',
-      size: a.size ?? (a.content ? Math.floor(a.content.length * 0.75) : 0),
-      // Persist small payloads inline so the UI can offer downloads;
-      // oversized content is dropped (metadata retained).
-      content: a.content && a.content.length <= MAX_STORED_ATTACHMENT_BYTES ? a.content : undefined,
-    }));
+    // Resend delivers attachment METADATA only — neither the email.received
+    // webhook nor the retrieve-received-email body carry the bytes. The actual
+    // files live behind short-lived pre-signed download_urls on the attachments
+    // endpoint. Fetch those, download each file while the URL is fresh, and
+    // re-host it in GCS so the inbox can serve a durable download link.
+    // (Previously the code expected inline base64 `content` that Resend never
+    // sends, so EVERY inbound attachment was stored byte-less and showed up in
+    // the UI as un-openable — exactly the bug being fixed here.)
+    let attachments: Array<{ filename: string; content_type: string; size: number; url?: string }> = [];
+    if (emailId) {
+      const resendAttachments = await fetchReceivedAttachments(emailId);
+      attachments = await Promise.all(
+        resendAttachments.map(async (a, idx) => {
+          const record = {
+            filename: a.filename || 'attachment',
+            content_type: a.content_type || 'application/octet-stream',
+            size: a.size ?? 0,
+          };
+          if (!a.download_url) return record;
+          if (record.size && record.size > MAX_ATTACHMENT_BYTES) {
+            console.warn('[email-webhook] attachment over cap, storing metadata only:', record.filename, record.size);
+            return record;
+          }
+          try {
+            const buf = await downloadAttachment(a.download_url);
+            if (!buf) return record;
+            const { publicUrl } = await uploadFile(buf, {
+              userId: 'inbound',
+              folder: 'email-attachments',
+              filename: `${emailId}-${idx}-${sanitizeAttachmentName(a.filename || 'attachment')}`,
+              contentType: record.content_type,
+            });
+            return { ...record, size: record.size || buf.length, url: publicUrl };
+          } catch (err) {
+            console.error('[email-webhook] attachment persist failed:', record.filename, err instanceof Error ? err.message : err);
+            return record;
+          }
+        })
+      );
+    }
 
     let inserted = 0;
     for (const mailbox of mailboxes || []) {

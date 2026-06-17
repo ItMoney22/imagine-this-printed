@@ -87,6 +87,20 @@ export function buildInput(model: ImageModel, opts: BuildInputOpts): Record<stri
       // prompt. Callers pass it via `extra.negative_prompt`; we surface it as a
       // first-class field here.
       base.aspect_ratio = '1:1'
+      // Loosest available filter — Imagen's default over-blocks benign design
+      // prompts (mascots, "roaring", athletic themes) with E005 "flagged as
+      // sensitive". 'block_only_high' still blocks genuinely explicit content.
+      base.safety_filter_level = 'block_only_high'
+      break
+    }
+    case 'bytedance/seedream-4.5': {
+      base.aspect_ratio = '1:1'
+      base.max_images = 1
+      break
+    }
+    case 'leonardoai/lucid-origin': {
+      base.aspect_ratio = '1:1'
+      base.num_images = 1
       break
     }
     case 'ideogram-ai/ideogram-v3-quality': {

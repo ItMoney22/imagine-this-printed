@@ -46,7 +46,7 @@ const bucket: Bucket = storage.bucket(bucketName)
 
 export interface UploadOptions {
   userId: string
-  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed'
+  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed' | 'email-attachments'
   filename?: string
   contentType?: string
   metadata?: Record<string, any>
@@ -85,12 +85,18 @@ export async function uploadFile(
       ...metadata,
       uploadedAt: new Date().toISOString()
     },
-    // No ACL settings needed - bucket has uniform access enabled
     validation: 'crc32c'
   })
 
-  // Get public URL
-  const publicUrl = `https://storage.googleapis.com/${bucketName}/${gcsPath}`
+  // Public access is blocked at the org level, so a plain
+  // storage.googleapis.com/<bucket>/<path> URL returns 403 — which is why
+  // Remove BG / Enhance / Upscale / Reimagine outputs and design thumbnails
+  // previously rendered blank even though the upstream model succeeded. Mint a
+  // long-lived signed URL instead (same workaround as google-cloud-storage.ts).
+  const [publicUrl] = await file.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 365 * 24 * 60 * 60 * 1000 // 1 year (max allowed)
+  })
 
   return {
     gcsPath,

@@ -18,7 +18,7 @@ import type {
   LayerType,
   Product,
 } from '../types';
-import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal } from '../components/imagination';
+import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal, MakeProductModal } from '../components/imagination';
 import type { Layer as SimpleLayer } from '../types';
 import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../utils/dpi-calculator';
 import {
@@ -74,21 +74,21 @@ const PRESET_UI_CONFIG: Record<string, any> = {
     bgColor: 'bg-purple-50',
     borderColor: 'border-purple-200',
     textColor: 'text-purple-700',
-    icon: 'ðŸŽ¨',
+    icon: '🎨',
   },
   uv_dtf: {
     color: 'from-blue-500 to-cyan-500',
     bgColor: 'bg-blue-50',
     borderColor: 'border-blue-200',
     textColor: 'text-blue-700',
-    icon: 'âœ¨',
+    icon: '✨',
   },
   sublimation: {
     color: 'from-pink-500 to-rose-500',
     bgColor: 'bg-pink-50',
     borderColor: 'border-pink-200',
     textColor: 'text-pink-700',
-    icon: 'ðŸŒˆ',
+    icon: '🌈',
   }
 };
 
@@ -163,6 +163,7 @@ const ImaginationStation: React.FC = () => {
   );
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [showMrImagineModal, setShowMrImagineModal] = useState(false);
+  const [showMakeProductModal, setShowMakeProductModal] = useState(false);
   const [showReimagineItModal, setShowReimagineItModal] = useState(false);
   const [showITPEnhanceModal, setShowITPEnhanceModal] = useState(false);
   const [reimagineItLayerId, setReimagineItLayerId] = useState<string | null>(null);
@@ -194,6 +195,7 @@ const ImaginationStation: React.FC = () => {
   const [isRemovingBg, setIsRemovingBg] = useState(false);
   const [isUpscaling, setIsUpscaling] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isHalftoning, setIsHalftoning] = useState(false);
 
   // Compare modal state for before/after comparison.
   // `revert` is an exact snapshot of the layer fields taken BEFORE the operation,
@@ -448,20 +450,25 @@ const ImaginationStation: React.FC = () => {
     setIsLoading(true);
     let merged: any = null;
     try {
-      // Load pricing and free trials (combined endpoint)
-      try {
-        const { data: pricingData } = await imaginationApi.getPricing();
-        // Backend returns { pricing: [...], freeTrials: [...] }
+      // Pricing and presets are independent GETs — fire them in parallel
+      // (allSettled so one failing doesn't block the other).
+      const [pricingRes, presetRes] = await Promise.allSettled([
+        imaginationApi.getPricing(),
+        imaginationApi.getPresets(),
+      ]);
+
+      // Pricing + free trials (combined endpoint) → { pricing: [...], freeTrials: [...] }
+      if (pricingRes.status === 'fulfilled') {
+        const pricingData = pricingRes.value?.data;
         setPricing(pricingData?.pricing || []);
         setFreeTrials(pricingData?.freeTrials || []);
-      } catch (e) {
-        console.log('Pricing not available:', e);
+      } else {
+        console.log('Pricing not available:', pricingRes.reason);
       }
 
-      // Load presets
-      try {
-        const { data: presetData } = await imaginationApi.getPresets();
-        // Merge API data with UI config
+      // Presets → merge API data with UI config
+      if (presetRes.status === 'fulfilled') {
+        const presetData = presetRes.value?.data;
         if (presetData) {
           merged = {};
           Object.keys(presetData).forEach(key => {
@@ -477,8 +484,8 @@ const ImaginationStation: React.FC = () => {
           });
           setPresets(merged);
         }
-      } catch (e) {
-        console.error('Failed to load presets:', e);
+      } else {
+        console.error('Failed to load presets:', presetRes.reason);
       }
 
       // Load specific sheet if ID provided
@@ -551,7 +558,7 @@ const ImaginationStation: React.FC = () => {
     setIsCreating(true);
     try {
       if (!presets) {
-        toast.info('One moment', 'Sheet options are still loading â€” try again in a second.');
+        toast.info('One moment', 'Sheet options are still loading — try again in a second.');
         setIsCreating(false);
         return;
       }
@@ -873,7 +880,7 @@ const ImaginationStation: React.FC = () => {
       const layerNames = dangerLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
       toast.error(
         `${dangerLayers.length} design${dangerLayers.length !== 1 ? 's' : ''} too low quality to print`,
-        `${layerNames} â€” shrink them, upload a higher-resolution version, or use the Upscale tool.`,
+        `${layerNames} — shrink them, upload a higher-resolution version, or use the Upscale tool.`,
         8000
       );
       return;
@@ -1100,6 +1107,13 @@ const ImaginationStation: React.FC = () => {
     try {
       const useTrial = getFreeTrial('bg_remove') > 0;
       const { data } = await imaginationApi.removeBackground({ imageUrl, useTrial });
+
+      // Already-transparent designs are skipped server-side (no charge, no
+      // destructive re-cut) — just let the user know there was nothing to remove.
+      if (data.alreadyTransparent) {
+        toast.info('Already transparent', 'This image has no background to remove — you were not charged.');
+        return;
+      }
 
       // Use processedUrl or fallback to other response keys
       const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
@@ -1496,6 +1510,10 @@ const ImaginationStation: React.FC = () => {
     try {
       const useTrial = getFreeTrial('bg_remove') > 0;
       const { data } = await imaginationApi.removeBackground({ imageUrl, useTrial });
+      if (data.alreadyTransparent) {
+        toast.info('Already transparent', 'This design has no background to remove — you were not charged.');
+        return;
+      }
       const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
       if (newUrl) {
         setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
@@ -1542,6 +1560,23 @@ const ImaginationStation: React.FC = () => {
       } else { toast.error('Enhance failed', 'No image returned.'); }
     } catch (err: any) { toast.error('Enhance failed', err.response?.data?.error || 'Please try again.'); }
     finally { setIsEnhancing(false); }
+  };
+
+  const handleDesignHalftone = async () => {
+    const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
+    if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    const imageUrl = activeDesign.url;
+    const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
+    setIsHalftoning(true);
+    try {
+      const { data } = await imaginationApi.halftoneImage({ imageUrl });
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (newUrl) {
+        setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
+        setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Halftone', revert: revertSnapshot });
+      } else { toast.error('Halftone failed', 'No image returned.'); }
+    } catch (err: any) { toast.error('Halftone failed', err.response?.data?.error || 'Please try again.'); }
+    finally { setIsHalftoning(false); }
   };
 
   // Clear selection
@@ -1922,7 +1957,7 @@ const ImaginationStation: React.FC = () => {
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <div className="w-16 h-16 bg-gradient-to-br from-violet-500/30 to-fuchsia-500/30 rounded-2xl flex items-center justify-center text-3xl">
-                              {presetData?.icon || 'ðŸ“„'}
+                              {presetData?.icon || '📄'}
                             </div>
                           </div>
                         )}
@@ -2201,6 +2236,20 @@ const ImaginationStation: React.FC = () => {
                 <span className="text-xs text-muted">{getFreeTrial('upscale_2x') > 0 ? `${getFreeTrial('upscale_2x')} free` : `${getFeaturePrice('upscale_2x')} ITC`}</span>
               </div>
             </button>
+            <button
+              onClick={handleDesignHalftone}
+              disabled={isHalftoning || !activeDesignId}
+              className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
+              title="Apply a DTF halftone dot-screen to the active design"
+            >
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-rose-500 to-fuchsia-600 flex items-center justify-center shrink-0">
+                {isHalftoning ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <Grid3X3 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
+              </div>
+              <div className="hidden md:flex flex-col">
+                <span className="font-medium text-sm">Halftone</span>
+                <span className="text-xs text-muted">DTF dot-screen · free</span>
+              </div>
+            </button>
           </div>
 
           {/* Sheet Tools - only shown when sheet has layers */}
@@ -2298,6 +2347,15 @@ const ImaginationStation: React.FC = () => {
                     {isUpscaling ? <Loader2 className="w-4 h-4 animate-spin" /> : <ZoomIn className="w-4 h-4" />}
                     Upscale
                   </button>
+                  <button
+                    onClick={handleDesignHalftone}
+                    disabled={isHalftoning}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
+                    title="DTF halftone dot-screen"
+                  >
+                    {isHalftoning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Grid3X3 className="w-4 h-4" />}
+                    Halftone
+                  </button>
                   <a
                     href={activeDesign.url}
                     download={`${activeDesign.name}.png`}
@@ -2314,6 +2372,14 @@ const ImaginationStation: React.FC = () => {
                   >
                     <LayoutGrid className="w-4 h-4" />
                     Send to Imagination Sheet
+                  </button>
+                  <button
+                    onClick={() => setShowMakeProductModal(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-lg text-sm font-semibold hover:from-fuchsia-700 hover:to-pink-700 transition-all shadow-sm"
+                    title="Put this design on a shirt, metal print, or 3D toy"
+                  >
+                    <ShoppingBag className="w-4 h-4" />
+                    Make a Product
                   </button>
                 </div>
               </div>
@@ -2846,6 +2912,16 @@ const ImaginationStation: React.FC = () => {
         }}
         itcBalance={itcBalance}
         onImageGenerated={handleMrImagineImageGenerated}
+        onBalanceUpdate={setWalletBalance}
+      />
+
+      {/* Make a Product Modal */}
+      <MakeProductModal
+        isOpen={showMakeProductModal}
+        onClose={() => setShowMakeProductModal(false)}
+        designUrl={activeDesign?.url ?? null}
+        itcBalance={itcBalance}
+        onBalanceUpdate={setWalletBalance}
       />
 
       {/* Reimagine It Modal */}

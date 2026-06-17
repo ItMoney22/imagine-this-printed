@@ -581,9 +581,24 @@ export default function ToyCreator() {
   // Wallet
   const [itcBalance, setItcBalance] = useState<number | null>(null)
 
+  // A design handed off from the Imagination Station "Make a Product" flow.
+  // The 3D pipeline builds from a description, so we surface the design as a
+  // visual reference the kid can look at while describing their toy.
+  const [referenceImage, setReferenceImage] = useState<string | null>(null)
+  useEffect(() => {
+    const incoming = sessionStorage.getItem('itp-incoming-design-toy')
+    if (incoming) {
+      sessionStorage.removeItem('itp-incoming-design-toy')
+      setReferenceImage(incoming)
+    }
+  }, [])
+
   // Voice state
   const [muted, setMuted] = useState<boolean>(() => {
-    try { return localStorage.getItem(VOICE_MUTE_KEY) === 'false' ? false : false } catch { return false }
+    // Restore the saved mute preference (persisted at VOICE_MUTE_KEY). The old
+    // ternary returned false on both branches, so a muted user was un-muted on
+    // every reload.
+    try { return localStorage.getItem(VOICE_MUTE_KEY) === 'true' } catch { return false }
   })
   const [hasPlayed, setHasPlayed] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -1788,6 +1803,23 @@ export default function ToyCreator() {
         className="min-h-screen relative overflow-x-hidden bg-gradient-to-b from-white via-purple-50 to-white"
       >
         <CosmicOrbs />
+
+        {/* Design reference handed off from the Imagination Station */}
+        {referenceImage && stage === 'build' && (
+          <div className="fixed bottom-4 left-4 z-30 bg-white/95 backdrop-blur rounded-xl shadow-lg border border-purple-200 p-2 w-32">
+            <button
+              onClick={() => setReferenceImage(null)}
+              className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-purple-600 text-white text-xs flex items-center justify-center shadow"
+              aria-label="Dismiss reference"
+            >
+              ×
+            </button>
+            <div className="w-full h-24 rounded-lg overflow-hidden bg-purple-50 flex items-center justify-center">
+              <img src={referenceImage} alt="Your design" className="max-w-full max-h-full object-contain" />
+            </div>
+            <p className="text-[10px] text-purple-700 font-semibold text-center mt-1.5 leading-tight">Your design — describe a toy like this!</p>
+          </div>
+        )}
 
         {/* Stage indicator dots */}
         <div className="sticky top-0 z-20 flex justify-center pt-4 pb-2 gap-2 backdrop-blur-sm bg-white/70 border-b border-purple-100">

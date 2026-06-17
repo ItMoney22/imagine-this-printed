@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
+import { addonsUnitTotal } from '../lib/product-kind'
 
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
@@ -75,6 +76,15 @@ const Cart: React.FC = () => {
                     {item.selectedColor && (
                       <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{item.selectedColor}</span></p>
                     )}
+                    {item.selectedAddons && item.selectedAddons.length > 0 && (
+                      <div className="mt-1">
+                        {item.selectedAddons.map(addon => (
+                          <p key={addon.id} className="text-sm text-muted">
+                            + {addon.name} <span className="font-medium text-text">(+${addon.price.toFixed(2)})</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     {item.designData?.mockupUrl && (
                       <span className="inline-flex items-center text-xs text-green-600 mt-1">
                         <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -109,7 +119,7 @@ const Cart: React.FC = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold">
-                      ${(item.product.price * item.quantity).toFixed(2)}
+                      ${((item.product.price + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                     </p>
                     <button
                       onClick={() => removeFromCart(item.id)}

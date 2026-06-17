@@ -5,12 +5,22 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES } from '../utils/shipping-calculator'
+import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
+import { addonsUnitTotal } from '../lib/product-kind'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
-import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet } from 'lucide-react'
+import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
+
+// Sizes that incur an additional $2.50 upcharge (must match CartContext).
+// Module scope so they aren't rebuilt on every Checkout render.
+const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
+const PLUS_SIZE_UPCHARGE = 2.50
+const isPlusSize = (size?: string): boolean => {
+  if (!size) return false
+  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
+}
 
 const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, orderId: string }> = ({ orderId }) => {
   const { clearCart } = useCart()
@@ -185,6 +195,8 @@ const Checkout: React.FC = () => {
   const [pickupDate, setPickupDate] = useState('')
   const [pickupTime, setPickupTime] = useState('')
   const [pickupNotes, setPickupNotes] = useState('')
+  // Rush upgrade (next-business-day pickup/delivery for a flat fee, pre-2PM ET only)
+  const [rushSelected, setRushSelected] = useState(false)
 
   // Pre-fill form with user profile data
   useEffect(() => {
@@ -279,14 +291,6 @@ const Checkout: React.FC = () => {
     }
   }
 
-  // Sizes that incur an additional $2.50 upcharge (must match CartContext)
-  const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-  const PLUS_SIZE_UPCHARGE = 2.50
-  const isPlusSize = (size?: string): boolean => {
-    if (!size) return false
-    return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
-  }
-
   // Calculate totals based on payment methods (including plus size upcharge)
   const { usdItems, itcItems, usdTotal, itcTotal, requiresITCPayment, requiresUSDPayment, plusSizeUpcharge } = useMemo(() => {
     const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
@@ -294,7 +298,12 @@ const Checkout: React.FC = () => {
 
     // Calculate base total
     const usdBaseTotal = usdItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
-    const itcTotal = itcItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+
+    // Add-on upsells (e.g. metal-art easel stand / wall mount), priced per unit.
+    const usdAddonsTotal = usdItems.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
+    const itcAddonsTotal = itcItems.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
+    const itcTotal = itcBaseTotal + itcAddonsTotal
 
     // Calculate plus size upcharge for USD items
     const plusSizeUpcharge = usdItems.reduce((sum, item) => {
@@ -304,8 +313,8 @@ const Checkout: React.FC = () => {
       return sum
     }, 0)
 
-    // USD total includes plus size upcharge
-    const usdTotal = usdBaseTotal + plusSizeUpcharge
+    // USD total includes plus size upcharge + add-ons
+    const usdTotal = usdBaseTotal + plusSizeUpcharge + usdAddonsTotal
 
     return {
       usdItems,
@@ -319,9 +328,17 @@ const Checkout: React.FC = () => {
   }, [state.items])
 
   const subtotal = state.total
-  // If free_shipping coupon is applied, shipping is $0
-  const baseShipping = shippingCalculation?.selectedRate?.amount || 0
-  const shipping = appliedCoupon?.freeShipping ? 0 : baseShipping
+  // Rush upgrade applies only to pickup/local delivery, and only before the
+  // 2 PM ET warehouse cutoff. It's a paid add-on, so it stacks on top of the
+  // base rate even when a free-shipping coupon zeroes standard shipping.
+  const selectedRate = shippingCalculation?.selectedRate
+  const rushAvailable = isRushAvailable()
+  const rushEligible = !!selectedRate?.rushEligible && (selectedRate?.type === 'pickup' || selectedRate?.type === 'delivery')
+  const rushActive = rushSelected && rushEligible && rushAvailable
+  const rushFee = rushActive ? RUSH_FEE : 0
+  // If free_shipping coupon is applied, the base shipping is $0 (rush still adds)
+  const baseShipping = selectedRate?.amount || 0
+  const shipping = (appliedCoupon?.freeShipping ? 0 : baseShipping) + rushFee
   const tax = usdTotal * 0.08 // Only apply tax to USD items
   // ITC credit converts to USD at rate of 1 ITC = $0.01
   const itcCreditUSD = itcCreditAmount * 0.01
@@ -349,20 +366,14 @@ const Checkout: React.FC = () => {
     if (state.items.length > 0 && shippingCalculation && requiresUSDPayment) {
       createPaymentIntent()
     }
-  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment, discount, itcCreditAmount])
+  }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment, discount, itcCreditAmount, rushSelected])
 
   const calculateShipping = async () => {
+    // Address-first: don't quote shipping until the customer has entered a full
+    // address. We used to fall back to a default Los Angeles address, which
+    // showed rates for the wrong destination before anything was typed.
     if (!formData.address || !formData.city || !formData.state || !formData.zipCode) {
-      // Use default shipping calculation without address
-      const defaultCalculation = await shippingCalculator.calculateShipping(state.items, {
-        name: 'Default',
-        address1: '123 Main St',
-        city: 'Los Angeles',
-        state: 'CA',
-        zip: '90210',
-        country: 'US'
-      }, state.total)
-      setShippingCalculation(defaultCalculation)
+      setShippingCalculation(null)
       return
     }
 
@@ -436,9 +447,13 @@ const Checkout: React.FC = () => {
           tax: tax,
           itcCreditAmount: itcCreditAmount,
           itcCreditUSD: itcCreditUSD,
-          // Shipping method details
-          shippingMethod: selectedShipping?.name || 'Standard',
+          // Shipping method details (shippingCost above already includes the
+          // rush surcharge when applicable). Tag the method name so the
+          // fulfillment team sees the next-day promise on the order.
+          shippingMethod: `${selectedShipping?.name || 'Standard'}${rushActive ? ' — Rush (Next Business Day)' : ''}`,
           shippingType: selectedShipping?.type || 'shipping',
+          rush: rushActive,
+          rushFee: rushFee,
           // Local pickup appointment info
           pickupAppointment: isLocalPickup ? {
             date: pickupDate || null,
@@ -569,17 +584,21 @@ const Checkout: React.FC = () => {
   const handleShippingRateChange = (rateId: string) => {
     if (!shippingCalculation) return
 
+    // Reset the rush upgrade whenever the option changes — a carrier rate isn't
+    // rush-eligible, and we don't want a stale $7.99 carried over.
+    setRushSelected(false)
+
     const updatedRates = shippingCalculation.rates.map(rate => ({
       ...rate,
       selected: rate.id === rateId
     }))
 
-    const selectedRate = updatedRates.find(rate => rate.selected)
+    const nextSelected = updatedRates.find(rate => rate.selected)
 
     setShippingCalculation({
       ...shippingCalculation,
       rates: updatedRates,
-      selectedRate
+      selectedRate: nextSelected
     })
   }
 
@@ -623,6 +642,9 @@ const Checkout: React.FC = () => {
 
   // Determine current step based on filled data
   const currentStep = !formData.email ? 1 : !formData.address ? 2 : 3
+
+  // Address-first gate: shipping options only appear once the full address is in.
+  const addressComplete = !!(formData.address && formData.city && formData.state && formData.zipCode)
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-bg via-bg to-purple-900/5">
@@ -800,7 +822,33 @@ const Checkout: React.FC = () => {
             </div>
 
             {/* Shipping Options */}
-            {shippingCalculation && (
+            {!addressComplete ? (
+              <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                    <Package className="w-4 h-4 text-primary" />
+                  </div>
+                  <h2 className="text-lg font-semibold">Shipping Options</h2>
+                </div>
+                <p className="text-sm text-muted flex items-center gap-2 mt-3">
+                  <MapPin className="w-4 h-4 text-muted flex-shrink-0" />
+                  Enter your shipping address above to see pickup, delivery, and live shipping rates.
+                </p>
+              </div>
+            ) : !shippingCalculation ? (
+              <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                    <Package className="w-4 h-4 text-primary" />
+                  </div>
+                  <h2 className="text-lg font-semibold">Shipping Options</h2>
+                </div>
+                <div className="text-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
+                  <p className="mt-2 text-muted">Calculating shipping rates...</p>
+                </div>
+              </div>
+            ) : (
               <div className="bg-card rounded-xl shadow-lg border border-white/10 p-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
@@ -855,9 +903,17 @@ const Checkout: React.FC = () => {
                               </div>
                               <p className={`text-sm mt-1 ${rate.disabled ? 'text-slate-400' : 'text-muted'}`}>
                                 {rate.type === 'pickup' ? (
-                                  <>Ready in {rate.estimatedDays} business day</>
+                                  rate.selected && rushActive ? (
+                                    <>Ready next business day ⚡</>
+                                  ) : (
+                                    <>Ready in {rate.estimatedDays} business days</>
+                                  )
                                 ) : rate.type === 'delivery' ? (
-                                  <>{rate.estimatedDays} business days • Within {MAX_DELIVERY_RADIUS_MILES} miles</>
+                                  rate.selected && rushActive ? (
+                                    <>Delivered next business day ⚡ • Within {MAX_DELIVERY_RADIUS_MILES} miles</>
+                                  ) : (
+                                    <>{rate.estimatedDays} business days • Within {MAX_DELIVERY_RADIUS_MILES} miles</>
+                                  )
                                 ) : (
                                   <>{rate.provider} • {rate.estimatedDays} business days</>
                                 )}
@@ -882,6 +938,46 @@ const Checkout: React.FC = () => {
                             </p>
                           </div>
                         </label>
+
+                        {/* Rush upgrade — next-business-day pickup/delivery for a flat fee.
+                            Disabled (with reason) after the 2 PM ET warehouse cutoff. */}
+                        {rate.selected && rate.rushEligible && (
+                          <div className="mt-3 ml-6">
+                            <label
+                              className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                                !rushAvailable
+                                  ? 'opacity-60 cursor-not-allowed border-slate-300 bg-slate-50'
+                                  : rushActive
+                                    ? 'border-amber-500 bg-amber-500/10 cursor-pointer'
+                                    : 'card-border hover:border-amber-400/50 cursor-pointer'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={rushActive}
+                                disabled={!rushAvailable}
+                                onChange={(e) => setRushSelected(e.target.checked)}
+                                className="mt-1"
+                              />
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className={`font-medium flex items-center gap-1 ${!rushAvailable ? 'text-slate-500' : ''}`}>
+                                    <Zap className={`w-4 h-4 ${rushAvailable ? 'text-amber-500' : 'text-slate-400'}`} />
+                                    Rush — {rate.type === 'pickup' ? 'ready' : 'delivered'} next business day
+                                  </p>
+                                  <span className={`font-semibold whitespace-nowrap ${rushAvailable ? 'text-amber-500' : 'text-slate-400'}`}>
+                                    +${RUSH_FEE.toFixed(2)}
+                                  </span>
+                                </div>
+                                <p className={`text-xs mt-0.5 ${!rushAvailable ? 'text-amber-600' : 'text-muted'}`}>
+                                  {rushAvailable
+                                    ? 'Skip the line — your order is prioritized for next-business-day turnaround if placed before 2 PM ET.'
+                                    : getRushUnavailableReason()}
+                                </p>
+                              </div>
+                            </label>
+                          </div>
+                        )}
 
                         {/* Pickup Appointment Booking - Shows when local pickup is selected */}
                         {rate.type === 'pickup' && rate.selected && (
@@ -1310,9 +1406,18 @@ const Checkout: React.FC = () => {
                         </span>
                       )}
                     </div>
+                    {item.selectedAddons && item.selectedAddons.length > 0 && (
+                      <div className="mt-1 space-y-0.5">
+                        {item.selectedAddons.map(addon => (
+                          <p key={addon.id} className="text-xs text-muted">
+                            + {addon.name} (+${addon.price.toFixed(2)})
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <p className="font-semibold text-sm flex-shrink-0">
-                    ${(item.product.price * item.quantity).toFixed(2)}
+                    ${((item.product.price + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                   </p>
                 </div>
               ))}
@@ -1442,13 +1547,22 @@ const Checkout: React.FC = () => {
                     <span>
                       {appliedCoupon?.freeShipping ? (
                         <span className="text-green-600">Free (coupon)</span>
-                      ) : shipping === 0 ? (
+                      ) : baseShipping === 0 ? (
                         'Free'
                       ) : (
-                        `$${shipping.toFixed(2)}`
+                        `$${baseShipping.toFixed(2)}`
                       )}
                     </span>
                   </div>
+                  {rushActive && (
+                    <div className="flex justify-between text-amber-600">
+                      <span className="flex items-center gap-1">
+                        <Zap className="w-3 h-3" />
+                        Rush (Next Business Day)
+                      </span>
+                      <span>+${rushFee.toFixed(2)}</span>
+                    </div>
+                  )}
                   {discount > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Discount ({appliedCoupon?.code})</span>

@@ -282,15 +282,23 @@ export async function processReferralFirstPurchase(
 
     const newBalance = (wallet?.itc_balance || 0) + bonusITC
 
-    await supabase.from('itc_transactions').insert({
+    // Live itc_transactions shape is (user_id, type, amount, reference,
+    // balance_after, metadata) — the old insert wrote reason/related_entity_*
+    // (nonexistent) so referral bonuses silently wrote NO ledger row.
+    const { error: ledgerErr } = await supabase.from('itc_transactions').insert({
       user_id: profile.referred_by,
       type: 'earned',
       amount: bonusITC,
       balance_after: newBalance,
-      reason: 'Referral first purchase bonus',
-      related_entity_type: 'referral',
-      related_entity_id: transaction.id
+      reference: `referral:${transaction.id}`,
+      metadata: {
+        source: 'referral',
+        reason: 'Referral first purchase bonus',
+        related_entity_type: 'referral',
+        related_entity_id: transaction.id,
+      },
     })
+    if (ledgerErr) console.error('[referral-service] itc_transactions insert failed:', ledgerErr.message)
 
     await supabase
       .from('user_wallets')

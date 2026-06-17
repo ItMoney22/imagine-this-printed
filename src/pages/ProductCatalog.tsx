@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
+import { canonicalCategoryOf } from '../lib/product-kind'
 import type { Product } from '../types'
 
 const ProductCatalog: React.FC = () => {
@@ -43,14 +44,17 @@ const ProductCatalog: React.FC = () => {
           description: p.description || '',
           price: p.price || 0,
           images: p.images || [],
-          category: p.category || 'shirts',
+          // Classify by kind (column → metadata.product_template fallback) so
+          // metal/3D products with a null category stop landing under T-Shirts.
+          category: canonicalCategoryOf({ category: p.category, metadata: p.metadata }),
           inStock: p.is_active !== false,
           createdAt: p.created_at,
           updatedAt: p.updated_at,
           metadata: p.metadata || {},
           isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false,
-          sizes: p.metadata?.sizes || [],
-          colors: p.metadata?.colors || [],
+          // sizes/colors live on the columns (set at approval); metadata fallback for legacy rows
+          sizes: p.sizes || p.metadata?.sizes || [],
+          colors: p.colors || p.metadata?.colors || [],
           isUserSubmitted: p.metadata?.is_user_submitted || false
         }
       }).filter(Boolean) as Product[]
@@ -161,10 +165,17 @@ const ProductCatalog: React.FC = () => {
     }
   }, [category])
 
-  const getCategoryCount = (catId: string) => {
-    if (catId === 'all') return products.length
-    return products.filter(p => p.category === catId).length
-  }
+  // Single-pass count map (memoized) instead of filtering the full products
+  // array once per category pill on every render.
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const p of products) {
+      counts[p.category] = (counts[p.category] || 0) + 1
+    }
+    return counts
+  }, [products])
+  const getCategoryCount = (catId: string) =>
+    catId === 'all' ? products.length : (categoryCounts[catId] || 0)
 
   return (
     <div className="min-h-screen bg-slate-50">

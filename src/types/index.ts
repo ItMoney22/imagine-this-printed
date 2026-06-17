@@ -29,6 +29,12 @@ export interface Product {
   colors?: string[]
 }
 
+export interface CartAddon {
+  id: string
+  name: string
+  price: number
+}
+
 export interface CartItem {
   id: string
   product: Product
@@ -36,6 +42,7 @@ export interface CartItem {
   customDesign?: string
   selectedSize?: string
   selectedColor?: string
+  selectedAddons?: CartAddon[]
   paymentMethod?: 'usd' | 'itc'
   designData?: {
     elements: any[]

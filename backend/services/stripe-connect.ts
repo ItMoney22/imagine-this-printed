@@ -360,8 +360,11 @@ export async function processInstantPayout(
     const { error: deductError } = await supabase
       .from('user_wallets')
       .update({
+        // live user_wallets has updated_at, not last_itc_activity — the stale
+        // column made this update fail and threw "Failed to deduct ITC", which
+        // broke the entire ITC cashout (real money-out) flow.
         itc_balance: newBalance,
-        last_itc_activity: new Date().toISOString()
+        updated_at: new Date().toISOString()
       })
       .eq('user_id', userId)
 
@@ -441,16 +444,19 @@ export async function processInstantPayout(
       })
       .eq('id', cashoutRequest.id)
 
-    // 9. Log ITC transaction
-    await supabase.from('itc_transactions').insert({
+    // 9. Log ITC transaction. Live itc_transactions schema is
+    // (user_id,type,amount,reference,balance_after,metadata) — the old insert
+    // wrote usd_value/reason/reference_id (nonexistent) and the error was
+    // swallowed, so cashouts left NO ledger row. Map to reference + metadata.
+    const { error: cashoutLedgerErr } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'cashout',
       amount: -amountItc,
       balance_after: newBalance,
-      usd_value: calculation.netUsd,
-      reason: `Cash out ${amountItc} ITC for $${calculation.netUsd.toFixed(2)} via ${payoutMethod} payout`,
-      reference_id: cashoutRequest.id,
+      reference: cashoutRequest.id,
       metadata: {
+        description: `Cash out ${amountItc} ITC for $${calculation.netUsd.toFixed(2)} via ${payoutMethod} payout`,
+        usd_value: calculation.netUsd,
         gross_usd: calculation.grossUsd,
         platform_fee: calculation.platformFeeUsd,
         instant_fee: calculation.instantFeeUsd,
@@ -459,6 +465,7 @@ export async function processInstantPayout(
         transfer_id: transfer.id
       }
     })
+    if (cashoutLedgerErr) console.error('[stripe-connect] cashout ledger insert failed:', cashoutLedgerErr.message)
 
     return {
       success: true,
@@ -603,25 +610,30 @@ export async function handlePayoutFailed(
     await supabase
       .from('user_wallets')
       .update({
+        // live column is updated_at, not last_itc_activity — the stale column
+        // made this fire-and-forget refund update fail silently, so a user whose
+        // payout failed never got their ITC back.
         itc_balance: refundedBalance,
-        last_itc_activity: new Date().toISOString()
+        updated_at: new Date().toISOString()
       })
       .eq('user_id', request.user_id)
 
-    // Log refund transaction
-    await supabase.from('itc_transactions').insert({
+    // Log refund transaction (live schema: reference + metadata; the old
+    // reason/reference_id columns don't exist and silently dropped the row).
+    const { error: refundLedgerErr } = await supabase.from('itc_transactions').insert({
       user_id: request.user_id,
       type: 'refund',
       amount: request.amount_itc,
       balance_after: refundedBalance,
-      reason: `Cashout failed - ${request.amount_itc} ITC refunded`,
-      reference_id: cashoutRequestId,
+      reference: cashoutRequestId,
       metadata: {
+        description: `Cashout failed - ${request.amount_itc} ITC refunded`,
         failure_code: payout.failure_code,
         failure_message: payout.failure_message,
         payout_id: payout.id
       }
     })
+    if (refundLedgerErr) console.error('[stripe-connect] refund ledger insert failed:', refundLedgerErr.message)
 
     console.log('[stripe-connect] ITC refunded to user:', request.user_id, 'amount:', request.amount_itc)
   }

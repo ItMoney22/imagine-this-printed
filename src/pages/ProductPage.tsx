@@ -10,8 +10,9 @@ import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
-import { imaginationApi } from '../lib/api'
-import type { Product } from '../types'
+import { imaginationApi, apiFetch } from '../lib/api'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables } from '../lib/product-kind'
+import type { Product, CartAddon } from '../types'
 
 const ProductPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -26,7 +27,13 @@ const ProductPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
+  const [selectedAddons, setSelectedAddons] = useState<CartAddon[]>([])
   const [uploading, setUploading] = useState(false)
+  // Digital download product: deliverables are returned ONLY by the gated
+  // endpoints (never read from product.metadata, which is public-readable).
+  const [digitalDeliverables, setDigitalDeliverables] = useState<{ kind: string; label: string; url: string }[] | null>(null)
+  const [ownsDigital, setOwnsDigital] = useState(false)
+  const [buyingDigital, setBuyingDigital] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load product and source image from database
@@ -62,8 +69,12 @@ const ProductPage: React.FC = () => {
             updatedAt: data.updated_at,
             metadata: data.metadata || {},
             isThreeForTwentyFive: data.metadata?.isThreeForTwentyFive || false,
-            sizes: data.metadata?.sizes || [],
-            colors: data.metadata?.colors || []
+            // sizes/colors live on the products columns (set at approval); fall
+            // back to metadata for legacy rows.
+            sizes: data.sizes || data.metadata?.sizes || [],
+            colors: data.colors || data.metadata?.colors || [],
+            product_type: data.product_type,
+            digital_price: data.digital_price || 0
           }
           setProduct(mappedProduct)
 
@@ -95,6 +106,24 @@ const ProductPage: React.FC = () => {
     }
   }, [product, user])
 
+  // Reveal digital downloads only if the user already owns this digital product.
+  // Deliverable URLs come from the gated endpoint, never from product.metadata.
+  // MUST stay above the early returns below — hooks run unconditionally.
+  useEffect(() => {
+    if (!product || !user || !hasDigitalDeliverables(product)) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetch(`/api/user-products/${product.id}/digital-download`)
+        if (!cancelled && data?.owned) {
+          setOwnsDigital(true)
+          setDigitalDeliverables(data.deliverables || [])
+        }
+      } catch { /* not owned / not signed in — stay hidden */ }
+    })()
+    return () => { cancelled = true }
+  }, [product, user])
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -120,6 +149,34 @@ const ProductPage: React.FC = () => {
       </div>
     )
   }
+
+  // Determine product kind so the page renders type-appropriate options:
+  // apparel (shirt sizes + DTF tools), metal wall art (print sizes + finish),
+  // or 3D prints (size tiers). Mirrors AdminCreatorProductsTab.productKind.
+  const productKind: 'metal' | '3d' | 'apparel' = (() => {
+    const c = (product.category || '').toLowerCase()
+    const t = String(product.metadata?.product_template || '').toLowerCase()
+    if (c.includes('metal') || t.includes('metal') || t.includes('wall')) return 'metal'
+    if (c.includes('3d') || c.includes('toy') || t.includes('3d') || t.includes('toy')) return '3d'
+    return 'apparel'
+  })()
+  const isApparel = productKind === 'apparel'
+
+  // Optional add-on upsells configured at approval (metal-art easel stand,
+  // wall mount, etc.). Empty for products without any.
+  const availableAddons = resolveProductAddons(product)
+  const addonsTotal = addonsUnitTotal(selectedAddons)
+  const toggleAddon = (addon: { id: string; name: string; price: number }) => {
+    setSelectedAddons(prev =>
+      prev.some(a => a.id === addon.id)
+        ? prev.filter(a => a.id !== addon.id)
+        : [...prev, { id: addon.id, name: addon.name, price: addon.price }]
+    )
+  }
+
+  // Gallery = artwork/photos + the contextual mockup (metadata.mockup_url),
+  // which was previously never shown. Falls back to the unsplash placeholder.
+  const galleryImages = getGalleryImages(product)
 
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,7 +225,7 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined)
       toast.success('Added to cart', product.name)
     }
   }
@@ -184,8 +241,28 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined)
       navigate('/checkout')
+    }
+  }
+
+  const handleBuyDigital = async () => {
+    if (!product) return
+    if (!user) { toast.warning('Sign in required', 'Please sign in to buy the digital download'); return }
+    setBuyingDigital(true)
+    try {
+      const data = await apiFetch(`/api/user-products/${product.id}/buy-digital`, { method: 'POST' })
+      if (data?.success) {
+        setOwnsDigital(true)
+        setDigitalDeliverables(data.deliverables || [])
+        toast.success('Unlocked!', data.alreadyOwned ? 'You already own this — downloads ready.' : (data.message || 'Digital download unlocked.'))
+      } else {
+        toast.error('Purchase failed', data?.error || 'Could not complete the purchase')
+      }
+    } catch (err: any) {
+      toast.error('Purchase failed', err?.message || 'Could not complete the purchase')
+    } finally {
+      setBuyingDigital(false)
     }
   }
 
@@ -205,8 +282,8 @@ const ProductPage: React.FC = () => {
         <div>
           <div className="mb-4">
             <ProtectedImage
-              src={product.images && product.images.length > 0
-                ? product.images[selectedImage]
+              src={galleryImages.length > 0
+                ? galleryImages[selectedImage]
                 : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
               alt={product.name}
               // object-contain (was object-cover) — mockups have varying
@@ -220,9 +297,9 @@ const ProductPage: React.FC = () => {
             />
           </div>
 
-          {product.images && product.images.length > 1 && (
+          {galleryImages.length > 1 && (
             <div className="flex space-x-2 overflow-x-auto">
-              {product.images.map((image, index) => (
+              {galleryImages.map((image, index) => (
                 <button
                   key={index}
                   onClick={() => setSelectedImage(index)}
@@ -281,7 +358,7 @@ const ProductPage: React.FC = () => {
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Truth in Every Thread</span>
+                <span>{productKind === 'metal' ? 'Museum-Grade Metal Finish' : productKind === '3d' ? 'Durable, Detail-Rich Build' : 'Truth in Every Thread'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
@@ -291,17 +368,24 @@ const ProductPage: React.FC = () => {
           </div>
 
           <div className="border-t card-border pt-6">
-            {/* Size Selector - always show for apparel products */}
+            {/* Size selector — type-aware: apparel shirt sizes, metal print sizes, or 3D tiers */}
             {(() => {
-              // Use product sizes if available, otherwise use default apparel sizes
-              const defaultSizes = ['S', 'M', 'L', 'XL', '2XL']
+              // Default sizes depend on the product kind. Real products carry
+              // their sizes on the column (set at approval); these are fallbacks
+              // for legacy rows that predate per-type sizing.
+              const defaultSizes =
+                productKind === 'metal' ? ['4x6', '8x11']
+                : productKind === '3d' ? ['mini', 'small', 'medium', 'large']
+                : ['S', 'M', 'L', 'XL', '2XL']
               const displaySizes = product.sizes && product.sizes.length > 0 ? product.sizes : defaultSizes
-              const hasPlusSizes = displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
+              // Plus-size upcharge is apparel-only — metal/3D sizes never qualify.
+              const hasPlusSizes = isApparel && displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
+              const sizeLabel = productKind === 'metal' ? 'Print Size' : productKind === '3d' ? 'Size' : 'Size'
 
               return (
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-text">Size</label>
+                    <label className="block text-sm font-medium text-text">{sizeLabel}</label>
                     {hasPlusSizes && (
                       <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
                         2XL+ = +$2.50
@@ -310,7 +394,7 @@ const ProductPage: React.FC = () => {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {displaySizes.map(size => {
-                      const isPlusSize = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                      const isPlusSize = isApparel && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
                       return (
                         <button
@@ -335,6 +419,15 @@ const ProductPage: React.FC = () => {
                 </div>
               )
             })()}
+
+            {productKind === 'metal' && product.metadata?.finish && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">Finish</label>
+                <span className="inline-block px-4 py-2 rounded-md border-2 border-primary bg-primary/10 text-text font-bold capitalize">
+                  {String(product.metadata.finish)}
+                </span>
+              </div>
+            )}
 
             {product.colors && product.colors.length > 0 && (
               <div className="mb-4">
@@ -376,6 +469,46 @@ const ProductPage: React.FC = () => {
               </div>
             )}
 
+            {availableAddons.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">Add-ons</label>
+                <div className="space-y-2">
+                  {availableAddons.map(addon => {
+                    const checked = selectedAddons.some(a => a.id === addon.id)
+                    return (
+                      <button
+                        key={addon.id}
+                        type="button"
+                        onClick={() => toggleAddon(addon)}
+                        className={`w-full flex items-start gap-3 text-left px-4 py-3 rounded-lg border-2 transition-all ${
+                          checked
+                            ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
+                            : 'border-gray-700 bg-card hover:border-primary/60'
+                        }`}
+                      >
+                        <span className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'bg-primary border-primary' : 'border-gray-500'}`}>
+                          {checked && <Check className="w-3.5 h-3.5 text-white" />}
+                        </span>
+                        <span className="flex-1">
+                          <span className="flex items-center justify-between">
+                            <span className="font-bold text-text">{addon.name}</span>
+                            <span className="font-bold text-primary">+${addon.price.toFixed(2)}</span>
+                          </span>
+                          <span className="block text-xs text-muted mt-0.5">{addon.blurb}{addon.printed ? ' · Made in-house' : ''}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                {addonsTotal > 0 && (
+                  <p className="text-sm text-muted mt-2">
+                    Item total: <span className="font-bold text-text">${(product.price + addonsTotal).toFixed(2)}</span>
+                    <span className="text-xs"> (base ${product.price.toFixed(2)} + add-ons ${addonsTotal.toFixed(2)})</span>
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center space-x-4 mb-4">
               <label className="text-sm font-medium text-text">Quantity:</label>
               <div className="flex items-center border card-border rounded-md">
@@ -396,49 +529,55 @@ const ProductPage: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="image/*"
-                className="hidden"
-              />
 
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="w-full bg-white/10 hover:bg-white/20 border-2 border-primary/50 text-text font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg mb-2 shadow-[0_0_15px_rgba(168,85,247,0.2)]"
-              >
-                {uploading ? (
-                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                ) : (
-                  <Upload className="w-6 h-6 text-primary" />
-                )}
-                {uploading ? "Uploading..." : "Upload Your Own Design"}
-              </button>
+              {/* DTF/apparel-only customization. Metal wall art and 3D prints
+                  are finished pieces — no upload-your-own or sheet placement. */}
+              {isApparel && (
+                <>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
 
-              <button
-                onClick={() => {
-                  // Navigate to Imagination Station with the SOURCE image (original Flux-generated)
-                  // sourceImageUrl is fetched from product_assets table (kind='source' or 'nobg')
-                  const imageToAdd = sourceImageUrl || product.images?.[0] || ''
-                  if (!imageToAdd) {
-                    alert('No source image available for this product')
-                    return
-                  }
-                  const params = new URLSearchParams({
-                    addImage: imageToAdd,
-                    productName: product.name,
-                    productId: product.id
-                  })
-                  navigate(`/imagination-station?${params.toString()}`)
-                }}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 hover:shadow-glowLg text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-[0_0_20px_rgba(168,85,247,0.4)]"
-              >
-                <Sparkles className="w-6 h-6" />
-                Add to Imagination Sheet™
-              </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="w-full bg-white/10 hover:bg-white/20 border-2 border-primary/50 text-text font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg mb-2 shadow-[0_0_15px_rgba(168,85,247,0.2)]"
+                  >
+                    {uploading ? (
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    ) : (
+                      <Upload className="w-6 h-6 text-primary" />
+                    )}
+                    {uploading ? "Uploading..." : "Upload Your Own Design"}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      // Navigate to Imagination Station with the SOURCE image (original Flux-generated)
+                      // sourceImageUrl is fetched from product_assets table (kind='source' or 'nobg')
+                      const imageToAdd = sourceImageUrl || product.images?.[0] || ''
+                      if (!imageToAdd) {
+                        toast.error('No source image', 'This product has no source image to add to a sheet')
+                        return
+                      }
+                      const params = new URLSearchParams({
+                        addImage: imageToAdd,
+                        productName: product.name,
+                        productId: product.id
+                      })
+                      navigate(`/imagination-station?${params.toString()}`)
+                    }}
+                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 hover:shadow-glowLg text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+                  >
+                    <Sparkles className="w-6 h-6" />
+                    Add to Imagination Sheet™
+                  </button>
+                </>
+              )}
 
               <button
                 onClick={handleAddToCart}
@@ -459,6 +598,48 @@ const ProductPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {hasDigitalDeliverables(product) && (
+            <div className="bg-card card-border p-4 rounded-lg">
+              <h4 className="font-semibold mb-1 text-text flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                Digital Download
+              </h4>
+              {ownsDigital && digitalDeliverables ? (
+                <div className="space-y-2 mt-2">
+                  <p className="text-sm text-green-600">You own this — download your files:</p>
+                  {digitalDeliverables.map(d => (
+                    <a
+                      key={d.kind}
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between px-3 py-2 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-sm text-text"
+                    >
+                      <span>{d.label}</span>
+                      <span className="text-primary font-medium">Download ↓</span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-muted mb-3 mt-1">
+                    Get the print-ready files — clean design, halftone version, and DTF print-ready. Instant download.
+                  </p>
+                  <button
+                    onClick={handleBuyDigital}
+                    disabled={buyingDigital}
+                    className="w-full btn-primary shadow-glow flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {buyingDigital && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {buyingDigital
+                      ? 'Processing…'
+                      : `Buy Digital Download${Number(product.digital_price) > 0 ? ` — $${Number(product.digital_price).toFixed(2)}` : ''}`}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="bg-card card-border p-4 rounded-lg">
             <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
@@ -482,7 +663,7 @@ const ProductPage: React.FC = () => {
               Did you know you can earn Imagine This Coin (ITC) when your submitted designs sell?
             </p>
             <button
-              onClick={() => navigate('/creator-signup')}
+              onClick={() => navigate('/my-designs')}
               className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-full transition-all shadow-md hover:shadow-lg"
             >
               Become a Creator →

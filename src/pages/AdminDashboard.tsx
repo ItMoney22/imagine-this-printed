@@ -5,6 +5,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { aiProducts, adminApi, API_BASE } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
+import { productKindOf } from '../lib/product-kind'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
@@ -113,7 +114,10 @@ const AdminDashboard: React.FC = () => {
     tumblers: ['12oz', '20oz', '30oz', '40oz'],
     'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
     '3d-models': [],
-    'metal-art': ['4x6"', '8x11"']
+    // Metal print sizes WITHOUT the inch mark — must match the canonical values
+    // written by the approval flow + defaultSizesFor (['4x6','8x11']) so the
+    // size buttons reflect the product's actual selection.
+    'metal-art': ['4x6', '8x11']
   }
 
   // Preset colors for products
@@ -1047,7 +1051,17 @@ const AdminDashboard: React.FC = () => {
   }
 
   const openEnhancedEditModal = async (product: any) => {
-    setEditingProductData(product)
+    // Derive the category from the product's true KIND (reads category column,
+    // then falls back to metadata.product_template). Legacy rows — notably metal
+    // art approved before the approval route set the category column — carry a
+    // stale category like 'shirts' while metadata says 'metal-art'; without this
+    // the edit modal mislabels them as T-Shirts and shows shirt sizes/colors.
+    // Map the kind to THIS modal's category vocabulary (3d → '3d-models').
+    const kind = productKindOf(product)
+    const editCategory = kind === 'metal' ? 'metal-art'
+      : kind === '3d' ? '3d-models'
+      : (product.category || 'shirts')
+    setEditingProductData({ ...product, category: editCategory })
     setShowEnhancedEditModal(true)
     await loadProductJobs(product.id)
   }
@@ -3614,8 +3628,8 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Color Variants */}
-                      {editingProductData.category !== '3d-models' && (
+                      {/* Color Variants — apparel only (metal art + 3D have no shirt colors) */}
+                      {editingProductData.category !== '3d-models' && editingProductData.category !== 'metal-art' && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                           <label className="block text-sm font-medium text-slate-700 mb-3">
                             Available Colors

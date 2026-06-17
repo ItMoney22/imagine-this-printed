@@ -12,6 +12,7 @@ export { default as ImageCompareModal } from './ImageCompareModal'
 export { default as MrImagineModal } from './MrImagineModal'
 export { default as ReimagineItModal } from './ReimagineItModal'
 export { default as ITPEnhanceModal } from './ITPEnhanceModal'
+export { default as MakeProductModal } from './MakeProductModal'
 
 // Error Boundary
 export { default as ImaginationErrorBoundary } from './ImaginationErrorBoundary'

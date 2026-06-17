@@ -6,6 +6,7 @@
  */
 
 import sharp from 'sharp'
+import { uploadImageFromBuffer } from './google-cloud-storage.js'
 
 const WATERMARK_TEXT = 'ImagineThisPrinted.com'
 const WATERMARK_OPACITY = 0.3 // 30% opacity for subtlety
@@ -137,4 +138,15 @@ export async function addWatermarkToBuffer(imageBuffer: Buffer): Promise<Buffer>
   console.log('[watermark] Watermark added to buffer, new size:', (watermarkedBuffer.length / 1024).toFixed(2), 'KB')
 
   return watermarkedBuffer
+}
+
+/**
+ * Watermark an image URL and upload the result to GCS, returning the new
+ * (signed) URL. Used to produce the PUBLIC display variant of a design while
+ * the clean original stays gated for paid digital delivery.
+ */
+export async function watermarkUrlToGcs(imageUrl: string, destinationPath: string): Promise<string> {
+  const buf = await addWatermark(imageUrl)
+  const { publicUrl } = await uploadImageFromBuffer(buf, destinationPath, 'image/png')
+  return publicUrl
 }

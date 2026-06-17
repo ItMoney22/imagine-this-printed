@@ -65,6 +65,16 @@ function checkRateLimit(userId: string): boolean {
 // ---------------------------------------------------------------------------
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// Per-unit add-on upsell total (metal-art easel stand, wall mount, etc.).
+// Add-ons are priced per unit and were already folded into the charged amount
+// client-side — this mirrors that so order_items line totals reconcile and
+// fulfillment can see which add-ons to include.
+function addonsUnitTotal(item: any): number {
+  const addons = item?.selectedAddons
+  if (!Array.isArray(addons)) return 0
+  return addons.reduce((s: number, a: any) => s + (Number(a?.price) || 0), 0)
+}
+
 // Durable cart snapshot stored on orders.metadata.items — what MyOrders and
 // the print bridge read for items that have no products row (custom items).
 function snapshotCartItems(items: any[] | undefined | null) {
@@ -76,7 +86,10 @@ function snapshotCartItems(items: any[] | undefined | null) {
     image: i.product?.images?.[0] ?? null,
     size: i.selectedSize ?? null,
     color: i.selectedColor ?? null,
-    customDesign: i.customDesign ?? null
+    customDesign: i.customDesign ?? null,
+    // Selected add-on upsells (metal-art stand/mount/etc.) so MyOrders + the
+    // print bridge / fulfillment can see what to include.
+    addons: Array.isArray(i.selectedAddons) && i.selectedAddons.length ? i.selectedAddons : null
   }))
 }
 
@@ -87,19 +100,27 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
   if (!items || items.length === 0) return
   const rows = items.map((item: any) => {
     const rawId = item.product?.id != null ? String(item.product.id) : null
+    const qty = item.quantity || 1
+    const addonUnit = addonsUnitTotal(item)
+    const hasAddons = Array.isArray(item.selectedAddons) && item.selectedAddons.length > 0
     return {
       order_id: orderId,
       product_id: rawId && UUID_RE.test(rawId) ? rawId : null,
       product_name: item.product?.name || 'Unknown Product',
-      quantity: item.quantity || 1,
+      quantity: qty,
       unit_price: item.product?.price || 0,
-      subtotal: (item.product?.price || 0) * (item.quantity || 1),
+      // Line subtotal includes per-unit add-ons so it reconciles with the
+      // amount charged (which already folds add-ons in).
+      subtotal: ((item.product?.price || 0) + addonUnit) * qty,
       metadata: {
         client_product_id: rawId,
         image_url: item.product?.images?.[0] ?? null,
         size: item.selectedSize ?? null,
         color: item.selectedColor ?? null,
-        custom_design: item.customDesign ?? null
+        custom_design: item.customDesign ?? null,
+        // Add-on upsells for fulfillment (+ per-unit add-on total).
+        addons: hasAddons ? item.selectedAddons : null,
+        addons_total: hasAddons ? addonUnit : 0
       }
     }
   })
@@ -983,7 +1004,7 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
       updateData.tracking_number = trackingNumber
     }
     if (carrier) {
-      updateData.shipping_carrier = carrier
+      updateData.tracking_company = carrier
     }
 
     // Update fulfillment status based on order status

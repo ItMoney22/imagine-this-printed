@@ -1986,15 +1986,20 @@ const AdminEmail: React.FC = () => {
               {openMessage.attachments.length > 0 && (
                 <div className="px-6 py-3 border-t border-text/10 shrink-0 flex flex-wrap gap-2">
                   {openMessage.attachments.map((att, i) => {
-                    const canDownload = Boolean(att.content)
-                    const downloadUrl = canDownload
-                      ? `data:${att.content_type};base64,${att.content}`
-                      : undefined
-                    return canDownload ? (
+                    // Prefer the durable GCS link; fall back to legacy inline
+                    // base64 on older stored messages.
+                    const href = att.url
+                      ? att.url
+                      : att.content
+                        ? `data:${att.content_type};base64,${att.content}`
+                        : undefined
+                    return href ? (
                       <a
                         key={i}
-                        href={downloadUrl}
+                        href={href}
                         download={att.filename}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
                       >
                         <Paperclip size={12} />
@@ -2004,7 +2009,7 @@ const AdminEmail: React.FC = () => {
                     ) : (
                       <span
                         key={i}
-                        title="Attachment too large — view in Resend dashboard"
+                        title="Attachment could not be retrieved"
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-text/5 text-muted rounded-lg cursor-not-allowed"
                       >
                         <Paperclip size={12} />

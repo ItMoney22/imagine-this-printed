@@ -146,3 +146,62 @@ DTF Print Settings:
 
   return normalized
 }
+
+export interface DesignCopy {
+  title: string
+  description: string
+  tags: string[]
+}
+
+/**
+ * VISION-based product copy. Looks at the actual finished design and writes a
+ * store-ready title + description from what it sees — so a submitted design
+ * becomes a "solid" product (real title/description) the moment it's approved,
+ * even when no good text prompt is available (e.g. uploaded art, or a vague
+ * "Custom shirt design" concept). Uses gpt-4o (vision-capable). `hint` is the
+ * user's original idea/concept if we have it, used only as light context.
+ */
+export async function describeDesignForProduct(imageUrl: string, hint?: string): Promise<DesignCopy> {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    temperature: 0.85,
+    max_tokens: 500,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a witty product copywriter for a custom-print apparel shop. You will be shown a finished DESIGN graphic. Write store-ready copy for it as a printed product, based on what you actually SEE in the image. Return STRICT JSON only: {"title": string (catchy, specific to the art, max 70 chars, no surrounding quotes), "description": string (2-4 short sentences, fun and clever, describe what the artwork depicts and its vibe, make someone want to wear it, no corporate filler), "tags": string[] (5-8 lowercase search keywords)}.',
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: hint && hint.trim() && !/^custom .* design$/i.test(hint.trim())
+              ? `The creator's note (may be vague): "${hint}". Base the copy on the IMAGE itself.`
+              : 'Write the copy from this design image.',
+          },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ],
+      },
+    ],
+  })
+
+  const raw = completion.choices[0]?.message?.content?.trim() || '{}'
+  let obj: any = {}
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
+    if (s !== -1 && e > s) { try { obj = JSON.parse(raw.slice(s, e + 1)) } catch { /* defaults below */ } }
+  }
+  const title = typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim().slice(0, 80) : ''
+  const description = typeof obj.description === 'string' && obj.description.trim() ? obj.description.trim() : ''
+  if (!title || !description) throw new Error('vision copy returned incomplete fields')
+  return {
+    title,
+    description,
+    tags: Array.isArray(obj.tags) ? obj.tags.filter((t: any) => typeof t === 'string').slice(0, 8) : [],
+  }
+}

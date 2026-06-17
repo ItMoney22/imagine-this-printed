@@ -331,11 +331,11 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     }
 
     if (!existingOrder) {
-      // Try to find by stripe_payment_intent_id
+      // Try to find by payment_intent_id
       const { data } = await supabase
         .from('orders')
         .select('id')
-        .eq('stripe_payment_intent_id', paymentIntentIdForLookup)
+        .eq('payment_intent_id', paymentIntentIdForLookup)
         .single()
       existingOrder = data
     }
@@ -347,7 +347,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         .update({
           payment_status: 'paid',
           status: 'processing',
-          stripe_payment_intent_id: paymentIntentIdForLookup,
+          payment_intent_id: paymentIntentIdForLookup,
           updated_at: new Date().toISOString()
         })
         .eq('id', existingOrder.id)
@@ -366,7 +366,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         .from('orders')
         .insert({
           order_number: `ITP-${Date.now().toString(36).toUpperCase()}`,
-          stripe_payment_intent_id: paymentIntent.id,
+          payment_intent_id: paymentIntent.id,
           user_id: metadata?.userId || null,
           customer_email: metadata?.customerEmail || shipping?.email || null,
           subtotal: paymentIntent.amount / 100,

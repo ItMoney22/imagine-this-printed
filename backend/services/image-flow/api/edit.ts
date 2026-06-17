@@ -5,6 +5,7 @@
 import { supabase } from '../../../lib/supabase.js'
 import { runReplicate } from '../providers/replicate.js'
 import { runFal } from '../providers/fal.js'
+import { editOpenAIImage } from '../providers/openai-image.js'
 import {
   getModel,
   requiresCostGate,
@@ -127,7 +128,18 @@ export async function edit(req: EditRequest): Promise<EditResponse> {
   })
 
   let imageUrl: string
-  if (model.provider === 'replicate') {
+  if (model.id === 'openai/gpt-image-2') {
+    // OpenAI-direct edit (gpt-image-2 → gpt-image-1 fallback): cheaper than
+    // Replicate's wrapper and not subject to Replicate's rate limit.
+    const r = await editOpenAIImage({
+      sourceUrl: src.url,
+      refUrls: req.refImageUrls,
+      prompt: finalPrompt,
+      userId: req.createdBy,
+      quality: 'high',
+    })
+    imageUrl = r.url
+  } else if (model.provider === 'replicate') {
     const r = await runReplicate({ modelId: model.id, input })
     imageUrl = r.imageUrls[0]
   } else {

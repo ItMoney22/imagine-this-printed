@@ -130,14 +130,20 @@ router.post('/generate', requireAuth, async (req: Request, res: Response): Promi
         description: `Realistic mockup generation for ${productTemplate}`
       })
 
-    // Upload design to GCS temp storage
+    // Upload design to GCS temp storage. designImageUrl may be a base64 data
+    // URL (canvas export from the product designer) OR an http(s) URL (e.g. a
+    // finished design coming from the Imagination Station "Make a Product"
+    // flow) — handle both so this endpoint matches its documented contract.
     let designGcsUrl: string
     try {
-      const uploadResult = await gcsStorage.uploadFromDataUrl(designImageUrl, {
+      const uploadOpts = {
         userId,
-        folder: 'temp',
+        folder: 'temp' as const,
         filename: `design_${generation.id}.png`
-      })
+      }
+      const uploadResult = designImageUrl.startsWith('data:')
+        ? await gcsStorage.uploadFromDataUrl(designImageUrl, uploadOpts)
+        : await gcsStorage.uploadFromUrl(designImageUrl, uploadOpts)
       designGcsUrl = uploadResult.publicUrl
     } catch (uploadError: any) {
       console.error('[realistic-mockups] GCS upload error:', uploadError)

@@ -129,6 +129,40 @@ async function searchGoogleImages(query: string, apiKey: string): Promise<string
 }
 
 /**
+ * Lean trend search for design-idea generation. Pulls organic snippets + Google
+ * Images titles for a query (no topic extraction, no scraping) so it's fast
+ * enough to run on a "Surprise me" tap. Returns a compact text blob of real,
+ * current signals to ground the idea generator. Empty string if unavailable.
+ */
+export async function searchTrends(query: string): Promise<string> {
+  const apiKey = process.env.SERPAPI_API_KEY
+  if (!apiKey) {
+    console.warn('[serpapi] ⚠️ SERPAPI_API_KEY not set — trend search skipped')
+    return ''
+  }
+  try {
+    const [web, imgs] = await Promise.all([
+      getJson({ engine: 'google', q: query, api_key: apiKey, num: 6 }).catch(() => ({} as any)),
+      getJson({ engine: 'google_images', q: query, api_key: apiKey, num: 10 }).catch(() => ({} as any)),
+    ])
+    const snippets: string[] = (web.organic_results || [])
+      .slice(0, 6)
+      .map((r: any) => (r.title && r.snippet ? `${r.title}: ${r.snippet}` : r.snippet))
+      .filter(Boolean)
+    const imgTitles: string[] = (imgs.images_results || [])
+      .slice(0, 12)
+      .map((i: any) => i.title)
+      .filter(Boolean)
+    const blob = [...snippets, ...imgTitles].join('\n').slice(0, 1800)
+    console.log('[serpapi] 🔥 Trend search:', query, '->', blob.length, 'chars')
+    return blob
+  } catch (error: any) {
+    console.error('[serpapi] ❌ Trend search error:', error.message)
+    return ''
+  }
+}
+
+/**
  * Searches Google using SerpAPI to get context about the user's query
  * This helps GPT understand current trends, games, movies, etc.
  */

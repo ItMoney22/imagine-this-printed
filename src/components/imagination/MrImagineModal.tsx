@@ -1,7 +1,7 @@
 // src/components/imagination/MrImagineModal.tsx
 // Mr. Imagine Lightbox with DTF-style prompting, multi-image generation, and enhanced UX
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   Sparkles,
@@ -15,10 +15,15 @@ import {
   Layers,
   Maximize2,
   ChevronDown,
-  AlertCircle
+  AlertCircle,
+  Mic,
+  Square,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import type { AutoLayoutPricing, FreeTrials } from '../../types';
 import { imaginationApi } from '../../lib/api';
+import { itcToUsdLabel } from '../../lib/itc-pricing';
 import { CHECKERBOARD_BG } from './checkerboard';
 
 interface MrImagineModalProps {
@@ -28,6 +33,8 @@ interface MrImagineModalProps {
   freeTrials: FreeTrials;
   itcBalance: number;
   onImageGenerated: (imageUrl: string) => void;
+  /** Called with the user's new ITC balance right after a generation charges. */
+  onBalanceUpdate?: (newBalance: number) => void;
 }
 
 type GenerationState = 'idle' | 'generating' | 'complete' | 'error';
@@ -113,8 +120,13 @@ const EXAMPLE_PROMPTS = [
 ];
 
 /**
- * Build DTF-aware prompt matching AI Product Builder logic
- * CRITICAL: DTF rules come FIRST so the AI model prioritizes them
+ * Build the design prompt. POSITIVE-ONLY and subject-first.
+ *
+ * Why no "shirt / garment / fabric / mockup / do-not-include-a-shirt" language:
+ * diffusion models weight negations weakly, so naming a garment AT ALL (even to
+ * forbid it) makes one appear (this is why Flux rendered a shirt). We describe
+ * ONLY the standalone artwork + a solid background; the backend appends the
+ * hard background rule and runs each model's own prompt-tailoring on top.
  */
 function buildDTFPrompt(
   userPrompt: string,
@@ -122,41 +134,23 @@ function buildDTFPrompt(
   shirtColor: string,
   background: string // eslint-disable-line @typescript-eslint/no-unused-vars
 ): string {
-  // Critical DTF requirements - MUST come first - DESIGN ONLY, NO SHIRT
-  const criticalDTF = `CRITICAL REQUIREMENTS:
-1. Generate ONLY the graphic design artwork - DO NOT include any t-shirt, clothing, garment, or mockup
-2. The design MUST have a fully TRANSPARENT background - NO solid backgrounds of any color
-3. Create an ISOLATED graphic that floats on transparency - just the art, nothing else
-4. DO NOT show the design on a shirt, hoodie, or any product - ONLY the standalone artwork`;
+  const BG_NAME: Record<string, string> = {
+    black: 'a solid black',
+    white: 'a solid white',
+    grey: 'a solid heather-grey',
+    color: 'a single solid complementary-color',
+  };
+  const bg = BG_NAME[shirtColor] || 'a solid black';
 
-  // Shirt color specific rules - these affect the design colors
-  let colorRules = '';
-  if (shirtColor === 'black') {
-    colorRules = `COLOR RULES (for black fabric): ABSOLUTELY NO BLACK in the design. No dark grays, no shadows that appear black. Use ONLY bright, vibrant, saturated colors (reds, oranges, yellows, cyans, magentas, greens, whites). Make colors POP and glow against dark backgrounds.`;
-  } else if (shirtColor === 'white') {
-    colorRules = `COLOR RULES (for white fabric): Avoid pure white areas in the design. Use colors with good contrast. Dark outlines help define shapes.`;
-  } else if (shirtColor === 'grey') {
-    colorRules = `COLOR RULES (for grey fabric): Use bold saturated colors with strong contrast. Avoid medium grey tones.`;
-  } else {
-    colorRules = `COLOR RULES: Use high contrast, bold saturated colors.`;
-  }
+  // Positive color steering only — no "fabric"/"shirt" words.
+  let colorGuidance = 'bold, high-contrast, saturated colors';
+  if (shirtColor === 'black') colorGuidance = 'bright, vivid, glowing saturated colors that pop against the dark background (keep near-black tones out of the art)';
+  else if (shirtColor === 'white') colorGuidance = 'rich saturated colors with clean defining outlines (avoid large pure-white areas)';
+  else if (shirtColor === 'grey') colorGuidance = 'bold, saturated, high-contrast colors';
 
-  // Style rules from preset
-  const styleRules = `STYLE: ${style.prompt_suffix}`;
-
-  // Technical DTF requirements
-  const technicalDTF = `TECHNICAL: Centered composition, bold clean shapes, limited color palette, no tiny intricate details, sharp defined edges, high resolution PNG with alpha transparency.`;
-
-  // Combine all parts - DTF rules FIRST, then user prompt, then technical
-  const finalPrompt = [
-    criticalDTF,
-    colorRules,
-    styleRules,
-    `DESIGN SUBJECT: ${userPrompt}`,
-    technicalDTF
-  ].filter(Boolean).join('\n\n');
-
-  return finalPrompt;
+  // Subject FIRST (models weight early tokens). Purely a description of the
+  // standalone graphic — no garment/mockup/transparency words anywhere.
+  return `${userPrompt}. ${style.prompt_suffix}. A single isolated graphic illustration with one clear central subject, bold clean shapes and crisp defined edges, ${colorGuidance}, professional print-ready artwork centered on ${bg} background that fills the entire frame.`;
 }
 
 const MrImagineModal: React.FC<MrImagineModalProps> = ({
@@ -166,6 +160,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
   freeTrials,
   itcBalance,
   onImageGenerated,
+  onBalanceUpdate,
 }) => {
   // Form state
   const [prompt, setPrompt] = useState('');
@@ -175,12 +170,33 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
   const [outputSize, setOutputSize] = useState<string>('1024');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [imageCount, setImageCount] = useState(1);
+  const [genTier, setGenTier] = useState<'standard' | 'premium'>('standard');
+
+  // Premium = GPT Image 2 (top quality, reliable, best with text). 50 ITC / $0.50 per image.
+  const PREMIUM_ITC = 50;
 
   // Generation state
   const [generationState, setGenerationState] = useState<GenerationState>('idle');
   const [generatedImages, setGeneratedImages] = useState<GeneratedImageResult[]>([]);
   const [failureCount, setFailureCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // "Random idea" generator state (smart, server-backed with offline fallback)
+  const [randomLoading, setRandomLoading] = useState(false);
+  const lastIdeaRef = useRef<string>('');
+
+  // Voice conversation state — talk to Mr. Imagine with the mic, hear him reply
+  const [isRecording, setIsRecording] = useState(false);
+  const [isVoiceThinking, setIsVoiceThinking] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceConversation, setVoiceConversation] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [readyToGenerateHint, setReadyToGenerateHint] = useState(false);
+  const [voiceMuted, setVoiceMuted] = useState<boolean>(() => localStorage.getItem('itp-mr-imagine-muted') === '1');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Trial tracking (synced with localStorage)
   const [trialsRemaining, setTrialsRemaining] = useState(freeTrials.aiGeneration);
@@ -198,31 +214,167 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
     localStorage.setItem('itp-ai-generation-trials', newTrials.toString());
   };
 
-  // Cost calculation: free trial only covers first image
-  const chargeable = Math.max(0, imageCount - (trialsRemaining > 0 ? 1 : 0));
-  const totalCost = chargeable * pricing.aiGeneration;
-  const isFreeFirst = trialsRemaining > 0;
+  // Cost calculation. Standard: table price, free trial covers the first image.
+  // Premium: flat PREMIUM_ITC per image, no free trial.
+  const perImageCost = genTier === 'premium' ? PREMIUM_ITC : pricing.aiGeneration;
+  const isFreeFirst = genTier === 'standard' && trialsRemaining > 0;
+  const chargeable = genTier === 'premium'
+    ? imageCount
+    : Math.max(0, imageCount - (isFreeFirst ? 1 : 0));
+  const totalCost = chargeable * perImageCost;
   const canAfford = itcBalance >= totalCost;
 
-  // Random example prompt
-  const getRandomExample = useCallback(() => {
-    const randomIndex = Math.floor(Math.random() * EXAMPLE_PROMPTS.length);
-    setPrompt(EXAMPLE_PROMPTS[randomIndex]);
+  // "Surprise me" idea — asks Mr. Imagine's brain for a fresh, on-trend idea
+  // (rotating trend lenses server-side so it stops repeating). Falls back to the
+  // static list, never repeating the previous pick, if the brain is unavailable.
+  const getRandomExample = useCallback(async () => {
+    setRandomLoading(true);
+    setError(null);
+    try {
+      const { data } = await imaginationApi.getRandomIdea();
+      const idea = (data?.idea || '').trim();
+      if (idea) {
+        lastIdeaRef.current = idea;
+        setPrompt(idea.slice(0, 500));
+        return;
+      }
+      throw new Error('empty');
+    } catch {
+      let pick = EXAMPLE_PROMPTS[Math.floor(Math.random() * EXAMPLE_PROMPTS.length)];
+      let guard = 0;
+      while (pick === lastIdeaRef.current && guard++ < 6) {
+        pick = EXAMPLE_PROMPTS[Math.floor(Math.random() * EXAMPLE_PROMPTS.length)];
+      }
+      lastIdeaRef.current = pick;
+      setPrompt(pick);
+    } finally {
+      setRandomLoading(false);
+    }
   }, []);
 
-  // Build a human-readable label for the generate button
+  // ---- Voice: talk to Mr. Imagine ----
+  const toggleMute = useCallback(() => {
+    setVoiceMuted((m) => {
+      const next = !m;
+      localStorage.setItem('itp-mr-imagine-muted', next ? '1' : '0');
+      if (next && audioRef.current) {
+        audioRef.current.pause();
+        setIsSpeaking(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const speak = useCallback(async (text: string) => {
+    if (!text) return;
+    try {
+      setIsSpeaking(true);
+      const { data } = await imaginationApi.synthesizeVoice(text);
+      const url = data?.audioUrl;
+      if (url && audioRef.current) {
+        audioRef.current.src = url;
+        audioRef.current.onended = () => setIsSpeaking(false);
+        await audioRef.current.play();
+      } else {
+        setIsSpeaking(false);
+      }
+    } catch {
+      // Voice output is best-effort; silence on failure (text reply still shows).
+      setIsSpeaking(false);
+    }
+  }, []);
+
+  const handleRecordingStop = useCallback(async () => {
+    const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    audioChunksRef.current = [];
+    if (blob.size < 1200) {
+      setVoiceError("I didn't catch that — hold the mic a touch longer.");
+      return;
+    }
+    setIsVoiceThinking(true);
+    setVoiceError(null);
+    try {
+      const { data: tr } = await imaginationApi.transcribeAudio(blob);
+      const userText = (tr?.text || '').trim();
+      if (!userText) {
+        setVoiceError("I didn't catch that — try again.");
+        return;
+      }
+      const nextConvo = [...voiceConversation, { role: 'user' as const, content: userText }];
+      setVoiceConversation(nextConvo);
+      const { data: br } = await imaginationApi.brainstorm(nextConvo);
+      const reply = (br?.reply || '').trim();
+      const suggestion = (br?.promptSuggestion || '').trim();
+      if (reply) setVoiceConversation((prev) => [...prev, { role: 'assistant', content: reply }]);
+      if (suggestion) setPrompt(suggestion.slice(0, 500));
+      setReadyToGenerateHint(!!br?.readyToGenerate);
+      if (!voiceMuted && reply) void speak(reply);
+    } catch (err: any) {
+      setVoiceError(err?.response?.data?.error || 'Voice chat failed. Please try again.');
+    } finally {
+      setIsVoiceThinking(false);
+    }
+  }, [voiceConversation, voiceMuted, speak]);
+
+  const startRecording = useCallback(async () => {
+    setVoiceError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => { void handleRecordingStop(); };
+      mr.start();
+      setIsRecording(true);
+    } catch {
+      setVoiceError('Microphone access was blocked. Allow mic access in your browser to talk.');
+    }
+  }, [handleRecordingStop]);
+
+  const stopRecording = useCallback(() => {
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== 'inactive') mr.stop();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setIsRecording(false);
+  }, []);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) stopRecording();
+    else void startRecording();
+  }, [isRecording, startRecording, stopRecording]);
+
+  // Stop mic + audio whenever the modal closes.
+  useEffect(() => {
+    if (!isOpen) {
+      const mr = mediaRecorderRef.current;
+      if (mr && mr.state !== 'inactive') mr.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      if (audioRef.current) audioRef.current.pause();
+      setIsRecording(false);
+      setIsSpeaking(false);
+    }
+  }, [isOpen]);
+
+  // Build a human-readable label for the generate button. We show the USD
+  // alongside the ITC so customers see how cheap it is — at 1 ITC = $0.01,
+  // a 15 ITC design is just $0.15.
   const getGenerateLabel = () => {
     if (generationState === 'generating') return 'Generating...';
+    const tag = genTier === 'premium' ? 'Premium ' : '';
     if (imageCount === 1) {
-      return isFreeFirst ? 'Generate Free' : `Generate (${pricing.aiGeneration} ITC)`;
+      return isFreeFirst ? 'Generate Free' : `Generate ${tag}(${perImageCost} ITC · ${itcToUsdLabel(perImageCost)})`;
     }
     if (isFreeFirst && chargeable === 0) {
       return `Generate ${imageCount} designs (Free)`;
     }
     if (isFreeFirst) {
-      return `Generate ${imageCount} designs (Free + ${chargeable * pricing.aiGeneration} ITC)`;
+      return `Generate ${imageCount} designs (Free + ${chargeable * perImageCost} ITC · ${itcToUsdLabel(chargeable * perImageCost)})`;
     }
-    return `Generate ${imageCount} designs (${totalCost} ITC)`;
+    return `Generate ${imageCount} ${tag}designs (${totalCost} ITC · ${itcToUsdLabel(totalCost)})`;
   };
 
   // Handle generation
@@ -251,10 +403,18 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
         style: selectedStyle.key,
         useTrial: isFreeFirst,
         count: imageCount,
+        background: shirtColor as 'black' | 'white' | 'grey' | 'color',
+        tier: genTier,
       });
 
       if (isFreeFirst) {
         consumeTrial();
+      }
+
+      // Reflect the post-charge ITC balance immediately so the user sees the
+      // deduction the moment images generate (the server charged inside /generate).
+      if (typeof data.newBalance === 'number') {
+        onBalanceUpdate?.(data.newBalance);
       }
 
       // Normalise response: new multi-image format or legacy single-image
@@ -396,7 +556,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
               </span>
             ) : (
               <span className="px-3 py-1 bg-purple-500/20 text-purple-200 text-xs font-medium rounded-full border border-purple-500/30">
-                {pricing.aiGeneration} ITC per design
+                {pricing.aiGeneration} ITC · just {itcToUsdLabel(pricing.aiGeneration)} per design
               </span>
             )}
           </div>
@@ -423,10 +583,12 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                   </label>
                   <button
                     onClick={getRandomExample}
-                    className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+                    disabled={randomLoading || generationState === 'generating'}
+                    className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+                    title="Mr. Imagine suggests a fresh, on-trend idea"
                   >
-                    <Lightbulb className="w-3 h-3" />
-                    Random idea
+                    {randomLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Lightbulb className="w-3 h-3" />}
+                    {randomLoading ? 'Thinking…' : 'Surprise me'}
                   </button>
                 </div>
                 <textarea
@@ -443,6 +605,74 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                   <span>{prompt.length}/500</span>
                 </div>
               </div>
+
+              {/* Talk to Mr. Imagine — voice conversation */}
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      onClick={toggleRecording}
+                      disabled={isVoiceThinking || generationState === 'generating'}
+                      className={`relative flex items-center justify-center w-10 h-10 rounded-full shrink-0 transition-all disabled:opacity-50 ${
+                        isRecording
+                          ? 'bg-red-500 text-white shadow-lg ring-4 ring-red-500/30 animate-pulse'
+                          : 'bg-gradient-to-br from-fuchsia-600 to-pink-600 text-white hover:from-fuchsia-700 hover:to-pink-700'
+                      }`}
+                      title={isRecording ? 'Stop and send' : 'Hold a chat — tap to talk to Mr. Imagine'}
+                    >
+                      {isRecording ? <Square className="w-4 h-4 fill-current" /> : <Mic className="w-5 h-5" />}
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text leading-tight">Talk to Mr. Imagine</p>
+                      <p className="text-xs text-muted leading-tight truncate">
+                        {isRecording
+                          ? 'Listening… tap to send'
+                          : isVoiceThinking
+                          ? 'Mr. Imagine is thinking…'
+                          : isSpeaking
+                          ? 'Mr. Imagine is speaking…'
+                          : 'Tap the mic and describe your idea out loud'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 rounded-lg text-muted hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
+                    title={voiceMuted ? 'Unmute Mr. Imagine' : 'Mute Mr. Imagine'}
+                  >
+                    {voiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {voiceError && (
+                  <p className="mt-2 text-xs text-red-500">{voiceError}</p>
+                )}
+
+                {voiceConversation.length > 0 && (
+                  <div className="mt-3 max-h-40 overflow-y-auto space-y-2 pr-1">
+                    {voiceConversation.slice(-6).map((turn, i) => (
+                      <div
+                        key={i}
+                        className={`text-xs leading-snug rounded-lg px-2.5 py-1.5 ${
+                          turn.role === 'user'
+                            ? 'bg-bg border border-text/10 text-text ml-6'
+                            : 'bg-primary/10 text-text mr-6'
+                        }`}
+                      >
+                        <span className="font-semibold">{turn.role === 'user' ? 'You' : 'Mr. Imagine'}:</span>{' '}
+                        {turn.content}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {readyToGenerateHint && (
+                  <p className="mt-2 text-xs text-primary font-medium flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Your idea's ready — hit Generate below!
+                  </p>
+                )}
+              </div>
+              <audio ref={audioRef} className="hidden" />
 
               {/* How many designs? */}
               <div>
@@ -466,8 +696,41 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                   ))}
                 </div>
                 <p className="mt-1.5 text-xs text-muted">
-                  Each design comes from a different top AI model
+                  {genTier === 'premium' ? 'Each design rendered by GPT Image 2 (premium)' : 'Each design comes from a different top AI model'}
                 </p>
+                {imageCount > 1 && (
+                  <p className="mt-1 text-xs text-primary font-medium">
+                    {imageCount} designs × {itcToUsdLabel(perImageCost)} = just {itcToUsdLabel(imageCount * perImageCost)}
+                    {isFreeFirst && ' — first one free!'}
+                  </p>
+                )}
+              </div>
+
+              {/* Quality tier */}
+              <div>
+                <label className="text-sm font-medium text-text mb-2 block">Quality</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setGenTier('standard')}
+                    disabled={generationState === 'generating'}
+                    className={`px-3 py-2.5 rounded-lg text-left transition-all border disabled:opacity-50 ${
+                      genTier === 'standard' ? 'border-primary bg-primary/10' : 'border-primary/30 bg-bg hover:border-primary/50'
+                    }`}
+                  >
+                    <span className="block text-sm font-semibold text-text">Standard</span>
+                    <span className="block text-xs text-muted">Top models · {itcToUsdLabel(pricing.aiGeneration)} each</span>
+                  </button>
+                  <button
+                    onClick={() => setGenTier('premium')}
+                    disabled={generationState === 'generating'}
+                    className={`px-3 py-2.5 rounded-lg text-left transition-all border disabled:opacity-50 ${
+                      genTier === 'premium' ? 'border-primary bg-primary/10' : 'border-primary/30 bg-bg hover:border-primary/50'
+                    }`}
+                  >
+                    <span className="block text-sm font-semibold text-text flex items-center gap-1">Premium <Sparkles className="w-3 h-3 text-amber-500" /></span>
+                    <span className="block text-xs text-muted">GPT Image 2 · best quality · {itcToUsdLabel(PREMIUM_ITC)} each</span>
+                  </button>
+                </div>
               </div>
 
               {/* Style Preset (always visible) */}
@@ -632,7 +895,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                       <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
                         <p className="text-xs text-amber-500">
-                          {failureCount} model{failureCount !== 1 ? 's' : ''} failed — you were only charged for successful images.
+                          {failureCount} model{failureCount !== 1 ? 's' : ''} declined this prompt (usually an over-cautious safety filter — not you). You were only charged for the images that came back. Tweaking the wording or trying Premium usually clears it.
                         </p>
                       </div>
                     )}

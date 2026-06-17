@@ -42,6 +42,9 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
+  Volume2,
+  VolumeX,
+  Send,
 } from 'lucide-react'
 
 import { apiFetch, imaginationApi } from '../lib/api'
@@ -230,6 +233,36 @@ function MetalPlate({ artworkUrl, size, finish }: MetalPlateProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Generation progress — gpt-image-2 gens take a while, so show an elapsed-driven
+// bar (asymptotic to ~95%, snaps to done by the caller unmounting it) with
+// rotating Mr. Imagine heads-up messages so the wait feels guided.
+// ---------------------------------------------------------------------------
+function GenerationProgress({ etaSeconds = 22, messages }: { etaSeconds?: number; messages: string[] }) {
+  const [pct, setPct] = useState(6)
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const start = Date.now()
+    const id = setInterval(() => {
+      const elapsed = (Date.now() - start) / 1000
+      const p = 95 * (1 - Math.exp(-elapsed / (etaSeconds * 0.55)))
+      setPct(Math.min(95, Math.max(6, p)))
+      setIdx(Math.min(messages.length - 1, Math.floor(elapsed / Math.max(1, etaSeconds / messages.length))))
+    }, 200)
+    return () => clearInterval(id)
+  }, [etaSeconds, messages.length])
+  return (
+    <div className="w-full">
+      <div style={{ background: '#ede9fe', borderRadius: 999, height: 8, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg,#7c3aed,#a855f7)', transition: 'width .3s ease', borderRadius: 999 }} />
+      </div>
+      <p className="text-xs mt-2 text-center font-medium" style={{ color: '#6d28d9' }}>
+        {messages[idx]} <span style={{ color: '#9ca3af' }}>{Math.round(pct)}%</span>
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 export default function MetalArtStudio() {
@@ -240,6 +273,19 @@ export default function MetalArtStudio() {
   // ----- Artwork state -----
   const [artworkUrl, setArtworkUrl] = useState<string | null>(null)
   const [artTab, setArtTab] = useState<ArtTab>('upload')
+
+  // A design handed off from the Imagination Station "Make a Product" flow
+  // arrives via sessionStorage. Load it straight onto the metal plate.
+  useEffect(() => {
+    const incoming = sessionStorage.getItem('itp-incoming-design-metal')
+    if (incoming) {
+      sessionStorage.removeItem('itp-incoming-design-metal')
+      setArtworkUrl(incoming)
+      setArtTab('upload')
+      toast.success('Design loaded', 'Your design is ready to print on metal.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Upload
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -255,6 +301,21 @@ export default function MetalArtStudio() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [itcCost, setItcCost]   = useState<number | null>(null)
   const [freeTrial, setFreeTrial] = useState(false)
+
+  // Mr. Imagine design help (wall-art tuned brainstorm) — he leads the flow.
+  const [mrChat, setMrChat] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+  const [mrInput, setMrInput] = useState('')
+  const [mrBusy, setMrBusy] = useState(false)
+  const [manualMode, setManualMode] = useState(false) // user chose to set it up themselves
+  const [mrMuted, setMrMuted] = useState<boolean>(() => localStorage.getItem('itp-mr-imagine-muted') === '1')
+  const [mrSpeaking, setMrSpeaking] = useState(false)
+  const [mrSuggestions, setMrSuggestions] = useState<string[]>([]) // smart tappable quick-replies
+  const [mrLocation, setMrLocation] = useState('') // where the piece will hang
+  const mrAudioRef = useRef<HTMLAudioElement | null>(null)
+
+  // "See it in your space" room mockup (gpt-image-2)
+  const [roomMockupUrl, setRoomMockupUrl] = useState<string | null>(null)
+  const [roomBusy, setRoomBusy] = useState(false)
 
   // Preview
   const [size, setSize]     = useState<SizeKey>('8x11')
@@ -342,14 +403,81 @@ export default function MetalArtStudio() {
   }, [toast])
 
   // ----- Generate handler -----
+  const toggleMrMuted = useCallback(() => {
+    setMrMuted(m => {
+      const next = !m
+      localStorage.setItem('itp-mr-imagine-muted', next ? '1' : '0')
+      if (next && mrAudioRef.current) { mrAudioRef.current.pause(); setMrSpeaking(false) }
+      return next
+    })
+  }, [])
+
+  // Speak a reply out loud in Mr. Imagine's cloned voice (best-effort).
+  const speakMr = useCallback(async (text: string) => {
+    if (!text || mrMuted) return
+    try {
+      setMrSpeaking(true)
+      const { data } = await imaginationApi.synthesizeVoice(text)
+      const url = data?.audioUrl
+      if (url && mrAudioRef.current) {
+        mrAudioRef.current.src = url
+        mrAudioRef.current.onended = () => setMrSpeaking(false)
+        await mrAudioRef.current.play()
+      } else { setMrSpeaking(false) }
+    } catch { setMrSpeaking(false) }
+  }, [mrMuted])
+
+  // Mr. Imagine helps the user shape a stunning wall-art concept, then drops the
+  // finished prompt into the box (wall-art-tuned brain) and speaks his reply.
+  const askMrImagine = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? mrInput).trim()
+    if (!text || mrBusy) return
+    const next = [...mrChat, { role: 'user' as const, content: text }]
+    setMrChat(next)
+    setMrInput('')
+    setMrBusy(true)
+    setMrSuggestions([])
+    try {
+      const { data } = await imaginationApi.brainstorm(next, 'wall-art')
+      const reply = (data?.reply || '').trim()
+      const suggestion = (data?.promptSuggestion || '').trim()
+      if (reply) { setMrChat(prev => [...prev, { role: 'assistant', content: reply }]); void speakMr(reply) }
+      if (suggestion) setPrompt(suggestion)
+      setMrSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : [])
+      if (data?.location && typeof data.location === 'string') setMrLocation(data.location)
+    } catch {
+      setMrChat(prev => [...prev, { role: 'assistant', content: 'Hmm, I glitched for a second — say that again?' }])
+    } finally {
+      setMrBusy(false)
+    }
+  }, [mrInput, mrBusy, mrChat, speakMr])
+
+  // "See it in your space" — gpt-image-2 hangs the chosen art in the room
+  // Mr. Imagine learned about (or a default). Replaces the flat CSS scenes.
+  const seeItInRoom = useCallback(async (loc?: string) => {
+    if (!artworkUrl || roomBusy) return
+    setRoomBusy(true)
+    setRoomMockupUrl(null)
+    try {
+      const { data } = await imaginationApi.roomMockup({ imageUrl: artworkUrl, location: (loc ?? mrLocation) || undefined, size })
+      if (data?.url) setRoomMockupUrl(data.url)
+      else toast.error('Mockup failed', 'Could not render the room — try again.')
+    } catch {
+      toast.error('Mockup failed', 'Could not render the room — try again.')
+    } finally {
+      setRoomBusy(false)
+    }
+  }, [artworkUrl, roomBusy, mrLocation, size, toast])
+
   const handleGenerate = useCallback(async () => {
     const finalPrompt = buildMetalPrompt(prompt, selectedStyle)
     if (!finalPrompt) {
-      toast.warning('Pick a style or describe your art', 'Choose a style above, type what you want, or both.')
+      toast.warning('Describe your art', 'Tell Mr. Imagine what you want, or type it in the box.')
       return
     }
     setGenerating(true)
     setGeneratedImages([])
+    void speakMr('Awesome — I’m painting your piece now. This takes a moment, so hang tight!')
     try {
       const res = await imaginationApi.generateImage({
         prompt: finalPrompt,
@@ -400,7 +528,7 @@ export default function MetalArtStudio() {
     } finally {
       setGenerating(false)
     }
-  }, [prompt, selectedStyle, genCount, user?.id, toast])
+  }, [prompt, selectedStyle, genCount, user?.id, toast, speakMr])
 
   // ----- Add to cart -----
   const handleAddToCart = useCallback(async () => {
@@ -468,6 +596,12 @@ export default function MetalArtStudio() {
           preview_url: artworkUrl,
           style: 'metal-art',
           category: 'metal-art',
+          // product_template drives type-aware approval + storefront (metal),
+          // and the room mockup (if the user staged it) becomes the product's
+          // contextual mockup image so the product page shows it.
+          product_template: 'metal-art',
+          mockup_url: roomMockupUrl || undefined,
+          source: 'metal_art_studio',
         }),
       })
       setSubmitted(true)
@@ -476,7 +610,7 @@ export default function MetalArtStudio() {
     } finally {
       setSubmitting(false)
     }
-  }, [artworkUrl, designName, toast])
+  }, [artworkUrl, designName, roomMockupUrl, toast])
 
   // ----- Derived -----
   // Free trial covers the FIRST image; remaining images cost itcCost each.
@@ -719,58 +853,89 @@ export default function MetalArtStudio() {
                 </div>
               )}
 
-              {/* ---- Style starters (pick a STYLE = framework; you still type your subject below) ---- */}
-              <div>
-                <p className="text-sm font-semibold mb-1" style={{ color: '#374151' }}>
-                  1. Pick a style
-                </p>
-                <p className="text-xs mb-4" style={{ color: '#6b7280' }}>
-                  This sets the look. You describe what's in it below — e.g. "a lion" in the Anime style makes an anime lion.
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {METAL_STARTERS.map(starter => {
-                    const active = selectedStyle === starter.slug
-                    return (
-                      <button
-                        key={starter.slug}
-                        type="button"
-                        onClick={() => setSelectedStyle(active ? null : starter.slug)}
-                        className="flex flex-col items-center text-center group rounded-xl overflow-hidden transition-all relative"
-                        style={{
-                          border: active ? '2px solid #7c3aed' : '2px solid #e5e7eb',
-                          background: 'none',
-                          cursor: 'pointer',
-                          boxShadow: active ? '0 0 0 3px rgba(124,58,237,0.15)' : 'none',
-                        }}
-                        title={starter.label}
-                        aria-pressed={active}
-                      >
-                        <div className="w-full aspect-square overflow-hidden">
-                          <img
-                            src={`/metal-art/starters/${starter.slug}.webp`}
-                            alt={starter.label}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          />
-                        </div>
-                        {active && (
-                          <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: '#7c3aed' }}>
-                            <CheckCircle size={13} style={{ color: '#fff' }} />
-                          </span>
-                        )}
-                        <span
-                          className="block px-2 py-1.5 text-xs font-medium w-full"
-                          style={{
-                            color: active ? '#7c3aed' : '#4b5563',
-                            backgroundColor: active ? '#f5f3ff' : '#f9fafb',
-                          }}
-                        >
-                          {starter.label}
-                        </span>
-                      </button>
-                    )
-                  })}
+              {/* ===== Mr. Imagine — the host, front & center ===== */}
+              <div className="rounded-2xl p-5 sm:p-6" style={{ background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', border: '1px solid #e9d5ff' }}>
+                <div className="flex flex-col items-center text-center">
+                  <img src="/mr-imagine/mr-imagine-waving.png" alt="Mr. Imagine" className="drop-shadow" style={{ width: 96, height: 96, objectFit: 'contain' }} />
+                  <div className="flex items-center gap-2 mt-2">
+                    <h3 className="text-lg sm:text-xl font-bold" style={{ color: '#6d28d9' }}>Design with Mr. Imagine</h3>
+                    <button onClick={toggleMrMuted} title={mrMuted ? 'Unmute Mr. Imagine' : 'Mute Mr. Imagine'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: 4 }}>
+                      {mrMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    </button>
+                  </div>
+                  <p className="text-sm mt-1" style={{ color: '#6b7280', maxWidth: 460 }}>
+                    {mrSpeaking
+                      ? 'Mr. Imagine is talking…'
+                      : 'Tell me the vibe and I’ll design a stunning metal wall-art piece with you — I’ll even help pick the style.'}
+                  </p>
                 </div>
+
+                {mrChat.length > 0 && (
+                  <div className="mt-4 space-y-2 overflow-y-auto" style={{ maxHeight: 220 }}>
+                    {mrChat.slice(-8).map((t, i) => (
+                      <div key={i} className="text-sm rounded-xl px-3 py-2" style={{
+                        background: t.role === 'user' ? '#ffffff' : '#ede9fe',
+                        border: t.role === 'user' ? '1px solid #e5e7eb' : 'none',
+                        color: '#374151',
+                        marginLeft: t.role === 'user' ? 28 : 0,
+                        marginRight: t.role === 'user' ? 0 : 28,
+                      }}>
+                        <span style={{ fontWeight: 700, color: t.role === 'user' ? '#374151' : '#6d28d9' }}>{t.role === 'user' ? 'You' : 'Mr. Imagine'}:</span> {t.content}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {mrSuggestions.length > 0 && !mrBusy && (
+                  <div className="flex flex-wrap gap-2 mt-3 justify-center">
+                    {mrSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        onClick={() => void askMrImagine(s)}
+                        disabled={mrBusy}
+                        className="text-xs font-medium rounded-full px-3 py-1.5 transition-all hover:shadow-sm"
+                        style={{ background: '#ffffff', border: '1px solid #c4b5fd', color: '#6d28d9', cursor: 'pointer' }}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-4">
+                  <input
+                    value={mrInput}
+                    onChange={e => setMrInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void askMrImagine() } }}
+                    placeholder={mrChat.length ? 'Reply to Mr. Imagine…' : 'e.g. something calming with ocean vibes for my living room'}
+                    disabled={mrBusy}
+                    className="flex-1 rounded-lg px-4 py-3 text-sm outline-none"
+                    style={{ background: '#ffffff', border: '1px solid #d1d5db', color: '#111827' }}
+                  />
+                  <button
+                    onClick={() => void askMrImagine()}
+                    disabled={mrBusy || !mrInput.trim()}
+                    className="px-5 py-3 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 flex items-center gap-2"
+                    style={{ background: '#7c3aed', color: '#ffffff', cursor: mrBusy ? 'wait' : 'pointer' }}
+                  >
+                    {mrBusy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    {mrBusy ? '' : 'Send'}
+                  </button>
+                </div>
+
+                {!manualMode && mrChat.length === 0 && (
+                  <button onClick={() => setManualMode(true)} className="mt-3 text-xs underline underline-offset-2" style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+                    or set it up myself
+                  </button>
+                )}
               </div>
+              <audio ref={mrAudioRef} className="hidden" />
+
+              {/* Setup controls — Mr. Imagine reveals these once he's engaged (or skip to manual) */}
+              {(manualMode || mrChat.length > 0) && (
+              <>
+              {/* Style picker removed — Mr. Imagine picks the style through the
+                  conversation (his promptSuggestion carries the art style). */}
 
               {/* ---- Prompt textarea (the subject) ---- */}
               <div>
@@ -779,12 +944,12 @@ export default function MetalArtStudio() {
                   className="block text-sm font-semibold mb-1"
                   style={{ color: '#374151' }}
                 >
-                  2. Describe what you want
+                  Describe what you want
                 </label>
                 <p className="text-xs mb-2" style={{ color: '#6b7280' }}>
                   {selectedStyle
-                    ? `Your words, rendered in the ${METAL_STARTERS.find(s => s.slug === selectedStyle)?.label} style.`
-                    : 'Pick a style above, or just describe it and we’ll frame it as gallery wall art.'}
+                    ? `Your words, rendered in the ${METAL_STARTERS.find(s => s.slug === selectedStyle)?.label} style — or let Mr. Imagine fill this in.`
+                    : 'Describe it, pick a style, or let Mr. Imagine write this for you.'}
                 </p>
                 <textarea
                   ref={promptRef}
@@ -813,7 +978,7 @@ export default function MetalArtStudio() {
               {/* Count selector */}
               <div>
                 <p className="text-sm font-medium mb-3" style={{ color: '#374151' }}>
-                  Variations <span className="font-normal" style={{ color: '#9ca3af' }}>(each from a different top AI model)</span>
+                  Variations <span className="font-normal" style={{ color: '#9ca3af' }}>(each a fresh take from our premium art engine)</span>
                 </p>
                 <div className="flex gap-2">
                   {([1, 2, 3, 4] as const).map(n => (
@@ -865,6 +1030,13 @@ export default function MetalArtStudio() {
                   </>
                 )}
               </button>
+              {generating && (
+                <div className="mt-4">
+                  <GenerationProgress etaSeconds={24} messages={['Mr. Imagine is sketching the composition…', 'Painting your masterpiece…', 'Adding dramatic light and depth…', 'Polishing the final piece…']} />
+                </div>
+              )}
+              </>
+              )}
 
               {/* Results grid */}
               {generatedImages.length > 0 && (
@@ -960,6 +1132,56 @@ export default function MetalArtStudio() {
           <p className="mb-10 text-sm" style={{ color: '#4b5563' }}>
             Choose your finish, size, and see it on the wall.
           </p>
+
+          {/* ===== See it in YOUR space — photoreal AI room mockup (gpt-image-2) ===== */}
+          {artworkUrl && (
+            <div className="mb-10 rounded-2xl p-5" style={{ background: '#ffffff', border: '1px solid #e9d5ff' }}>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-base font-bold" style={{ color: '#6d28d9' }}>See it in your space</p>
+                  <p className="text-xs" style={{ color: '#6b7280' }}>
+                    {mrLocation ? `A real mockup on the wall of your ${mrLocation}.` : 'A photoreal mockup of your piece hanging on a real wall — pick a room.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => void seeItInRoom()}
+                  disabled={roomBusy}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
+                  style={{ background: '#7c3aed', color: '#ffffff', cursor: roomBusy ? 'wait' : 'pointer' }}
+                >
+                  {roomBusy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                  {roomBusy ? 'Staging your room…' : roomMockupUrl ? 'Regenerate' : (mrLocation ? `See it in your ${mrLocation}` : 'See it on a wall')}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {['Living room', 'Office', 'Bedroom', 'Kitchen', 'Hallway'].map(loc => (
+                  <button
+                    key={loc}
+                    onClick={() => { const l = loc.toLowerCase(); setMrLocation(l); void seeItInRoom(l) }}
+                    disabled={roomBusy}
+                    className="text-xs rounded-full px-3 py-1.5 transition-all"
+                    style={{ background: mrLocation === loc.toLowerCase() ? '#f5f3ff' : '#ffffff', border: '1px solid #ddd6fe', color: '#6d28d9', cursor: 'pointer' }}
+                  >
+                    {loc}
+                  </button>
+                ))}
+              </div>
+              {roomMockupUrl && !roomBusy ? (
+                <img src={roomMockupUrl} alt="Your art staged in the room" className="w-full rounded-xl" style={{ border: '1px solid #e5e7eb' }} />
+              ) : (
+                <div className="rounded-xl flex flex-col items-center justify-center text-center px-6 gap-3" style={{ aspectRatio: '4 / 3', background: '#faf5ff', border: '1px dashed #ddd6fe', color: '#9ca3af', fontSize: 13 }}>
+                  {roomBusy ? (
+                    <>
+                      <img src="/mr-imagine/mr-imagine-waving.png" alt="Mr. Imagine" style={{ width: 56, height: 56, objectFit: 'contain' }} />
+                      <div style={{ width: '100%', maxWidth: 360 }}>
+                        <GenerationProgress etaSeconds={20} messages={['Setting up your room…', 'Hanging your art on the wall…', 'Adjusting the lighting…', 'Almost ready…']} />
+                      </div>
+                    </>
+                  ) : 'Tap a room above and Mr. Imagine will hang your art on the wall.'}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-col lg:flex-row gap-12">
             {/* Controls column */}

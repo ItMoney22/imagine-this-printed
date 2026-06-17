@@ -758,15 +758,18 @@ router.get('/my-earnings', requireAuth, async (req: Request, res: Response): Pro
       .select('quantity, unit_price, order_id')
       .in('product_id', productIds)
 
-    // Get creator royalties
+    // Get creator royalties. LIVE table is user_product_royalties (keyed by
+    // user_id); status lifecycle is pending -> credited (ITC auto-credited to
+    // the wallet on sale). The old code queried a nonexistent `creator_royalties`
+    // table by `creator_id` filtering status 'paid' — so earnings always read $0.
     const { data: royalties } = await supabase
-      .from('creator_royalties')
+      .from('user_product_royalties')
       .select('*')
-      .eq('creator_id', userId)
+      .eq('user_id', userId)
 
     const totalEarnings = royalties?.reduce((sum, r) => sum + (r.amount_cents || 0), 0) || 0
     const pendingEarnings = royalties?.filter(r => r.status === 'pending').reduce((sum, r) => sum + (r.amount_cents || 0), 0) || 0
-    const paidEarnings = royalties?.filter(r => r.status === 'paid').reduce((sum, r) => sum + (r.amount_cents || 0), 0) || 0
+    const paidEarnings = royalties?.filter(r => r.status === 'credited').reduce((sum, r) => sum + (r.amount_cents || 0), 0) || 0
 
     res.json({
       totalEarnings: totalEarnings / 100,
@@ -1280,6 +1283,115 @@ router.post('/download', requireAuth, async (req: Request, res: Response): Promi
   } catch (error: any) {
     console.error('[user-products] ❌ Download error:', error)
     res.status(500).json({ error: error.message })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Customer-facing DIGITAL download product (clean design + halftone + DTF).
+// Paid in ITC; entitlement recorded as a completed digital order (reuses the
+// orders table — no new schema). The clean/halftone/DTF deliverables are only
+// returned to a buyer who owns the digital version.
+// ---------------------------------------------------------------------------
+const ITC_PER_USD = 100
+
+function digitalDeliverables(product: any): { kind: string; label: string; url: string }[] {
+  const a = product?.metadata?.assets && typeof product.metadata.assets === 'object' ? product.metadata.assets : {}
+  const out: { kind: string; label: string; url: string }[] = []
+  if (a.clean) out.push({ kind: 'design', label: 'Design — clean art (PNG)', url: a.clean })
+  if (a.halftone) out.push({ kind: 'halftone', label: 'Halftone version (PNG)', url: a.halftone })
+  if (a.dtf) out.push({ kind: 'dtf', label: 'DTF print-ready (PNG)', url: a.dtf })
+  return out
+}
+
+async function hasDigitalEntitlement(userId: string, productId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('orders')
+    .select('metadata, payment_status, payment_method')
+    .eq('user_id', userId)
+    .eq('payment_method', 'itc_digital')
+    .eq('payment_status', 'paid')
+  return (data || []).some((o: any) =>
+    Array.isArray(o.metadata?.items) &&
+    o.metadata.items.some((it: any) => it.product_id === productId && it.digital)
+  )
+}
+
+/** GET /api/user-products/:productId/digital-download — entitled buyers get the bundle URLs. */
+router.get('/:productId/digital-download', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) return res.status(401).json({ error: 'Authentication required' })
+    const { productId } = req.params
+    const { data: product } = await supabase
+      .from('products').select('id, name, metadata').eq('id', productId).single()
+    if (!product) return res.status(404).json({ error: 'Product not found' })
+    const owned = await hasDigitalEntitlement(userId, productId)
+    if (!owned) return res.status(403).json({ error: 'Purchase the digital version to download', owned: false })
+    return res.json({ owned: true, deliverables: digitalDeliverables(product) })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+/** POST /api/user-products/:productId/buy-digital — pay digital_price in ITC, unlock the bundle. */
+router.post('/:productId/buy-digital', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const userEmail = req.user?.email
+    if (!userId) return res.status(401).json({ error: 'Authentication required' })
+    const { productId } = req.params
+
+    const { data: product, error: pErr } = await supabase
+      .from('products').select('id, name, digital_price, metadata').eq('id', productId).single()
+    if (pErr || !product) return res.status(404).json({ error: 'Product not found' })
+
+    const deliverables = digitalDeliverables(product)
+    if (deliverables.length === 0) return res.status(400).json({ error: 'This product has no digital download' })
+
+    // Idempotent: if already owned, just return the bundle (no double-charge).
+    if (await hasDigitalEntitlement(userId, productId)) {
+      return res.json({ success: true, alreadyOwned: true, deliverables })
+    }
+
+    const priceUsd = Number(product.digital_price) || 0
+    if (priceUsd <= 0) return res.status(400).json({ error: 'Digital version is not available for purchase' })
+    const costItc = Math.round(priceUsd * ITC_PER_USD)
+
+    const { data: wallet, error: wErr } = await supabase
+      .from('user_wallets').select('itc_balance').eq('user_id', userId).single()
+    if (wErr || !wallet) return res.status(402).json({ error: 'Wallet not found' })
+    if ((wallet.itc_balance || 0) < costItc) {
+      return res.status(402).json({ error: 'Insufficient ITC', required: costItc, current: wallet.itc_balance || 0 })
+    }
+    const newBalance = (wallet.itc_balance || 0) - costItc
+    const { error: dErr } = await supabase
+      .from('user_wallets').update({ itc_balance: newBalance }).eq('user_id', userId)
+    if (dErr) return res.status(500).json({ error: 'Failed to process payment' })
+
+    // Ledger (live itc_transactions shape).
+    const { error: txErr } = await supabase.from('itc_transactions').insert({
+      user_id: userId, type: 'usage', amount: -costItc, balance_after: newBalance,
+      reference: `digital_purchase:${productId}`,
+      metadata: { product_id: productId, product_name: product.name, usd_value: priceUsd, kind: 'digital_download' }
+    })
+    if (txErr) console.error('[user-products] ⚠️ digital purchase ledger insert failed:', txErr.message)
+
+    // Entitlement = a completed digital order (reuses orders; no new table).
+    const orderNumber = `ITP-DIG-${Date.now().toString(36).toUpperCase()}`
+    const { error: oErr } = await supabase.from('orders').insert({
+      order_number: orderNumber,
+      user_id: userId,
+      customer_email: userEmail || null,
+      subtotal: priceUsd, total: priceUsd, currency: 'ITC',
+      status: 'completed', payment_status: 'paid', fulfillment_status: 'fulfilled',
+      payment_method: 'itc_digital',
+      metadata: { digital: true, itc_amount: costItc, items: [{ product_id: productId, name: product.name, digital: true, price: priceUsd }] }
+    })
+    if (oErr) console.error('[user-products] ⚠️ digital order insert failed:', oErr.message)
+
+    return res.json({ success: true, deliverables, newBalance, message: `Unlocked! ${costItc} ITC deducted.` })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
   }
 })
 

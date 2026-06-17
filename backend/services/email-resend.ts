@@ -131,6 +131,63 @@ export async function fetchReceivedEmail(emailId: string): Promise<(InboundEmail
   }
 }
 
+/** One attachment from `GET /emails/receiving/{id}/attachments`. */
+export interface ReceivedAttachment {
+  id: string;
+  filename?: string;
+  content_type?: string;
+  content_disposition?: string | null;
+  content_id?: string | null;
+  size?: number;
+  download_url?: string;   // pre-signed, self-authenticating, SHORT-LIVED
+  expires_at?: string;
+}
+
+/**
+ * List the attachments for a received email, each with a pre-signed
+ * `download_url`. Resend delivers attachment METADATA only in both the
+ * `email.received` webhook and the retrieve-received-email body — the actual
+ * bytes are ONLY reachable through this endpoint's download_urls, which expire
+ * (`expires_at`). Callers must download promptly and persist the bytes
+ * themselves (we re-host in GCS). Returns [] on any failure so a flaky
+ * attachments fetch never drops the whole message.
+ */
+export async function fetchReceivedAttachments(emailId: string): Promise<ReceivedAttachment[]> {
+  try {
+    const res = await fetch(
+      `${RESEND_API_BASE}/emails/receiving/${encodeURIComponent(emailId)}/attachments`,
+      { headers: { Authorization: `Bearer ${apiKey()}` } }
+    );
+    if (!res.ok) {
+      console.error('[email-resend] attachments fetch failed:', res.status, await res.text().catch(() => ''));
+      return [];
+    }
+    const body: any = await res.json().catch(() => null);
+    // Resend list endpoints return { object: 'list', data: [...] }; tolerate a
+    // bare array or an { attachments } envelope too.
+    const list = Array.isArray(body) ? body : (body?.data ?? body?.attachments ?? []);
+    return Array.isArray(list) ? (list as ReceivedAttachment[]) : [];
+  } catch (err) {
+    console.error('[email-resend] attachments fetch error:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/** Download an attachment's raw bytes from its pre-signed download_url. */
+export async function downloadAttachment(downloadUrl: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(downloadUrl);
+    if (!res.ok) {
+      console.error('[email-resend] attachment download failed:', res.status);
+      return null;
+    }
+    return Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    console.error('[email-resend] attachment download error:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /** Parse `"Display Name <user@host>"` into its parts. */
 export function parseAddress(raw: string): { name: string; address: string } {
   const m = raw?.match(/^\s*(?:"?([^"<]*)"?\s*)?<([^>]+)>\s*$/);

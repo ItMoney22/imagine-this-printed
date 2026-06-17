@@ -107,8 +107,8 @@ router.post('/', async (req: Request, res: Response) => {
             .insert({
                 code,
                 itc_amount,
-                amount: itc_amount * 0.10, // USD equivalent (1 ITC = $0.10)
-                balance: itc_amount * 0.10,
+                amount: itc_amount * 0.01, // USD equivalent (1 ITC = $0.01, ITC_PER_USD=100)
+                balance: itc_amount * 0.01,
                 expires_at,
                 notes,
                 created_by,
@@ -170,8 +170,8 @@ router.post('/bulk', async (req: Request, res: Response) => {
             giftCards.push({
                 code: generateGiftCardCode(),
                 itc_amount,
-                amount: itc_amount * 0.10,
-                balance: itc_amount * 0.10,
+                amount: itc_amount * 0.01, // 1 ITC = $0.01 (ITC_PER_USD=100)
+                balance: itc_amount * 0.01,
                 expires_at,
                 notes: notes || `Bulk generated - batch ${new Date().toISOString()}`,
                 created_by,

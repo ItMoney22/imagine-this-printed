@@ -8,6 +8,10 @@ import { PrintType } from '../config/imagination-presets.js';
 import { imaginationProducts } from '../services/imagination-products.js';
 import { pricingService } from '../services/imagination-pricing.js';
 import { aiService } from '../services/imagination-ai.js';
+import { brainstormDesign, randomDesignIdea } from '../services/imagine-brain.js';
+import { applyHalftone } from '../services/halftone.js';
+import { detectSolidBg } from '../services/bg-key.js';
+import { editOpenAIImage } from '../services/image-flow/providers/openai-image.js';
 import { layoutService } from '../services/imagination-layout.js';
 import gcsStorage from '../services/gcs-storage.js';
 import { uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
@@ -496,7 +500,7 @@ router.get('/projects', requireAuth, async (req: Request, res: Response) => {
 router.post('/ai/generate', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
-    const { prompt, style, useTrial, count: rawCount } = req.body;
+    const { prompt, style, useTrial, count: rawCount, background, tier } = req.body;
 
     if (!prompt) {
       res.status(400).json({ error: 'Prompt is required' });
@@ -519,6 +523,8 @@ router.post('/ai/generate', requireAuth, async (req: Request, res: Response): Pr
       style: style || 'realistic',
       itcBalance: wallet?.itc_balance || 0,
       count,
+      background,
+      tier: tier === 'premium' ? 'premium' : 'standard',
     });
 
     if (!result.images || result.images.length === 0) {
@@ -529,12 +535,21 @@ router.post('/ai/generate', requireAuth, async (req: Request, res: Response): Pr
     // Legacy aliases so existing single-image callers keep working
     const primaryUrl = result.images[0]?.url;
 
+    // Re-fetch the post-charge balance so the client can update the displayed
+    // ITC immediately (the deduction happens server-side inside generateImagesMulti).
+    const { data: postWallet } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', user.id)
+      .single();
+
     res.json({
       images: result.images,
       cost: result.cost,
       perImageCost: result.perImageCost,
       freeTrialUsed: result.freeTrialUsed,
       failures: result.failures,
+      newBalance: postWallet?.itc_balance ?? null,
       // Legacy aliases
       imageUrl: primaryUrl,
       url: primaryUrl,
@@ -600,6 +615,114 @@ router.post('/sheets/:id/generate', requireAuth, async (req: Request, res: Respo
   }
 });
 
+// Mr. Imagine "studio brain" — one conversational turn. Powers the voice
+// assistant (transcribe -> brainstorm -> synthesize) and any text chat. Returns
+// a short spoken reply + the working image-generation prompt.
+router.post('/ai/brainstorm', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { messages, mode } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: 'messages array is required' });
+      return;
+    }
+    const result = await brainstormDesign(messages, mode === 'wall-art' ? 'wall-art' : 'dtf');
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Fresh, on-trend "surprise me" design idea. Rotates trend lenses so it stops
+// repeating; the frontend falls back to a local list if this errors.
+router.get('/ai/random-idea', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const seed = typeof req.query.seed === 'string' ? req.query.seed : undefined;
+    const idea = await randomDesignIdea(seed);
+    res.json({ idea });
+  } catch (error: any) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// DTF halftone — convert a design into the dot-screen "breathing" DTF look.
+// Same engine as the admin product builder (services/halftone.ts), exposed to
+// any signed-in user for the Imagination Station. Local Sharp transform, no API
+// cost, so it's free (no ITC charge).
+router.post('/ai/halftone', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const { imageUrl, frequency, angle, shape, invertDark } = req.body;
+    if (!imageUrl) {
+      res.status(400).json({ error: 'imageUrl is required' });
+      return;
+    }
+    const resp = await fetch(imageUrl);
+    if (!resp.ok) {
+      res.status(502).json({ error: `Could not fetch the design image (${resp.status})` });
+      return;
+    }
+    const inputBuffer = Buffer.from(await resp.arrayBuffer());
+
+    // Halftone knocks out DARK areas by default (black background → transparent).
+    // For a WHITE-background design we must invert so the WHITE is knocked out
+    // instead (otherwise it keeps the white field and eats the artwork). Auto-
+    // detect from the border unless the caller passed invertDark explicitly.
+    let invert = invertDark;
+    if (invert === undefined) {
+      const solidBg = await detectSolidBg(inputBuffer);
+      invert = solidBg === 'white';
+    }
+    const result = await applyHalftone(inputBuffer, { frequency, angle, shape, invertDark: invert });
+
+    const filename = `halftone-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+    const gcsPath = `users/${user.id}/designs/${filename}`;
+    const { publicUrl } = await uploadImageFromBuffer(result.buffer, gcsPath, 'image/png');
+
+    res.json({
+      processedUrl: publicUrl,
+      imageUrl: publicUrl,
+      url: publicUrl,
+      output: publicUrl,
+      originalUrl: imageUrl,
+      metadata: result.metadata,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Room mockup — place a finished metal-art piece on the wall of a real room
+// (the location the user told Mr. Imagine) via gpt-image-2 edit. Replaces the
+// flat CSS scene previews with a stunning, photoreal "see it in your space" shot.
+router.post('/ai/room-mockup', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const { imageUrl, location, size } = req.body;
+    if (!imageUrl) {
+      res.status(400).json({ error: 'imageUrl is required' });
+      return;
+    }
+    const place = (typeof location === 'string' && location.trim()) ? location.trim() : 'a stylish modern living room';
+    // Real product sizes are SMALL — show the print at true-to-life scale so the
+    // mockup reflects what the customer actually receives (not a giant mural).
+    const sizeDesc = size === '4x6'
+      ? 'a SMALL 4 by 6 inch framed metal print — roughly the size of a postcard or a small desk photo frame'
+      : 'a MODEST 8 by 11 inch framed metal print — about the size of a standard sheet of paper';
+    const prompt = `Photorealistic interior photograph: the provided artwork printed as ${sizeDesc}, hanging on the wall of ${place}. CRITICAL SCALE: show it at realistic, true-to-life size relative to the furniture and wall — it is a small-to-medium print, NOT an oversized mural or giant panel; a real 8x11 inch frame is smaller than a typical window. Style it tastefully with realistic lighting, perspective, and a little furniture/decor context. CRITICAL: keep the artwork itself EXACTLY as provided — do not alter, crop, recolor, redraw, or add any text to it; it must read as the same image, just shown framed on the wall at its true size. Magazine-quality interior design photography.`;
+    const filename = `room-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+    const r = await editOpenAIImage({
+      sourceUrl: imageUrl,
+      prompt,
+      userId: user.id,
+      quality: 'medium',
+      objectPath: `users/${user.id}/room-mockups/${filename}`,
+    });
+    res.json({ url: r.url, processedUrl: r.url, location: place });
+  } catch (error: any) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 // Remove background (standalone, no sheet/layer required)
 router.post('/ai/remove-bg', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -640,7 +763,8 @@ router.post('/ai/remove-bg', requireAuth, async (req: Request, res: Response): P
       output: processedUrl,
       originalUrl: imageUrl,
       cost: result.cost,
-      freeTrialUsed: result.freeTrialUsed
+      freeTrialUsed: result.freeTrialUsed,
+      alreadyTransparent: (result as any).alreadyTransparent === true
     });
   } catch (error: any) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
@@ -1234,7 +1358,18 @@ router.post('/designs/submit', requireAuth, async (req: Request, res: Response):
       design_concept,
       preview_url,
       style,
-      category
+      category,
+      // Optional extras from the Imagination Station "Make a Product" flow.
+      mockup_url,
+      product_template,
+      model_description,
+      source,
+      // Role-tagged design assets (stored on metadata.assets): the clean art is
+      // the display hero; halftone + DTF are paid digital deliverables that must
+      // never show as a public thumbnail. clean_url defaults to preview_url.
+      clean_url,
+      halftone_url,
+      dtf_url
     } = req.body;
 
     if (!preview_url) {
@@ -1278,25 +1413,36 @@ router.post('/designs/submit', requireAuth, async (req: Request, res: Response):
       .eq('id', user.id)
       .single();
 
-    // Use GPT to generate a catchy product name and description
-    let productName = 'My Custom Design';
-    let productDescription = 'Created with AI design tools';
+    // Generate a SOLID, design-specific title + description so the product is
+    // store-ready the moment it's approved. Prefer VISION (describe the actual
+    // design) — works even when the concept is vague/missing (uploads, or a
+    // generic "Custom shirt design"); fall back to the text normalizer, then
+    // to plain defaults.
+    let productName = name || 'My Custom Design';
+    let productDescription = design_concept || 'Created with AI design tools';
+    let productTags: string[] = [];
 
     try {
-      const { normalizeProduct } = await import('../services/ai-product.js');
-      const normalized = await normalizeProduct({
-        prompt: design_concept || name || 'Custom design',
-        priceTarget: 2500, // $25 default
-        imageStyle: style || 'semi-realistic',
-      });
-      productName = normalized.title;
-      productDescription = normalized.description;
-      console.log('[imagination-station] ✨ GPT generated name:', productName);
-    } catch (gptError) {
-      console.error('[imagination-station] ⚠️ GPT normalization failed, using defaults:', gptError);
-      // Fall back to user input if GPT fails
-      productName = name || 'My Custom Design';
-      productDescription = design_concept || 'Created with AI design tools';
+      const { describeDesignForProduct } = await import('../services/ai-product.js');
+      const copy = await describeDesignForProduct(permanentImageUrl, design_concept || name);
+      productName = copy.title;
+      productDescription = copy.description;
+      productTags = copy.tags;
+      console.log('[imagination-station] 👁️ Vision product copy:', productName);
+    } catch (visionErr) {
+      console.warn('[imagination-station] ⚠️ vision copy failed, trying text normalizer:', visionErr instanceof Error ? visionErr.message : String(visionErr));
+      try {
+        const { normalizeProduct } = await import('../services/ai-product.js');
+        const normalized = await normalizeProduct({
+          prompt: design_concept || name || 'Custom design',
+          priceTarget: 2500, // $25 default
+          imageStyle: style || 'semi-realistic',
+        });
+        productName = normalized.title;
+        productDescription = normalized.description;
+      } catch (gptError) {
+        console.error('[imagination-station] ⚠️ All copy generation failed, using defaults:', gptError);
+      }
     }
 
     // Create a draft product entry with pending_approval status
@@ -1314,13 +1460,28 @@ router.post('/designs/submit', requireAuth, async (req: Request, res: Response):
           design_concept,
           style,
           category,
-          source: 'create_design_modal',
+          // Carried from "Make a Product": which product the user wants, the
+          // AI mockup preview, and the model description. The admin sees these
+          // at approval time and pro mockups are generated post-approval.
+          product_template: product_template || category || null,
+          mockup_url: mockup_url || null,
+          model_description: model_description || null,
+          ai_tags: productTags,
+          source: source || 'create_design_modal',
           submitted_at: new Date().toISOString(),
           user_submitted: true,
           creator_id: user.id,
           original_prompt: design_concept,
           creator_royalty_percent: 15,
-          original_replicate_url: isTemporaryUrl ? preview_url : undefined // Keep original for reference
+          original_replicate_url: isTemporaryUrl ? preview_url : undefined, // Keep original for reference
+          // Role-tagged assets: clean art is the display hero; halftone + DTF
+          // are gated digital deliverables (never shown as a public thumbnail).
+          assets: {
+            clean: clean_url || permanentImageUrl,
+            ...(mockup_url ? { mockups: [mockup_url] } : {}),
+            ...(halftone_url ? { halftone: halftone_url } : {}),
+            ...(dtf_url ? { dtf: dtf_url } : {})
+          }
         },
         created_by_user_id: user.id,
         is_user_generated: true

@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import Replicate from 'replicate'
-import OpenAI from 'openai'
+import { runOpenAIImage } from '../../services/image-flow/providers/openai-image.js'
 import { supabase } from '../../lib/supabase.js'
 import { normalizeProduct } from '../../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
@@ -8,11 +8,10 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
 import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
-import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
 
 const replicateClient = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
-const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 // Per-user rate limiter for the expensive AI generation endpoints. In-memory
 // (resets on deploy) — enough to stop runaway scripts and double-submits from
@@ -581,52 +580,24 @@ async function generateOneShotViaOpenAI(
 ): Promise<{ id: string; name: string; slug: string; image_url: string }> {
   const dtfSystemPrompt = buildDtfPrompt(prompt, productType, shirtColor, style)
 
-  // Note: OpenAI's images.generate doesn't accept `background: 'transparent'`
-  // for gpt-image-2 — returns "400 Transparent background is not supported for
-  // this model." The transparent-bg constraint is enforced via the prompt text
-  // itself (buildDtfPrompt → "isolated artwork on transparent background").
-  let response: any
-  let usedModel = 'gpt-image-2'
-  try {
-    response = await openaiClient.images.generate({
-      model: 'gpt-image-2',
-      prompt: dtfSystemPrompt,
-      size: '1024x1024',
-      quality: 'high',
-      n: 1,
-    } as any)
-  } catch (err: any) {
-    const msg = err?.error?.message || err?.message || ''
-    // Fall back to gpt-image-1 if 2 isn't accessible (model-not-found,
-    // pre-release access required, etc).
-    if (/gpt-image-2|model.*not.*found|does not exist|invalid model/i.test(msg)) {
-      console.warn('[ai-products/one-shot] gpt-image-2 unavailable, falling back to gpt-image-1:', msg)
-      response = await openaiClient.images.generate({
-        model: 'gpt-image-1',
-        prompt: dtfSystemPrompt,
-        size: '1024x1024',
-        quality: 'high',
-        n: 1,
-      } as any)
-      usedModel = 'gpt-image-1'
-    } else {
-      throw err
-    }
-  }
-
-  const item = response?.data?.[0]
-  if (!item?.b64_json) throw new Error('OpenAI images.generate returned no b64_json payload')
-
-  const dataUrl = `data:image/png;base64,${item.b64_json}`
+  // Uses the shared OpenAI-direct gpt-image-2 flow (with built-in gpt-image-1
+  // fallback) — the same provider the Imagination Station premium tier uses.
+  // background:'auto' because gpt-image-2 rejects 'transparent'; the
+  // transparent-bg intent is carried by the prompt text (buildDtfPrompt).
   const objectPath = `ai-products/one-shot/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
-  const { publicUrl: gcsUrl } = await uploadImageFromBase64(dataUrl, objectPath)
+  const { url: gcsUrl, modelId } = await runOpenAIImage({
+    prompt: dtfSystemPrompt,
+    objectPath,
+    quality: 'high',
+    background: 'auto',
+  })
 
   return saveDraftProductRow({
     prompt,
     productType,
     shirtColor,
     gcsUrl,
-    modelId: `openai/${usedModel}`,
+    modelId,
     dtfSystemPrompt,
   })
 }

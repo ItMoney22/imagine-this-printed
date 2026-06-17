@@ -35,7 +35,8 @@ export interface EmailAttachment {
   filename: string;
   content_type: string;
   size: number;
-  content?: string; // base64, present only on full message fetch for small files
+  url?: string; // durable GCS link to the re-hosted file (inbound attachments)
+  content?: string; // legacy: inline base64, present on older stored messages
 }
 
 export interface EmailMessage {

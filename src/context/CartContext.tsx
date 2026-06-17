@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import type { CartItem, Product, AppliedCoupon } from '../types'
+import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
+import { addonsUnitTotal, addonsSignature } from '../lib/product-kind'
 
 interface CartState {
   items: CartItem[]
@@ -43,7 +44,7 @@ function loadCouponFromStorage(): AppliedCoupon | null {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc') => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[]) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -59,7 +60,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc' } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[] } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -112,19 +113,24 @@ const calculateTotal = (items: CartItem[]): number => {
     return sum
   }, 0)
 
-  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge
+  // Add-on upsells (e.g. metal-art easel stand / wall mount) are priced per
+  // unit and apply to every item regardless of the 3-for-$25 deal.
+  const addonsTotal = items.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
+
+  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal
 }
 
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
         item.selectedSize === selectedSize &&
         item.selectedColor === selectedColor &&
-        item.paymentMethod === paymentMethod
+        item.paymentMethod === paymentMethod &&
+        addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons)
       )
 
       let newItems: CartItem[]
@@ -141,6 +147,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           quantity,
           selectedSize,
           selectedColor,
+          selectedAddons,
           customDesign,
           designData,
           paymentMethod
@@ -215,8 +222,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [appliedCoupon])
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc') => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[]) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons } })
   }
 
   const removeFromCart = (itemId: string) => {

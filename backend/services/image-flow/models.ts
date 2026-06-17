@@ -189,6 +189,30 @@ export const MODELS: ImageModel[] = [
     promptCraft:
       'Rewards bold, stylized, slightly weird prompts. Lead with mood/style, then subject. For text, wrap in double quotes. Cinematic prose works well.',
   },
+  {
+    id: 'bytedance/seedream-4.5',
+    provider: 'replicate',
+    tier: 'hero',
+    label: 'Seedream 4.5',
+    costPerImageUsd: 0.03,
+    approxSeconds: 8,
+    strengths: ['stylized', 'photoreal-product', 'text-in-image'],
+    notes: 'ByteDance Seedream 4.5 — strong all-rounder for bold graphic + illustrative work.',
+    promptCraft:
+      'Handles rich descriptive prose. Lead with subject, then art style, then mood. Great with bold graphic / illustrative looks.',
+  },
+  {
+    id: 'leonardoai/lucid-origin',
+    provider: 'replicate',
+    tier: 'hero',
+    label: 'Lucid Origin',
+    costPerImageUsd: 0.04,
+    approxSeconds: 10,
+    strengths: ['stylized', 'concept-art', 'photoreal-people'],
+    notes: 'Leonardo Lucid Origin — sharp, vivid, excellent for illustrative + concept art.',
+    promptCraft:
+      'Describe subject + art direction + lighting. Strong on vivid stylized and concept work.',
+  },
 
   // --- TEXT-IN-IMAGE ---
   {
@@ -393,6 +417,34 @@ export type Purpose = (typeof PURPOSE_ENUM)[number]
 
 export function getModel(id: string): ImageModel | undefined {
   return MODELS.find((m) => m.id === id)
+}
+
+/**
+ * Customer-facing brand names. We never expose the underlying vendor/model to
+ * end users — every result is branded as an "Imagine" engine. (Admin tooling
+ * can still show the real labels via model.label.)
+ */
+const BRAND_NAMES: Record<string, string> = {
+  'black-forest-labs/flux-1.1-pro-ultra': 'Imagine Ultra',
+  'black-forest-labs/flux-2-max': 'Imagine Max',
+  'black-forest-labs/flux-2-pro': 'Imagine Pro',
+  'black-forest-labs/flux-1.1-pro': 'Imagine Core',
+  'xai/grok-imagine-image': 'Imagine Spark',
+  'recraft-ai/recraft-v4': 'Imagine Vector',
+  'wan-video/wan-2.7-image-pro': 'Imagine HiFi',
+  'ideogram-ai/ideogram-v3-quality': 'Imagine Type',
+  'bytedance/seedream-4.5': 'Imagine Dream',
+  'leonardoai/lucid-origin': 'Imagine Lucid',
+  'google/imagen-4-fast': 'Imagine Photo',
+  'google/imagen-4-ultra': 'Imagine Photo+',
+  'openai/gpt-image-2': 'Imagine Premium',
+  'black-forest-labs/flux-schnell': 'Imagine Quick',
+  'prunaai/z-image-turbo': 'Imagine Quick',
+}
+
+/** Branded, customer-safe display name for a model id (never the vendor name). */
+export function brandFor(modelId: string): string {
+  return BRAND_NAMES[modelId] || 'Imagine Engine'
 }
 
 export function modelsByTier(tier: ModelTier): ImageModel[] {

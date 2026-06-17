@@ -941,7 +941,9 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
             quantity: item.quantity,
             size: item.selectedSize,
             color: item.selectedColor,
-            image: item.product?.images?.[0]
+            image: item.product?.images?.[0],
+            // Add-on upsells (metal-art stand/mount/etc.) so fulfillment sees them.
+            addons: Array.isArray(item.selectedAddons) && item.selectedAddons.length ? item.selectedAddons : null
           })),
           itc_payment: {
             itc_amount: itcAmount,

@@ -9,6 +9,16 @@ export function usdToItc(usd: number): number {
   return Math.round(usd * ITC_PER_USD)
 }
 
+/** ITC -> USD as a number (15 ITC -> 0.15) */
+export function itcToUsd(itc: number): number {
+  return itc / ITC_PER_USD
+}
+
+/** "$0.15" — what the customer actually pays in dollars for an ITC amount */
+export function itcToUsdLabel(itc: number): string {
+  return `$${itcToUsd(itc).toFixed(2)}`
+}
+
 /** "2,999 ITC" */
 export function formatItc(itc: number): string {
   return `${itc.toLocaleString()} ITC`

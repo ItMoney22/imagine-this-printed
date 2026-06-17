@@ -1,4 +1,3 @@
-import { ShippoAPI } from './shippo'
 import type { ShippingAddress } from '../types'
 
 export interface ShippingRate {
@@ -13,6 +12,8 @@ export interface ShippingRate {
   description?: string
   disabled?: boolean
   disabledReason?: string
+  // Pickup/delivery options can be upgraded to next-business-day for a flat fee.
+  rushEligible?: boolean
 }
 
 export interface ShippingCalculation {
@@ -44,122 +45,99 @@ export const MAX_DELIVERY_RADIUS_MILES = 20
 // pickup-hours copy doesn't lie to West Coast customers reading "8 PM".
 export const PICKUP_HOURS = '10:00 AM - 8:00 PM ET'
 
-// Shipping markup (5% hidden markup on shipping rates)
+// Standard turnaround for pickup AND local delivery (business days).
+export const STANDARD_FULFILLMENT_DAYS = 3
+
+// Rush upgrade: next-business-day pickup or delivery for a flat fee, only
+// available when the order is placed before the cutoff in warehouse time.
+export const RUSH_FEE = 7.99
+export const RUSH_CUTOFF_HOUR = 14 // 2 PM
+export const RUSH_TIMEZONE = 'America/New_York'
+
+// Shipping markup (5% hidden markup on shipping rates). Carrier rates now come
+// from the backend (/api/shipping/rates) with the markup already applied, so
+// this constant is only used for the client-side fallback estimates below.
 const SHIPPING_MARKUP = 0.05
 
-export class ShippingCalculator {
-  private shippoApi: ShippoAPI
-  private freeShippingThreshold = 50.00
-
-  constructor() {
-    this.shippoApi = new ShippoAPI()
+/**
+ * Current hour in the warehouse timezone (0-23), DST-aware. Used to decide
+ * whether next-business-day rush is still available today.
+ */
+function warehouseHourNow(): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: RUSH_TIMEZONE,
+      hour: 'numeric',
+      hour12: false
+    }).formatToParts(new Date())
+    const hourPart = parts.find(p => p.type === 'hour')?.value
+    // Intl can return "24" for midnight in hour12:false — normalize to 0.
+    const hour = hourPart ? parseInt(hourPart, 10) % 24 : new Date().getHours()
+    return Number.isNaN(hour) ? new Date().getHours() : hour
+  } catch {
+    return new Date().getHours()
   }
+}
+
+/** True when a next-business-day rush can still be promised for today's orders. */
+export function isRushAvailable(): boolean {
+  return warehouseHourNow() < RUSH_CUTOFF_HOUR
+}
+
+/** Customer-facing reason shown when rush is unavailable. */
+export function getRushUnavailableReason(): string {
+  return 'Order before 2 PM ET for next-business-day rush'
+}
+
+export class ShippingCalculator {
+  private freeShippingThreshold = 50.00
 
   async calculateShipping(
     items: any[],
     toAddress: ShippingAddress,
-    subtotal: number,
-    fromAddress?: ShippingAddress
+    subtotal: number
   ): Promise<ShippingCalculation> {
-    // const subtotal = items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
     const isFreeShipping = subtotal >= this.freeShippingThreshold
 
-    if (isFreeShipping) {
-      return {
-        rates: [{
-          id: 'free',
-          name: 'Free Shipping',
-          provider: 'Standard',
-          amount: 0,
-          currency: 'USD',
-          estimatedDays: 5,
-          selected: true
-        }],
-        selectedRate: {
-          id: 'free',
-          name: 'Free Shipping',
-          provider: 'Standard',
-          amount: 0,
-          currency: 'USD',
-          estimatedDays: 5,
-          selected: true
-        },
-        freeShippingThreshold: this.freeShippingThreshold,
-        isFreeShipping: true
+    // Build local (pickup + delivery) options and fetch carrier rates in
+    // parallel. Free shipping no longer short-circuits — the customer still
+    // sees pickup, delivery, rush, and paid expedited upgrades; we just zero
+    // out the cheapest standard carrier rate when they qualify.
+    const localRates: ShippingRate[] = [
+      {
+        id: 'local-pickup',
+        name: 'Free Local Pickup',
+        provider: 'In-Store',
+        amount: 0,
+        currency: 'USD',
+        estimatedDays: STANDARD_FULFILLMENT_DAYS,
+        type: 'pickup',
+        rushEligible: true,
+        description: `${WAREHOUSE_ADDRESS.address}, ${WAREHOUSE_ADDRESS.city}, ${WAREHOUSE_ADDRESS.state} ${WAREHOUSE_ADDRESS.zip} • Hours: ${PICKUP_HOURS}`
       }
-    }
+    ]
 
-    // Use actual warehouse address for shipping origin
-    const defaultFromAddress: ShippingAddress = {
-      name: 'Imagine This Printed',
-      address1: WAREHOUSE_ADDRESS.address,
-      city: WAREHOUSE_ADDRESS.city,
-      state: WAREHOUSE_ADDRESS.state,
-      zip: WAREHOUSE_ADDRESS.zip,
-      country: 'US',
-      phone: '(770) 000-0000',
-      email: 'shipping@imaginethisprinted.com'
-    }
-
-    const shipFrom = fromAddress || defaultFromAddress
-
-    // Calculate total weight and dimensions (simplified)
-    const totalWeight = items.reduce((sum, item) => {
-      const weight = item.product.weight || 0.5 // Default 0.5 lbs per item
-      return sum + (weight * item.quantity)
-    }, 0)
-
-    // Default parcel dimensions (should be calculated based on items)
-    const parcel = {
-      length: '10',
-      width: '8',
-      height: '4',
-      distance_unit: 'in',
-      weight: totalWeight.toString(),
-      mass_unit: 'lb'
-    }
-
-    // Build local options first
-    const localRates: ShippingRate[] = []
-
-    // Always add free local pickup option
-    localRates.push({
-      id: 'local-pickup',
-      name: 'Free Local Pickup',
-      provider: 'In-Store',
-      amount: 0,
-      currency: 'USD',
-      estimatedDays: 1,
-      type: 'pickup',
-      description: `${WAREHOUSE_ADDRESS.address}, ${WAREHOUSE_ADDRESS.city}, ${WAREHOUSE_ADDRESS.state} ${WAREHOUSE_ADDRESS.zip} • Hours: ${PICKUP_HOURS}`
-    })
-
-    // Check local delivery eligibility and fetch Shippo rates in parallel
-    const [deliveryInfo, shipmentResult] = await Promise.all([
+    const [deliveryInfo, carrierRates] = await Promise.all([
       this.calculateLocalDelivery(toAddress),
-      this.shippoApi.createShipment(shipFrom, toAddress, [parcel]).catch((err: any) => {
-        console.error('[ShippingCalc] Shippo API error:', err)
-        return null
-      })
+      this.fetchCarrierRates(items, toAddress)
     ])
 
-    // Always show local delivery option - but disable if too far
+    // Always show local delivery — but disable it if the address is too far.
     if (deliveryInfo.eligible && deliveryInfo.deliveryFee !== null) {
-      // Address is within delivery range
       localRates.push({
         id: 'local-delivery',
         name: deliveryInfo.tierLabel || 'Local Delivery',
         provider: 'Direct',
         amount: deliveryInfo.deliveryFee,
         currency: 'USD',
-        estimatedDays: 2,
+        estimatedDays: STANDARD_FULFILLMENT_DAYS,
         type: 'delivery',
+        rushEligible: true,
         description: deliveryInfo.distanceMiles
           ? `${deliveryInfo.distanceMiles.toFixed(1)} miles from our warehouse`
           : `Delivered within ${MAX_DELIVERY_RADIUS_MILES} mile radius of our warehouse`
       })
     } else {
-      // Address is outside delivery range - show disabled option with reason
       const distanceText = deliveryInfo.distanceMiles
         ? `${deliveryInfo.distanceMiles.toFixed(0)} miles away`
         : 'outside our delivery area'
@@ -167,9 +145,9 @@ export class ShippingCalculator {
         id: 'local-delivery',
         name: 'Local Delivery',
         provider: 'Direct',
-        amount: LOCAL_DELIVERY_TIERS[0].fee, // Show base price
+        amount: LOCAL_DELIVERY_TIERS[0].fee,
         currency: 'USD',
-        estimatedDays: 2,
+        estimatedDays: STANDARD_FULFILLMENT_DAYS,
         type: 'delivery',
         description: `Available within ${MAX_DELIVERY_RADIUS_MILES} miles of Rockmart, GA`,
         disabled: true,
@@ -177,178 +155,119 @@ export class ShippingCalculator {
       })
     }
 
+    const shippingRates = carrierRates ?? this.clientFallbackCarrierRates()
+    return this.finalize(localRates, shippingRates, isFreeShipping)
+  }
+
+  /**
+   * Fetch live USPS + UPS carrier rates from the backend, which holds the
+   * Shippo token and computes the parcel weight from the cart. Returns null on
+   * failure so the caller can use the client-side estimate fallback.
+   */
+  private async fetchCarrierRates(items: any[], toAddress: ShippingAddress): Promise<ShippingRate[] | null> {
     try {
-      const shipment = shipmentResult
-      if (!shipment) {
-        throw new Error('Shippo API returned no shipment data')
+      const apiBase = import.meta.env.VITE_API_BASE || ''
+      const payload = {
+        addressTo: {
+          name: toAddress.name,
+          street1: toAddress.address1,
+          street2: toAddress.address2,
+          city: toAddress.city,
+          state: toAddress.state,
+          zip: toAddress.zip,
+          country: toAddress.country || 'US',
+          email: toAddress.email
+        },
+        items: (items || []).map((it) => ({
+          weight: it?.product?.weight ?? 0.5,
+          quantity: it?.quantity ?? 1
+        }))
       }
 
-      // Filter for specific carriers and services we want
-      const desiredServices = [
-        'usps_priority', 'usps_priority_express', 'usps_ground_advantage',
-        'ups_ground', 'ups_2nd_day_air', 'ups_2nd_day_air_am', 'ups_next_day_air_saver', 'ups_next_day_air'
-      ]
-
-      const rates: ShippingRate[] = shipment.rates
-        .filter((rate: any) => {
-          const serviceToken = rate.servicelevel?.token?.toLowerCase() || ''
-          const provider = rate.provider?.toLowerCase() || ''
-          // Include USPS Priority/Express/Ground and UPS Ground/2nd Day/Saver/Air
-          return (provider === 'usps' && (serviceToken.includes('priority') || serviceToken.includes('express') || serviceToken.includes('ground'))) ||
-                 (provider === 'ups' && (serviceToken.includes('ground') || serviceToken.includes('2nd') || serviceToken.includes('next') || serviceToken.includes('saver')))
-        })
-        .map((rate: any) => {
-          // Apply 5% markup (hidden from customer)
-          const baseAmount = parseFloat(rate.amount)
-          const markedUpAmount = Math.round((baseAmount * (1 + SHIPPING_MARKUP)) * 100) / 100
-
-          return {
-            id: rate.object_id,
-            name: rate.servicelevel.name,
-            provider: rate.provider,
-            amount: markedUpAmount,
-            currency: rate.currency,
-            estimatedDays: rate.estimated_days || 5,
-            type: 'shipping' as const
-          }
-        })
-
-      // Check if we have ground options from Shippo - if not, add estimated ground rates
-      const hasUSPSGround = rates.some(r => r.provider?.toLowerCase() === 'usps' && r.name?.toLowerCase().includes('ground'))
-      const hasUPSGround = rates.some(r => r.provider?.toLowerCase() === 'ups' && r.name?.toLowerCase().includes('ground'))
-
-      // Add estimated ground rates if not returned by Shippo (common for test API or certain destinations)
-      const supplementalRates: ShippingRate[] = []
-      if (!hasUSPSGround) {
-        supplementalRates.push({
-          id: 'usps-ground-est',
-          name: 'USPS Ground Advantage',
-          provider: 'USPS',
-          amount: 7.34, // ~$6.99 + 5% markup
-          currency: 'USD',
-          estimatedDays: 5,
-          type: 'shipping'
-        })
-      }
-      if (!hasUPSGround) {
-        supplementalRates.push({
-          id: 'ups-ground-est',
-          name: 'UPS Ground',
-          provider: 'UPS',
-          amount: 12.59, // ~$11.99 + 5% markup
-          currency: 'USD',
-          estimatedDays: 5,
-          type: 'shipping'
-        })
-      }
-
-      // Combine local options, Shippo rates, and supplemental ground rates
-      const allRates = [...localRates, ...rates, ...supplementalRates]
-
-      // Sort by price (cheapest first), but put disabled rates at the end
-      allRates.sort((a, b) => {
-        // Disabled rates go last
-        if (a.disabled && !b.disabled) return 1
-        if (!a.disabled && b.disabled) return -1
-        // Otherwise sort by amount
-        return a.amount - b.amount
+      const response = await fetch(`${apiBase}/api/shipping/rates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       })
 
-      // Select the cheapest NON-DISABLED rate by default (should be free pickup)
-      const firstEnabledIndex = allRates.findIndex(r => !r.disabled)
-      const selectedRate = firstEnabledIndex >= 0 ? { ...allRates[firstEnabledIndex], selected: true } : undefined
-      if (selectedRate && firstEnabledIndex >= 0) {
-        allRates[firstEnabledIndex].selected = true
+      if (!response.ok) {
+        console.warn('[shipping] /rates returned', response.status, '— using client fallback')
+        return null
       }
 
-      return {
-        rates: allRates,
-        selectedRate,
-        freeShippingThreshold: this.freeShippingThreshold,
-        isFreeShipping: false
-      }
+      const data = await response.json() as { rates?: Array<Partial<ShippingRate>> }
+      if (!Array.isArray(data?.rates) || data.rates.length === 0) return null
+
+      return data.rates.map((r) => ({
+        id: String(r.id),
+        name: String(r.name),
+        provider: String(r.provider),
+        amount: Number(r.amount),
+        currency: r.currency || 'USD',
+        estimatedDays: r.estimatedDays || 5,
+        type: 'shipping' as const
+      }))
     } catch (error) {
-      console.error('Shipping calculation error:', error)
+      console.error('[shipping] Failed to fetch carrier rates:', error)
+      return null
+    }
+  }
 
-      // Fallback to standard rates if API fails (still include local options)
-      // Note: These prices include the 5% markup already baked in
-      const fallbackRates: ShippingRate[] = [
-        ...localRates,
-        {
-          id: 'usps-ground',
-          name: 'USPS Ground Advantage',
-          provider: 'USPS',
-          amount: 7.34, // ~$6.99 + 5%
-          currency: 'USD',
-          estimatedDays: 5,
-          type: 'shipping'
-        },
-        {
-          id: 'ups-ground',
-          name: 'UPS Ground',
-          provider: 'UPS',
-          amount: 12.59, // ~$11.99 + 5%
-          currency: 'USD',
-          estimatedDays: 5,
-          type: 'shipping'
-        },
-        {
-          id: 'standard',
-          name: 'USPS Priority Mail',
-          provider: 'USPS',
-          amount: 10.49, // ~$9.99 + 5%
-          currency: 'USD',
-          estimatedDays: 3,
-          type: 'shipping'
-        },
-        {
-          id: 'express',
-          name: 'USPS Priority Express',
-          provider: 'USPS',
-          amount: 26.24, // ~$24.99 + 5%
-          currency: 'USD',
-          estimatedDays: 2,
-          type: 'shipping'
-        },
-        {
-          id: 'ups-2day',
-          name: 'UPS 2nd Day Air',
-          provider: 'UPS',
-          amount: 20.99, // ~$19.99 + 5%
-          currency: 'USD',
-          estimatedDays: 2,
-          type: 'shipping'
-        },
-        {
-          id: 'ups-saver',
-          name: 'UPS Next Day Air Saver',
-          provider: 'UPS',
-          amount: 36.74, // ~$34.99 + 5%
-          currency: 'USD',
-          estimatedDays: 1,
-          type: 'shipping'
-        }
-      ]
+  /**
+   * Client-side estimate used only when the backend rate endpoint is
+   * unreachable. Mirrors the backend estimate shape (USPS + UPS, markup baked
+   * in) so the UI never falls back to FedEx-only mocks.
+   */
+  private clientFallbackCarrierRates(): ShippingRate[] {
+    const markup = (base: number) => Math.round(base * (1 + SHIPPING_MARKUP) * 100) / 100
+    return [
+      { id: 'usps-ground', name: 'USPS Ground Advantage', provider: 'USPS', amount: markup(6.99), currency: 'USD', estimatedDays: 5, type: 'shipping' },
+      { id: 'usps-priority', name: 'USPS Priority Mail', provider: 'USPS', amount: markup(9.99), currency: 'USD', estimatedDays: 3, type: 'shipping' },
+      { id: 'ups-ground', name: 'UPS Ground', provider: 'UPS', amount: markup(11.99), currency: 'USD', estimatedDays: 5, type: 'shipping' },
+      { id: 'ups-2day', name: 'UPS 2nd Day Air', provider: 'UPS', amount: markup(19.99), currency: 'USD', estimatedDays: 2, type: 'shipping' },
+      { id: 'ups-saver', name: 'UPS Next Day Air Saver', provider: 'UPS', amount: markup(34.99), currency: 'USD', estimatedDays: 1, type: 'shipping' }
+    ]
+  }
 
-      // Sort by amount, but put disabled rates at the end
-      fallbackRates.sort((a, b) => {
-        if (a.disabled && !b.disabled) return 1
-        if (!a.disabled && b.disabled) return -1
-        return a.amount - b.amount
-      })
+  /**
+   * Combine local + carrier rates, apply the free-shipping incentive (zero the
+   * cheapest standard carrier rate), sort, and pick a sensible default.
+   */
+  private finalize(localRates: ShippingRate[], carrierRates: ShippingRate[], isFreeShipping: boolean): ShippingCalculation {
+    const rates: ShippingRate[] = [...localRates, ...carrierRates]
 
-      // Select the first non-disabled rate
-      const firstEnabledIdx = fallbackRates.findIndex(r => !r.disabled)
-      if (firstEnabledIdx >= 0) {
-        fallbackRates[firstEnabledIdx].selected = true
+    if (isFreeShipping) {
+      // Make the cheapest standard ground option free instead of hiding all
+      // the other choices. Customers keep pickup, delivery, rush, and the
+      // ability to pay to upgrade to a faster carrier.
+      const shippingRates = rates.filter(r => r.type === 'shipping' && !r.disabled)
+      if (shippingRates.length > 0) {
+        const cheapest = shippingRates.reduce((min, r) => (r.amount < min.amount ? r : min), shippingRates[0])
+        cheapest.amount = 0
+        cheapest.name = 'Free Standard Shipping'
+        cheapest.estimatedDays = Math.max(cheapest.estimatedDays, 5)
       }
+    }
 
-      return {
-        rates: fallbackRates,
-        selectedRate: firstEnabledIdx >= 0 ? fallbackRates[firstEnabledIdx] : fallbackRates[0],
-        freeShippingThreshold: this.freeShippingThreshold,
-        isFreeShipping: false
-      }
+    // Sort by price (cheapest first); disabled rates always sink to the bottom.
+    rates.sort((a, b) => {
+      if (a.disabled && !b.disabled) return 1
+      if (!a.disabled && b.disabled) return -1
+      return a.amount - b.amount
+    })
+
+    const firstEnabledIndex = rates.findIndex(r => !r.disabled)
+    let selectedRate: ShippingRate | undefined
+    if (firstEnabledIndex >= 0) {
+      rates[firstEnabledIndex].selected = true
+      selectedRate = rates[firstEnabledIndex]
+    }
+
+    return {
+      rates,
+      selectedRate,
+      freeShippingThreshold: this.freeShippingThreshold,
+      isFreeShipping
     }
   }
 
