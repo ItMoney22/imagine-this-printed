@@ -32,12 +32,18 @@ interface MrImagineModalProps {
   pricing: AutoLayoutPricing;
   freeTrials: FreeTrials;
   itcBalance: number;
-  onImageGenerated: (imageUrl: string) => void;
+  onImageGenerated: (imageUrl: string, metadata?: MrImagineGeneratedImageMetadata) => void;
   /** Called with the user's new ITC balance right after a generation charges. */
   onBalanceUpdate?: (newBalance: number) => void;
 }
 
 type GenerationState = 'idle' | 'generating' | 'complete' | 'error';
+
+interface MrImagineGeneratedImageMetadata {
+  printWidthInches: number;
+  printSizeLabel: string;
+  source: 'mr-imagine';
+}
 
 interface GeneratedImageResult {
   url: string;
@@ -100,11 +106,16 @@ const SHIRT_COLORS = [
   { key: 'color', label: 'Colored Shirt', colorHint: 'Use high contrast colors' },
 ];
 
-// Output size presets
+// DTF print-width presets
 const SIZE_OPTIONS = [
-  { key: '1024', label: '1024x1024', description: 'Standard (Default)' },
-  { key: '1536', label: '1536x1536', description: 'Large - Higher detail' },
-  { key: '2048', label: '2048x2048', description: 'Extra Large - Maximum detail' },
+  { key: 'pocket', label: 'Pocket 4"', printWidthInches: 4 },
+  { key: 'youth', label: 'Youth 7"', printWidthInches: 7 },
+  { key: 'small', label: 'Small 8"', printWidthInches: 8 },
+  { key: 'medium', label: 'Medium 9"', printWidthInches: 9 },
+  { key: 'large', label: 'Large 10"', printWidthInches: 10 },
+  { key: 'xl', label: 'XL 11"', printWidthInches: 11 },
+  { key: 'xxl', label: 'XXL 12"', printWidthInches: 12 },
+  { key: 'xxxl', label: 'XXXL 13"', printWidthInches: 13 },
 ];
 
 // Example prompts for inspiration
@@ -167,7 +178,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
   const [selectedStyle, setSelectedStyle] = useState(DTF_STYLES[0]);
   const [shirtColor, setShirtColor] = useState<string>('black');
   const [background, setBackground] = useState<string>('transparent');
-  const [outputSize, setOutputSize] = useState<string>('1024');
+  const [printSizeKey, setPrintSizeKey] = useState<string>('pocket');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [imageCount, setImageCount] = useState(1);
   const [genTier, setGenTier] = useState<'standard' | 'premium'>('standard');
@@ -459,7 +470,12 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
   const handleAddToSheet = (index: number) => {
     const img = generatedImages[index];
     if (!img || img.added) return;
-    onImageGenerated(img.url);
+    const selectedPrintSize = SIZE_OPTIONS.find(size => size.key === printSizeKey) || SIZE_OPTIONS[0];
+    onImageGenerated(img.url, {
+      printWidthInches: selectedPrintSize.printWidthInches,
+      printSizeLabel: selectedPrintSize.label,
+      source: 'mr-imagine',
+    });
     setGeneratedImages(prev =>
       prev.map((item, i) => (i === index ? { ...item, added: true } : item))
     );
@@ -822,20 +838,20 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Output Size */}
+                  {/* DTF Print Size */}
                   <div>
                     <label className="flex items-center gap-2 text-sm font-medium text-text mb-2">
                       <Maximize2 className="w-4 h-4 text-primary" />
-                      Output Size
+                      DTF Print Size
                     </label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {SIZE_OPTIONS.map(size => (
                         <button
                           key={size.key}
-                          onClick={() => setOutputSize(size.key)}
+                          onClick={() => setPrintSizeKey(size.key)}
                           disabled={generationState === 'generating'}
-                          className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                            outputSize === size.key
+                          className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                            printSizeKey === size.key
                               ? 'bg-primary text-white'
                               : 'bg-bg border border-primary/30 text-text hover:border-primary/50'
                           } disabled:opacity-50`}

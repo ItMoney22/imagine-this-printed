@@ -3013,12 +3013,109 @@ Cycle one area per 2-hour pass; mark ✅ + date when audited; restart the cycle 
 
 | # | Patrol Area | Status |
 |---|------------|--------|
-| P1 | Home + catalog + product page + cart/checkout flow | ✅ 2026-06-17 (c10) |
-| P2 | Imagination Station editor + AI tools | ⬜ |
-| P3 | Toy Creator + 3D model pipeline + Toy Lab admin | ⬜ |
-| P4 | Metal Art Studio + Creator Hub + community/user products + royalties | ⬜ |
+| P1 | Home + catalog + product page + cart/checkout flow | ✅ 2026-06-18 (c11) |
+| P2 | Imagination Station editor + AI tools | ✅ 2026-06-18 (c11) |
+| P3 | Toy Creator + 3D model pipeline + Toy Lab admin | ✅ 2026-06-18 (c11) |
+| P4 | Metal Art Studio + Creator Hub + community/user products + royalties | ✅ 2026-06-18 (c11) |
 | P5 | Email system (mailboxes, send/receive, assistant) + transactional senders | ⬜ |
 | P6 | Wallet + ITC + payouts + admin dashboard tabs + order management | ⬜ |
+
+## P1: Home + Catalog + Product Page + Cart/Checkout (2026-06-18, patrol cycle 11 / c11)
+
+**Method:** 4 parallel audit subagents over the 10 P1 files + backend writers. Schema verified against LIVE information_schema (read-only). Re-audit after c10's fixes — **all c10 fixes confirmed holding.** Surgical fixes applied; root + backend typecheck clean.
+
+### Correctness
+- 🟢 **All 10 P1 frontend→Express contracts verified correct** (method/path/auth/body/response). The c10 fix holds: `/api/orders/:id` returns `payment_intent_id` and the frontend reads it; checkout-payment-intent (guest optionalAuth), wallet full-ITC, coupons validate, user-products digital, imagination-station sheet/upload, shipping rates/distance all match. Catalog/featured/product reads go direct to Supabase (not contract surfaces).
+- 🟡 **Guest draft-resume comment is misleading** (Checkout.tsx:214-240, carry-over) — the comment implies guest drafts resume "by anyone holding the link," but GET /api/orders/:id is requireAuth + ownership-gated, and loadDraftOrder only runs when logged in. No live break (the frontend respects it). Document — soften the comment or design a real token-gated guest-resume route.
+
+### DB schema (highest priority)
+- 🟢 **All P1 checkout/order-creation writes verified aligned with live schema** (re-queried 2026-06-18): orders (NOT-NULL order_number/subtotal/total always supplied), order_items (product_id UUID-gated to null; the historical price/total/variations/personalization mismatch stays fixed — now metadata jsonb), itc_transactions (NOT-NULL amount supplied; usd_value/reason nested in metadata; **dedupe filters on `reference`, not the removed `stripe_payment_intent_id`** — the c10 webhooks fix family holds), coupon_usage, discount_codes, audit_logs. No silent-insert risk remains.
+
+### UX
+- 🟡→**FIXED (light-theme borders):** ProductCard root + idle size button used `border border-white/10` (invisible on the #FFFFFF card) and the color swatch used `border-white/20`; ProductPage unselected size/color/add-on buttons + the add-on checkbox used `border-gray-700`/`border-gray-500` (heavy near-black on white) — all dark-theme leftovers.
+  - **Fix applied:** 1px-border elements → `card-border` (the themed `var(--border)` token); border-2 elements kept their width with color → `border-slate-200/300/400` (no layout shift; selected states already use `border-primary`). Files: `src/components/ProductCard.tsx:115,269,309`, `src/pages/ProductPage.tsx:405,453,486,489`
+- 🟡 **Documented (carry-over / design):** dead "Pay ITC" button + dev "Debug:" panel in Checkout; ProductCard bottom-of-image white-haze overlay (`from-bg/90`); emoji-as-chrome in Cart/ProductCard/ProductPage; low-contrast 400-weight stock/trust badges on white; Cart's hardcoded 8% "estimated" tax + bare "+". The two "View All Products" on Home are an intentional responsive pair (not a dup).
+- 🟢 **Strong empty/loading/error states** across ProductCatalog (loading/no-match/empty-category/empty-catalog with recovery CTAs), Cart, Checkout, ProductPage (not-found), and Home.
+
+### Speed
+- ⚡→**FIXED (quick win):** ProductCard recomputed `featuredPlatforms`/`topPlatform` (reduce over socialPosts) on every render even when empty.
+  - **Fix applied:** wrapped both in `useMemo` keyed on `[socialPosts]`. File: `src/components/ProductCard.tsx:99`
+- ⚡ **Documented (restructure / wire-or-pull):** the per-card `loadSocialPosts` effect rebuilds the full mock dataset per card and always returns `[]` (mock IDs never match real UUIDs) → N wasted effects + 2N re-renders on catalog load — tied to the standing mock-social wire-or-pull decision; ProductRecommendations is eagerly imported on ProductPage + Cart (Home lazy-loads it) and ProductPage renders two instances each running a full products query; ProductCatalog selects `*` with no limit/pagination; ProductCard's React.memo is partly defeated by inline-style wrapper divs at the call sites. (ProductPage product+assets Promise.all and CartContext/Checkout/ProductCatalog memoization verified good.)
+
+**Counts:** 🔴 0 · 🟡 ~8 (1 fixed [theme borders], 7 documented) · ⚡ ~7 (1 fixed [useMemo], 6 documented) · 🟢 verified-good (all c10 fixes hold; contracts + schema clean). Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P2: Imagination Station editor + AI tools (2026-06-18, patrol cycle 11 / c11)
+
+**Method:** 4 parallel audit subagents over ImaginationStation + imagination components + the image-flow/mockups backend. Schema verified against LIVE information_schema (read-only). Re-audit after c10 — **all c10 P2 fixes confirmed holding.** One surgical hardening fix; root + backend typecheck clean.
+
+### Correctness
+- 🟢 **All P2 contracts verified correct** — sheet CRUD/upload/projects, the AI image tools (generate/remove-bg/upscale/enhance/reimagine/halftone, full processedUrl/imageUrl/url/output alias chain), layout (auto-nest/smart-fill), brainstorm/random-idea/voice/transcribe, realistic-mockups, designs/submit, wallet/get. Method/path/auth/body/response all match.
+- 🟡 **useTrial flag is sent but inert** (imagination-station.ts:731+, informational) — the standalone AI handlers read `useTrial` from the body but the service decides trial usage server-side (correct — server is source of truth). Not a contract break; could drop the param from the client type to avoid implying client control. Document.
+
+### DB schema (highest priority)
+- 🟢 **All 11 P2 write tables verified aligned with live schema** (re-queried 2026-06-18): imagination_sheets, imagination_layers, imagination_pricing, imagination_free_trials (real UNIQUE(user_id,feature_key) confirmed), user_wallets, wallet_transactions, itc_transactions, products, mockup_generations, user_media, product_assets. **The c10 fixes hold** — wallet_transactions auto-nest/smart-fill now supply balance_before/balance_after; itc_transactions nests reason/status in metadata jsonb. NOT-NULL coverage + jsonb nesting all correct.
+- 🟡→**FIXED (silent-failure hardening):** the 3 `wallet_transactions` inserts in the realistic-mockups flow (generate/reject-refund/auto-refund) had **no error check**, while the columns are `integer` and are fed from `user_wallets.itc_balance` (`numeric`). Currently safe (all live balances are whole), but a future fractional balance would fail the integer insert *silently* — the order_items class of bug. (The imagination-station ledger writes already log their error.)
+  - **Fix applied:** captured `{ error: wtErr }` and added `console.error` on all 3 inserts so a future failure is observable. File: `backend/routes/realistic-mockups.ts:120,367,693`
+- 🟡 imagination_sheets.itc_spent non-atomic read-then-write (imagination-ai.ts:297-305) — audit-only column, a lost update under concurrency only mis-counts an audit number, never money. Document.
+
+### UX
+- 🟡 **Documented (carry-over / design):** ITPEnhanceModal still mounted-but-unreachable (dead UI); MrImagineModal "Output Size" picker is a no-op (never sent to backend); MrImagineModal Advanced "Background" picker is dead (generate sends `shirtColor`, not the `background` state — two controls, one works); 4 blocking native dialogs (canvas reset :794, low-DPI add-to-cart :892, project-switch :2801, error-boundary alert :64 — the latter also keys off an `imagination-station-autosave` localStorage key that is never written, so "Recover Work" is just a reload); the loading/sheet-picker/My-Projects screens are full dark-mode on the light site (the canvas mat itself is intentional); emoji-as-chrome for sheet-type icons + the emoji clipart library; ReimagineItModal uses emoji/HTML-entity glyphs + a hand-rolled close SVG instead of lucide.
+- 🟢 **Empty/failed/blank states are consistently handled** (no designs/layers/projects/selected-image, generation errors, DPI quality panel) — a model for the rest of the app.
+
+### Speed
+- 🟢 **Verified good (incl. c10 fixes holding):** `sortedLayers` + `gridLines` ARE memoized (the c10 SheetCanvas fixes); mount fetch is parallel (Promise.allSettled, combined pricing endpoint); multi-image generation fans out concurrently; the mockup poller has full clearInterval cleanup; the route is lazy-loaded.
+- ⚡ **Documented (restructure / blocked):** the 3 Konva leaf components (CanvasImage/Text/Shape) aren't React.memo'd and get fresh inline callbacks each render → pan/zoom/drag re-renders all layers (needs memo + stable callbacks); the undo/redo effect JSON.stringify's the whole layer array on every mutation (needs debounce); Konva + modals statically bundled (lazy-load behind sheetOpen); derived values (selectedLayers/activeDesign, :2045) + the Layers panel `[...layers].reverse()` (:2626) recompute each render — **NOT auto-fixed because they sit after the editor's early-return loading/picker screens (≈1685/1726); converting them to useMemo there would violate hooks-order (they'd need to move above the early returns — a refactor).**
+
+**Counts:** 🔴 0 · 🟡 ~9 (1 fixed [ledger error-guards], 8 documented) · ⚡ ~6 (documented; c10 memoizations confirmed holding) · 🟢 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P3: Toy Creator + 3D model pipeline + Toy Lab admin (2026-06-18, patrol cycle 11 / c11)
+
+**Method:** 4 parallel audit subagents over ToyCreator/AdminToyLab/ModelGallery/ToyAR + 3d-models components + the backend 3D route, services, and ai-jobs worker. Schema verified against LIVE information_schema (read-only). Re-audit after c10 — **all c10 P3 fixes confirmed holding.** One surgical fix; root + backend typecheck clean.
+
+### Correctness
+- 🟢 **All 17 P3 contracts verified correct** — ToyCreator create/poll/approve/generate-3d/order/remix, size-tiers/pricing, the AdminToyLab admin routes (list returns flat `owner_email`/`owner_username` — the c10 fix holds — retry/promote/nfc), purchase-download/download, ToyAR public AR, and the worker write paths (concept_image_url/glb_url/stl_url/print_price_usd + the status values the UI polls). Method/path/auth/body/response all match.
+- 🟡→**FIXED:** ToyAR could point the 3D viewer at a null `glb_url`. The `/public/:id/ar` handler returns `glb_url ?? null` and the 404 gate only checks NFC-enabled, not 3D-readiness — so an AR/NFC-enabled-but-not-yet-ready model would set the viewer `src` to empty and render broken instead of a graceful fallback.
+  - **Fix applied:** guard the fetch handler — treat a null/empty `glb_url` as 404 (friendly NotFoundScreen). File: `src/pages/ToyAR.tsx:171`
+- 🟡 **ModelGallery (/models + /3d-models) is 100% mock, not wired** (carry-over) — buy/download/vote/upload handlers are no-op toasts, dark `from-gray-900` hero, a dead "Download" button, placeholder copy, a stub upload form, mounted at two routes. The real GET /api/3d-models/list endpoint exists but isn't used. Documented — wire to real data or pull the routes (David's call).
+
+### DB schema (highest priority)
+- 🟢 **All 8 P3 write tables verified ALL-CLEAR against live schema** (re-queried 2026-06-18): user_3d_models, ai_jobs, products, user_wallets, itc_transactions, product_assets, audit_logs (orders/design_sessions delete-only). Every written column exists; NOT-NULL coverage holds; type/jsonb-nesting (metadata.print3d/.nfc/.color_mode, integer print_height_mm, numeric print_price_usd, ARRAY images/purchased_licenses) all correct. The prior itc_transactions ledger fix holds; the route's defensive rich-then-minimal update fallback is intact; the Tripo metadata-preservation (c10 fix) + worker writes are aligned.
+
+### UX
+- 🟡 **Documented (carry-over / design):** ModelGallery mock data + dead Download + fake handlers + dark hero + stub upload form + "shipped from our farm" placeholder copy + duplicate /models & /3d-models routes; Model3DCard delete `confirm()`; Model3DDetailModal `alert()` on generation failure + on insufficient-ITC (ToyCreator does the same ops via toast); an unused `RotateCw` import in Model3DCard.
+- 🟢 **Well-built (verified):** ToyCreator's failed/loading/reveal states with kid-friendly copy + "your coins are safe" + reduced-motion; AdminToyLab skeletons/empty-state/optimistic-retry/theme-tokens; ToyAR light-themed with proper 404/loading; Model3DViewer's dark canvas is the legitimate 3D-surface exception.
+
+### Speed
+- ⚡ **Documented (restructure):** the ToyCreator 3D status poll has no backoff and no `document.hidden` guard (AdminToyLab already guards on document.hidden) — it clears on unmount/completion (no leak) but a backgrounded tab keeps polling; Model3DViewer (@google/model-viewer) is eagerly imported in ToyCreator + Model3DDetailModal though only used in the final stage (lazy-load behind the ready gate); AdminToyLab's client-side search filter recomputes each render (≤50-row paged list — marginal; useMemo would confine it). AdminToyLab's owner-join is batched (no N+1).
+
+**Counts:** 🔴 0 · 🟡 ~5 (1 fixed [ToyAR null-glb guard], 4 documented) · ⚡ 3 (documented) · 🟢 verified-good (all c10 fixes hold; contracts + schema all-clear). Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P4: Metal Art Studio + Creator Hub + community/user products + royalties (2026-06-18, patrol cycle 11 / c11)
+
+**Method:** 4 parallel audit subagents over Metal Art Studio, UserProductCreator, Community + components, CreatorAnalytics, AdminCreatorProductsTab + the backend community/user-products/approvals routes + royalties service. Schema verified against LIVE information_schema — this cycle the deeper READ-SIDE filter check (not just writes) surfaced silent column/table mismatches. The c10 write-path fixes held. 2 surgical fixes; root + backend typecheck clean.
+
+### DB schema (highest priority) — read-side mismatches that silently zero-out live features
+- 🔴→**FIXED:** **Creator Leaderboard was always empty** — the /api/community/leaderboard fallback (the common path, when the view has no rows) filtered `products.eq('approved', true)`, but the live products table has **no `approved` column** (it uses `status`/`is_active`). PostgREST errored → the catch returned `{ leaderboard: [] }`.
+  - **Fix applied:** `.eq('approved', true)` → `.eq('status', 'active')` (matches the feed fallback at community.ts:114). File: `backend/routes/community.ts:242`
+- 🔴→**FIXED:** **Creator analytics showed 0 sales/revenue** — creator-analytics selected `order_items.price`, but the live money column is **`unit_price`** (no `price` column). The select errored → the entire sales block was skipped → totalSales/totalRevenue/bestSellingProduct all stayed 0.
+  - **Fix applied:** select `unit_price` + compute `item.unit_price * item.quantity` (matches the my-earnings endpoint). File: `backend/routes/user-products.ts:1089,1095`
+- 🔴 **`creator_royalties` table doesn't exist live → admin /payout is dead** (carry-over, also flagged in P6 c10). Queries+updates a phantom table; always rejects. **NOT auto-fixed** — design decision (delete, or rebuild against `user_product_royalties`, which has no paid/paid_by/payout_method columns). No UI calls it. **Escalated to David.**
+- 🔴 **`vendor_products` table doesn't exist live → legacy POST /api/user-products/download (100-ITC) always 404s.** It queries vendor_products for ownership before deducting. **NOT auto-fixed** — confirmed **no frontend caller** (grep), so it's a dead legacy endpoint superseded by the buy-digital flow; remove it or repoint to `products` as a decision (don't blindly revive a dead money endpoint). Documented.
+- 🟢 **All 13 P4 write tables verified column-aligned** with live schema (community_posts/boosts/boost_earnings, user_product_royalties, products, product_tags, product_categories, ai_jobs, itc_transactions, user_wallets, user_design_sessions, orders, product_assets updates). NOT-NULL coverage + CHECK constraints + jsonb nesting all satisfied. (The c10 write-path fixes hold.)
+
+### Correctness
+- 🟢 All wired P4 contracts correct (metal-art generate/room-mockup/voice/submit, user-products create/status/buy-digital, creator-analytics, admin approve/reject, community feed/leaderboard/boost). The c10 fixes hold (CreatorAnalytics reads the `images` array; ai_jobs uses `prediction_id`; admin royalty default 15%).
+- 🟡 **Leaderboard rank** — CreatorLeaderboard reads `leader.rank`; the primary (view) path returns raw rows whose `rank` column is unverifiable from source. The fallback (now fixed) builds rank by index. Document — confirm the `community_leaderboard` view exposes `rank`, else map it by index before res.json.
+
+### UX
+- 🟡 **Documented:** UserProductCreator still says "10% royalty" in ~7 places (real rate is 15% — missed by commit e89474a) **but the page is UNROUTED dead code** (no route points to it), so it's not user-visible — fix when/if the page is wired; its mid-flow steps + gates are also still dark-theme-on-white (same unrouted page). Community's "Social Media" tab is a Coming-Soon placeholder whose submission modal + handlers (mock socialService + 4 blocking `alert()`s) are dead/unreachable. The live Community Showcase components use dark-glass classes (border-white/10, bg-white/5, text-white) on the light page — a multi-file token migration (documented, not a blind swap). Emoji-as-chrome in AdminCreatorProductsTab (✓/✗/🎉), CreatorAnalytics, UserProductCreator.
+- 🟢 **MetalArtStudio light theme HOLDS** (no regression — purple accents, toast feedback, full state handling); AdminCreatorProductsTab toast migration + empty/error/validation states solid; Community Showcase + Leaderboard have skeletons/empty-states and are wired to REAL backend endpoints (community-service, CreatorAnalytics — not mock).
+
+### Speed
+- ⚡ **Documented (parallelize):** creator-analytics runs 3 independent reads sequentially (totalDesigns/userProducts/royaltyTransactions — could Promise.all, order_items after); admin /creators runs 2 independent `.in()` reads back-to-back; community /feed fallback runs assets + profiles `.in()` reads sequentially — all already `.in()`-batched (no N+1), just serial. Frontend: Community.tsx helpers + CommunityShowcase sortOptions/filterOptions rebuilt each render (hoist to module scope).
+- 🟢 MetalArtStudio parallel loads + single-shot gen + cleared interval; UserProductCreator poll cleaned up; admin /pending batched; MetalArtStudio + Community lazy-loaded.
+
+**Counts:** 🔴 4 (2 fixed [leaderboard status, analytics unit_price], 2 documented+escalated [dead creator_royalties + vendor_products endpoints]) · 🟡 ~6 (documented) · ⚡ ~6 (documented) · 🟢 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
 
 ## P1: Home + Catalog + Product Page + Cart/Checkout (2026-06-17, patrol cycle 10 / c10)
 
@@ -3060,6 +3157,161 @@ Cycle one area per 2-hour pass; mark ✅ + date when audited; restart the cycle 
 - 🟢 **Parallel fetches + lazy-loading verified good:** ProductPage product+assets via `Promise.all` (51-54); shipping-calculator runs delivery+carrier in parallel + 350ms debounce; Home lazy-loads recommendations/modal.
 
 **Counts:** 🔴 3 (all fixed) · 🟡 8 (documented) · ⚡ 7 (3 fixed, 4 documented) · 🟢 5 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P2: Imagination Station editor + AI tools (2026-06-17, patrol cycle 10 / c10)
+
+**Method:** 4 parallel audit subagents (contract trace / live DB-schema / UX / speed) over ImaginationStation.tsx + all 8 imagination components + the backend imagination-station/realistic-mockups routes and the image-flow pipeline. Schema verified against the LIVE information_schema (Supabase Management API, read-only) — NOT migration files, which are badly drifted here. Surgical fixes applied; root `npm run typecheck` + backend `tsc --noEmit` both clean afterward.
+
+### Correctness
+- 🟢 **All P2 frontend→backend contracts verified correct** — sheet CRUD + upload + project-save (/api/imagination-station/*), the AI image tools (generate/remove-bg/upscale/enhance/halftone/reimagine — all return the processedUrl/imageUrl/url/output alias chain the frontend reads), layout ops (auto-nest/smart-fill), realistic-mockups + design submit, Mr. Imagine brain/voice/transcribe, and wallet/get. Every route exists at the expected method+path; request/response keys align; Bearer token attached on the auth routes.
+- 🟢 **Note:** the editor calls `imaginationApi.*` (→ /api/imagination-station/ai/*), NOT the `imageFlow.*` client (→ /api/image-flow/*). The image-flow router is unused by this surface, so its historically-fragile contract isn't in play here.
+
+### DB schema (highest priority)
+- 🔴 **auto-nest charged ITC but never wrote a ledger row — silent NOT-NULL failure.** The `wallet_transactions` insert supplied only user_id/transaction_type/amount/reference_type/description, but the LIVE table requires `balance_before` AND `balance_after` (integer NOT NULL, no default — verified by direct information_schema query). Every auto-nest insert violated the constraint and was swallowed by a console.error while the HTTP response still returned 200 and the ITC had already been deducted. Live `SELECT reference_type, count(*)` showed only `mockup` rows — zero `imagination_auto_nest` rows ever landed. (Prior cycles called this insert "valid" — they confirmed the *written* columns exist but missed the *omitted* NOT-NULL columns. The migration files describe a totally different `wallet_transactions` schema and are drifted; live is ground truth.)
+  - **Fix applied:** capture the balance the optimistic-lock deduction succeeded against (`appliedBalance`), then write `balance_before: appliedBalance`, `balance_after: appliedBalance - charged`, `amount: -charged` (negative for a spend) — mirroring the proven realistic-mockups ledger write. File: `backend/routes/imagination-station.ts:1093-1135`
+- 🔴 **smart-fill — identical silent NOT-NULL failure on the same table.**
+  - **Fix applied:** same capture + balance_before/balance_after/negative-amount fix. File: `backend/routes/imagination-station.ts:1196-1235`
+- 🟢 **All other P2 writes verified aligned with live schema:** imagination_sheets (insert + updates), imagination_layers (insert + processed_url/metadata updates), products (Make-a-Product insert — name/price NOT-NULL supplied, design data correctly nested in metadata jsonb), mockup_generations, user_media, user_wallets, product_assets, and the realistic-mockups wallet_transactions writes (which DO supply balance_before/after).
+
+### UX
+- 🔴 **CHECKERBOARD_BG transparency backdrop never rendered** — MakeProductModal used `style={{ background: CHECKERBOARD_BG }}` but CHECKERBOARD_BG is a Tailwind utility *class* (`bg-[url(...)]`), not a CSS value, so the browser discarded it and transparent PNGs showed on the default background. Every other call site applies it via className.
+  - **Fix applied:** `className={\`... ${CHECKERBOARD_BG}\`}`, dropped the inline style. File: `src/components/imagination/MakeProductModal.tsx:187`
+- 🟡 **Four blocking native dialogs** (off-brand vs the app's toast system): window.confirm on canvas reset (ImaginationStation.tsx:794), low-DPI add-to-cart warning (:892), unsaved-changes project switch (:2801), and alert() in the error-boundary recovery (ImaginationErrorBoundary.tsx:64). Documented (need a confirm-dialog component; the error-boundary recovery also promises a localStorage backup the API-autosave path may never write — verify before changing).
+- 🟡 **ITPEnhanceModal is mounted but unreachable** (ImaginationStation.tsx:2946) — `setShowITPEnhanceModal(true)` is never called; a full enhance/upscale/remove-bg surface is dead code. Wire a trigger or delete — scope decision, documented.
+- 🟡 **Mr. Imagine "Output Size" picker is a no-op** (MrImagineModal.tsx:825) — sets state never sent to the generate API; a confidence-eroding dead control on a paid action. Needs an API/contract change to make real — documented.
+- 🟡 **Light-theme / emoji (documented):** sheet grid lines #333 on white are barely visible (SheetCanvas:700); canvas mat bg-neutral-900 + loading/sheet-picker dark-gradient screens (likely-intentional editor mat, but off the light theme); emoji as chrome for sheet-type/project icons (ImaginationStation:77) and the emoji clipart library (AddElementPanel:11 — not print-deterministic).
+- 🟡 Duplicate Enhance/Remove-BG/Upscale/Halftone/Reimagine entry points (rail + preview row), vague Mr. Imagine error panel, and a confusing premium-vs-free-trial label — documented (IA/copy decisions).
+- 🟢 **Excellent existing UX:** before/after compare with exact revert snapshot on every destructive AI op, DPI quality gating before checkout with per-layer guidance, and thorough empty/error states across canvas/gallery/layers/projects.
+
+### Speed
+- ⚡ **layers.sort() mutated React state in place** every canvas render (SheetCanvas:811) — `Array.sort` reorders the actual state array (correctness hazard) and re-runs on every drag/zoom/pan.
+  - **Fix applied:** memoized sorted copy `const sortedLayers = React.useMemo(() => [...layers].sort(...), [layers])`; render maps over it. File: `src/components/imagination/SheetCanvas.tsx:811`
+- ⚡ **Grid line elements rebuilt every render** (~328 <Line> components for a large sheet) (SheetCanvas:690).
+  - **Fix applied:** wrapped in `React.useMemo` keyed on [gridEnabled, sheetWidth, sheetHeight]. File: `src/components/imagination/SheetCanvas.tsx:690`
+- ⚡ **listProjects wrapped a synchronous map in `await Promise.all(... async ...)`** (no awaits inside) — no-op overhead that also invites a future N+1.
+  - **Fix applied:** dropped the async/Promise.all wrapper. File: `backend/routes/imagination-station.ts:481`
+- ⚡ **Documented (need restructuring):** canvas children (CanvasImage/Text/Shape) not React.memo'd + per-layer inline onSelect/onChange recreated every render (selecting one layer re-renders all); undo/redo effect double-JSON.stringify's the whole layer array on every change; several derived arrays (selectedLayers, danger/warning counts, reversed layer list) recomputed without useMemo; AI modals + the Konva canvas eagerly bundled into the studio chunk (lazy-load behind their show*/sheetOpen gates).
+- 🟢 **Verified-good:** mockup status polling cleared on every exit path; pricing+presets loaded in parallel (Promise.allSettled, combined endpoint); backend multi-image generation fans out concurrently (Promise.allSettled/all), not sequentially.
+
+**Counts:** 🔴 3 (all fixed: 2 schema + 1 render) · 🟡 ~11 (documented) · ⚡ 7 (3 fixed, 4 documented) · 🟢 7 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P3: Toy Creator + 3D model pipeline + Toy Lab admin (2026-06-17, patrol cycle 10 / c10)
+
+**Method:** 4 parallel audit subagents (contract trace / live DB-schema / UX / speed) over ToyCreator, AdminToyLab, ModelGallery, ToyAR + the 3d-models components, and the backend 3d-models route + tripo3d/nano-banana-3d services + the ai-jobs worker. Schema verified against the LIVE information_schema (read-only). Surgical fixes applied; root + backend typecheck clean afterward.
+
+### Correctness
+- 🔴 **AdminToyLab owner attribution + search silently broken** — the page read a nested `model.owner.{email,username}` object, but the backend `/api/3d-models/admin/list` handler returns FLAT `owner_email`/`owner_username` (joined from user_profiles; 3d-models.ts:329-330). So `model.owner` was always undefined: the owner email never rendered on the model card and searching by owner email/username matched nothing.
+  - **Fix applied:** changed the ToyModel interface to flat `owner_email`/`owner_username` and updated the display + search read sites. File: `src/pages/AdminToyLab.tsx:37,485,800`
+- 🟡 **ModelGallery (/models, /3d-models) is unwired mock data** (carry-over) — zero API calls; a static `communityModels`/`vendorProducts` array, and vote/upload/buy/contact handlers are stub toasts (no cart, no endpoint, no persistence). The public 3D marketplace is non-functional demo UI. Needs a real public-list endpoint (or RLS Supabase query) + wired buy/upload handlers — feature integration, documented (David's wire-or-pull call).
+- 🟢 **All other P3 contracts verified correct:** ToyCreator (create/poll/approve/generate-3d/order/remix/size-tiers/wallet/transcribe), the AdminToyLab admin routes (list/retry/promote/nfc, admin+role gated), ToyAR public AR fetch, and the Model3D components (size-tiers/generate-3d/order/purchase-download/download/delete/create) all match method/path/auth/body/response keys. The worker writes every status the frontend polls for.
+
+### DB schema (highest priority)
+- 🟢 **All 5 P3 write tables verified aligned with the live schema:** user_3d_models (insert needs user_id+prompt — supplied; all worker UPDATE columns exist), ai_jobs, products (promote insert needs name+price — supplied), itc_transactions (the prior-cycle reference/balance_after/metadata fix holds), user_wallets. No silent NOT-NULL failure recurs here — verified against live information_schema with nullability.
+- 🟡→**FIXED (data-loss bug, not a schema mismatch):** the Tripo 3D-conversion success path **overwrote the `metadata` jsonb wholesale**, dropping `color_mode` (set at create) — so downstream `/admin/:id/promote` (reads metadata.color_mode at 3d-models.ts:490) and `/:id/order` (reads at :1009) silently fell back to `'grey'`, breaking color4 toy pricing and the promoted product's print3d.color_mode. The column accepts the write, so it wasn't a schema mismatch — it was a payload data-loss bug, load-bearing for toy color pricing.
+  - **Fix applied:** select the existing `metadata` and spread it before the new Tripo keys (`...(model?.metadata ?? {})`), so color_mode/source/toy_parts survive the conversion. File: `backend/worker/ai-jobs-worker.ts:1706,1755`
+
+### UX
+- 🟢 **AdminToyLab UX is solid:** skeleton loaders, a search-aware "No models found" empty state, theme tokens (no hardcoded greys), optimistic retry with rollback, toast feedback, admins-only guard, and auto-refresh that pauses when the tab is hidden.
+- 🟢 **ToyAR + Model3DViewer:** the 3D viewer's dark canvas (Model3DViewer:79) is the legitimate model-display backdrop (intentional, not a theme violation); ToyAR itself is light-themed with proper loading/404 states.
+- 🟡 **Carry-over (documented, David's wire-or-pull call):** ModelGallery dark hero + dead Download button + mock data (see correctness); Model3DDetailModal alert()/Model3DCard confirm() blocking dialogs noted in prior cycles.
+
+### Speed
+- 🟢 **Verified good:** the ToyCreator status poll clears the prior interval, stops on every terminal status, and cleans up on unmount (leak-free); AdminToyLab auto-refresh is cleared + tab-visibility gated; `model-viewer` is injected lazily (not bundled); the admin list resolves all owners in one batched query (no N+1).
+- ⚡ **Documented (need restructuring):** the status poll has no backoff / no max-attempt cap (fixed 3s — wasteful for a hung job, but not a leak); AdminToyLab search filter / per-card toyParts Set / inline onPromote are unmemoized (≤100-row admin list — marginal, left as-is); Model3DDetailModal mounts a separate model-viewer per tab (re-fetches the GLB on tab switch); the worker's angle-generation loop awaits sequentially (server-side waterfall) — but that path is currently bypassed (Tripo skips angles), so dormant.
+
+**Counts:** 🔴 1 (fixed) · 🟡 ~3 (1 fixed [data-loss], 2 documented) · ⚡ 4 (documented) · 🟢 ~6 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P4: Metal Art Studio + Creator Hub + community/user products + royalties (2026-06-17, patrol cycle 10 / c10)
+
+**Method:** 4 parallel audit subagents (contract trace / live DB-schema / UX / speed) over MetalArtStudio, UserProductCreator, Community + community components, CreatorAnalytics, AdminCreatorProductsTab, and the backend community/user-products/approvals routes + user-royalties/watermark services. Schema verified against the LIVE information_schema (read-only). Surgical fixes applied; root + backend typecheck clean afterward.
+
+### Correctness
+- 🟡→**FIXED:** **CreatorAnalytics thumbnails were always broken** — the component read `bestSellingProduct.generated_image` and `recentDesigns[].generated_image`, but GET /api/user-products/creator-analytics returns an `images` ARRAY (+ name), never a `generated_image` scalar. Both the Best-Selling and Recent-Designs `<img src>` resolved to undefined.
+  - **Fix applied:** interface fields → `images: string[]` and both reads → `images?.[0]`. File: `src/components/CreatorAnalytics.tsx:15,27,200,285`
+- 🟢 **All other P4 contracts verified correct:** Metal Art Studio (wallet/pricing/use-upload/generate/brainstorm/room-mockup/voice/designs-submit), the community feed/leaderboard/boost/posts endpoints, the admin pending/approve/reject endpoints, and the user-products create/status/select-image/submit/sessions — method/path/auth/body/response keys all match.
+- 🟢 **Community "Social Media" tab** imports the all-mock socialService but renders a static "Coming Soon" panel — the mock calls + alert()s are unreachable (the live Creator Showcase tab uses the real /api/community/* routes).
+
+### DB schema (highest priority)
+- 🟡→**FIXED (column mismatch, read-side):** **`user-products.ts` GET /:id/status gated Replicate polling on `job.replicate_id` — a column that does NOT exist on live `ai_jobs` (the real column is `prediction_id`).** So the inline status-sync branch never executed and a user-product job's status could appear stuck. The worker DOES write `prediction_id` (ai-jobs-worker.ts:1111), so the column is populated — the route just referenced the wrong name.
+  - **Fix applied:** `job.replicate_id` → `job.prediction_id` (guard + getPrediction call), activating the intended Replicate sync. File: `backend/routes/user-products.ts:316,318`
+- 🔴 **Admin `/payout/:creatorId` queries a nonexistent `creator_royalties` table** (SELECT + UPDATE) — confirmed against live information_schema.tables (empty result). At runtime totalPending computes to 0 and every payout is rejected. **Dead route** (no frontend caller anywhere; the live royalty model is `user_product_royalties`, auto-credited as ITC by user-royalties.ts). Documented, NOT auto-fixed: the column shape + semantics differ (no status='paid'/creator_id/paid_by), so a blind table swap would just relocate the silent failure — needs a product decision (delete vs rebuild). Carry-over (David's call).
+- 🟢 **All 12 P4 write-path tables verified aligned with live schema** (nullability checked): community_posts, community_boosts, community_boost_earnings, itc_transactions, user_wallets, products, product_categories, product_tags, ai_jobs, user_design_sessions, orders (digital), user_product_royalties. Every NOT-NULL no-default column is supplied — no silent-insert failure recurs.
+
+### UX
+- 🟡→**FIXED:** **Royalty rate shown to admins was the stale 10%** (canonical is 15% per commit e89474a) — AdminCreatorProductsTab defaulted `creator_royalty_percent || 10`.
+  - **Fix applied:** fallback → `|| 15`. File: `src/components/AdminCreatorProductsTab.tsx:329`
+- 🟡 **UserProductCreator is UNROUTED dead code** (App.tsx has no route to it; `/create-design` redirects to /imagination-station) — so its issues are documented, not fixed: full dark-mode text on a white wrapper (illegible steps), a full-dark non-vendor gate, emoji-as-chrome throughout, and stale "10% royalty" copy repeated 6× (this dead page still says 10% while the live admin number is now 15%).
+- 🟡 **CommunityPostCard fires live blocking `alert()`s in the real vote flow** (:32/:38/:51, on the active Creator Showcase) — should be toasts. Document-only (dialog→toast).
+- 🟡 **Community.tsx keeps dead mock handlers** (handleSubmitContent/handleVote → all-mock socialService + alert() fake-success) — unreachable behind the "Coming Soon" gate, but mock-as-real code still shipped. Document.
+- 🟡 **Community showcase components lean on dark-theme tokens** (border-white/10, bg-white/5, text-white across CommunityShowcase/Leaderboard/PostCard/PaidBoostModal) that wash out on the light site. Document (cross-component theme pass).
+- 🟡 AdminCreatorProductsTab cosmetics (documented): metal size label renders `4x6"` (stray inch-mark on a WxH pair); emoji chrome 🎉/✓/✗.
+- 🟢 **MetalArtStudio light-theme conversion HOLDS** (purple-600 on #fafafa/white, all toast-based, step-gated) — no regression. AdminCreatorProductsTab toast migration is clean. Community/Creator components have thoughtful empty + loading states.
+
+### Speed
+- 🟢 **Verified good:** both AI-gen polls clearInterval + self-stop on terminal status; backend /pending, /creators, community feed/leaderboard resolve profiles/assets/royalties via batched `.in()` queries (no N+1); MetalArtStudio + Community are lazy-loaded; feed + leaderboard fetch in parallel.
+- ⚡ **Documented (need restructuring):** CommunityShowcase re-renders all ≤20 cards on any vote/boost (CommunityPostCard not memoized + handlers recreated each render — needs React.memo + useCallback together); creator-analytics serializes 4 independent backend queries (could Promise.all); inline helpers/option arrays rebuilt every render in Community.tsx (dead "Coming Soon" tab) + CommunityShowcase sortOptions/filterOptions (hoist to module scope); UserProductCreator poll has no timeout ceiling (unrouted page).
+
+**Counts:** 🔴 1 (documented — dead /payout, design decision) · 🟡 ~9 (3 fixed [thumbnails, replicate_id, royalty %], 6 documented) · ⚡ 4 (documented) · 🟢 ~7 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P5: Email system (mailboxes, send/receive, assistant) + transactional senders (2026-06-17, patrol cycle 10 / c10)
+
+**Method:** 4 parallel audit subagents (contract trace / live DB-schema / UX / speed) over AdminEmail + AdminEmailTemplates and the backend email/admin-email-templates/webhooks routes + emailAI/email-resend services + voice synth. Schema verified against the LIVE information_schema (read-only). One surgical fix; root + backend typecheck clean afterward. **Clean, well-built area — no contract or schema bugs.**
+
+### Correctness
+- 🟢 **All ~20 P5 frontend→backend contracts verified correct** — 14 /api/email/* (mailbox CRUD, messages list/get/update, send, assistant, compose-assist, users, featured-products) + voice/synthesize + 6 /api/admin/email-templates/* (list/logs/stats/preview/send-test/save). Method/path/auth (admin + manager role gating)/body/response keys all match. The Brevo tracking webhook populates exactly the opened_at/clicked_at/open_count columns the stats UI reads. No missing routes, no method mismatches, no shape mismatches.
+- 🟢 **Message-list partial select is safe** — the list query trims fields (cc/bcc/text_body/html_body) but the list-item render only reads present fields; reply/forward operate on the full getMessage object.
+- 🟡 **Access-consistency notes (not bugs, documented):** compose-assist silently skips coupon creation for non-admins (a manager asking Mr. Imagine for a coupon gets copy mentioning a discount but no coupon row) — consider surfacing "coupons are admin-only". Manage-Mailboxes is admin-gated on both client and server (verified — no escalation gap).
+
+### DB schema (highest priority)
+- 🟢 **All 5 P5 write tables verified aligned with live schema** (nullability checked): email_messages (outbound + inbound-webhook inserts supply NOT-NULL mailbox_id/direction/from_address; defaults never written null), email_mailboxes, email_logs, email_templates (update-only), discount_codes (compose-assist coupon insert). **The known email_logs.order_id UUID trap holds** — emailAI.ts deliberately writes `order_id: null` (the human orderNumber string is never forced into the uuid column; the c9 fix stands). The webhook dedupe relies on a real `idx_email_messages_dedupe` UNIQUE index (confirmed live), and the idempotent coupon insert on a real `discount_codes_code_key` unique (confirmed). No silent NOT-NULL failure, no nonexistent-column write, no type mismatch.
+
+### UX
+- 🟡→**FIXED (dead code):** **AdminEmail had two byte-identical, mutually-exclusive `voiceError` render branches** (`&& !voiceWarnShown` and `&& voiceWarnShown`, both rendering the same "voice unavailable" span) — dead branching with no behavioral effect.
+  - **Fix applied:** collapsed to a single `{msg.voiceError && ...}` guard (voiceWarnShown remains used at 897/961/970). File: `src/pages/AdminEmail.tsx:1205`
+- 🟡 **AdminEmailTemplates (documented):** an emoji used as a section-header icon where siblings use lucide; a custom non-dismissing toast banner instead of the shared useToast (the two email screens look different + the success banner lingers); and save/send-test failures surface raw `err.message` (apiFetch throws "HTTP <status> <raw body>", so a 5xx can dump a JSON stack to the user). Document-only (copy/restyle + an apiFetch error-parsing change).
+- 🟡 **AdminEmail delete-mailbox uses window.confirm** — acceptable for a destructive permanent action (the only native dialog in the subsystem); documented, not auto-swapped.
+- 🟢 **AdminEmail HOLDS its clean verdict:** light theme via semantic tokens, every empty + error state handled (no-mailbox, empty inbox/sent/archived, no-message, no-products, send/AI/archive failures → titled useToast), no dead buttons, no emoji chrome.
+
+### Speed
+- 🟢 **Verified good:** the 60s inbox poll skips `document.hidden`, fires silently, and clears on unmount; unread counts come from a single listMailboxes() call (backend counts via a parallel + bounded Promise.all); AdminEmailTemplates parallelizes its 3 initial loads via Promise.all; the reading-pane iframe-resize timers + the 400ms search debounce both clean up; the Brevo webhook is a clean find-then-single-update (no N+1).
+- ⚡ **Documented (marginal / restructure):** the poll tick's two refreshes are ALREADY effectively concurrent (both fire without awaiting — the flagged "sequential" was a false alarm, no change needed); message-list rows rebuild inline onClick closures + re-derive formatDate/displayName each render (needs extraction to a memoized MessageRow); backend getMessage does 2 sequential round-trips (could fold the mailbox-access lookup into the message select via a join); the compose product picker recomputes `selected.some()` per card (N≤24, negligible — a useMemo Set would make it O(1)).
+
+**Counts:** 🔴 0 · 🟡 ~6 (1 fixed [dead branch], 5 documented) · ⚡ 4 (documented; 1 was a false alarm — already concurrent) · 🟢 ~9 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+## P6: Wallet + ITC + payouts + admin dashboard tabs + order management (2026-06-18, patrol cycle 10 / c10 — CLOSES CYCLE 10)
+
+**Method:** 4 parallel audit subagents (contract trace / live DB-schema / UX / speed) over Wallet, OrderManagement, AdminDashboard (wallet/ITC/gift-card/order tabs), VendorPayouts, ManagerDashboard + AdminWalletManagement/AdminGiftCardManagement/AdminConnectManagement, and the backend wallet/admin-wallet/gift-cards/orders routes + stripe-connect/order-reward/referral services. Schema verified against the LIVE information_schema (read-only). Surgical fixes applied; root + backend typecheck clean afterward.
+
+### DB schema (highest priority — THE MONEY AREA)
+- 🟢 **All 3 prior-cycle money-path fixes VERIFIED HOLDING:** user_wallets credit-insert writes only live columns (no points_balance/lifetime_*/wallet_status); stripe-connect deduct + refund write itc_balance+updated_at (not the nonexistent last_itc_activity).
+- 🟢 **All ledger + money-table writes aligned** with live schema (nullability checked): itc_transactions (12 insert sites — all supply the NOT-NULL `amount`; old usd_value/reason/reference_type folded into metadata), orders, order_items, gift_cards, itc_cashout_requests, payout_requests, stripe_connect_accounts, audit_logs. gift_card_transactions is absent live but unreferenced by runtime code (redemption logs to itc_transactions) — not a bug.
+- 🔴 **order-completion ITC rewards are fully broken — the `order_rewards` table + `award_order_rewards` RPC do NOT exist live.** `processOrderCompletion()` (POST /api/orders/:id/complete) reads order_rewards (null), calls the missing RPC (throws), then tries to insert a 'failed' row into the missing table (throws). Net: **every completed order awards 0 ITC** and logs a failure. No corruption (the status update itself succeeds), but users promised ITC for completed orders get none. File: `backend/services/order-reward-service.ts`. **Documented, NOT auto-fixed** — requires creating the table+RPC on live Supabase (forbidden from the patrol) OR a product decision to deprecate + gate the call. **Escalated to David.**
+- 🔴 **all referral ITC bonuses silently fail — `referral_codes` + `referral_transactions` tables + `process_referral_reward` RPC do NOT exist live.** createReferralCode / processReferralSignup / processReferralFirstPurchase all throw on the missing tables before any wallet credit, so **the referrer is never paid**, and /referral/create|apply|stats all error. File: `backend/services/referral-service.ts`. **Documented, NOT auto-fixed** — same schema-or-deprecate product decision. **Escalated to David.**
+- 🟡 **decrement_itc RPC missing live but gracefully handled** — /api/wallet/deduct-itc catches PGRST202 and falls back to a (correct, live-column) read-then-write, so it works today with only a narrow non-atomic TOCTOU window. Documented — apply the existing `20260428_decrement_itc_atomic.sql` migration to close the race.
+
+### Correctness
+- 🟡→**FIXED (latent role-lookup bug):** `orders.ts` GET /:orderId and /:orderId/rewards resolved the caller's role via `user_profiles.eq('user_id', sub)`, but `id` is the auth-uid column (proven — requireRole + admin/connect/overview both key on `.eq('id', sub)` and gate every working admin route). So an admin viewing another user's order detail got isAdmin=false → 403. (Not triggered by any current P6 page, but a real money-area auth inconsistency.)
+  - **Fix applied:** both role lookups → `.eq('id', userId)` (matches the proven pattern; ownership checks on `order.user_id` untouched; live-confirmed user_profiles has both id + user_id, id===auth uid). File: `backend/routes/orders.ts:246,423`
+- 🟡 **OrderManagement writes order status + notes directly to Supabase** (client-side, bypasses backend validation + the audit_logs row) — carry-over; no backend status/notes PATCH endpoint exists. Document (needs a new PATCH /api/orders/:id endpoint).
+- 🟡 **AdminDashboard ITC grant writes user_wallets directly** (handleGrantItc, client-side read-then-write TOCTOU) — bypasses the purpose-built /api/admin/wallet/credit|debit|adjust, so **admin ITC grants write NO itc_transactions ledger row and are invisible in the user's history.** Document (needs the modal to add a reason field + switch to the endpoint).
+- 🟡 **VendorPayouts + ManagerDashboard are 100% mock** (vendorPayoutService/costManagementService return hardcoded data; requestPayout shows a success alert without moving money). The real Stripe-Connect machinery is only reachable from the customer Wallet page. Document.
+- 🟢 **All live contracts verified correct:** Wallet (wallet/get, transactions/itc, connect/*, cashout, cashout-history), gift-cards redeem + admin gift-card CRUD, GET /api/orders, admin/connect/overview — method/path/auth/role/body/response all match.
+
+### UX
+- 🟡→**FIXED (money-display bug):** **AdminGiftCardManagement showed USD at 10× the real value** — it computed `itc_amount * 0.10` in 3 spots (table cell, single-create preview, bulk-create total), but the canonical rate is **1 ITC = $0.01** everywhere else (Wallet, AdminWalletManagement, backend gift-cards.ts). A 100-ITC card showed $10.00 instead of $1.00.
+  - **Fix applied:** `* 0.10` → `* 0.01` in all three. File: `src/components/AdminGiftCardManagement.tsx:347,429,544`
+- 🟡 **Dead buttons in the AdminDashboard Users tab** (documented): "Edit" has a no-op onClick (:1995); "Suspend" has no handler at all (:2006). Left for a product decision (wire vs remove) rather than removing admin controls unilaterally.
+- 🟡 **Blocking native dialogs** (documented, admin/manager-only): gift-card delete confirm (AdminGiftCardManagement:141), ITC-pricing reset confirm (AdminDashboard:579), VendorPayouts alert()s (:58/61/78), ManagerDashboard alert()s (:83/85/135) — should adopt the in-app confirm pattern AdminWalletManagement already uses.
+- 🟡 **Inert dark: classes throughout OrderManagement** (getStatusColor :247-256 + tab/table/modals) — dead CSS on a light-only site. Documented (low-risk strip, but spans the file).
+- 🟡 Emoji-as-chrome in VendorPayouts (:137-140) + ManagerDashboard (:172-175,506) tab bars; OrderManagement mock from-address + hardcoded shipping estimate (:195-205,694); OrderManagement status/notes give no success toast (console.log only, :148/180); VendorPayouts hardcoded next-payout date + "will be implemented" Analytics tab. All documented.
+- 🟢 **AdminWalletManagement is the money-area UX reference** (in-app confirm dialog, correct 0.01 rate, reason≥10-char validation, live balance preview); Wallet cashout flow handles every state cleanly (fee breakdown, validation, pagination, consistent $ formatting).
+
+### Speed
+- ⚡ **Documented (restructure):** order-reward-service N+1 reward loop; AdminDashboard loadMetrics does 9 serial awaits (could Promise.all) + 12 eagerly-bundled tabs (no lazy/Suspense) + a poll without cleanup (:841-895 — potential leak); unmemoized list filters in OrderManagement/VendorPayouts/AdminWalletManagement; admin connect-overview 2 serial query chains. (The connect-overview per-account lookups are already batched `.in()` — no N+1 there.)
+
+**Counts:** 🔴 2 (both documented + escalated — missing-table money paths, need DDL/product decision) · 🟡 ~12 (2 fixed [role-lookup, gift-card rate], 10 documented) · ⚡ ~6 (documented) · 🟢 ~8 verified-good. Verify: root `npm run typecheck` + backend `tsc --noEmit` both clean post-fix.
+
+**CYCLE 10 COMPLETE — all six P1–P6 ✅. Next invocation resets to cycle 11 at P1.**
 
 ## P1: Home + Catalog + Product Page + Cart/Checkout (2026-06-12, patrol cycle 1)
 

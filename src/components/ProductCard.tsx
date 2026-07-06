@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Sparkles, Loader2, ShoppingCart, Check } from 'lucide-react'
 import { socialService } from '../utils/social-service'
@@ -96,8 +96,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
     return topPlatform
   }
 
-  const featuredPlatforms = getFeaturedPlatforms()
-  const topPlatform = getMostEngagedPlatform()
+  const featuredPlatforms = useMemo(() => getFeaturedPlatforms(), [socialPosts])
+  const topPlatform = useMemo(() => getMostEngagedPlatform(), [socialPosts])
 
   const [isHovered, setIsHovered] = useState(false)
 
@@ -112,7 +112,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   return (
     <div
-      className="group relative bg-card border border-white/10 rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1"
+      className="group relative bg-card card-border rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -266,7 +266,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                     className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all relative ${
                       selectedSize === size
                         ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
-                        : 'bg-card border border-white/10 text-text hover:border-primary/50 hover:bg-primary/10'
+                        : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
                     } ${isPlusSize ? 'pr-5' : ''}`}
                   >
                     {size}
@@ -306,7 +306,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                     className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center ${
                       isSelected
                         ? 'border-primary ring-2 ring-primary/40 ring-offset-1 ring-offset-bg'
-                        : 'border-white/20 hover:border-white/40'
+                        : 'border-slate-200 hover:border-slate-400'
                     }`}
                     style={{ backgroundColor: hex }}
                   >

@@ -184,7 +184,7 @@ const MakeProductModal: React.FC<MakeProductModalProps> = ({ isOpen, onClose, de
           {/* Design preview strip */}
           {designUrl && (
             <div className="flex items-center gap-3 mb-5 p-3 rounded-xl border border-text/10 bg-bg">
-              <div className="w-14 h-14 rounded-lg overflow-hidden shrink-0" style={{ background: CHECKERBOARD_BG }}>
+              <div className={`w-14 h-14 rounded-lg overflow-hidden shrink-0 ${CHECKERBOARD_BG}`}>
                 <img src={designUrl} alt="Your design" className="w-full h-full object-contain" />
               </div>
               <div className="min-w-0">

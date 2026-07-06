@@ -1,82 +1,63 @@
 # Claude Task Brief
 ## Request
-- From `codex1.txt`: Imagination Sheet (Imagination Sheet editor) — implement 3 related UX/bug fixes (docs only from Scout; Claude will modify code).
-- 1) Enhance + Upscale: ensure processing truly returns an improved/upscaled asset end-to-end, UI swaps to the new asset, and users can verify via BEFORE/AFTER compare (draggable slider) + output metadata (pixel dims and/or DPI) + clear loading states.
-- 2) “Mystery Imagine” (Mr Imagine AI generation): fix cases where generation succeeds but nothing shows; redesign into a lightbox/modal tool panel with the waving Mr Imagine hero image, better prompt UX, clear queued/running/complete/error states, and retry.
-- 3) Large sheet navigation: add intuitive pan/drag navigation (mouse + trackpad; mobile-friendly if applicable) so users can reach top/bottom without zooming out/in.
+- Finish the T-shirt `print_locations` rollout after Zero Nine shipped the admin multi-select dropdown and admin AI create persistence.
+- Watchtower task: `237e822e-d8aa-424b-bdb5-4e4d55210776`.
+- Required remaining work: wire the remaining shirt create/update paths, sync Prisma, and verify with typechecks. Do not rework the shipped admin dropdown unless directly needed.
 
 ## Repo detection
 - JavaScript/TypeScript project with Vite + React frontend and an Express/TypeScript backend in `backend/`.
-- Canvas editor uses `react-konva`/Konva (`src/components/imagination/SheetCanvas.tsx`).
-- AI image tools are served from backend routes under `/api/imagination-station/*` and call Replicate via `backend/services/imagination-ai.ts`.
-- Root Node engine: `>=18.17` (from `package.json`); backend Node engine: `>=18.0.0` (from `backend/package.json`).
-- Tests: Vitest (`npm test`), plus E2E config (`npm run test:e2e`).
+- Supabase/PostgreSQL database. The live configured DB was checked read-only on 2026-06-29: `products.print_locations` exists as `text[]` with default `'{}'::text[]`, and the `products_print_locations_valid` CHECK constraint exists.
+- Root scripts from `package.json`: `npm run typecheck`, `npm run test`, `npm run build`, `npm run lint`.
+- Backend scripts from `backend/package.json`: `cd backend && npm run typecheck`, `cd backend && npm run build`.
 
 ## Relevant files (Claude MUST read these first)
 - `AGENTS.md`
-- `codex1.txt`
-- `package.json`
-- `backend/package.json`
-- `README.md`
-- `backend/README.md`
-- `RUNBOOK.md`
-- `TESTING_README.md`
-- `src/pages/ImaginationStation.tsx`
-- `src/components/imagination/SheetCanvas.tsx`
-- `src/lib/api.ts`
-- `backend/routes/imagination-station.ts`
-- `backend/services/imagination-ai.ts`
-- `public/mr-imagine/mr-imagine-waving.png`
+- `CLAUDE.md`
 - `TASK_NOTES.md`
+- `supabase/migrations/20260629_tshirt_print_locations.sql`
+- `src/types/index.ts`
+- `backend/routes/admin/ai-products.ts`
+- `backend/routes/user-products.ts`
+- `backend/routes/admin/user-product-approvals.ts`
+- `backend/prisma/schema.prisma`
 
 ## Files to edit (STRICT)
-- Frontend (Imagination Sheet editor)
-  - `src/pages/ImaginationStation.tsx`
-  - `src/components/imagination/SheetCanvas.tsx`
-  - `src/lib/api.ts`
-  - Add: `src/components/imagination/ImageCompareModal.tsx`
-  - Add: `src/components/imagination/MysteryImagineModal.tsx`
-- Backend (Imagination Station AI endpoints)
-  - `backend/routes/imagination-station.ts`
-  - `backend/services/imagination-ai.ts`
-- Static asset (for Mystery Imagine modal header)
-  - Use existing: `public/mr-imagine/mr-imagine-waving.png`
+- `backend/routes/user-products.ts`
+- `backend/routes/admin/user-product-approvals.ts`
+- `backend/prisma/schema.prisma`
+- `TASK_NOTES.md` (milestone/work-log bullets only)
+
+## Context from scouting
+- Already done: `src/types/index.ts` defines `TshirtPrintLocation` and adds `print_locations?` to `Product` and `AIProductCreationRequest`.
+- Already done: `src/components/AdminCreateProductWizard.tsx` has the multi-select `Print Locations` dropdown and sends `print_locations` for shirts.
+- Already done: `backend/routes/admin/ai-products.ts` `/create` whitelists/dedupes `front_image`, `back_image`, `pocket`, defaults shirt inserts to `['front_image']`, and inserts `print_locations`.
+- Still missing: `backend/routes/user-products.ts` `/create` inserts `category: normalized.category_slug` without `print_locations`, so creator-submitted shirts can violate the live CHECK.
+- Still missing: `backend/routes/admin/user-product-approvals.ts` `/:id/approve` can set `updateData.category = 'shirts'` for apparel without ensuring `print_locations` has at least one value.
+- Still missing: `backend/prisma/schema.prisma` `model Product` has `images`, `category`, etc., but no `printLocations String[] @default([]) @map("print_locations")`.
 
 ## Plan (step-by-step)
-1) Fix response/shape mismatches between frontend and backend for image tools.
-2) Enhance/Upscale: return and apply new asset URLs; collect/display before+after metadata; add compare modal + loading/error states.
-3) Mystery Imagine: move AI generation into a dedicated modal/lightbox; show the waving hero image; render results reliably with explicit state machine + retry.
-4) Large sheet navigation: add pan/drag (and/or jump controls) in `SheetCanvas` without breaking zoom/mirror; ensure mouse + trackpad behavior.
-5) Validate end-to-end with manual flows on small and large sheets; verify metadata changes are measurable.
+1) In `backend/routes/user-products.ts`, add a small local helper or constants matching the admin AI route:
+   - Valid values: `front_image`, `back_image`, `pocket`.
+   - Accept only an array from `req.body.print_locations`.
+   - Whitelist and dedupe strings.
+   - After `normalized.category_slug` is known, if category is `shirts` and the filtered list is empty, default to `['front_image']`.
+   - Include `print_locations` in the `products` insert.
+2) In `backend/routes/admin/user-product-approvals.ts`, apply the same whitelist/dedupe behavior to `req.body.print_locations`.
+   - Determine the final category that will be written: `metal-art`, `3d-prints`, existing category, or `shirts` fallback.
+   - If final category is `shirts`, set `updateData.print_locations` to the filtered request value, or existing `product.print_locations` if valid/nonempty, or `['front_image']`.
+   - If final category is not `shirts` and a valid request array was provided, allow updating it; otherwise leave it unchanged.
+3) In `backend/prisma/schema.prisma`, add `printLocations String[] @default([]) @map("print_locations")` inside `model Product`, near the other product array/config columns.
+4) Keep `src/types/index.ts`, `src/components/AdminCreateProductWizard.tsx`, and `backend/routes/admin/ai-products.ts` unchanged unless typecheck reveals a direct integration issue.
+5) Update `TASK_NOTES.md` with one concise milestone/work-log bullet after implementation.
 
 ## Acceptance criteria (checkboxes)
-- [ ] Upscale 2x produces an output that reports larger pixel dimensions than the input (and the canvas swaps to the new asset URL).
-- [ ] Enhance produces a new asset URL and the canvas swaps to it; users can see BEFORE/AFTER side-by-side with a draggable compare slider.
-- [ ] The UI shows progress states (queued/running/completed/error) and exposes output metadata (at least pixel dimensions; DPI if available/derivable).
-- [ ] Mystery Imagine modal always opens, always shows clear states, and reliably shows the generated image in the same modal when complete (with Retry).
-- [ ] The Mystery Imagine modal header uses `public/mr-imagine/mr-imagine-waving.png` and includes CTA + prompt guidance/examples.
-- [ ] Large sheet navigation: user can pan to top/bottom without changing zoom; works with mouse drag and trackpad gestures (and is mobile-friendly if applicable).
-- [ ] No regressions: existing zoom controls still work; mirror-for-sublimation still renders correctly.
+- [ ] Creator submissions through `backend/routes/user-products.ts` cannot insert a `shirts` product with empty/missing `print_locations`.
+- [ ] Admin approval through `backend/routes/admin/user-product-approvals.ts` cannot activate/finalize an apparel product as `shirts` with empty/missing `print_locations`.
+- [ ] Existing non-shirt behavior is preserved.
+- [ ] `backend/prisma/schema.prisma` maps `products.print_locations`.
+- [ ] Backend typecheck completes with exit code 0.
+- [ ] Root typecheck completes with exit code 0 if frontend/types are touched.
 
 ## Commands to run
-- Frontend install/dev: `npm install` then `npm run dev`
-- Frontend build/preview: `npm run build` then `npm run preview`
-- Frontend lint/tests: `npm run lint`, `npm test`, `npm run test:e2e`
-- Frontend verify scripts: `npm run verify` (or `npm run verify:home`, `npm run verify:products`, `npm run verify:auth`)
-- Backend install/dev: `cd backend` then `npm install` then `npm run dev`
-- Backend build/start: `cd backend` then `npm run build` then `npm start`
-
-## Edge cases / warning
-- Likely root cause for “success but no change”: `src/pages/ImaginationStation.tsx` checks `data.processedUrl` for remove-bg/upscale/enhance, but `backend/routes/imagination-station.ts` currently returns `imageUrl`/`url`/`output` (no `processedUrl`), so the layer never updates.
-- DPI in the Konva editor is derived from `layer.metadata.originalWidth/originalHeight` (see `src/utils/dpi-calculator.ts` usage in `src/components/imagination/SheetCanvas.tsx`); after swapping in a new asset, update metadata so DPI/quality can change measurably.
-- Likely root causes for “Mystery Imagine generated but nothing shows”: the generated layer is placed at a fixed position near the top (`position_x/position_y`), there is no panning (sheet is always centered), and the AI layer’s `width/height` units appear inconsistent with the upload path (AI uses `width / PIXELS_PER_INCH`, while uploads store pixel widths).
-- Replicate SDK outputs can be `string`, array, or FileOutput objects; confirm whether `.url()` is sync/async to avoid “sometimes blank” URLs.
-- `README.md` and `backend/README.md` contain some encoding/formatting artifacts; prefer `package.json` files for canonical scripts.
-- The repo includes `node_modules/`; avoid broad searches that traverse it unless necessary.
-- Network access is restricted in this environment; avoid adding new deps or running installs that require fetching unless explicitly approved.
-
-## Notes for Claude (STRICT RULES)
-- Scout first: search (`rg` preferred), then read the minimum files needed.
-- Do not expand the edit surface beyond the “Files to edit (STRICT)” list without explicit confirmation.
-- Keep changes focused on the 3 requested fixes; avoid opportunistic refactors.
-- Avoid large inline dumps in PR/notes; link to files/symbols instead.
+- Backend typecheck: `cd backend && npm run typecheck`
+- Root typecheck if frontend/shared types change: `npm run typecheck`

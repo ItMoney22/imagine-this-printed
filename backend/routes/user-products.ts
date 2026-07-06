@@ -163,6 +163,22 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
     const rawPrice = normalized.suggested_price_cents
     const priceDollars = rawPrice < 100 ? rawPrice : rawPrice / 100
 
+    // T-shirt multi-select print placements → products.print_locations. Keep only
+    // known values; shirts MUST carry >= 1 (DB CHECK products_print_locations_valid),
+    // so default to front print when a shirt comes in with none. Mirrors the admin
+    // AI-product path in backend/routes/admin/ai-products.ts.
+    const VALID_PRINT_LOCATIONS = ['front_image', 'back_image', 'pocket']
+    const requestedPrintLocations: string[] = Array.from(
+      new Set(
+        (Array.isArray((req.body as any).print_locations) ? (req.body as any).print_locations : [])
+          .filter((v: unknown): v is string => typeof v === 'string' && VALID_PRINT_LOCATIONS.includes(v))
+      )
+    )
+    const printLocations =
+      normalized.category_slug === 'shirts' && requestedPrintLocations.length === 0
+        ? ['front_image']
+        : requestedPrintLocations
+
     const { data: product, error: productError } = await supabase
       .from('products')
       .insert({
@@ -174,6 +190,7 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
         status: 'pending_approval', // User products need admin approval
         images: [],
         category: normalized.category_slug,
+        print_locations: printLocations,
         // Use proper columns for user-generated tracking (for royalties)
         is_user_generated: true,
         created_by_user_id: userId,
@@ -313,9 +330,9 @@ router.get('/:id/status', requireAuth, async (req: Request, res: Response): Prom
     if (jobs && jobs.length > 0) {
       for (let i = 0; i < jobs.length; i++) {
         const job = jobs[i]
-        if ((job.status === 'queued' || job.status === 'running') && job.replicate_id) {
+        if ((job.status === 'queued' || job.status === 'running') && job.prediction_id) {
           try {
-            const prediction = await getPrediction(job.replicate_id)
+            const prediction = await getPrediction(job.prediction_id)
 
             let newStatus = job.status
             let output = job.output
@@ -1086,13 +1103,13 @@ router.get('/creator-analytics', requireAuth, async (req: Request, res: Response
       // Query order_items for products created by this user
       const { data: orderItems } = await supabase
         .from('order_items')
-        .select('product_id, quantity, price')
+        .select('product_id, quantity, unit_price')
         .in('product_id', productIds)
 
       if (orderItems) {
         for (const item of orderItems) {
           totalSales += item.quantity
-          totalRevenue += item.price * item.quantity
+          totalRevenue += item.unit_price * item.quantity
           productSales[item.product_id] = (productSales[item.product_id] || 0) + item.quantity
         }
 

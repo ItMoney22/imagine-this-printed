@@ -79,7 +79,7 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
 router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
-    const { colors, sizes, price, name, finish, addons, colorMode } = req.body
+    const { colors, sizes, price, name, finish, addons, colorMode, print_locations } = req.body
     const adminId = req.user?.sub
 
     // Get product
@@ -172,6 +172,24 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       updateData.category = '3d-prints'
     } else if (!product.category) {
       updateData.category = 'shirts'
+    }
+
+    // products.print_locations CHECK (products_print_locations_valid) requires
+    // >= 1 placement for any row with category 'shirts'. A shirt reaching approval
+    // with an empty array — a legacy submission, or one whose category we just
+    // defaulted to 'shirts' above — would make this UPDATE fail at the DB. So when
+    // the product will be a shirt, guarantee a valid array: prefer admin-supplied
+    // print_locations, else the product's existing ones, else front print.
+    const finalCategory = updateData.category ?? product.category
+    if (finalCategory === 'shirts') {
+      const VALID_PRINT_LOCATIONS = ['front_image', 'back_image', 'pocket']
+      const requested = Array.from(new Set(
+        (Array.isArray(print_locations) ? print_locations : [])
+          .filter((v: unknown): v is string => typeof v === 'string' && VALID_PRINT_LOCATIONS.includes(v))
+      ))
+      const existing = (Array.isArray(product.print_locations) ? product.print_locations : [])
+        .filter((v: unknown): v is string => typeof v === 'string' && VALID_PRINT_LOCATIONS.includes(v))
+      updateData.print_locations = requested.length ? requested : (existing.length ? existing : ['front_image'])
     }
 
     // Admin can tweak the AI-generated title at approval time.

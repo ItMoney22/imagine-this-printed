@@ -14,10 +14,24 @@ import {
   Download,
   Upload,
   X,
+  TrendingUp,
+  Search,
+  AlertTriangle,
+  ShoppingBag,
+  ChevronDown,
 } from 'lucide-react'
 import { aiProducts, imageFlow } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
-import type { AIProductCreationRequest, AIProductCreationResponse, AIJob } from '../types'
+import type {
+  AIProductCreationRequest,
+  AIProductCreationResponse,
+  AIJob,
+  ProductTrendFamily,
+  ProductTrendIdea,
+  ProductTrendSource,
+  SimpleWordPhrase,
+  TshirtPrintLocation,
+} from '../types'
 import { supabase } from '../lib/supabase'
 
 // Wizard polling fires 3-8 trace lines every 2-3s while a generation is in
@@ -123,7 +137,108 @@ function PlacementGlyph({
   )
 }
 
+// T-shirt print placements a product can be offered with. Maps 1:1 to the
+// products.print_locations TEXT[] column (front_image | back_image | pocket).
+const PRINT_LOCATION_OPTIONS: { value: TshirtPrintLocation; label: string; hint: string }[] = [
+  { value: 'front_image', label: 'Front Image', hint: 'Design on the chest / full front' },
+  { value: 'back_image', label: 'Back Image', hint: 'Design on the back' },
+  { value: 'pocket', label: 'Pocket', hint: 'Small left-chest pocket print' },
+]
+
+// Multi-select dropdown for the print placements a T-shirt is offered with.
+// Pick one or more (front / back / pocket). At least one stays selected so the
+// products.print_locations CHECK constraint (>= 1 for shirts) always holds.
+function PrintLocationsDropdown({
+  selected,
+  onChange,
+}: {
+  selected: TshirtPrintLocation[]
+  onChange: (next: TshirtPrintLocation[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  const toggle = (value: TshirtPrintLocation) => {
+    const has = selected.includes(value)
+    // Keep at least one selected — shirts require >= 1 print location.
+    if (has && selected.length === 1) return
+    onChange(has ? selected.filter((v) => v !== value) : [...selected, value])
+  }
+
+  const summary =
+    selected.length === 0
+      ? 'Select print locations'
+      : PRINT_LOCATION_OPTIONS.filter((o) => selected.includes(o.value))
+          .map((o) => o.label)
+          .join(', ')
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between bg-bg/50 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-text cursor-pointer"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={selected.length ? 'text-text' : 'text-muted'}>{summary}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-multiselectable="true"
+          className="absolute z-20 mt-2 w-full bg-card border border-white/10 rounded-xl shadow-xl overflow-hidden"
+        >
+          {PRINT_LOCATION_OPTIONS.map((o) => {
+            const checked = selected.includes(o.value)
+            const lockLast = checked && selected.length === 1
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="option"
+                aria-selected={checked}
+                onClick={() => toggle(o.value)}
+                className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors ${
+                  lockLast ? 'cursor-default opacity-90' : 'cursor-pointer hover:bg-primary/10'
+                }`}
+              >
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                    checked ? 'bg-primary border-primary text-white' : 'border-white/20 text-transparent'
+                  }`}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+                <span className="flex flex-col">
+                  <span className="text-sm font-semibold text-text">{o.label}</span>
+                  <span className="text-xs text-muted">{o.hint}</span>
+                </span>
+              </button>
+            )
+          })}
+          <p className="px-4 py-2 text-[11px] text-muted border-t border-white/5">
+            Pick one or more — at least one stays selected.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'enhance-image' | 'success'
+type ProductCategoryOption = 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
 
 // Draft autosave — losing a half-finished generation (paid AI output) to a
 // refresh or crash was the top admin complaint. Versioned key so a future
@@ -139,7 +254,7 @@ interface WizardDraft {
   background: 'transparent' | 'studio'
   tone: 'professional' | 'playful' | 'minimal'
   imageStyle: 'realistic' | 'cartoon' | 'semi-realistic'
-  category: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+  category: ProductCategoryOption
   targetAudience: string
   primaryColors: string
   designStyle: string
@@ -149,6 +264,7 @@ interface WizardDraft {
   productType: 'tshirt' | 'hoodie' | 'tank'
   shirtColor: 'black' | 'white' | 'gray'
   printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printLocations: TshirtPrintLocation[]
   printStyle: 'clean' | 'halftone' | 'grunge'
   normalized: NormalizedProduct | null
   productId: string | null
@@ -192,6 +308,245 @@ interface NormalizedProduct {
   background: 'transparent' | 'studio'
 }
 
+const TREND_SOURCE_OPTIONS: Array<{ value: ProductTrendSource; label: string }> = [
+  { value: 'all', label: 'All sources' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'etsy', label: 'Etsy' },
+  { value: 'amazon', label: 'Amazon' },
+]
+
+const TREND_FAMILY_OPTIONS: Array<{ value: ProductTrendFamily; label: string }> = [
+  { value: 'all', label: 'All products' },
+  { value: 'apparel', label: 'Apparel' },
+  { value: 'dtf-transfers', label: 'DTF transfers' },
+  { value: 'tumblers', label: 'Tumblers' },
+  { value: 'stickers', label: 'Stickers' },
+  { value: 'metal-art', label: 'Metal art' },
+  { value: '3d-toys', label: '3D toys' },
+]
+
+const SIMPLE_WORD_STYLE_OPTIONS = [
+  { value: 'bold', label: 'Bold block' },
+  { value: 'retro', label: 'Retro varsity' },
+  { value: 'minimal', label: 'Minimal clean' },
+  { value: 'puff', label: 'Puff print' },
+  { value: 'distressed', label: 'Distressed vintage' },
+] as const
+
+type SimpleWordStyle = typeof SIMPLE_WORD_STYLE_OPTIONS[number]['value']
+type SimpleWordLayout = 'single' | 'stacked' | 'compact'
+
+const SIMPLE_WORD_STYLE_PROMPTS: Record<SimpleWordStyle, string> = {
+  bold: 'bold block lettering, heavy sans-serif, centered, high contrast, modern streetwear',
+  retro: 'retro varsity lettering, athletic serif, slightly arched layout, classic collegiate feel',
+  minimal: 'minimal clean typography, refined sans-serif, generous spacing, premium boutique feel',
+  puff: 'raised puff-print style lettering, rounded bold shapes, soft 3D ink effect, playful streetwear',
+  distressed: 'distressed vintage lettering, worn ink texture, old concert merch feel, bold readable type',
+}
+
+const SIMPLE_WORD_RENDER_STYLES: Record<SimpleWordStyle, {
+  fontFamily: string
+  fontWeight: number
+  letterSpacing: number
+  strokeWidth: number
+}> = {
+  bold: {
+    fontFamily: 'Impact, Arial Black, Arial, sans-serif',
+    fontWeight: 900,
+    letterSpacing: 0,
+    strokeWidth: 0,
+  },
+  retro: {
+    fontFamily: 'Georgia, Times New Roman, serif',
+    fontWeight: 900,
+    letterSpacing: 8,
+    strokeWidth: 18,
+  },
+  minimal: {
+    fontFamily: 'Inter, Arial, sans-serif',
+    fontWeight: 800,
+    letterSpacing: 14,
+    strokeWidth: 0,
+  },
+  puff: {
+    fontFamily: 'Arial Rounded MT Bold, Arial Black, Arial, sans-serif',
+    fontWeight: 900,
+    letterSpacing: 2,
+    strokeWidth: 12,
+  },
+  distressed: {
+    fontFamily: 'Impact, Arial Black, Arial, sans-serif',
+    fontWeight: 900,
+    letterSpacing: 3,
+    strokeWidth: 0,
+  },
+}
+
+const SIMPLE_WORD_INK_OPTIONS = [
+  { value: '#F9FAFB', label: 'White ink' },
+  { value: '#111827', label: 'Black ink' },
+  { value: '#F4E7C5', label: 'Cream ink' },
+  { value: '#FF4FA3', label: 'Hot pink' },
+  { value: '#31D0AA', label: 'Mint' },
+  { value: '#FACC15', label: 'Gold' },
+] as const
+
+const SIMPLE_WORD_ACCENT_OPTIONS = [
+  { value: 'none', label: 'No accent' },
+  { value: '#111827', label: 'Black outline' },
+  { value: '#F9FAFB', label: 'White outline' },
+  { value: '#FF4FA3', label: 'Pink shadow' },
+  { value: '#31D0AA', label: 'Mint shadow' },
+] as const
+
+const SIMPLE_WORD_LAYOUT_OPTIONS: Array<{ value: SimpleWordLayout; label: string }> = [
+  { value: 'single', label: 'One line' },
+  { value: 'stacked', label: 'Stacked' },
+  { value: 'compact', label: 'Compact' },
+]
+
+function trendSourceTone(source: ProductTrendIdea['source']): string {
+  switch (source) {
+    case 'TikTok':
+      return 'bg-black text-white border-white/20'
+    case 'Etsy':
+      return 'bg-orange-500/15 text-orange-200 border-orange-400/20'
+    case 'Amazon':
+      return 'bg-yellow-500/15 text-yellow-200 border-yellow-400/20'
+    default:
+      return 'bg-blue-500/15 text-blue-200 border-blue-400/20'
+  }
+}
+
+function saturationTone(saturation: ProductTrendIdea['saturation']): string {
+  if (saturation === 'low') return 'text-emerald-300'
+  if (saturation === 'high') return 'text-amber-300'
+  return 'text-blue-300'
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function encodeSvg(svg: string): string {
+  const bytes = new TextEncoder().encode(svg)
+  let binary = ''
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte) })
+  return window.btoa(binary)
+}
+
+function splitSimpleWords(phrase: string, layout: SimpleWordLayout): string[] {
+  const words = phrase.trim().replace(/\s+/g, ' ').toUpperCase().split(' ').filter(Boolean)
+  if (layout === 'single' || words.length <= 1) return [words.join(' ')]
+  if (layout === 'compact') {
+    const maxWordsPerLine = words.length <= 4 ? 2 : 3
+    const lines: string[] = []
+    for (let i = 0; i < words.length; i += maxWordsPerLine) {
+      lines.push(words.slice(i, i + maxWordsPerLine).join(' '))
+    }
+    return lines.slice(0, 4)
+  }
+
+  const lineCount = words.length <= 3 ? words.length : Math.min(3, Math.ceil(words.length / 2))
+  const lines = Array.from({ length: lineCount }, () => [] as string[])
+  words.forEach((word, index) => lines[index % lineCount].push(word))
+  return lines.map((line) => line.join(' ')).filter(Boolean)
+}
+
+function buildSimpleTextSvg(
+  phrase: string,
+  style: SimpleWordStyle,
+  inkColor: string,
+  accentColor: string,
+  layout: SimpleWordLayout,
+): string {
+  const lines = splitSimpleWords(phrase, layout)
+  const render = SIMPLE_WORD_RENDER_STYLES[style]
+  const longest = Math.max(...lines.map((line) => line.length), 4)
+  const lineCount = Math.max(lines.length, 1)
+  const maxSize = layout === 'single' ? 250 : lineCount === 2 ? 230 : 190
+  const estimatedCharWidth = style === 'minimal' ? 0.62 : style === 'retro' ? 0.58 : 0.48
+  const fitSize = Math.floor(1760 / Math.max(longest * estimatedCharWidth, 6))
+  const fontSize = Math.max(110, Math.min(maxSize, fitSize))
+  const lineHeight = Math.floor(fontSize * 1.08)
+  const totalHeight = lineHeight * lineCount
+  const startY = 1024 - totalHeight / 2 + lineHeight / 2
+  const accentIsOutline = accentColor !== 'none' && (style === 'retro' || style === 'puff' || accentColor === '#111827' || accentColor === '#F9FAFB')
+  const accentIsShadow = accentColor !== 'none' && !accentIsOutline
+
+  const textLines = lines.map((line, index) => {
+    const y = startY + index * lineHeight
+    const escapedLine = escapeXml(line)
+    const baseAttrs = [
+      'x="1024"',
+      `y="${y}"`,
+      'text-anchor="middle"',
+      'dominant-baseline="middle"',
+      `font-family="${escapeXml(render.fontFamily)}"`,
+      `font-weight="${render.fontWeight}"`,
+      `font-size="${fontSize}"`,
+      `letter-spacing="${render.letterSpacing}"`,
+    ].join(' ')
+
+    return [
+      accentIsShadow
+        ? `<text ${baseAttrs} fill="${escapeXml(accentColor)}" opacity="0.95" transform="translate(28 28)">${escapedLine}</text>`
+        : '',
+      accentIsOutline
+        ? `<text ${baseAttrs} fill="none" stroke="${escapeXml(accentColor)}" stroke-width="${render.strokeWidth || 18}" stroke-linejoin="round">${escapedLine}</text>`
+        : '',
+      `<text ${baseAttrs} fill="${escapeXml(inkColor)}">${escapedLine}</text>`,
+    ].join('')
+  }).join('')
+
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 2048 2048">',
+    '<rect width="2048" height="2048" fill="none"/>',
+    style === 'distressed'
+      ? '<filter id="rough"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="8"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter>'
+      : '',
+    `<g${style === 'distressed' ? ' filter="url(#rough)"' : ''}>`,
+    textLines,
+    '</g>',
+    '</svg>',
+  ].join('')
+}
+
+function buildSimpleTextSvgDataUrl(
+  phrase: string,
+  style: SimpleWordStyle,
+  inkColor: string,
+  accentColor: string,
+  layout: SimpleWordLayout,
+): string {
+  return `data:image/svg+xml;base64,${encodeSvg(buildSimpleTextSvg(phrase, style, inkColor, accentColor, layout))}`
+}
+
+function renderSimpleTextPngDataUrl(svgDataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 2048
+      canvas.height = 2048
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Could not render text design'))
+        return
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    image.onerror = () => reject(new Error('Could not preview text design'))
+    image.src = svgDataUrl
+  })
+}
+
 export default function AdminCreateProductWizard() {
   const navigate = useNavigate()
   const [currentStep, setCurrentStep] = useState<WizardStep>('describe')
@@ -206,7 +561,7 @@ export default function AdminCreateProductWizard() {
   const [background, setBackground] = useState<'transparent' | 'studio'>('studio')
   const [tone, setTone] = useState<'professional' | 'playful' | 'minimal'>('professional')
   const [imageStyle, setImageStyle] = useState<'realistic' | 'cartoon' | 'semi-realistic'>('semi-realistic')
-  const [category, setCategory] = useState<'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'>('shirts')
+  const [category, setCategory] = useState<ProductCategoryOption>('shirts')
   const [targetAudience, setTargetAudience] = useState('')
   const [primaryColors, setPrimaryColors] = useState('')
   const [designStyle, setDesignStyle] = useState('')
@@ -214,11 +569,33 @@ export default function AdminCreateProductWizard() {
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [useSearch, setUseSearch] = useState(false) // Default OFF - only enable for pop culture/trending topics
+  const [trendSource, setTrendSource] = useState<ProductTrendSource>('all')
+  const [trendFamily, setTrendFamily] = useState<ProductTrendFamily>('all')
+  const [trendSeed, setTrendSeed] = useState('')
+  const [trendIdeas, setTrendIdeas] = useState<ProductTrendIdea[]>([])
+  const [trendLoading, setTrendLoading] = useState(false)
+  const [trendError, setTrendError] = useState<string | null>(null)
+  const [selectedTrendId, setSelectedTrendId] = useState<string | null>(null)
+  const [trendNote, setTrendNote] = useState<string | null>(null)
+  const [simpleWords, setSimpleWords] = useState('')
+  const [simpleWordStyle, setSimpleWordStyle] = useState<SimpleWordStyle>('bold')
+  const [simpleWordLayout, setSimpleWordLayout] = useState<SimpleWordLayout>('stacked')
+  const [simpleWordInkColor, setSimpleWordInkColor] = useState('#F9FAFB')
+  const [simpleWordAccentColor, setSimpleWordAccentColor] = useState('none')
+  const [simpleTextMode, setSimpleTextMode] = useState(false)
+  const [phraseIdeas, setPhraseIdeas] = useState<SimpleWordPhrase[]>([])
+  const [phraseLoading, setPhraseLoading] = useState(false)
+  const [phraseError, setPhraseError] = useState<string | null>(null)
+  const [phraseNote, setPhraseNote] = useState<string | null>(null)
+  const [selectedPhraseId, setSelectedPhraseId] = useState<string | null>(null)
+  const [simpleWordsLoadedMessage, setSimpleWordsLoadedMessage] = useState<string | null>(null)
 
   // DTF Print Optimization Settings
   const [productType, setProductType] = useState<'tshirt' | 'hoodie' | 'tank'>('tshirt')
   const [shirtColor, setShirtColor] = useState<'black' | 'white' | 'gray'>('black')
   const [printPlacement, setPrintPlacement] = useState<'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'>('front-center')
+  // Multi-select print placements offered for T-shirts → products.print_locations.
+  const [printLocations, setPrintLocations] = useState<TshirtPrintLocation[]>(['front_image'])
   const [printStyle, setPrintStyle] = useState<'clean' | 'halftone' | 'grunge'>('clean')
 
   // Note: Generation, edits, and all 3 mockup variants run through openai/gpt-image-2 (Replicate)
@@ -389,7 +766,7 @@ export default function AdminCreateProductWizard() {
       currentStep, prompt, priceTarget, mockupStyle, background, tone, imageStyle,
       category, targetAudience, primaryColors, designStyle, numImages,
       uploadedImageUrl, useSearch, productType, shirtColor, printPlacement,
-      printStyle, normalized, productId, selectedImageId,
+      printLocations, printStyle, normalized, productId, selectedImageId,
     }
     try {
       window.localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(draft))
@@ -398,7 +775,7 @@ export default function AdminCreateProductWizard() {
     }
   }, [currentStep, prompt, priceTarget, mockupStyle, background, tone, imageStyle,
     category, targetAudience, primaryColors, designStyle, numImages, uploadedImageUrl,
-    useSearch, productType, shirtColor, printPlacement, printStyle, normalized,
+    useSearch, productType, shirtColor, printPlacement, printLocations, printStyle, normalized,
     productId, selectedImageId])
 
   const handleDiscardDraft = () => {
@@ -429,6 +806,7 @@ export default function AdminCreateProductWizard() {
     setProductType(d.productType)
     setShirtColor(d.shirtColor)
     setPrintPlacement(d.printPlacement)
+    setPrintLocations(d.printLocations?.length ? d.printLocations : ['front_image'])
     setPrintStyle(d.printStyle)
     setNormalized(d.normalized)
 
@@ -524,6 +902,104 @@ export default function AdminCreateProductWizard() {
   }
 
 
+  const handleFindTrends = async () => {
+    setTrendLoading(true)
+    setTrendError(null)
+    setTrendNote(null)
+
+    try {
+      const response = await aiProducts.trends({
+        source: trendSource,
+        family: trendFamily,
+        seed: trendSeed,
+        limit: 6,
+      })
+      setTrendIdeas(response.ideas)
+      setTrendNote(response.note)
+    } catch (err: any) {
+      setTrendError(err.message || 'Failed to find product trends')
+    } finally {
+      setTrendLoading(false)
+    }
+  }
+
+  const handleUseTrend = (idea: ProductTrendIdea) => {
+    setSelectedTrendId(idea.id)
+    setSelectedPhraseId(null)
+    setSimpleWordsLoadedMessage(null)
+    setSimpleTextMode(false)
+    setPrompt(idea.prompt)
+    setCategory(idea.category)
+    setTargetAudience(idea.targetAudience)
+    setPrimaryColors(idea.primaryColors)
+    setDesignStyle(idea.designStyle)
+    setPriceTarget(idea.priceTarget)
+    setImageStyle(idea.imageStyle)
+    setProductType(idea.productType)
+    setShirtColor(idea.shirtColor)
+    setPrintPlacement(idea.printPlacement)
+    setPrintStyle(idea.printStyle)
+    setUseSearch(true)
+    setShowAdvanced(true)
+    setError(null)
+  }
+
+  const loadSimpleWordsPhrase = (rawPhrase: string, phraseId?: string) => {
+    const phrase = rawPhrase.trim().replace(/\s+/g, ' ')
+    if (!phrase) {
+      setPhraseError('Enter or randomize the words you want on the front first.')
+      return
+    }
+
+    setSelectedTrendId(null)
+    setSelectedPhraseId(phraseId ?? null)
+    setSimpleTextMode(true)
+    setSimpleWords(phrase)
+    setPrompt(`Text-only front print: "${phrase}"`)
+    setCategory('shirts')
+    setTargetAudience('trend buyers, gift shoppers, casual streetwear customers')
+    setPrimaryColors('white ink with one accent color')
+    setDesignStyle(SIMPLE_WORD_STYLE_PROMPTS[simpleWordStyle])
+    setPriceTarget(25)
+    setImageStyle('semi-realistic')
+    setProductType('tshirt')
+    setShirtColor('black')
+    setPrintPlacement('front-center')
+    setPrintLocations(['front_image'])
+    setPrintStyle(simpleWordStyle === 'distressed' ? 'grunge' : 'clean')
+    setUseSearch(false)
+    setShowAdvanced(true)
+    setSimpleWordsLoadedMessage(`"${phrase}" is ready as a plain text design. Pick the font/colors, then click Create Text Product to make the transparent front-print asset and mockups.`)
+    setPhraseError(null)
+    setTrendError(null)
+    setError(null)
+  }
+
+  const handleUseSimpleWords = () => {
+    loadSimpleWordsPhrase(simpleWords)
+  }
+
+  const handleRandomPhrases = async () => {
+    setPhraseLoading(true)
+    setPhraseError(null)
+    setPhraseNote(null)
+    setSimpleWordsLoadedMessage(null)
+
+    try {
+      const response = await aiProducts.phrases({
+        source: trendSource,
+        seed: trendSeed,
+        limit: 10,
+      })
+      setPhraseIdeas(response.phrases)
+      setPhraseNote(response.note)
+    } catch (err: any) {
+      setPhraseError(err.message || 'Failed to generate phrase ideas')
+    } finally {
+      setPhraseLoading(false)
+    }
+  }
+
   const handleDescribe = async () => {
     if (!prompt.trim()) {
       setError('Please describe your product idea')
@@ -540,6 +1016,13 @@ export default function AdminCreateProductWizard() {
       if (primaryColors) enrichedPrompt += `\nPrimary Colors: ${primaryColors}`
       if (designStyle) enrichedPrompt += `\nDesign Style: ${designStyle}`
       enrichedPrompt += `\nProduct Category: ${category}`
+      const simplePhrase = simpleWords.trim().replace(/\s+/g, ' ')
+      const simpleTextSvgDataUrl = simpleTextMode && simplePhrase
+        ? buildSimpleTextSvgDataUrl(simplePhrase, simpleWordStyle, simpleWordInkColor, simpleWordAccentColor, simpleWordLayout)
+        : null
+      const simpleTextPngDataUrl = simpleTextSvgDataUrl
+        ? await renderSimpleTextPngDataUrl(simpleTextSvgDataUrl)
+        : undefined
 
       const request: AIProductCreationRequest = {
         prompt: enrichedPrompt,
@@ -555,8 +1038,21 @@ export default function AdminCreateProductWizard() {
         productType,
         shirtColor,
         printPlacement,
+        // T-shirt multi-select placements → products.print_locations (shirts only).
+        print_locations: category === 'shirts' ? printLocations : undefined,
         printStyle,
-        // Note: Backend routes generation through GPT Image 2 by default
+        skipImageGeneration: Boolean(simpleTextPngDataUrl),
+        sourceImageDataUrl: simpleTextPngDataUrl,
+        sourceImageMime: simpleTextPngDataUrl ? 'image/png' : undefined,
+        deterministicTextDesign: simpleTextPngDataUrl
+          ? {
+              phrase: simplePhrase,
+              style: simpleWordStyle,
+              layout: simpleWordLayout,
+              inkColor: simpleWordInkColor,
+              accentColor: simpleWordAccentColor,
+            }
+          : undefined,
       }
 
       const response: AIProductCreationResponse = await aiProducts.create(request)
@@ -575,6 +1071,16 @@ export default function AdminCreateProductWizard() {
   const handleReview = () => {
     setCurrentStep('generate')
   }
+
+  const simpleTextPreviewUrl = simpleTextMode && simpleWords.trim()
+    ? buildSimpleTextSvgDataUrl(
+        simpleWords.trim().replace(/\s+/g, ' '),
+        simpleWordStyle,
+        simpleWordInkColor,
+        simpleWordAccentColor,
+        simpleWordLayout,
+      )
+    : null
 
   const handleStartOver = () => {
     clearWizardDraft()
@@ -1036,12 +1542,355 @@ export default function AdminCreateProductWizard() {
           </div>
 
           <div className="space-y-8">
+            <section className="rounded-3xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-purple-500/10 p-6 shadow-xl backdrop-blur-sm">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-2 flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/30">
+                      <TrendingUp className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <h3 className="text-xl font-bold text-text">Trend Scout</h3>
+                      <p className="text-sm text-muted">Market-backed ideas for staff to turn into products.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-[150px_170px_220px_auto]">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Source</span>
+                    <select
+                      value={trendSource}
+                      onChange={(e) => setTrendSource(e.target.value as ProductTrendSource)}
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-sm text-text outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+                    >
+                      {TREND_SOURCE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Product</span>
+                    <select
+                      value={trendFamily}
+                      onChange={(e) => setTrendFamily(e.target.value as ProductTrendFamily)}
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-sm text-text outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+                    >
+                      {TREND_FAMILY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block sm:col-span-2 lg:col-span-1">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Optional focus</span>
+                    <input
+                      type="text"
+                      value={trendSeed}
+                      onChange={(e) => setTrendSeed(e.target.value)}
+                      placeholder="school, local pride, funny moms"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-sm text-text outline-none transition-all placeholder:text-muted/50 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleFindTrends}
+                    disabled={trendLoading}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {trendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    Find trends
+                  </button>
+                </div>
+              </div>
+
+              {trendError && (
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>{trendError}</span>
+                </div>
+              )}
+
+              {trendIdeas.length > 0 && (
+                <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {trendIdeas.map((idea) => (
+                    <article
+                      key={idea.id}
+                      className={`rounded-2xl border bg-bg/45 p-4 transition-all ${
+                        selectedTrendId === idea.id
+                          ? 'border-emerald-400/60 shadow-[0_0_0_1px_rgba(52,211,153,0.25),0_16px_40px_-24px_rgba(52,211,153,0.8)]'
+                          : 'border-white/10 hover:border-white/25'
+                      }`}
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${trendSourceTone(idea.source)}`}>
+                              {idea.source}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted">
+                              {idea.productFamily}
+                            </span>
+                            <span className={`text-[11px] font-bold ${saturationTone(idea.saturation)}`}>
+                              {idea.saturation} saturation
+                            </span>
+                          </div>
+                          <h4 className="text-base font-bold text-text">{idea.title}</h4>
+                        </div>
+                        <ShoppingBag className="h-5 w-5 flex-shrink-0 text-emerald-300" />
+                      </div>
+
+                      <p className="mb-3 text-sm leading-relaxed text-muted">{idea.whyItMaySell}</p>
+
+                      <div className="mb-4 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2">
+                          <p className="font-semibold text-text">Execute as</p>
+                          <p className="text-muted">{idea.category} - ${idea.priceTarget.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2">
+                          <p className="font-semibold text-text">Style</p>
+                          <p className="text-muted">{idea.designStyle || idea.imageStyle}</p>
+                        </div>
+                      </div>
+
+                      {idea.evidence.length > 0 && (
+                        <div className="mb-3">
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Signals</p>
+                          <ul className="space-y-1 text-xs text-muted">
+                            {idea.evidence.slice(0, 2).map((item, index) => (
+                              <li key={`${idea.id}-evidence-${index}`} className="line-clamp-2">- {item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {idea.riskFlags.length > 0 && (
+                        <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{idea.riskFlags.slice(0, 2).join(' - ')}</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleUseTrend(idea)}
+                        className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold text-text transition-all hover:bg-emerald-500 hover:text-white"
+                      >
+                        {selectedTrendId === idea.id ? 'Idea loaded' : 'Use this idea'}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              {trendNote && (
+                <p className="mt-4 text-xs text-muted">{trendNote}</p>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-sm">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-text">Simple words front print</h3>
+                  <p className="text-sm text-muted">
+                    Fast lane for text-only shirt trends. Pick or type words, choose the font and ink, then create mockups from the exact text.
+                  </p>
+                </div>
+                {simpleTextMode && (
+                  <span className="rounded-full border border-emerald-400 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-950 shadow-sm dark:border-emerald-400/25 dark:bg-emerald-500/10 dark:text-emerald-100">
+                    Plain text renderer
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Words</span>
+                  <input
+                    type="text"
+                    value={simpleWords}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setSimpleWords(value)
+                      if (simpleTextMode) setPrompt(`Text-only front print: "${value.trim().replace(/\s+/g, ' ')}"`)
+                    }}
+                    placeholder="GOOD THINGS TAKE TIME"
+                    className="w-full rounded-xl border border-white/10 bg-bg/60 px-4 py-4 text-base font-semibold text-text outline-none transition-all placeholder:text-muted/50 focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                  />
+                </label>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[170px_150px_150px_150px_auto]">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Look</span>
+                    <select
+                      value={simpleWordStyle}
+                      onChange={(e) => {
+                        const value = e.target.value as SimpleWordStyle
+                        setSimpleWordStyle(value)
+                        setDesignStyle(SIMPLE_WORD_STYLE_PROMPTS[value])
+                        setPrintStyle(value === 'distressed' ? 'grunge' : 'clean')
+                      }}
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                    >
+                      {SIMPLE_WORD_STYLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Layout</span>
+                    <select
+                      value={simpleWordLayout}
+                      onChange={(e) => setSimpleWordLayout(e.target.value as SimpleWordLayout)}
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                    >
+                      {SIMPLE_WORD_LAYOUT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Ink</span>
+                    <select
+                      value={simpleWordInkColor}
+                      onChange={(e) => setSimpleWordInkColor(e.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                    >
+                      {SIMPLE_WORD_INK_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">Accent</span>
+                    <select
+                      value={simpleWordAccentColor}
+                      onChange={(e) => setSimpleWordAccentColor(e.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                    >
+                      {SIMPLE_WORD_ACCENT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleUseSimpleWords}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-purple-500/20 transition-all hover:bg-purple-500 xl:self-end"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    Use these words
+                  </button>
+                </div>
+              </div>
+
+              {simpleWordsLoadedMessage && (
+                <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-950 dark:border-emerald-400/25 dark:bg-emerald-500/10 dark:text-emerald-100">
+                  {simpleWordsLoadedMessage}
+                </div>
+              )}
+
+              {simpleTextPreviewUrl && (
+                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr] lg:items-center">
+                  <div
+                    className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl border border-white/10 p-4 shadow-inner"
+                    style={{
+                      backgroundColor: '#f8fafc',
+                      backgroundImage: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+                      backgroundSize: '24px 24px',
+                      backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px',
+                    }}
+                  >
+                    <img src={simpleTextPreviewUrl} alt="Text design preview" className="h-[118%] w-[118%] max-w-none object-contain" />
+                  </div>
+                  <div className="rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-medium leading-relaxed text-emerald-950 dark:border-emerald-400/25 dark:bg-emerald-500/10 dark:text-emerald-100">
+                    This preview is the source artwork. The app saves it as a transparent PNG first, then uses that exact file for mockups. No AI image model rewrites the letters.
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted">
+                  No phrase yet? Generate a batch of short, generic phrases from current marketplace signals.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRandomPhrases}
+                  disabled={phraseLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-4 py-2.5 text-sm font-bold text-text transition-all hover:border-purple-400/40 hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {phraseLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 text-purple-200" />}
+                  Random phrases
+                </button>
+              </div>
+
+              {phraseError && (
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>{phraseError}</span>
+                </div>
+              )}
+
+              {phraseIdeas.length > 0 && (
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {phraseIdeas.map((idea) => (
+                    <article
+                      key={idea.id}
+                      className={`rounded-2xl border bg-bg/45 p-4 transition-all ${
+                        selectedPhraseId === idea.id
+                          ? 'border-purple-400/60 shadow-[0_0_0_1px_rgba(192,132,252,0.25)]'
+                          : 'border-white/10 hover:border-white/25'
+                      }`}
+                    >
+                      <p className="mb-2 text-lg font-black uppercase tracking-wide text-text">{idea.phrase}</p>
+                      <p className="mb-3 text-xs leading-relaxed text-muted">{idea.whyItMaySell}</p>
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted">
+                          {idea.audience}
+                        </span>
+                        <span className="rounded-full border border-purple-400/20 bg-purple-500/10 px-2 py-0.5 text-[11px] font-semibold text-purple-200">
+                          {idea.vibe}
+                        </span>
+                      </div>
+                      {idea.riskFlags.length > 0 && (
+                        <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{idea.riskFlags.slice(0, 2).join(' - ')}</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => loadSimpleWordsPhrase(idea.phrase, idea.id)}
+                        className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold text-text transition-all hover:bg-purple-600 hover:text-white"
+                      >
+                        {selectedPhraseId === idea.id ? 'Loaded in form' : 'Fill form with phrase'}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              {phraseNote && (
+                <p className="mt-4 text-xs text-muted">{phraseNote}</p>
+              )}
+
+              <p className="mt-3 text-xs text-muted">
+                Best for simple word shirts where spelling and readable typography matter more than AI illustration.
+              </p>
+            </section>
+
             <div>
               <label className="block text-sm font-semibold text-text mb-3 flex items-center">
                 <svg className="w-5 h-5 mr-2 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
-                Product Description *
+                {simpleTextMode ? 'Product Idea *' : 'Product Description *'}
               </label>
               <textarea
                 value={prompt}
@@ -1051,7 +1900,9 @@ export default function AdminCreateProductWizard() {
                 placeholder="Example: A t-shirt with a futuristic cyberpunk cityscape, neon lights reflecting off rain-soaked streets, featuring a lone figure in a hoodie..."
               />
               <p className="text-xs text-muted mt-2 ml-1">
-                Be as detailed as you want. Mention style, colors, themes, target audience, etc.
+                {simpleTextMode
+                  ? 'This stays clean for staff review. The text design comes from the preview above, not an AI image prompt.'
+                  : 'Be as detailed as you want. Mention style, colors, themes, target audience, etc.'}
               </p>
               <div className="mt-4 flex flex-col gap-4">
                 <div className="flex items-center gap-4">
@@ -1503,6 +2354,19 @@ export default function AdminCreateProductWizard() {
                 </div>
               </div>
 
+              {/* Print Locations (T-shirt multi-select) — persisted to products.print_locations */}
+              {category === 'shirts' && (
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-text mb-2">
+                    Print Locations
+                  </label>
+                  <PrintLocationsDropdown selected={printLocations} onChange={setPrintLocations} />
+                  <p className="text-xs text-muted mt-2">
+                    Which placements this T-shirt is offered with. Pick multiples — front image, back image, and/or pocket.
+                  </p>
+                </div>
+              )}
+
               {/* Print Style */}
               <div>
                 <label className="block text-sm font-semibold text-text mb-2">
@@ -1568,7 +2432,7 @@ export default function AdminCreateProductWizard() {
                     </>
                   ) : (
                     <>
-                      <span>Create Product</span>
+                      <span>{simpleTextMode ? 'Create Text Product' : 'Create Product'}</span>
                       <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                       </svg>

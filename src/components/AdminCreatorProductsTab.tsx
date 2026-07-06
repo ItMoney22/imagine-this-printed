@@ -326,7 +326,7 @@ export const AdminCreatorProductsTab: React.FC = () => {
                     <div>
                       <span className="text-muted">Creator Royalty:</span>
                       <span className="ml-2 font-medium text-green-600">
-                        {product.metadata?.creator_royalty_percent || 10}%
+                        {product.metadata?.creator_royalty_percent || 15}%
                       </span>
                     </div>
                     <div>

@@ -169,6 +169,9 @@ export default function ToyAR() {
         if (!res.ok) { setStatus('404'); return }
         const json = await res.json() as ArData
         if (!json.ok) { setStatus('404'); return }
+        // glb_url can be null if AR/NFC was enabled before the 3D mesh finished —
+        // show the friendly 404 instead of pointing the viewer at an empty src.
+        if (!json.glb_url) { setStatus('404'); return }
         setData(json)
         setStatus('ready')
       })

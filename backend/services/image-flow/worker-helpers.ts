@@ -239,24 +239,43 @@ function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: string; neg
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
 
+  // The background MUST contrast with the garment. A white garment on a white
+  // background is the classic image-model failure: with no contrast to anchor
+  // the subject, Imagen darkens the garment to gray/black so it stays visible —
+  // which is exactly why white-shirt flat-lay/ghost mockups came back black
+  // while the static-asset Mr. Imagine slot stayed white. So light garments get
+  // a soft neutral-gray studio backdrop; dark/mid garments keep clean white.
+  const isWhiteGarment = opts.shirtColor === 'white'
+  const bgDesc = isWhiteGarment
+    ? 'a soft neutral light-gray seamless studio background (#d6d8dc)'
+    : 'a pure white (#FFFFFF) seamless background'
+  // Positive insurance that a light garment is rendered light, plus matching
+  // negatives so the model can't fall back to a dark garment for contrast.
+  const lightAssertion = isWhiteGarment
+    ? ` The ${productName} fabric is genuinely bright white (#FFFFFF) cotton — render it as a clearly white, well-lit garment that stands out against the gray backdrop; never darken, shade, or tint it gray or black.`
+    : ''
+  const darkGarmentNeg = isWhiteGarment
+    ? ', black garment, dark garment, gray garment, charcoal shirt, navy shirt, underexposed garment, dim garment'
+    : ''
+
   // Negative variants name the specific failure mode (a purple furry character
   // / "Mr. Imagine") because Imagen treats explicit named exclusions much more
   // strictly than abstract ones when they're in the negative_prompt field.
   // (In the positive prompt the same names act as priming, which is why we
   // moved them out.)
-  const noWearerNeg = `real human, person, face, head, hands, arms, legs, skin, model, wearer, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric`
+  const noWearerNeg = `real human, person, face, head, hands, arms, legs, skin, model, wearer, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric${darkGarmentNeg}`
 
-  const noWearerOrFormNeg = `human, body, head, face, hands, arms, legs, skin, model, wearer, mannequin shape, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric, multiple garments`
+  const noWearerOrFormNeg = `human, body, head, face, hands, arms, legs, skin, model, wearer, mannequin shape, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric, multiple garments${darkGarmentNeg}`
 
   if (opts.template === 'ghost_mannequin') {
     return {
-      prompt: `Professional ghost-mannequin / invisible-mannequin product photograph of a single plain ${fabricColor} ${productName} on a pure white (#FFFFFF) seamless background. The garment holds its 3D shape — shoulders filled, chest rounded, natural torso taper, slight sleeve volume, hollow collar showing the inside fabric — as if a person had been completely removed from the photo. Standard Amazon / Shopify listing photography. Soft grounding shadow, clean even studio e-commerce lighting. Just the empty hollow garment, centered, e-commerce catalog quality.`,
+      prompt: `Professional ghost-mannequin / invisible-mannequin product photograph of a single plain ${fabricColor} ${productName} on ${bgDesc}. The garment holds its 3D shape — shoulders filled, chest rounded, natural torso taper, slight sleeve volume, hollow collar showing the inside fabric — as if a person had been completely removed from the photo. Standard Amazon / Shopify listing photography. Soft grounding shadow, clean even studio e-commerce lighting.${lightAssertion} Just the empty hollow garment, centered, e-commerce catalog quality.`,
       negativePrompt: noWearerNeg,
     }
   }
   // flat_lay
   return {
-    prompt: `Professional flat-lay catalog photograph of a single plain ${fabricColor} ${productName}, laid flat by itself on a clean white surface. Camera shoots straight down — top-down overhead view. Fabric lies flat with slight natural texture and minor wrinkles, soft even studio lighting, subtle grounding shadow. Clean minimal white background. E-commerce / Amazon listing quality. Just the empty garment laid flat, nothing else in the frame.`,
+    prompt: `Professional flat-lay catalog photograph of a single plain ${fabricColor} ${productName}, laid flat by itself on ${bgDesc}. Camera shoots straight down — top-down overhead view. Fabric lies flat with slight natural texture and minor wrinkles, soft even studio lighting, subtle grounding shadow.${lightAssertion} Just the empty garment laid flat, nothing else in the frame.`,
     negativePrompt: noWearerOrFormNeg,
   }
 }

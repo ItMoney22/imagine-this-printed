@@ -1,6 +1,13 @@
 // src/lib/api.ts
 import { supabase } from "../lib/supabase";
-import type { AIProductCreationRequest, AIProductCreationResponse } from '../types'
+import type {
+  AIProductCreationRequest,
+  AIProductCreationResponse,
+  ProductTrendFamily,
+  ProductTrendResponse,
+  ProductTrendSource,
+  SimpleWordPhraseResponse,
+} from '../types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : '')
 
@@ -128,6 +135,57 @@ export default api
 
 // AI Product Builder endpoints
 export const aiProducts = {
+  phrases: async (request: {
+    source?: ProductTrendSource
+    seed?: string
+    limit?: number
+  }): Promise<SimpleWordPhraseResponse> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/products/ai/trends/phrases`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(request),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  trends: async (request: {
+    source?: ProductTrendSource
+    family?: ProductTrendFamily
+    seed?: string
+    limit?: number
+  }): Promise<ProductTrendResponse> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/products/ai/trends`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(request),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
   create: async (request: AIProductCreationRequest): Promise<AIProductCreationResponse> => {
     const { data } = await supabase.auth.getSession()
     const token = data.session?.access_token

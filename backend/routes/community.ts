@@ -239,7 +239,7 @@ router.get('/leaderboard', async (req: Request, res: Response): Promise<any> => 
         .from('products')
         .select('created_by_user_id')
         .eq('is_user_generated', true)
-        .eq('approved', true)
+        .eq('status', 'active')
 
       if (productsError || !products || products.length === 0) {
         return res.json({ ok: true, leaderboard: [] })

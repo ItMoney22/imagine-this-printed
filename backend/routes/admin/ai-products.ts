@@ -10,6 +10,7 @@ import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, 
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
 import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
+import { suggestProductTrends, suggestSimpleWordPhrases, type TrendFamily, type TrendSource } from '../../services/product-trends.js'
 
 const replicateClient = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
 
@@ -30,6 +31,25 @@ function rateLimitAI(maxPerMinute: number) {
     aiRateBuckets.set(key, hits)
     next()
   }
+}
+
+function parseSourceImageDataUrl(dataUrl: unknown): { buffer: Buffer; contentType: string; extension: string } | null {
+  if (typeof dataUrl !== 'string' || !dataUrl.trim()) return null
+
+  const matches = dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/)
+  if (!matches) {
+    throw new Error('Source image must be a base64 PNG, JPG, or WEBP data URL')
+  }
+
+  const contentType = matches[1]
+  const buffer = Buffer.from(matches[2], 'base64')
+  const maxBytes = 12 * 1024 * 1024
+  if (buffer.length > maxBytes) {
+    throw new Error('Source image is too large; max is 12MB')
+  }
+
+  const extension = contentType === 'image/jpeg' ? 'jpg' : contentType.replace('image/', '')
+  return { buffer, contentType, extension }
 }
 
 /**
@@ -111,6 +131,7 @@ async function processImageJobInline(job: any): Promise<void> {
     await updateProgress('🧠 Tailoring your prompt per model, then generating with the 4 best-fit models in parallel...', 1, 3)
     const results = await runImageFlowMultiGenerate({
       prompt: promptInput,
+      modelIds: job.input?.forceSingleModel && job.input?.modelId ? [job.input.modelId] : undefined,
       category: product?.category ?? job.input?.category,
       shirtColor: job.input?.shirtColor,
       printStyle: job.input?.printStyle,
@@ -202,6 +223,57 @@ router.get('/models', requireAuth, async (req: Request, res: Response): Promise<
   })
 })
 
+// POST /api/admin/products/ai/trends - Find market-backed product ideas
+router.post('/trends', requireAuth, requireAdmin, rateLimitAI(12), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { source = 'all', family = 'all', seed = '', limit = 6 } = req.body || {}
+    const allowedSources = new Set(['all', 'tiktok', 'etsy', 'amazon'])
+    const allowedFamilies = new Set(['all', 'apparel', 'tumblers', 'dtf-transfers', 'stickers', 'metal-art', '3d-toys'])
+
+    if (!allowedSources.has(source)) {
+      return res.status(400).json({ error: 'Invalid trend source' })
+    }
+    if (!allowedFamilies.has(family)) {
+      return res.status(400).json({ error: 'Invalid product family' })
+    }
+
+    req.log?.info({ source, family, hasSeed: Boolean(String(seed).trim()) }, '[ai-products/trends] Searching product trends')
+    const result = await suggestProductTrends({
+      source: source as TrendSource,
+      family: family as TrendFamily,
+      seed: typeof seed === 'string' ? seed : '',
+      limit: Number(limit) || 6,
+    })
+    res.json(result)
+  } catch (error: any) {
+    req.log?.error({ error }, '[ai-products/trends] Error')
+    res.status(500).json({ error: error.message || 'Failed to find product trends' })
+  }
+})
+
+// POST /api/admin/products/ai/trends/phrases - Generate short text-only shirt phrases
+router.post('/trends/phrases', requireAuth, requireAdmin, rateLimitAI(12), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { source = 'all', seed = '', limit = 10 } = req.body || {}
+    const allowedSources = new Set(['all', 'tiktok', 'etsy', 'amazon'])
+
+    if (!allowedSources.has(source)) {
+      return res.status(400).json({ error: 'Invalid trend source' })
+    }
+
+    req.log?.info({ source, hasSeed: Boolean(String(seed).trim()) }, '[ai-products/trends/phrases] Generating phrase ideas')
+    const result = await suggestSimpleWordPhrases({
+      source: source as TrendSource,
+      seed: typeof seed === 'string' ? seed : '',
+      limit: Number(limit) || 10,
+    })
+    res.json(result)
+  } catch (error: any) {
+    req.log?.error({ error }, '[ai-products/trends/phrases] Error')
+    res.status(500).json({ error: error.message || 'Failed to generate phrase ideas' })
+  }
+})
+
 // Middleware to verify admin/manager role
 async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
@@ -240,12 +312,28 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       printPlacement = 'front-center',
       printStyle = 'clean',
       // Model Selection - defaults to GPT Image 2 (image-flow)
-      modelId = 'openai/gpt-image-2'
+      modelId = 'openai/gpt-image-2',
+      forceSingleModel = false,
+      imagePromptOverride,
+      skipImageGeneration = false,
+      sourceImageDataUrl,
+      deterministicTextDesign
     } = req.body
 
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required' })
     }
+
+    // T-shirt multi-select print placements → products.print_locations.
+    // Keep only known values; the final shirts-need->=1 guard is applied below,
+    // once the resolved category is known (matches the DB CHECK constraint).
+    const VALID_PRINT_LOCATIONS = ['front_image', 'back_image', 'pocket']
+    const requestedPrintLocations: string[] = Array.from(
+      new Set(
+        (Array.isArray(req.body.print_locations) ? req.body.print_locations : [])
+          .filter((v: unknown): v is string => typeof v === 'string' && VALID_PRINT_LOCATIONS.includes(v))
+      )
+    )
 
     req.log?.info({ prompt, useSearch }, '[ai-products] 🚀 Creating product from prompt')
 
@@ -280,6 +368,10 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       printPlacement,
     })
 
+    if (typeof imagePromptOverride === 'string' && imagePromptOverride.trim()) {
+      normalized.image_prompt = imagePromptOverride.trim()
+    }
+
     // Step 2: Upsert category
     const { data: category, error: catError } = await supabase
       .from('product_categories')
@@ -307,6 +399,14 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     const existingSlugs = existingProducts?.map((p: any) => p.slug).filter(Boolean) || []
     const uniqueSlug = generateUniqueSlug(baseSlug, existingSlugs)
 
+    // Resolve print_locations against the final category. The DB CHECK requires
+    // >= 1 placement for 'shirts'; front print is the universal default so an
+    // empty selection never breaks a shirt insert.
+    const printLocations =
+      normalized.category_slug === 'shirts' && requestedPrintLocations.length === 0
+        ? ['front_image']
+        : requestedPrintLocations
+
     // Step 4: Create product (draft) with AI metadata
     const { data: product, error: productError} = await supabase
       .from('products')
@@ -322,6 +422,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
         status: 'draft',
         images: [],
         category: normalized.category_slug,
+        print_locations: printLocations,
         metadata: {
           ai_generated: true,
           original_prompt: prompt,
@@ -373,6 +474,80 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
         })))
     }
 
+    const sourceImage = parseSourceImageDataUrl(sourceImageDataUrl)
+    if (sourceImage) {
+      const filename = `${uniqueSlug}-text-design-${Date.now()}.${sourceImage.extension}`
+      const gcsPath = `graphics/${uniqueSlug}/original/${filename}`
+      const { publicUrl, path: storagePath } = await uploadImageFromBuffer(sourceImage.buffer, gcsPath, sourceImage.contentType)
+
+      const { error: assetError } = await supabase.from('product_assets').insert({
+        product_id: product.id,
+        kind: 'source',
+        path: storagePath,
+        url: publicUrl,
+        width: 2048,
+        height: 2048,
+        asset_role: 'design',
+        is_primary: false,
+        display_order: 1,
+        metadata: {
+          deterministic_text_design: true,
+          original_prompt: prompt,
+          text_design: deterministicTextDesign ?? null,
+          generated_at: new Date().toISOString(),
+        },
+      })
+
+      if (assetError) {
+        req.log?.error({ error: assetError }, '[ai-products] âŒ Text source asset error')
+        return res.status(500).json({ error: 'Failed to save text design asset', details: assetError.message })
+      }
+
+      const { data: createdJobs, error: jobsError } = await supabase
+        .from('ai_jobs')
+        .insert([{
+          product_id: product.id,
+          type: 'replicate_image_v2',
+          status: 'succeeded',
+          input: {
+            prompt: normalized.image_prompt,
+            width: 2048,
+            height: 2048,
+            background: 'transparent',
+            productType,
+            shirtColor,
+            printPlacement,
+            printStyle,
+            imageStyle,
+            deterministicTextDesign: true,
+            multiModel: false,
+          },
+          output: {
+            message: 'Plain text design ready',
+            deterministicTextDesign: true,
+          },
+        }])
+        .select()
+
+      if (jobsError) {
+        req.log?.error({ error: jobsError }, '[ai-products] âŒ Text design job error')
+      }
+
+      req.log?.info({ count: createdJobs?.length }, '[ai-products] âœ… Text design source created')
+      return res.json({
+        productId: product.id,
+        product: {
+          ...product,
+          normalized,
+        },
+        jobs: createdJobs,
+      })
+    }
+
+    if (skipImageGeneration) {
+      return res.status(400).json({ error: 'A source image is required when image generation is skipped' })
+    }
+
     // Step 7: Create source image job.
     // Admin builder uses multi-model fan-out — 4 models in parallel, user picks the best.
     // type: 'replicate_image_v2' so the production worker (running old compiled code that
@@ -397,6 +572,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           printStyle,
           imageStyle,
           modelId,
+          forceSingleModel: Boolean(forceSingleModel),
           multiModel: true, // fan out to ADMIN_MULTI_MODEL_IDS
         },
       },
@@ -1070,10 +1246,10 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       console.log('[ai-products] 🗑️ Deleted', deletedMockups.length, 'existing mockup assets before regenerating')
     }
 
-    // Get product to get category slug
+    // Get product to get category slug + the DTF settings saved at creation time.
     const { data: product } = await supabase
       .from('products')
-      .select('category')
+      .select('category, metadata')
       .eq('id', id)
       .single()
 
@@ -1106,23 +1282,43 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       if (designAsset) void createWatermarkedDesignAsset(id, designAsset)
     }
 
-    // Get image job for DTF settings
+    // Get image job for DTF settings. The admin builder creates these as
+    // 'replicate_image_v2' (only the legacy worker used plain 'replicate_image'),
+    // so we must match BOTH — otherwise the lookup returns null and every DTF
+    // setting silently falls back to its default. That stale single-type filter
+    // is exactly why a "white shirt" pick was getting mocked up on black.
     const { data: imageJob } = await supabase
       .from('ai_jobs')
       .select('input')
       .eq('product_id', id)
-      .eq('type', 'replicate_image')
-      .single()
+      .in('type', ['replicate_image', 'replicate_image_v2'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    // Product metadata is the authoritative source for DTF settings — every
+    // create path (multi-model, deterministic text design, one-shot, bulk)
+    // writes shirt_color / product_type / print_placement onto products.metadata.
+    // The image job input is a secondary fallback for older rows; hard defaults last.
+    const meta = (product.metadata as any) || {}
+    const resolvedProductType = meta.product_type || imageJob?.input?.productType || 'tshirt'
+    const resolvedShirtColor = meta.shirt_color || imageJob?.input?.shirtColor || 'black'
+    const resolvedPrintPlacement = meta.print_placement || imageJob?.input?.printPlacement || 'front-center'
 
     const baseInput = {
       product_type: product.category || 'shirts',
-      productType: imageJob?.input?.productType || 'tshirt',
-      shirtColor: imageJob?.input?.shirtColor || 'black',
-      printPlacement: imageJob?.input?.printPlacement || 'front-center',
+      productType: resolvedProductType,
+      shirtColor: resolvedShirtColor,
+      printPlacement: resolvedPrintPlacement,
       selected_asset_id: selectedAssetId, // Pass selected asset to worker
     }
 
-    console.log('[ai-products] 🎯 Using selected asset for mockups:', selectedAssetId || 'none (will use fallback)')
+    console.log('[ai-products] 🎯 Mockup DTF settings:', {
+      shirtColor: resolvedShirtColor,
+      productType: resolvedProductType,
+      printPlacement: resolvedPrintPlacement,
+      selectedAssetId: selectedAssetId || 'none (will use fallback)',
+    })
 
     // Create mockup jobs: flat_lay + ghost_mannequin (for garments) + mr_imagine
     const jobs: any[] = [
@@ -1139,7 +1335,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
 
     // Add ghost mannequin job only for supported garment types
     const productCategory = product.category || 'shirts'
-    const productType = imageJob?.input?.productType || 'tshirt'
+    const productType = resolvedProductType
     if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       jobs.push({
@@ -1418,20 +1614,43 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       console.log('[ai-products] 🗑️ Deleted', deletedMockupsSelect.length, 'existing mockup assets before regenerating')
     }
 
-    // Get the image generation job to extract DTF settings
+    // Get the image generation job to extract DTF settings. The admin builder
+    // creates these as 'replicate_image_v2' (only the legacy worker used plain
+    // 'replicate_image'), so match BOTH — a stale single-type filter returns
+    // null and every DTF setting silently defaults (shirtColor → 'black'). This
+    // endpoint (/select-image) is the one the wizard actually calls to spawn
+    // mockups, so the white-shirt-rendered-black bug lived here.
     const { data: imageJob } = await supabase
       .from('ai_jobs')
       .select('input')
       .eq('product_id', id)
-      .eq('type', 'replicate_image')
-      .single()
+      .in('type', ['replicate_image', 'replicate_image_v2'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    // Get product category
+    // Get product category + the DTF settings saved at creation time.
     const { data: product } = await supabase
       .from('products')
-      .select('category')
+      .select('category, metadata')
       .eq('id', id)
       .single()
+
+    // Product metadata is the authoritative source for DTF settings — every
+    // create path writes shirt_color / product_type / print_placement onto
+    // products.metadata. Image job input is a secondary fallback; defaults last.
+    const meta = (product?.metadata as any) || {}
+    const resolvedProductType = meta.product_type || imageJob?.input?.productType || 'tshirt'
+    const resolvedShirtColor = meta.shirt_color || imageJob?.input?.shirtColor || 'black'
+    const resolvedPrintPlacement = meta.print_placement || imageJob?.input?.printPlacement || 'front-center'
+
+    console.log('[ai-products] 🎯 select-image mockup DTF settings:', JSON.stringify({
+      shirtColor: resolvedShirtColor,
+      productType: resolvedProductType,
+      printPlacement: resolvedPrintPlacement,
+      meta_shirt_color: meta.shirt_color ?? null,
+      imageJob_shirtColor: imageJob?.input?.shirtColor ?? null,
+    }))
 
     // Create THREE mockup jobs:
     // 1. Flat lay mockup (shirt on surface)
@@ -1439,9 +1658,9 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
     // 3. Mr. Imagine mockup (mascot wearing shirt)
     const baseInput = {
       product_type: product?.category || 'shirts',
-      productType: imageJob?.input?.productType || 'tshirt',
-      shirtColor: imageJob?.input?.shirtColor || 'black',
-      printPlacement: imageJob?.input?.printPlacement || 'front-center',
+      productType: resolvedProductType,
+      shirtColor: resolvedShirtColor,
+      printPlacement: resolvedPrintPlacement,
       selected_asset_id: selectedAssetId,
     }
 
@@ -1459,7 +1678,7 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
 
     // Add ghost mannequin job only for supported garment types
     const productCategory = product?.category || 'shirts'
-    const productType = imageJob?.input?.productType || 'tshirt'
+    const productType = resolvedProductType
     if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
         GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
       mockupJobs.push({

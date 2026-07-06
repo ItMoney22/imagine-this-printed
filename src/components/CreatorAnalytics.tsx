@@ -12,7 +12,7 @@ interface MonthlyTrend {
 interface BestSellingProduct {
   id: string
   name: string
-  generated_image: string
+  images: string[]
   totalSold: number
 }
 
@@ -24,7 +24,7 @@ interface AnalyticsData {
   royaltyRate: string
   bestSellingProduct: BestSellingProduct | null
   monthlyTrends: MonthlyTrend[]
-  recentDesigns: { id: string; name: string; generated_image: string; status: string }[]
+  recentDesigns: { id: string; name: string; images: string[]; status: string }[]
   designsByStatus: {
     approved: number
     pending: number
@@ -197,7 +197,7 @@ export const CreatorAnalytics = () => {
             <div className="flex gap-4">
               <div className="w-24 h-24 rounded-lg overflow-hidden bg-bg flex-shrink-0">
                 <img
-                  src={analytics.bestSellingProduct.generated_image}
+                  src={analytics.bestSellingProduct.images?.[0]}
                   alt={analytics.bestSellingProduct.name}
                   className="w-full h-full object-cover"
                 />
@@ -282,7 +282,7 @@ export const CreatorAnalytics = () => {
               <div key={design.id} className="relative group">
                 <div className="aspect-square rounded-lg overflow-hidden bg-bg">
                   <img
-                    src={design.generated_image}
+                    src={design.images?.[0]}
                     alt={design.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                   />

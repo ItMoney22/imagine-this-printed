@@ -97,6 +97,17 @@ const PIXELS_PER_INCH = 96;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3;
 
+const DTF_PRINT_SIZE_OPTIONS = [
+  { label: 'Pocket 4"', width: 4 },
+  { label: 'Youth 7"', width: 7 },
+  { label: 'Small 8"', width: 8 },
+  { label: 'Medium 9"', width: 9 },
+  { label: 'Large 10"', width: 10 },
+  { label: 'XL 11"', width: 11 },
+  { label: 'XXL 12"', width: 12 },
+  { label: 'XXXL 13"', width: 13 },
+];
+
 // Studio design type for the gallery (separate from sheet layers)
 interface StudioDesign {
   id: string;
@@ -106,6 +117,12 @@ interface StudioDesign {
   history: string[];
   createdAt: string;
   meta?: Record<string, any>;
+}
+
+interface MrImagineDesignMetadata {
+  printWidthInches?: number;
+  printSizeLabel?: string;
+  source?: string;
 }
 
 const ImaginationStation: React.FC = () => {
@@ -809,7 +826,7 @@ const ImaginationStation: React.FC = () => {
   };
 
   // Handle image generated from MrImagineModal â€” pushes to studio gallery
-  const handleMrImagineImageGenerated = useCallback(async (imageUrl: string) => {
+  const handleMrImagineImageGenerated = useCallback(async (imageUrl: string, metadata?: MrImagineDesignMetadata) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -821,9 +838,10 @@ const ImaginationStation: React.FC = () => {
         history: [imageUrl],
         createdAt: new Date().toISOString(),
         meta: {
+          ...metadata,
           originalWidth: img.naturalWidth,
           originalHeight: img.naturalHeight,
-          source: 'mr-imagine',
+          source: metadata?.source || 'mr-imagine',
         },
       };
       setDesigns(prev => [...prev, newDesign]);
@@ -838,6 +856,10 @@ const ImaginationStation: React.FC = () => {
         originalUrl: imageUrl,
         history: [imageUrl],
         createdAt: new Date().toISOString(),
+        meta: {
+          ...metadata,
+          source: metadata?.source || 'mr-imagine',
+        },
       };
       setDesigns(prev => [...prev, newDesign]);
       setActiveDesignId(newDesign.id);
@@ -1408,10 +1430,26 @@ const ImaginationStation: React.FC = () => {
     const img = new window.Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const maxSizeInches = Math.max(0.5, Math.min(6, sheet.sheet_width - 0.5, sheet.sheet_height - 0.5));
       const aspectRatio = img.naturalWidth / img.naturalHeight;
-      const widthInches = aspectRatio >= 1 ? maxSizeInches : maxSizeInches * aspectRatio;
-      const heightInches = aspectRatio >= 1 ? maxSizeInches / aspectRatio : maxSizeInches;
+      const availableWidth = Math.max(0.5, sheet.sheet_width - 0.5);
+      const availableHeight = Math.max(0.5, sheet.sheet_height - 0.5);
+      const selectedPrintWidth = Number(design.meta?.printWidthInches);
+      let widthInches: number;
+      let heightInches: number;
+
+      if (Number.isFinite(selectedPrintWidth) && selectedPrintWidth > 0) {
+        widthInches = Math.max(0.5, Math.min(selectedPrintWidth, availableWidth));
+        heightInches = widthInches / aspectRatio;
+        if (heightInches > availableHeight) {
+          heightInches = availableHeight;
+          widthInches = heightInches * aspectRatio;
+        }
+      } else {
+        const maxSizeInches = Math.max(0.5, Math.min(6, availableWidth, availableHeight));
+        widthInches = aspectRatio >= 1 ? maxSizeInches : maxSizeInches * aspectRatio;
+        heightInches = aspectRatio >= 1 ? maxSizeInches / aspectRatio : maxSizeInches;
+      }
+
       const dpiInfo = calculateDpi(img.naturalWidth, img.naturalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
       const newLayer: ImaginationLayer = {
         id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1427,7 +1465,17 @@ const ImaginationStation: React.FC = () => {
         scale_x: 1,
         scale_y: 1,
         z_index: layers.length,
-        metadata: { name: design.name, visible: true, locked: false, opacity: 1, dpiInfo, originalWidth: img.naturalWidth, originalHeight: img.naturalHeight },
+        metadata: {
+          name: design.name,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          dpiInfo,
+          originalWidth: img.naturalWidth,
+          originalHeight: img.naturalHeight,
+          printWidthInches: design.meta?.printWidthInches,
+          printSizeLabel: design.meta?.printSizeLabel,
+        },
         created_at: new Date().toISOString(),
       };
       setLayers(prev => [...prev, newLayer]);
@@ -1436,21 +1484,32 @@ const ImaginationStation: React.FC = () => {
       setSheetOpen(true);
     };
     img.onerror = () => {
+      const selectedPrintWidth = Number(design.meta?.printWidthInches);
+      const fallbackSize = Number.isFinite(selectedPrintWidth) && selectedPrintWidth > 0
+        ? Math.max(0.5, Math.min(selectedPrintWidth, sheet.sheet_width - 0.5, sheet.sheet_height - 0.5))
+        : 4;
       const newLayer: ImaginationLayer = {
         id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         sheet_id: sheet.id,
         layer_type: 'ai_generated',
         source_url: design.url,
         processed_url: null,
-        position_x: (sheet.sheet_width - 4) / 2,
-        position_y: (sheet.sheet_height - 4) / 2,
-        width: 4,
-        height: 4,
+        position_x: (sheet.sheet_width - fallbackSize) / 2,
+        position_y: (sheet.sheet_height - fallbackSize) / 2,
+        width: fallbackSize,
+        height: fallbackSize,
         rotation: 0,
         scale_x: 1,
         scale_y: 1,
         z_index: layers.length,
-        metadata: { name: design.name, visible: true, locked: false, opacity: 1 },
+        metadata: {
+          name: design.name,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          printWidthInches: design.meta?.printWidthInches,
+          printSizeLabel: design.meta?.printSizeLabel,
+        },
         created_at: new Date().toISOString(),
       };
       setLayers(prev => [...prev, newLayer]);
@@ -2049,15 +2108,26 @@ const ImaginationStation: React.FC = () => {
   const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
 
   // Resize the selected layer to a preset width (height follows aspect ratio)
-  const applyQuickSize = (newWidth: number) => {
+  const applyQuickSize = (newWidth: number, printSizeLabel?: string) => {
     const currentLayer = selectedLayers[0];
     if (!currentLayer) return;
     const aspectRatio = currentLayer.width / currentLayer.height;
-    const newHeight = aspectRatio >= 1 ? newWidth / aspectRatio : newWidth;
+    if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) return;
+    const newHeight = newWidth / aspectRatio;
     setLayers(prev => prev.map(l => {
       if (l.id === currentLayer.id) {
         const newDpiInfo = recalculateDpi(l, newWidth, newHeight);
-        return { ...l, width: newWidth, height: newHeight, metadata: { ...l.metadata, dpiInfo: newDpiInfo || l.metadata?.dpiInfo } };
+        return {
+          ...l,
+          width: newWidth,
+          height: newHeight,
+          metadata: {
+            ...l.metadata,
+            dpiInfo: newDpiInfo || l.metadata?.dpiInfo,
+            printWidthInches: newWidth,
+            printSizeLabel,
+          },
+        };
       }
       return l;
     }));
@@ -2599,8 +2669,8 @@ const ImaginationStation: React.FC = () => {
                           <div>
                             <p className="text-xs text-muted mb-1">Quick sizes:</p>
                             <div className="flex flex-wrap gap-1">
-                              {[{label:'11"F', w:11},{label:'10"F', w:10},{label:'3.5"P', w:3.5},{label:'12"B', w:12}].map(qs => (
-                                <button key={qs.label} onClick={() => applyQuickSize(qs.w)} className="px-1.5 py-0.5 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded transition-colors">{qs.label}</button>
+                              {DTF_PRINT_SIZE_OPTIONS.map(qs => (
+                                <button key={qs.label} onClick={() => applyQuickSize(qs.width, qs.label)} className="px-1.5 py-0.5 text-xs bg-primary/10 hover:bg-primary/20 text-primary rounded transition-colors">{qs.label}</button>
                               ))}
                             </div>
                           </div>

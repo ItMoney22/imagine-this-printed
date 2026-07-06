@@ -34,7 +34,8 @@ interface ToyModel {
   error_message: string | null
   metadata: Record<string, unknown> | null
   created_at: string
-  owner: { email: string; username: string } | null
+  owner_email: string | null
+  owner_username: string | null
 }
 
 interface ListResponse {
@@ -482,8 +483,8 @@ function ModelCard({ model, onRetry, onPromote }: ModelCardProps) {
 
         {/* Owner + meta row */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-          {model.owner && (
-            <span title={model.owner.email}>{model.owner.email}</span>
+          {model.owner_email && (
+            <span title={model.owner_email}>{model.owner_email}</span>
           )}
           {model.size_tier && (
             <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
@@ -797,8 +798,8 @@ export default function AdminToyLab() {
         const q = search.trim().toLowerCase()
         return (
           m.prompt.toLowerCase().includes(q) ||
-          (m.owner?.email ?? '').toLowerCase().includes(q) ||
-          (m.owner?.username ?? '').toLowerCase().includes(q)
+          (m.owner_email ?? '').toLowerCase().includes(q) ||
+          (m.owner_username ?? '').toLowerCase().includes(q)
         )
       })
     : models

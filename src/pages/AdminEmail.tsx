@@ -1202,10 +1202,7 @@ const MrImagineAssistant: React.FC<MrImagineAssistantProps> = ({
                         <Volume2 size={11} /> Play
                       </button>
                     )}
-                    {msg.voiceError && !voiceWarnShown && (
-                      <span className="text-xs text-muted italic">voice unavailable</span>
-                    )}
-                    {msg.voiceError && voiceWarnShown && (
+                    {msg.voiceError && (
                       <span className="text-xs text-muted italic">voice unavailable</span>
                     )}
                     {/* retry on error */}

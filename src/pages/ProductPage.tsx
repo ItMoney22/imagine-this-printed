@@ -402,7 +402,7 @@ const ProductPage: React.FC = () => {
                           onClick={() => setSelectedSize(size)}
                           className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
                             ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
-                            : 'border-gray-700 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
+                            : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
                             } ${isPlusSize ? 'pr-6' : ''}`}
                           title={isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
                         >
@@ -450,7 +450,7 @@ const ProductPage: React.FC = () => {
                         className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all ${
                           isSelected
                             ? 'border-primary bg-primary/10 text-text ring-2 ring-primary/30'
-                            : 'border-gray-700 hover:border-gray-500 text-text'
+                            : 'border-slate-300 hover:border-slate-400 text-text'
                         }`}
                       >
                         <span
@@ -483,10 +483,10 @@ const ProductPage: React.FC = () => {
                         className={`w-full flex items-start gap-3 text-left px-4 py-3 rounded-lg border-2 transition-all ${
                           checked
                             ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
-                            : 'border-gray-700 bg-card hover:border-primary/60'
+                            : 'border-slate-300 bg-card hover:border-primary/60'
                         }`}
                       >
-                        <span className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'bg-primary border-primary' : 'border-gray-500'}`}>
+                        <span className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'bg-primary border-primary' : 'border-slate-300'}`}>
                           {checked && <Check className="w-3.5 h-3.5 text-white" />}
                         </span>
                         <span className="flex-1">

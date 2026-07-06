@@ -344,7 +344,7 @@ export default function AdminGiftCardManagement() {
                         </span>
                       </div>
                       <span className="text-slate-400 text-sm">
-                        (${(giftCard.itc_amount * 0.10).toFixed(2)})
+                        (${(giftCard.itc_amount * 0.01).toFixed(2)})
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -426,7 +426,7 @@ export default function AdminGiftCardManagement() {
                   required
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Value: ${(formData.itc_amount * 0.10).toFixed(2)} USD
+                  Value: ${(formData.itc_amount * 0.01).toFixed(2)} USD
                 </p>
               </div>
 
@@ -541,7 +541,7 @@ export default function AdminGiftCardManagement() {
                   required
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Total value: {bulkFormData.count * bulkFormData.itc_amount} ITC (${(bulkFormData.count * bulkFormData.itc_amount * 0.10).toFixed(2)} USD)
+                  Total value: {bulkFormData.count * bulkFormData.itc_amount} ITC (${(bulkFormData.count * bulkFormData.itc_amount * 0.01).toFixed(2)} USD)
                 </p>
               </div>
 

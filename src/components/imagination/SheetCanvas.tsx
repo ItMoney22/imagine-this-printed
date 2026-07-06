@@ -686,37 +686,49 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
     }
   };
 
-  // Grid lines
-  const gridLines = [];
-  if (gridEnabled) {
-    const gridSize = 0.25 * PIXELS_PER_INCH; // 0.25 inch grid
+  // Sorted copy of layers by z-index (memoized). Sorting `layers` directly would
+  // mutate React state in place; the spread fixes that and avoids re-sorting on
+  // unrelated re-renders (pan/zoom/selection).
+  const sortedLayers = React.useMemo(
+    () => [...layers].sort((a, b) => a.z_index - b.z_index),
+    [layers]
+  );
 
-    // Vertical lines
-    for (let x = 0; x <= sheetWidth; x += gridSize) {
-      gridLines.push(
-        <Line
-          key={`v-${x}`}
-          points={[x, 0, x, sheetHeight]}
-          stroke="#333"
-          strokeWidth={0.5}
-          opacity={0.3}
-        />
-      );
-    }
+  // Grid lines (memoized — depend only on the grid toggle + sheet size, not on
+  // the pan/zoom/selection state that re-renders this component constantly).
+  const gridLines = React.useMemo(() => {
+    const lines: React.ReactNode[] = [];
+    if (gridEnabled) {
+      const gridSize = 0.25 * PIXELS_PER_INCH; // 0.25 inch grid
 
-    // Horizontal lines
-    for (let y = 0; y <= sheetHeight; y += gridSize) {
-      gridLines.push(
-        <Line
-          key={`h-${y}`}
-          points={[0, y, sheetWidth, y]}
-          stroke="#333"
-          strokeWidth={0.5}
-          opacity={0.3}
-        />
-      );
+      // Vertical lines
+      for (let x = 0; x <= sheetWidth; x += gridSize) {
+        lines.push(
+          <Line
+            key={`v-${x}`}
+            points={[x, 0, x, sheetHeight]}
+            stroke="#333"
+            strokeWidth={0.5}
+            opacity={0.3}
+          />
+        );
+      }
+
+      // Horizontal lines
+      for (let y = 0; y <= sheetHeight; y += gridSize) {
+        lines.push(
+          <Line
+            key={`h-${y}`}
+            points={[0, y, sheetWidth, y]}
+            stroke="#333"
+            strokeWidth={0.5}
+            opacity={0.3}
+          />
+        );
+      }
     }
-  }
+    return lines;
+  }, [gridEnabled, sheetWidth, sheetHeight]);
 
   // Determine if sheet is larger than viewport (needs pan controls)
   const needsPan = sheetHeight * zoom > stageSize.height || sheetWidth * zoom > stageSize.width;
@@ -808,9 +820,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
 
         {/* Elements Layer */}
         <Layer>
-          {layers
-            .sort((a, b) => a.z_index - b.z_index)
-            .map(layer => {
+          {sortedLayers.map(layer => {
               const commonProps = {
                 key: layer.id,
                 layer,

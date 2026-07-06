@@ -477,15 +477,16 @@ router.get('/projects', requireAuth, async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    // Add layer count to each project
-    const projectsWithMeta = await Promise.all((data || []).map(async (project) => {
+    // Add layer count to each project. Synchronous map — layerCount is read from
+    // the already-fetched canvas_state JSON, so no per-row query / await is needed.
+    const projectsWithMeta = (data || []).map((project) => {
       const layerCount = project.canvas_state?.layers?.length || 0;
       return {
         ...project,
         layerCount,
         lastModified: project.updated_at
       };
-    }));
+    });
 
     res.json(projectsWithMeta);
   } catch (error: any) {
@@ -1091,6 +1092,9 @@ router.post('/layout/auto-nest', requireAuth, async (req: Request, res: Response
     // concurrent balance changes (race condition between read and write).
     if (result.itcCharged > 0) {
       const charged = result.itcCharged;
+      // Track which balance the successful deduction applied against, so the
+      // ledger row can record accurate balance_before/balance_after.
+      let appliedBalance = itcBalance;
       const applyDeduction = async (balance: number): Promise<boolean> => {
         const { data: updated } = await supabase
           .from('user_wallets')
@@ -1119,15 +1123,19 @@ router.post('/layout/auto-nest', requireAuth, async (req: Request, res: Response
           res.status(409).json({ error: 'ITC balance is being modified concurrently. Please retry in a moment.' });
           return;
         }
+        appliedBalance = freshBalance;
       }
 
-      // Log transaction. wallet_transactions live schema has NO `metadata`
-      // column (transaction_type/amount/balance_after/reference_type/description)
-      // — the old insert with metadata silently failed.
+      // Log transaction. Live wallet_transactions requires balance_before AND
+      // balance_after (integer NOT NULL, no default); omitting them silently
+      // failed the insert (ITC charged but no ledger row). Mirrors the working
+      // realistic-mockups ledger write (negative amount for a spend).
       const { error: wtErr } = await supabase.from('wallet_transactions').insert({
         user_id: user.id,
         transaction_type: 'spend',
-        amount: result.itcCharged,
+        amount: -charged,
+        balance_before: appliedBalance,
+        balance_after: appliedBalance - charged,
         reference_type: 'imagination_auto_nest',
         description: `Auto-Nest layout optimization (${layers.length} layers)`
       });
@@ -1193,6 +1201,9 @@ router.post('/layout/smart-fill', requireAuth, async (req: Request, res: Respons
     // concurrent balance changes (race condition between read and write).
     if (result.itcCharged > 0) {
       const charged = result.itcCharged;
+      // Track which balance the successful deduction applied against, so the
+      // ledger row can record accurate balance_before/balance_after.
+      let appliedBalance = itcBalance;
       const applyDeduction = async (balance: number): Promise<boolean> => {
         const { data: updated } = await supabase
           .from('user_wallets')
@@ -1221,13 +1232,18 @@ router.post('/layout/smart-fill', requireAuth, async (req: Request, res: Respons
           res.status(409).json({ error: 'ITC balance is being modified concurrently. Please retry in a moment.' });
           return;
         }
+        appliedBalance = freshBalance;
       }
 
-      // Log transaction (wallet_transactions has no metadata column — see auto-nest note)
+      // Log transaction. balance_before/balance_after are NOT NULL on live
+      // wallet_transactions (see auto-nest note) — omitting them silently failed
+      // the insert. Mirrors the working realistic-mockups ledger write.
       const { error: wtErr } = await supabase.from('wallet_transactions').insert({
         user_id: user.id,
         transaction_type: 'spend',
-        amount: result.itcCharged,
+        amount: -charged,
+        balance_before: appliedBalance,
+        balance_after: appliedBalance - charged,
         reference_type: 'imagination_smart_fill',
         description: `Smart Fill layout optimization (+${result.totalAdded} copies)`
       });

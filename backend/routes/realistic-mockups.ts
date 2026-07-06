@@ -117,7 +117,7 @@ router.post('/generate', requireAuth, async (req: Request, res: Response): Promi
     }
 
     // Log transaction
-    await supabase
+    const { error: wtErr } = await supabase
       .from('wallet_transactions')
       .insert({
         user_id: userId,
@@ -129,6 +129,7 @@ router.post('/generate', requireAuth, async (req: Request, res: Response): Promi
         reference_type: 'mockup',
         description: `Realistic mockup generation for ${productTemplate}`
       })
+    if (wtErr) console.error('[realistic-mockups/generate] wallet_transactions insert failed:', wtErr.message)
 
     // Upload design to GCS temp storage. designImageUrl may be a base64 data
     // URL (canvas export from the product designer) OR an http(s) URL (e.g. a
@@ -364,7 +365,7 @@ router.post('/:generationId/discard', requireAuth, async (req: Request, res: Res
       .eq('user_id', userId)
 
     // Log refund transaction
-    await supabase
+    const { error: wtErr } = await supabase
       .from('wallet_transactions')
       .insert({
         user_id: userId,
@@ -376,6 +377,7 @@ router.post('/:generationId/discard', requireAuth, async (req: Request, res: Res
         reference_type: 'mockup',
         description: 'Mockup rejected - refund'
       })
+    if (wtErr) console.error('[realistic-mockups/reject-refund] wallet_transactions insert failed:', wtErr.message)
 
     // Update generation record
     await supabase
@@ -690,7 +692,7 @@ async function refundGeneration(
     .update({ itc_balance: newBalance })
     .eq('user_id', userId)
 
-  await supabase
+  const { error: wtErr } = await supabase
     .from('wallet_transactions')
     .insert({
       user_id: userId,
@@ -702,6 +704,7 @@ async function refundGeneration(
       reference_type: 'mockup',
       description: 'Auto-refund due to generation failure'
     })
+  if (wtErr) console.error('[realistic-mockups/auto-refund] wallet_transactions insert failed:', wtErr.message)
 
   await supabase
     .from('mockup_generations')

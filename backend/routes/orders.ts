@@ -243,7 +243,7 @@ router.get('/:orderId', requireAuth, async (req: Request, res: Response): Promis
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('role')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
 
     const isAdmin = profile?.role === 'admin' || profile?.role === 'manager'
@@ -420,7 +420,7 @@ router.get('/:orderId/rewards', requireAuth, async (req: Request, res: Response)
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('role')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
 
     if (order.user_id !== userId && profile?.role !== 'admin' && profile?.role !== 'manager') {
