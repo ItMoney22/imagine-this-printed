@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+﻿import React, { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Sparkles, Loader2, ShoppingCart, Check } from 'lucide-react'
 import { socialService } from '../utils/social-service'
@@ -36,7 +36,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const sizes = product.sizes || product.metadata?.sizes || []
   const hasSizes = sizes.length > 0
 
-  // Fallback sizes are type-aware: metal → print sizes, 3D → tiers, else apparel.
+  // Fallback sizes are type-aware: metal â†’ print sizes, 3D â†’ tiers, else apparel.
   const defaultSizes = defaultSizesFor(kind)
   const displaySizes = hasSizes ? sizes : defaultSizes
 
@@ -102,7 +102,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const [isHovered, setIsHovered] = useState(false)
 
   // Display set is role-aware (getGalleryImages): contextual mockups first,
-  // then clean art — NEVER the halftone / DTF deliverables (a raw halftone
+  // then clean art â€” NEVER the halftone / DTF deliverables (a raw halftone
   // looks bad as a grid thumbnail). Crossfade to the 2nd display image on hover.
   const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
   const galleryImgs = getGalleryImages(product)
@@ -117,8 +117,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="relative aspect-square overflow-hidden">
-        <Link to={`/product/${product.id}`}>
-          {/* Primary image — ghost mannequin (images[0]) */}
+        <Link to={`/product/${product.slug || product.id}`}>
+          {/* Primary image â€” ghost mannequin (images[0]) */}
           <ProtectedImage
             src={primaryImage}
             alt={product.name}
@@ -127,7 +127,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               (e.target as HTMLImageElement).src = FALLBACK
             }}
           />
-          {/* Hover image — flat lay (images[1]) or Mr. Imagine (images[2]); lazy-loaded */}
+          {/* Hover image â€” flat lay (images[1]) or Mr. Imagine (images[2]); lazy-loaded */}
           {hoverImage && (
             <ProtectedImage
               src={hoverImage}
@@ -200,7 +200,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
       </div>
 
       <div className="p-5 relative">
-        <Link to={`/product/${product.id}`}>
+        <Link to={`/product/${product.slug || product.id}`}>
           <h3 className="text-lg font-display font-bold text-text mb-2 group-hover:text-primary transition-colors line-clamp-1">
             {product.name}
           </h3>
@@ -210,8 +210,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         {/* Social Stats */}
         {showSocialBadges && socialPosts.length > 0 && (
           <div className="flex items-center space-x-3 text-xs text-muted mb-4">
-            <span>📱 {socialPosts.length} social mentions</span>
-            <span>⭐ {socialPosts.filter(p => p.isFeatured).length} featured</span>
+            <span>ðŸ“± {socialPosts.length} social mentions</span>
+            <span>â­ {socialPosts.filter(p => p.isFeatured).length} featured</span>
           </div>
         )}
 
@@ -243,7 +243,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           )}
         </div>
 
-        {/* Quick Size Picker — always shown during Quick Add (uses default
+        {/* Quick Size Picker â€” always shown during Quick Add (uses default
             sizes if the product has none explicitly set, matching prior UX). */}
         {showSizePicker && (
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -282,7 +282,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </div>
         )}
 
-        {/* Quick Color Picker — same trigger flag as size; appears whenever the
+        {/* Quick Color Picker â€” same trigger flag as size; appears whenever the
             product has color options. Selecting is required before Add. */}
         {showSizePicker && hasColors && (
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -378,13 +378,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
           {/* View Details Link */}
           <Link
-            to={`/product/${product.id}`}
+            to={`/product/${product.slug || product.id}`}
             className="block w-full text-center py-2 text-sm text-muted hover:text-primary transition-colors"
           >
             View Details
           </Link>
 
-          {/* Add to Imagination Sheet — DTF/apparel only (metal & 3D are
+          {/* Add to Imagination Sheet â€” DTF/apparel only (metal & 3D are
               finished pieces, not designs to drop on a print sheet). */}
           {isApparel && (
           <button

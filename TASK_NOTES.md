@@ -66,6 +66,20 @@ Note: any older UI scope expansion below is historical context from the complete
   - `backend/worker/ai-jobs-worker.ts` (wire monitor into hourly loop)
   - `src/components/AdminOpsMonitor.tsx` (new — overview panel; supersedes reviving legacy SystemStatusWidget)
   - `src/pages/AdminDashboard.tsx` (drop panel into overview tab)
+- W2 file list (SEO pack per approved design + crawlability; live DB verified MISSING meta_title/meta_description/
+  search_keywords so a small additive migration is required):
+  - `supabase/migrations/20260706_product_seo_columns.sql` (new — 3 additive TEXT columns + slug index)
+  - `backend/services/seo-pack.ts` (new — cheap-model SEO/hooks generation, idempotent per product)
+  - `backend/routes/admin/user-product-approvals.ts` (fire-and-forget hook on active approval)
+  - `backend/routes/seo.ts` (new — dynamic sitemap.xml)
+  - `backend/index.ts` (mount only)
+  - `backend/worker/ai-jobs-worker.ts` (hourly catch-all/backfill sweep, bounded per run)
+  - `api/product-meta.mjs` (new — Vercel bot-only OG/JSON-LD injection function)
+  - `vercel.json` (bot rewrite for /product/* + sitemap rewrite)
+  - `public/robots.txt` (new)
+  - `src/pages/ProductPage.tsx` (slug-or-id loading + client-side title/meta/canonical)
+  - `src/components/ProductCard.tsx` (slug links)
+  - `src/types/index.ts` (Product.slug optional)
 
 ## Current implementation notes
 - Mirror the validation/default pattern already in `backend/routes/admin/ai-products.ts`: whitelist and dedupe `front_image`, `back_image`, `pocket`; after the final category is known, default shirts to `['front_image']` when the list is empty.
@@ -537,3 +551,4 @@ Research: worldcast.io = no-code WebAR studio, NO public API ($10/cast/mo busine
 - 2026-07-06 (Admin growth pack — scoping milestone): Full codebase survey (4 parallel exploration passes: admin/inventory, approval+SEO, TikTok/social, health/orders) and wrote the master design doc `docs/plans/2026-07-06-admin-growth-pack-design.md` covering blank-shirt inventory + low-stock alerts, per-design SEO pack on approval, TikTok Shop sync (still blocked on David's Partner Center app), Rico social_outbox queue, and health/order monitoring. Key finds: inventory columns exist but are unwired; approval hook point is user-product-approvals.ts ~L227 gated on generationStatus==='active'; site has zero per-product SEO (SPA, id URLs, no sitemap); AdminDashboard revenue tile reads total_amount but column is total (likely shows $0). No code changed this milestone.
 - 2026-07-06 (Admin growth pack W1 — blank-shirt inventory, CODE COMPLETE): Shipped blank_inventory + blank_inventory_movements migration (supabase/migrations/20260706_blank_inventory.sql) with idempotent record_blank_sale() RPC and widened admin_notifications type CHECK; additive Prisma models; new /api/admin/inventory router (CRUD/bulk/receive/adjust/movements, admin+manager guard); sale decrement wired into BOTH paid paths (stripe.ts handleCheckoutOrderPayment + webhooks.ts payment_intent.succeeded) keyed off order_items metadata size/color with products.metadata.blank_style override; hourly low-stock sweep in worker (admin bell notifications + digest email via new sendLowStockAlertEmail, one-alert-per-SKU with auto re-arm on restock); new admin Inventory tab (AdminInventoryManagement.tsx) with summary tiles/bulk add/receive/adjust/history; fixed AdminDashboard revenue bug (total_amount -> total). Backend + root typecheck exit 0. NOT YET LIVE: migration blocked by auto-mode gate, queued at E:/memory/watchtower/pending-sql/imagine-this-printed__2026-07-06__blank-inventory.sql for David to run in the Supabase SQL Editor. Nothing committed.
 - 2026-07-06 (Admin growth pack W1 — migration APPLIED): David authorized in-session; ran supabase/migrations/20260706_blank_inventory.sql against prod via prisma db execute and verified with no-op probes (both tables selectable, record_blank_sale() executes and returns cleanly on a nonexistent id). Watchtower pending-sql entry marked DONE and archived. W1 is now DB-live; backend/frontend code still awaits commit+deploy (working tree also carries the earlier uncommitted print_locations work — deploy decision is David's).
+- 2026-07-06 (Admin growth pack W5 — health + order monitor, SHIPPED): new backend/services/order-monitor.ts on the worker hourly loop — worker heartbeat (audit_logs) read by new /api/health/worker probe (503 when stale >2.5h); stalled-paid-order alerts (>3d, one per order via orders.metadata.stall_alerted_at) to admin bell (order_stalled) + digest email; AI-job failure-spike alert (>=5/hr, 6h cooldown); daily ops summary email ~8am ET (orders/revenue 24h, unfulfilled, stalls, pending approvals, low blank stock, AI failures). New /api/admin/monitor/status + AdminOpsMonitor overview panel (chips, 24h pulse, stalled worklist). Also shipped earlier this session on David's direct order: commit bc0d732 (prior pending work incl. print_locations rollout) + 9d6ae4c (W1 inventory) + e3120dd (W5) pushed to main -> Render/Vercel auto-deploy. Backend typecheck + vite build green. Deploy verification in progress.

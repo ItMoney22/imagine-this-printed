@@ -10,6 +10,7 @@ import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
+import { sweepMissingSeoPacks } from '../services/seo-pack.js'
 import Replicate from 'replicate'
 
 // Initialize Replicate client for NanoBanana
@@ -2311,6 +2312,7 @@ export function startWorker() {
     await cleanupExpiredDesignSessions()
     await sweepLowStockBlanks()
     await monitorHealthAndOrders()
+    await sweepMissingSeoPacks()
   }, CLEANUP_INTERVAL)
 
   // Process immediately on start
@@ -2322,5 +2324,6 @@ export function startWorker() {
     await cleanupExpiredDesignSessions()
     await sweepLowStockBlanks()
     await monitorHealthAndOrders()
+    await sweepMissingSeoPacks()
   }, 60000)
 }

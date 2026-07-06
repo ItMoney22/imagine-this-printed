@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { sendEmail } from '../../utils/email.js'
+import { generateSeoPackForProduct } from '../../services/seo-pack.js'
 
 const router = Router()
 
@@ -296,6 +297,14 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
     }
 
     console.log(`[admin-approvals] ✅ Product approved (status=${generationStatus}${missingGenerations.length ? `, missing: ${missingGenerations.join(', ')}` : ''}):`, id)
+
+    // Fully approved and live → generate the SEO pack (meta title/description,
+    // keywords, social hooks). Fire-and-forget: approval must not wait on the
+    // model call; the hourly worker sweep is the catch-all if this fails.
+    if (generationStatus === 'active') {
+      void generateSeoPackForProduct(id).catch(err =>
+        console.error('[admin-approvals] SEO pack generation failed:', err?.message || err))
+    }
 
     res.json({
       message: generationStatus === 'active'

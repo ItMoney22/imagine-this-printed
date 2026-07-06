@@ -5,6 +5,8 @@ export type TshirtPrintLocation = 'front_image' | 'back_image' | 'pocket'
 
 export interface Product {
   id: string
+  // SEO-friendly URL slug (products.slug); links prefer it over the UUID
+  slug?: string
   name: string
   description: string
   price: number

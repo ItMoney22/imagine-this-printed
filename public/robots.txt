@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /auth/
+Disallow: /cart
+Disallow: /checkout
+Disallow: /wallet
+
+Sitemap: https://www.imaginethisprinted.com/sitemap.xml

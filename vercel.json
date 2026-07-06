@@ -1,5 +1,17 @@
 {
   "rewrites": [
+    { "source": "/sitemap.xml", "destination": "https://api.imaginethisprinted.com/api/seo/sitemap.xml" },
+    {
+      "source": "/product/:path*",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*([Bb]ot|[Cc]rawler|[Ss]pider|facebookexternalhit|Slackbot|Twitterbot|WhatsApp|TelegramBot|Discordbot|LinkedInBot|Pinterest|Googlebot|bingbot|DuckDuckBot|Baiduspider|YandexBot|Applebot).*"
+        }
+      ],
+      "destination": "/api/product-meta?path=:path*"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

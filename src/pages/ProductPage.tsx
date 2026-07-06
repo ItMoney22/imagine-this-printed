@@ -47,18 +47,23 @@ const ProductPage: React.FC = () => {
       try {
         setLoading(true)
 
-        // Fetch product and assets in parallel
-        const [productResult, assetsResult] = await Promise.all([
-          supabase.from('products').select('*').eq('id', id).single(),
-          supabase.from('product_assets').select('url, kind').eq('product_id', id).in('kind', ['source', 'nobg'])
-        ])
+        // The :id param accepts a UUID or an SEO slug (/product/my-cool-tee)
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+        const productResult = isUuid
+          ? await supabase.from('products').select('*').eq('id', id).single()
+          : await supabase.from('products').select('*').eq('slug', id).single()
 
         if (productResult.error) throw productResult.error
+
+        const assetsResult = productResult.data
+          ? await supabase.from('product_assets').select('url, kind').eq('product_id', productResult.data.id).in('kind', ['source', 'nobg'])
+          : { data: null }
 
         if (productResult.data) {
           const data = productResult.data
           const mappedProduct: Product = {
             id: data.id,
+            slug: data.slug || undefined,
             name: data.name,
             description: data.description || '',
             price: data.price || 0,
@@ -95,6 +100,38 @@ const ProductPage: React.FC = () => {
 
     loadProduct()
   }, [id])
+
+  // Client-side SEO: title, description and canonical for the loaded design
+  // (bots get these server-injected via api/product-meta.mjs; this keeps the
+  // rendered DOM consistent for Google's JS pass and for humans' tab titles).
+  useEffect(() => {
+    if (!product) return
+    const prevTitle = document.title
+    document.title = `${product.name} | Imagine This Printed`
+
+    const desc = product.description?.replace(/\s+/g, ' ').slice(0, 155) || ''
+    let metaDesc = document.querySelector('meta[name="description"]') as HTMLMetaElement | null
+    if (!metaDesc) {
+      metaDesc = document.createElement('meta')
+      metaDesc.name = 'description'
+      document.head.appendChild(metaDesc)
+    }
+    const prevDesc = metaDesc.content
+    if (desc) metaDesc.content = desc
+
+    let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
+    if (!canonical) {
+      canonical = document.createElement('link')
+      canonical.rel = 'canonical'
+      document.head.appendChild(canonical)
+    }
+    canonical.href = `https://www.imaginethisprinted.com/product/${product.slug || product.id}`
+
+    return () => {
+      document.title = prevTitle
+      if (metaDesc && prevDesc) metaDesc.content = prevDesc
+    }
+  }, [product])
 
   // Track product view for recommendations
   useEffect(() => {
