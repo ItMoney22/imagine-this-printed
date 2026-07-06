@@ -9,6 +9,7 @@ import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tri
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
+import { monitorHealthAndOrders } from '../services/order-monitor.js'
 import Replicate from 'replicate'
 
 // Initialize Replicate client for NanoBanana
@@ -2309,6 +2310,7 @@ export function startWorker() {
     await cleanupIncompleteOrders()
     await cleanupExpiredDesignSessions()
     await sweepLowStockBlanks()
+    await monitorHealthAndOrders()
   }, CLEANUP_INTERVAL)
 
   // Process immediately on start
@@ -2319,5 +2321,6 @@ export function startWorker() {
     await cleanupIncompleteOrders()
     await cleanupExpiredDesignSessions()
     await sweepLowStockBlanks()
+    await monitorHealthAndOrders()
   }, 60000)
 }

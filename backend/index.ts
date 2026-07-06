@@ -43,6 +43,7 @@ import imaginationStationRouter from './routes/imagination-station.js'
 import adminCouponsRouter from './routes/admin/coupons.js'
 import adminGiftCardsRouter from './routes/admin/gift-cards.js'
 import adminInventoryRouter from './routes/admin/inventory.js'
+import adminMonitorRouter from './routes/admin/monitor.js'
 import couponsRouter from './routes/coupons.js'
 import giftCardsRouter from './routes/gift-cards.js'
 import marketingRouter from './routes/marketing.js'
@@ -194,6 +195,7 @@ app.use('/api/imagination-station', imaginationStationRouter)
 app.use('/api/admin/coupons', adminCouponsRouter)
 app.use('/api/admin/gift-cards', adminGiftCardsRouter)
 app.use('/api/admin/inventory', adminInventoryRouter) // blank-shirt inventory + low-stock alerts
+app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/coupons', couponsRouter)
 app.use('/api/gift-cards', giftCardsRouter)
 app.use('/api/marketing', marketingRouter)

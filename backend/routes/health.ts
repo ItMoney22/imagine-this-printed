@@ -1,9 +1,29 @@
 import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { checkBucketAccess } from '../services/google-cloud-storage.js'
+import { getWorkerHeartbeat } from '../services/order-monitor.js'
 
 const router = Router()
 const prisma = new PrismaClient()
+
+// Worker heartbeat (the background worker stamps audit_logs hourly from the
+// monitor loop; stale > 2.5h ⇒ the worker process is down)
+router.get('/worker', async (_req: Request, res: Response) => {
+  try {
+    const heartbeat = await getWorkerHeartbeat()
+    res.status(heartbeat.ok ? 200 : 503).json({
+      status: heartbeat.ok ? 'alive' : 'stale',
+      last_seen: heartbeat.last_seen,
+      message: heartbeat.ok
+        ? 'Worker heartbeat is current'
+        : heartbeat.last_seen
+          ? `No heartbeat since ${heartbeat.last_seen} — worker may be down`
+          : 'No heartbeat recorded yet'
+    })
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: String(error) })
+  }
+})
 
 // Helper to mask secrets
 const tail = (s?: string) => s ? `...${s.slice(-4)}` : 'none';

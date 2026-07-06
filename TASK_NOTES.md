@@ -58,6 +58,14 @@ Note: any older UI scope expansion below is historical context from the complete
   - `src/types/index.ts` (additive BlankInventory types if needed)
   - `backend/services/blank-inventory.ts` (new — decrement + sweep logic shared by both paid paths and the worker)
   - `backend/routes/webhooks.ts` (decrement hook in the payment_intent.succeeded fallback path)
+- W5 file list (health + order monitor, approved order; alerts = bell + email + daily ~8am ET summary):
+  - `backend/services/order-monitor.ts` (new — stalled-order detection, worker heartbeat, daily ops summary)
+  - `backend/routes/admin/monitor.ts` (new — admin ops-status endpoint)
+  - `backend/routes/health.ts` (add /worker heartbeat probe)
+  - `backend/index.ts` (mount only)
+  - `backend/worker/ai-jobs-worker.ts` (wire monitor into hourly loop)
+  - `src/components/AdminOpsMonitor.tsx` (new — overview panel; supersedes reviving legacy SystemStatusWidget)
+  - `src/pages/AdminDashboard.tsx` (drop panel into overview tab)
 
 ## Current implementation notes
 - Mirror the validation/default pattern already in `backend/routes/admin/ai-products.ts`: whitelist and dedupe `front_image`, `back_image`, `pocket`; after the final category is known, default shirts to `['front_image']` when the list is empty.

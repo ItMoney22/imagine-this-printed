@@ -14,6 +14,7 @@ import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/Adm
 import AdminImaginationProducts from './admin/ImaginationProducts'
 import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminInventoryManagement from '../components/AdminInventoryManagement'
+import AdminOpsMonitor from '../components/AdminOpsMonitor'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
 import AdminConnectManagement from '../components/AdminConnectManagement'
@@ -1834,6 +1835,7 @@ const AdminDashboard: React.FC = () => {
         {/* Overview Tab */}
         {selectedTab === 'overview' && (
           <div className="space-y-6">
+            <AdminOpsMonitor />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
                 <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Quick Actions</h3>
