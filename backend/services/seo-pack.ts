@@ -136,6 +136,25 @@ export async function generateSeoPackForProduct(productId: string): Promise<bool
       return false
     }
     console.log(`[seo-pack] ✅ SEO pack saved for "${product.name}" (${productId})`)
+
+    // Queue a DRAFT TikTok post in the social outbox (David approves/edits in
+    // the admin Outbox tab before Rico ever sees it). Idempotent via the
+    // (product_id, platform, kind) unique index; never fails the pack.
+    try {
+      const { data: images } = await supabase.from('products').select('images').eq('id', productId).single()
+      await supabase.from('social_outbox').upsert({
+        product_id: productId,
+        platform: 'tiktok',
+        kind: 'post',
+        caption: `${pack.captions[0] || product.name} ${productUrl}`.trim(),
+        hashtags: pack.hashtags,
+        media_urls: images?.images || [],
+        listing: { title: product.name, description: product.description, price: product.price, product_url: productUrl },
+        status: 'draft'
+      }, { onConflict: 'product_id,platform,kind', ignoreDuplicates: true })
+    } catch (outboxErr: any) {
+      console.error(`[seo-pack] Outbox enqueue failed for ${productId}:`, outboxErr?.message || outboxErr)
+    }
     return true
   } catch (err: any) {
     console.error(`[seo-pack] generateSeoPackForProduct(${productId}) error:`, err?.message || err)

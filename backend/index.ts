@@ -45,6 +45,7 @@ import adminGiftCardsRouter from './routes/admin/gift-cards.js'
 import adminInventoryRouter from './routes/admin/inventory.js'
 import adminMonitorRouter from './routes/admin/monitor.js'
 import seoRouter from './routes/seo.js'
+import socialOutboxRouter from './routes/social-outbox.js'
 import couponsRouter from './routes/coupons.js'
 import giftCardsRouter from './routes/gift-cards.js'
 import marketingRouter from './routes/marketing.js'
@@ -198,6 +199,7 @@ app.use('/api/admin/gift-cards', adminGiftCardsRouter)
 app.use('/api/admin/inventory', adminInventoryRouter) // blank-shirt inventory + low-stock alerts
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
+app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)
 app.use('/api/coupons', couponsRouter)
 app.use('/api/gift-cards', giftCardsRouter)
 app.use('/api/marketing', marketingRouter)
