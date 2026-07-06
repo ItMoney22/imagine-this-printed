@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react'
-import api from '../lib/api'
+import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt } from 'lucide-react'
+import api, { aiProducts } from '../lib/api'
 
 interface Collection {
   name: string
@@ -30,6 +30,7 @@ export default function AdminDesignLibrary() {
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [mockupRun, setMockupRun] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -93,6 +94,33 @@ export default function AdminDesignLibrary() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // Reuses the existing per-product Create Mockups endpoint (flat-lay + ghost
+  // mannequin + Mr. Imagine via Replicate) — the worker falls back to the
+  // design PNG in products.images. Deliberate button, not automatic: ~3 paid
+  // renders per design.
+  const createMockups = async () => {
+    const ids = [...checked]
+    if (ids.length === 0) return
+    if (!window.confirm(
+      `Generate mockups for ${ids.length} design(s)? Each design queues ~3 Replicate renders (costs a few cents per design). They appear on the products as they finish.`
+    )) return
+    setMockupRun({ done: 0, total: ids.length })
+    setError(null)
+    let failed = 0
+    for (const id of ids) {
+      try {
+        await aiProducts.createMockups(id)
+      } catch (err: any) {
+        failed++
+        console.error('mockup enqueue failed:', id, err?.message)
+      }
+      setMockupRun(prev => (prev ? { ...prev, done: prev.done + 1 } : prev))
+    }
+    setMockupRun(null)
+    setChecked(new Set())
+    flash(`Mockup jobs queued for ${ids.length - failed} design(s)${failed ? ` (${failed} failed to queue)` : ''}. The worker renders them over the next while — images attach automatically.`)
   }
 
   const toggle = (id: string) => {
@@ -166,11 +194,16 @@ export default function AdminDesignLibrary() {
               <div className="flex items-center gap-2">
                 {checked.size > 0 ? (
                   <>
-                    <button onClick={() => setStatus('active', [...checked])} disabled={busy}
+                    <button onClick={() => setStatus('active', [...checked])} disabled={busy || !!mockupRun}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
                       <CheckCircle className="w-4 h-4" /> Activate {checked.size}
                     </button>
-                    <button onClick={() => setStatus('draft', [...checked])} disabled={busy}
+                    <button onClick={createMockups} disabled={busy || !!mockupRun}
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                      <Shirt className="w-4 h-4" />
+                      {mockupRun ? `Queueing ${mockupRun.done}/${mockupRun.total}…` : `Mockups for ${checked.size}`}
+                    </button>
+                    <button onClick={() => setStatus('draft', [...checked])} disabled={busy || !!mockupRun}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50">
                       <EyeOff className="w-4 h-4" /> Draft {checked.size}
                     </button>
