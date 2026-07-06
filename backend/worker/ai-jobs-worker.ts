@@ -8,6 +8,7 @@ import { generate3DModel } from '../services/trellis-client.js'
 import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
+import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import Replicate from 'replicate'
 
 // Initialize Replicate client for NanoBanana
@@ -506,13 +507,17 @@ async function startJob(job: any) {
         .eq('id', job.id)
     }
   } else if (job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') {
-    // Check if source image job exists and its status
+    // Check if source image job exists and its status. Match both the legacy
+    // 'replicate_image' and the admin-builder 'replicate_image_v2' types so the
+    // mockup actually waits for the design to finish instead of racing ahead.
     const { data: sourceImageJob } = await supabase
       .from('ai_jobs')
       .select('status')
       .eq('product_id', job.product_id)
-      .eq('type', 'replicate_image')
-      .single()
+      .in('type', ['replicate_image', 'replicate_image_v2'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
     // If source image job exists but hasn't completed, wait for it
     if (sourceImageJob && sourceImageJob.status !== 'succeeded' && sourceImageJob.status !== 'failed') {
@@ -743,18 +748,43 @@ async function startJob(job: any) {
       })
       .eq('id', job.id)
 
-    // Get DTF settings from original image generation job
+    // Get DTF settings from original image generation job. Match BOTH the
+    // legacy 'replicate_image' and the admin-builder 'replicate_image_v2' — a
+    // stale 'replicate_image'-only filter is why shirt color used to default to
+    // black even when the user picked white.
     const { data: imageJob } = await supabase
       .from('ai_jobs')
       .select('input')
       .eq('product_id', job.product_id)
-      .eq('type', 'replicate_image')
-      .single()
+      .in('type', ['replicate_image', 'replicate_image_v2'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    const shirtColor = imageJob?.input?.shirtColor || job.input?.shirtColor || 'black'
-    const productType = imageJob?.input?.productType || job.input?.productType || 'tshirt'
-    const printPlacement = imageJob?.input?.printPlacement || job.input?.printPlacement || 'front-center'
+    // Authoritative DTF settings live on the product row's metadata (written by
+    // every create path, including one-shot/bulk which create no image job at
+    // all). job.input carries the route-resolved values forward; the image job
+    // is the last structured fallback before hard defaults.
+    const { data: mockupProduct } = await supabase
+      .from('products')
+      .select('metadata')
+      .eq('id', job.product_id)
+      .single()
+    const productMeta = (mockupProduct?.metadata as any) || {}
+
+    const shirtColor = productMeta.shirt_color || job.input?.shirtColor || imageJob?.input?.shirtColor || 'black'
+    const productType = productMeta.product_type || job.input?.productType || imageJob?.input?.productType || 'tshirt'
+    const printPlacement = productMeta.print_placement || job.input?.printPlacement || imageJob?.input?.printPlacement || 'front-center'
     const productCategory = job.input?.product_type || 'shirts'
+
+    console.log('[worker] 🎨 MOCKUP COLOR RESOLVE:', JSON.stringify({
+      template: job.input?.template,
+      product_id: job.product_id,
+      resolved_shirtColor: shirtColor,
+      meta_shirt_color: productMeta.shirt_color ?? null,
+      job_input_shirtColor: job.input?.shirtColor ?? null,
+      imageJob_shirtColor: imageJob?.input?.shirtColor ?? null,
+    }))
 
     // Get template type - determines which mockup style to generate
     const template = job.input?.template || 'flat_lay'
@@ -784,6 +814,7 @@ async function startJob(job: any) {
         // Path mirrors the legacy MR_IMAGINE_MOCKUPS map in services/replicate.ts.
         const path = `/mr-imagine/mockups/mr-imagine-${productType}-${colorKey}-${side}.png`
         characterImageUrl = `${siteUrl}${path}`
+        console.log('[worker] 🎭 mr_imagine character asset (colorKey=' + colorKey + '):', characterImageUrl)
       }
 
       console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana for flat_lay/ghost_mannequin, Nano Banana for mr_imagine)')
@@ -1703,7 +1734,7 @@ async function process3DModelTripo(job: any) {
 
     const { data: model } = await supabase
       .from('user_3d_models')
-      .select('itc_charged')
+      .select('itc_charged, metadata')
       .eq('id', model_id)
       .single()
 
@@ -1753,6 +1784,10 @@ async function process3DModelTripo(job: any) {
         triangle_count: triangleCount,
         itc_charged: (model?.itc_charged || 0) + tier.itcCost,
         metadata: {
+          // Preserve create-time metadata (color_mode/source/toy_parts). The
+          // previous wholesale overwrite dropped color_mode, silently breaking
+          // color4 toy pricing on the downstream /promote and /order reads.
+          ...(model?.metadata ?? {}),
           provider: modelMetadata.provider,
           face_limit: modelMetadata.faceLimit,
           texture: modelMetadata.texture,
@@ -2273,6 +2308,7 @@ export function startWorker() {
   setInterval(async () => {
     await cleanupIncompleteOrders()
     await cleanupExpiredDesignSessions()
+    await sweepLowStockBlanks()
   }, CLEANUP_INTERVAL)
 
   // Process immediately on start
@@ -2282,5 +2318,6 @@ export function startWorker() {
   setTimeout(async () => {
     await cleanupIncompleteOrders()
     await cleanupExpiredDesignSessions()
+    await sweepLowStockBlanks()
   }, 60000)
 }

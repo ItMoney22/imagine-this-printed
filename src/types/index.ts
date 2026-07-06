@@ -1,3 +1,8 @@
+// T-shirt multi-select print placements. Mirrors the `products.print_locations`
+// TEXT[] column (migration 20260629_tshirt_print_locations.sql). A shirt is
+// offered with one or more of these; the DB CHECK enforces >= 1 for `shirts`.
+export type TshirtPrintLocation = 'front_image' | 'back_image' | 'pocket'
+
 export interface Product {
   id: string
   name: string
@@ -27,6 +32,8 @@ export interface Product {
   created_by_user_id?: string
   sizes?: string[]
   colors?: string[]
+  // T-shirt print placements this product is offered with (front/back/pocket).
+  print_locations?: TshirtPrintLocation[]
 }
 
 export interface CartAddon {
@@ -1111,7 +1118,24 @@ export interface AIProductCreationRequest {
   productType?: 'tshirt' | 'hoodie' | 'tank'
   shirtColor?: 'black' | 'white' | 'gray'
   printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  // Multi-select print placements for T-shirts (front/back/pocket). Persisted to
+  // products.print_locations. Distinct from printPlacement, which drives the
+  // single AI mockup composition.
+  print_locations?: TshirtPrintLocation[]
   printStyle?: 'clean' | 'halftone' | 'grunge'
+  modelId?: string
+  forceSingleModel?: boolean
+  imagePromptOverride?: string
+  skipImageGeneration?: boolean
+  sourceImageDataUrl?: string
+  sourceImageMime?: 'image/png' | 'image/jpeg' | 'image/webp'
+  deterministicTextDesign?: {
+    phrase: string
+    style: string
+    layout: string
+    inkColor: string
+    accentColor: string
+  }
   // Note: AI generates from all 3 models in parallel - no model selection needed
 }
 
@@ -1119,6 +1143,54 @@ export interface AIProductCreationResponse {
   productId: string
   product: Product & { normalized: NormalizedProduct }
   jobs: AIJob[]
+}
+
+export type ProductTrendSource = 'all' | 'tiktok' | 'etsy' | 'amazon'
+export type ProductTrendFamily = 'all' | 'apparel' | 'tumblers' | 'dtf-transfers' | 'stickers' | 'metal-art' | '3d-toys'
+
+export interface ProductTrendIdea {
+  id: string
+  title: string
+  source: 'TikTok' | 'Etsy' | 'Amazon' | 'Google'
+  productFamily: string
+  category: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+  prompt: string
+  targetAudience: string
+  primaryColors: string
+  designStyle: string
+  priceTarget: number
+  imageStyle: 'realistic' | 'cartoon' | 'semi-realistic'
+  productType: 'tshirt' | 'hoodie' | 'tank'
+  shirtColor: 'black' | 'white' | 'gray'
+  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printStyle: 'clean' | 'halftone' | 'grunge'
+  whyItMaySell: string
+  evidence: string[]
+  saturation: 'low' | 'medium' | 'high'
+  riskFlags: string[]
+}
+
+export interface ProductTrendResponse {
+  ideas: ProductTrendIdea[]
+  searchedQueries: string[]
+  generatedAt: string
+  note: string
+}
+
+export interface SimpleWordPhrase {
+  id: string
+  phrase: string
+  audience: string
+  vibe: string
+  whyItMaySell: string
+  riskFlags: string[]
+}
+
+export interface SimpleWordPhraseResponse {
+  phrases: SimpleWordPhrase[]
+  searchedQueries: string[]
+  generatedAt: string
+  note: string
 }
 
 // Imagination Station Types
@@ -1816,3 +1888,35 @@ export const ITC_CASHOUT_CONSTANTS = {
   INSTANT_PAYOUT_FEE_PERCENT: 1.5, // Stripe charges ~1.5% for instant
   INSTANT_PAYOUT_MIN_FEE: 0.50, // Minimum $0.50 fee
 } as const
+
+// Blank-shirt inventory (raw-material blanks — admin Inventory tab,
+// tables blank_inventory / blank_inventory_movements)
+export interface BlankInventoryItem {
+  id: string
+  brand: string
+  style_code: string
+  color: string
+  size: string
+  qty_on_hand: number
+  reorder_threshold: number
+  reorder_qty: number | null
+  cost_per_unit: number | null
+  supplier: string | null
+  notes: string | null
+  last_alerted_at: string | null
+  created_at: string
+  updated_at: string
+  low_stock?: boolean
+}
+
+export interface BlankInventoryMovement {
+  id: string
+  blank_id: string
+  delta: number
+  reason: 'sale' | 'received' | 'adjustment' | 'shrinkage'
+  order_id: string | null
+  unit_cost: number | null
+  note: string | null
+  created_by: string | null
+  created_at: string
+}

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import Stripe from 'stripe'
 import { supabase } from '../lib/supabase.js'
 import { sendWelcomeEmail } from '../utils/email.js'
+import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import {
   handleConnectAccountUpdate,
   handlePayoutPaid,
@@ -356,6 +357,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         console.error('[Stripe Webhook] Failed to update order:', updateError)
       } else {
         console.log('[Stripe Webhook] ✅ Order updated to paid:', existingOrder.id)
+        // Blank-shirt inventory decrement (idempotent across paid paths)
+        await decrementBlanksForOrder(existingOrder.id)
       }
     } else {
       // No existing order found - create a new one in Supabase

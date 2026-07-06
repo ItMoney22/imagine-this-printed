@@ -13,6 +13,7 @@ import {
   sendOrderShippedEmail,
   sendOrderDeliveredEmail
 } from '../utils/email.js'
+import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 
 const router = Router()
 
@@ -703,6 +704,10 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
       // Don't throw - this is non-critical
     }
   }
+
+  // Decrement blank-shirt inventory for shirt line items (idempotent — the
+  // webhooks.ts fallback path calls this too; the DB unique index dedupes).
+  await decrementBlanksForOrder(orderId)
 
   req.log?.info({
     orderId,

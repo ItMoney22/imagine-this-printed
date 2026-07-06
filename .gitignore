@@ -48,3 +48,6 @@ scripts/image_storage_report_*.json
 te
 test.txt
 test_modify.txt
+
+# Local agent config (Codex CLI)
+.codex/

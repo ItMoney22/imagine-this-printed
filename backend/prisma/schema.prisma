@@ -184,6 +184,7 @@ model Product {
   category                String
   subcategory             String?
   tags                    String[]  @default([])
+  printLocations          String[]  @default([]) @map("print_locations") // T-shirt placements: front_image | back_image | pocket (shirts need >= 1)
   sku                     String?   @unique
   barcode                 String?
   inStock                 Boolean   @default(true) @map("in_stock")
@@ -523,7 +524,45 @@ model ImaginationProductSize {
   enabled     Boolean  @default(true)
   
   product     ImaginationProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  
+
   @@unique([productId, height])
   @@map("imagination_product_sizes")
+}
+
+model BlankInventory {
+  id               String    @id @default(uuid())
+  brand            String
+  styleCode        String    @map("style_code")
+  color            String
+  size             String
+  qtyOnHand        Int       @default(0) @map("qty_on_hand")
+  reorderThreshold Int       @default(12) @map("reorder_threshold")
+  reorderQty       Int?      @map("reorder_qty")
+  costPerUnit      Decimal?  @map("cost_per_unit")
+  supplier         String?
+  notes            String?
+  lastAlertedAt    DateTime? @map("last_alerted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  movements        BlankInventoryMovement[]
+
+  @@unique([brand, styleCode, color, size])
+  @@map("blank_inventory")
+}
+
+model BlankInventoryMovement {
+  id        String   @id @default(uuid())
+  blankId   String   @map("blank_id")
+  delta     Int
+  reason    String   // 'sale' | 'received' | 'adjustment' | 'shrinkage'
+  orderId   String?  @map("order_id")
+  unitCost  Decimal? @map("unit_cost")
+  note      String?
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blank     BlankInventory @relation(fields: [blankId], references: [id], onDelete: Cascade)
+
+  @@map("blank_inventory_movements")
 }

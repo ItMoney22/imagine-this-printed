@@ -155,6 +155,63 @@ export const sendEmailWithTracking = async (options: EmailOptions): Promise<Send
 // ============================================================================
 
 /**
+ * Low-stock digest for blank-shirt inventory (one email per worker sweep, not
+ * one per SKU). Sent to ADMIN_ALERT_EMAIL (default wecare@).
+ */
+export const sendLowStockAlertEmail = async (
+  items: Array<{
+    brand: string
+    style_code: string
+    color: string
+    size: string
+    qty_on_hand: number
+    reorder_threshold: number
+    reorder_qty: number | null
+    supplier: string | null
+  }>
+): Promise<boolean> => {
+  if (!items.length) return true
+  const to = process.env.ADMIN_ALERT_EMAIL || 'wecare@imaginethisprinted.com'
+  const rows = items.map(i => `
+        <tr>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">${i.brand} ${i.style_code}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">${i.color} / ${i.size}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: center; color: #dc2626; font-weight: bold;">${i.qty_on_hand}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${i.reorder_threshold}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${i.reorder_qty ?? '—'}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">${i.supplier ?? '—'}</td>
+        </tr>`).join('')
+
+  return sendEmail({
+    to,
+    subject: `🚨 Low blank stock: ${items.length} SKU${items.length === 1 ? '' : 's'} at/below reorder point`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #dc2626; margin-top: 0;">Blank inventory needs a re-up</h2>
+        <p style="color: #6b7280;">These blanks are at or below their reorder threshold:</p>
+        <table style="width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px;">
+          <thead>
+            <tr style="background: #f9fafb; text-align: left;">
+              <th style="padding: 8px 12px;">Style</th>
+              <th style="padding: 8px 12px;">Color / Size</th>
+              <th style="padding: 8px 12px; text-align: center;">On hand</th>
+              <th style="padding: 8px 12px; text-align: center;">Threshold</th>
+              <th style="padding: 8px 12px; text-align: center;">Reorder qty</th>
+              <th style="padding: 8px 12px;">Supplier</th>
+            </tr>
+          </thead>
+          <tbody>${rows}
+          </tbody>
+        </table>
+        <p style="color: #6b7280; margin-top: 16px;">
+          Manage stock in the <a href="${FRONTEND_URL}/admin?tab=inventory" style="color: #7c3aed;">admin Inventory tab</a>.
+        </p>
+      </div>
+    `
+  })
+}
+
+/**
  * Send approval notification email to product creator
  */
 export const sendProductApprovalEmail = async (

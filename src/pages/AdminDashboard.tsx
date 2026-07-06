@@ -13,6 +13,7 @@ import AdminSupport from '../components/AdminSupport'
 import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/AdminCreatorProductsTab'
 import AdminImaginationProducts from './admin/ImaginationProducts'
 import AdminCouponManagement from '../components/AdminCouponManagement'
+import AdminInventoryManagement from '../components/AdminInventoryManagement'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
 import AdminConnectManagement from '../components/AdminConnectManagement'
@@ -25,8 +26,8 @@ const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -418,12 +419,13 @@ const AdminDashboard: React.FC = () => {
         .from('user_profiles')
         .select('*', { count: 'exact', head: true })
 
-      // Get total orders and revenue
+      // Get total orders and revenue (live column is `total` — the old
+      // `total_amount` name doesn't exist, which made revenue read $0)
       const { data: orders } = await supabase
         .from('orders')
-        .select('total_amount')
+        .select('total')
 
-      const totalRevenue = orders?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0
+      const totalRevenue = orders?.reduce((sum, order) => sum + (Number(order.total) || 0), 0) || 0
       const totalOrders = orders?.length || 0
 
       // Get active vendors (users with role = 'vendor')
@@ -1811,7 +1813,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
           <nav className="flex flex-wrap gap-2">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'inventory', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -2656,6 +2658,13 @@ const AdminDashboard: React.FC = () => {
         {
           selectedTab === 'creator-products' && (
             <CreatorProductsTab />
+          )
+        }
+
+        {/* Inventory Tab - blank shirt stock + low-stock alerts */}
+        {
+          selectedTab === 'inventory' && (
+            <AdminInventoryManagement />
           )
         }
 
