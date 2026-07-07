@@ -34,6 +34,36 @@ const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  // Products-tab filters: the imported design library pushed the catalog past
+  // 2,700 rows — collection/status/search + paging keep the table usable.
+  const [productSearch, setProductSearch] = useState('')
+  const [productCollectionFilter, setProductCollectionFilter] = useState<string>('all')
+  const [productStatusFilter, setProductStatusFilter] = useState<string>('all')
+  const [productPage, setProductPage] = useState(0)
+  const PRODUCTS_PAGE_SIZE = 50
+  const productCollections = React.useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of products as any[]) {
+      const c = p.metadata?.collection
+      if (c) counts.set(c, (counts.get(c) || 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [products])
+  const filteredProducts = React.useMemo(() => {
+    const q = productSearch.trim().toLowerCase()
+    return (products as any[]).filter(p => {
+      if (productCollectionFilter === '__none__') {
+        if (p.metadata?.collection) return false
+      } else if (productCollectionFilter !== 'all' && (p.metadata?.collection || '') !== productCollectionFilter) {
+        return false
+      }
+      if (productStatusFilter !== 'all' && (p.status || 'draft') !== productStatusFilter) return false
+      if (q && !`${p.name} ${p.category}`.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [products, productCollectionFilter, productStatusFilter, productSearch])
+  const pagedProducts = filteredProducts.slice(productPage * PRODUCTS_PAGE_SIZE, (productPage + 1) * PRODUCTS_PAGE_SIZE)
+  useEffect(() => { setProductPage(0) }, [productCollectionFilter, productStatusFilter, productSearch])
   const [productAssets, setProductAssets] = useState<Record<string, any>>({})
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
   const [productJobs, setProductJobs] = useState<Record<string, any[]>>({})
@@ -517,14 +547,21 @@ const AdminDashboard: React.FC = () => {
 
       setProducts(mappedProducts as any)
 
-      // Fetch source images from product_assets for all products
+      // Fetch source images from product_assets for all products.
+      // Chunked: a single .in() with 2,700+ ids overflows the request URL.
       const productIds = mappedProducts.map(p => p.id)
       if (productIds.length > 0) {
-        const { data: assetsData, error: assetsError } = await supabase
-          .from('product_assets')
-          .select('product_id, url, path')
-          .in('product_id', productIds)
-          .eq('kind', 'source')
+        let assetsData: any[] = []
+        let assetsError: any = null
+        for (let i = 0; i < productIds.length; i += 200) {
+          const { data: chunk, error: chunkError } = await supabase
+            .from('product_assets')
+            .select('product_id, url, path')
+            .in('product_id', productIds.slice(i, i + 200))
+            .eq('kind', 'source')
+          if (chunkError) { assetsError = chunkError; break }
+          if (chunk) assetsData = assetsData.concat(chunk)
+        }
 
         if (!assetsError && assetsData) {
           const assetsMap: Record<string, { url: string, path: string }> = {}
@@ -968,10 +1005,12 @@ const AdminDashboard: React.FC = () => {
   }
 
   const toggleAllProducts = () => {
-    if (selectedProducts.size === products.length) {
+    // Select-all operates on the FILTERED set so bulk publish/delete can't
+    // silently touch products hidden by the current collection/status filter.
+    if (selectedProducts.size === filteredProducts.length) {
       setSelectedProducts(new Set())
     } else {
-      setSelectedProducts(new Set(products.map(p => p.id)))
+      setSelectedProducts(new Set(filteredProducts.map((p: any) => p.id)))
     }
   }
 
@@ -2097,6 +2136,37 @@ const AdminDashboard: React.FC = () => {
                   </button>
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <input
+                  value={productSearch}
+                  onChange={e => setProductSearch(e.target.value)}
+                  placeholder="Search products…"
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm w-56"
+                />
+                <select
+                  value={productCollectionFilter}
+                  onChange={e => setProductCollectionFilter(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white max-w-60"
+                >
+                  <option value="all">All collections</option>
+                  <option value="__none__">Not in a collection</option>
+                  {productCollections.map(([name, count]) => (
+                    <option key={name} value={name}>{name} ({count})</option>
+                  ))}
+                </select>
+                <select
+                  value={productStatusFilter}
+                  onChange={e => setProductStatusFilter(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="active">Active (live)</option>
+                  <option value="draft">Draft</option>
+                  <option value="pending_approval">Pending approval</option>
+                  <option value="incomplete">Incomplete</option>
+                </select>
+                <span className="text-sm text-slate-500">{filteredProducts.length} of {products.length} products</span>
+              </div>
               {selectedProducts.size > 0 && (
                 <div className="flex items-center space-x-3 bg-purple-50 border border-purple-100 p-4 rounded-xl">
                   <span className="text-sm font-semibold text-purple-900">
@@ -2130,7 +2200,7 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-3 py-3 text-left w-10">
                       <input
                         type="checkbox"
-                        checked={products.length > 0 && selectedProducts.size === products.length}
+                        checked={filteredProducts.length > 0 && selectedProducts.size === filteredProducts.length}
                         onChange={toggleAllProducts}
                         className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
                       />
@@ -2146,14 +2216,16 @@ const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {products.length === 0 ? (
+                  {filteredProducts.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                        No products found. Click "Create Product" to add your first product.
+                        {products.length === 0
+                          ? 'No products found. Click "Create Product" to add your first product.'
+                          : 'Nothing matches the current filters.'}
                       </td>
                     </tr>
                   ) : (
-                    products.map((product: any) => {
+                    pagedProducts.map((product: any) => {
                       const sourceAsset = productAssets[product.id]
                       const isExpanded = expandedProductId === product.id
                       const jobs = productJobs[product.id] || []
@@ -2447,6 +2519,30 @@ const AdminDashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            {filteredProducts.length > PRODUCTS_PAGE_SIZE && (
+              <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-sm text-slate-500">
+                <span>
+                  Showing {productPage * PRODUCTS_PAGE_SIZE + 1}–{Math.min((productPage + 1) * PRODUCTS_PAGE_SIZE, filteredProducts.length)} of {filteredProducts.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={productPage === 0}
+                    onClick={() => setProductPage(p => Math.max(0, p - 1))}
+                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40"
+                  >
+                    ← Prev
+                  </button>
+                  <span>{productPage + 1} / {Math.ceil(filteredProducts.length / PRODUCTS_PAGE_SIZE)}</span>
+                  <button
+                    disabled={(productPage + 1) * PRODUCTS_PAGE_SIZE >= filteredProducts.length}
+                    onClick={() => setProductPage(p => p + 1)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )
         }
