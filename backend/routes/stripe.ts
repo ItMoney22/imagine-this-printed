@@ -14,6 +14,7 @@ import {
   sendOrderDeliveredEmail
 } from '../utils/email.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
+import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
 
 const router = Router()
 
@@ -708,6 +709,14 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   // Decrement blank-shirt inventory for shirt line items (idempotent — the
   // webhooks.ts fallback path calls this too; the DB unique index dedupes).
   await decrementBlanksForOrder(orderId)
+
+  // Pay the creators: for each user-generated product on the order, accrue
+  // margin (D1: retail − cost_price − fee share; legacy designs: 15% royalty)
+  // to the creator's ITC wallet. Idempotent per (order, product) — safe on
+  // webhook retries and across both paid paths. This used to be a dead branch
+  // for storefront checkouts (no productId in payment metadata), so external
+  // storefront sales never paid creators.
+  await accrueCreatorMarginsForOrder(orderId, req.log)
 
   req.log?.info({
     orderId,

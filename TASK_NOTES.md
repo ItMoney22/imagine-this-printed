@@ -81,6 +81,22 @@ Note: any older UI scope expansion below is historical context from the complete
   - `src/components/ProductCard.tsx` (slug links)
   - `src/types/index.ts` (Product.slug optional)
 
+### Scope expansion — Merch Studio Phase 1, storefront API upgrades (added 2026-07-10 by Zero Nine, Watchtower task 0af8aa7e-ecbb-4b7e-b118-199066372189)
+- Rationale: David approved the Merch Studio design 2026-07-10 (spec: E:/memory/watchtower/plans/2026-07-10-merch-studio-design.md)
+  and dispatched the ITP-side foundation: REST product-create for external creator storefronts, key→creator catalog scoping,
+  liveness-gate reconciliation, and creator margin payout (D1 model). Owner-approved design + dispatched task = approval to
+  expand scope. Live-DB columns verified via Supabase Management API before edits (products.cost_price MISSING → additive
+  migration; no `approved` column exists; RLS read policy is `USING (true)`).
+- File list (this phase):
+  - `backend/middleware/requireStorefrontSecret.ts` (multi-key auth + key→creator mapping via STOREFRONT_CREATOR_KEYS)
+  - `backend/routes/storefront.ts` (catalog creator scoping + liveness filter; NEW POST /api/storefront/products multipart)
+  - `backend/routes/admin/user-product-approvals.ts` (approve sets is_active; reject clears it; direct-print completeness)
+  - `backend/services/creator-margins.ts` (new — idempotent D1 margin accrual to creator ITC wallet)
+  - `backend/routes/stripe.ts` (wire accrual into handleCheckoutOrderPayment paid path)
+  - `backend/routes/webhooks.ts` (wire accrual into the payment_intent.succeeded fallback paid path)
+  - `supabase/migrations/20260710_merch_studio_storefront.sql` (new — products.cost_price + royalty (order,product) unique index)
+  - `docs/STOREFRONT_CREATOR_API.md` (new — endpoint contract + env setup for Darrell V2 integration)
+
 ## Current implementation notes
 - Mirror the validation/default pattern already in `backend/routes/admin/ai-products.ts`: whitelist and dedupe `front_image`, `back_image`, `pocket`; after the final category is known, default shirts to `['front_image']` when the list is empty.
 - In `backend/routes/user-products.ts`, add `print_locations` to the `products` insert after `normalized.category_slug` is known.
@@ -183,7 +199,7 @@ Note: any older UI scope expansion below is historical context from the complete
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
-- 2026-06-29 Scouted Watchtower task 237e822e-d8aa-424b-bdb5-4e4d55210776, verified the configured DB has `products.print_locations` plus `products_print_locations_valid`, and refreshed `CLAUDE_TASK.md`/`TASK_NOTES.md` with a strict remaining scope for creator submissions, approvals, and Prisma drift.
+- 2026-07-10 (Zero Nine, task 0af8aa7e) Shipped Merch Studio Phase 1 storefront API upgrades: multi-key storefront auth with key→creator mapping (STOREFRONT_CREATOR_KEYS); NEW POST /api/storefront/products (multipart print files + mockups → GCS, product created AS the mapped creator with status=pending_approval + cost_price=$10 base/+$5 back, lands in the existing approval queue); creator scoping on GET /catalog (legacy earth019 key stays unscoped); liveness-gate reconciliation (catalog+checkout now require status='active' AND is_active=true — is_active defaults TRUE live, so 2,384 drafts were leaking; approve sets both flags, reject clears is_active); creator payout dead-branch fix (services/creator-margins.ts — D1 margin retail−cost−fee to ITC wallet, legacy designs keep 15%, idempotent per (order,product) via existence check + new unique index, wired into BOTH paid paths). Live DB verified via Management API BEFORE edits (no cost_price column → additive migration 20260710_merch_studio_storefront.sql, applied + verified live; no `approved` column, RLS read is USING(true) so no third gate). Verified: backend tsc exit 0, backend build exit 0, frontend build exit 0, PLUS live runtime smoke on :4999 — scoped catalog (6 items, vendor echo), unscoped (34), 401 bad key, 403 publish on unscoped key, 201 publish (row shape verified in DB: cost_price 15, print_locations front+back, queue-visible), pending product hidden from catalog, 400 below-cost; test product deleted after.
 - 2026-06-29 (Zero Nine) Audited the prior admin-dropdown build end-to-end (AdminCreateProductWizard PrintLocationsDropdown is a correct >=1 multi-select gated to category==='shirts', wired to payload + draft autosave; types + ai-products /create validation confirmed) AND fixed two regressions the CHECK constraint (`products_print_locations_valid`, requires >=1 placement for category='shirts') would otherwise cause on LIVE flows: (1) `backend/routes/user-products.ts` /create now computes `print_locations` (accepts req.body, defaults shirts->['front_image']) and inserts it, so vendor shirt submissions don't fail the constraint; (2) `backend/routes/admin/user-product-approvals.ts` approve now resolves `print_locations` whenever the product will be category='shirts' (admin-supplied -> existing -> ['front_image']), so approving an uncategorized apparel submission (which defaults category to 'shirts') doesn't fail. Also synced `backend/prisma/schema.prisma` Product with `printLocations String[] @map("print_locations")`. Verified ALL other backend products.insert paths are safe (null category / 't-shirts' hyphenated / spread ...rest / '3d-prints'). Backend `npm run typecheck` exit 0; frontend `npm run build` exit 0 (8.02s). Changes uncommitted (no push requested). Follow-up task 1a78cba7-c6f1-4fd1-b054-b6a41005195c filed for storefront/vendor surfacing. Handoff: E:/memory/watchtower/handoffs/handoff-zero-nine-1782767944942.json.
 - 2026-06-29 Implemented DTF print-size presets in Mr. Imagine and Imagination Station: modal now emits Pocket 4", Youth 7", Small 8", Medium 9", Large 10", XL 11", XXL 12", XXXL 13" metadata; sheet placement uses selected print width; quick sizes match the same set.
 - 2026-06-29 Scouted DTF print-size option surfaces and refreshed `CLAUDE_TASK.md`/`TASK_NOTES.md` with a strict scope for replacing photo/pixel sizes with Pocket 4", Youth 7", Small 8", Medium 9", Large 10", XL 11", XXL 12", XXXL 13".

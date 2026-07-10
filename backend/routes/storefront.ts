@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express'
 import Stripe from 'stripe'
+import multer from 'multer'
+import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { requireStorefrontSecret } from '../middleware/requireStorefrontSecret.js'
+import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
 // storefront server POSTs a mixed cart; ITP resolves catalog prices server-side,
@@ -28,6 +32,52 @@ const isPlusSize = (size?: string): boolean =>
 const DEFAULT_SUCCESS_URL = process.env.STOREFRONT_SUCCESS_URL || 'https://earth019.com/checkout/success'
 const DEFAULT_CANCEL_URL = process.env.STOREFRONT_CANCEL_URL || 'https://earth019.com/cart'
 
+// D1 cost model for creator (Merch Studio) products: ITP base cost per shirt,
+// plus an extra-location upcharge when a back print ships too. Env-overridable
+// so the back-print $ can be tuned without a deploy. (Creator margin at sale
+// time = retail − cost_price − fee share; see services/creator-margins.ts.)
+const BASE_COST_USD = (() => {
+  const v = Number(process.env.STOREFRONT_BASE_COST_USD)
+  return Number.isFinite(v) && v > 0 ? v : 10
+})()
+const BACK_PRINT_UPCHARGE_USD = (() => {
+  const v = Number(process.env.STOREFRONT_BACK_PRINT_UPCHARGE_USD)
+  return Number.isFinite(v) && v >= 0 ? v : 5
+})()
+
+// Multipart upload for creator product publishes: print files are PNG
+// (300 DPI at print size, transparent bg — DPI is enforced by the publishing
+// studio; ITP re-checks at review), mockups may be png/jpg/webp composites.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 80 * 1024 * 1024, files: 12 },
+  fileFilter: (_req, file, cb) => {
+    if (file.fieldname === 'front_print' || file.fieldname === 'back_print') {
+      cb(null, file.mimetype === 'image/png')
+    } else {
+      cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype))
+    }
+  }
+})
+
+// Accepts either a JSON array string ('["Black","White"]') or CSV ('Black,White').
+function parseListField(raw: unknown, max = 30): string[] {
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  let values: unknown[] = []
+  try {
+    const parsed = JSON.parse(raw)
+    values = Array.isArray(parsed) ? parsed : []
+  } catch {
+    values = raw.split(',')
+  }
+  return [...new Set(
+    values
+      .filter((v): v is string => typeof v === 'string')
+      .map(v => v.trim())
+      .filter(Boolean)
+  )].slice(0, max)
+}
+
 const isHttpUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -45,16 +95,37 @@ type ResolvedLine = {
   size?: string
   color?: string
   image?: string
+  printFiles?: { front?: string; back?: string } | null
 }
 
-// GET /api/storefront/catalog — active ITP products an external storefront can list + sell.
-router.get('/catalog', requireStorefrontSecret, async (_req: Request, res: Response): Promise<any> => {
-  const { data, error } = await supabase
+// GET /api/storefront/catalog — sellable ITP products an external storefront can list.
+//
+// Liveness gate (reconciled 2026-07-10): sellable = status 'active' AND
+// is_active true. is_active DEFAULTS TRUE in the live DB, so filtering on it
+// alone leaked 2,000+ draft (unapproved) products into external storefronts;
+// status alone misses admin-deactivated items. Both flags together are the
+// single source of truth — the approval flow now sets both (see
+// routes/admin/user-product-approvals.ts).
+//
+// Creator scoping: a creator-mapped key (STOREFRONT_CREATOR_KEYS) only sees
+// products its ITP user created — e.g. Darrell's /shop lists only Darrell's
+// merch. The legacy earth019 key has no creator mapping and keeps the full
+// (unscoped) catalog.
+router.get('/catalog', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
+  let query = supabase
     .from('products')
-    .select('id, name, description, price, images, category, metadata, is_active')
+    .select('id, name, description, price, images, category, metadata, is_active, status, sizes, colors, print_locations, created_by_user_id')
     .eq('is_active', true)
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(200)
+
+  const creatorUserId = req.storefront?.creatorUserId
+  if (creatorUserId) {
+    query = query.eq('created_by_user_id', creatorUserId)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     return res.status(500).json({ error: 'Failed to load catalog', message: error.message })
@@ -68,10 +139,16 @@ router.get('/catalog', requireStorefrontSecret, async (_req: Request, res: Respo
     image: Array.isArray(p.images) ? p.images[0] : undefined,
     images: Array.isArray(p.images) ? p.images : [],
     category: p.category,
-    sizes: p.metadata?.sizes || undefined
+    sizes: (Array.isArray(p.sizes) && p.sizes.length ? p.sizes : p.metadata?.sizes) || undefined,
+    colors: Array.isArray(p.colors) && p.colors.length ? p.colors : undefined,
+    printLocations: Array.isArray(p.print_locations) && p.print_locations.length ? p.print_locations : undefined
   }))
 
-  return res.json({ products, plusSizeUpchargeCents: Math.round(PLUS_SIZE_UPCHARGE * 100) })
+  return res.json({
+    products,
+    plusSizeUpchargeCents: Math.round(PLUS_SIZE_UPCHARGE * 100),
+    ...(creatorUserId ? { vendor: req.storefront?.vendor } : {})
+  })
 })
 
 // POST /api/storefront/checkout — create a hosted Stripe Checkout Session for a
@@ -96,7 +173,9 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
       return res.status(400).json({ error: 'Too many items (max 50)' })
     }
 
-    const storefront = (typeof source === 'string' && source.trim()) ? source.trim() : 'earth019'
+    const storefront = (typeof source === 'string' && source.trim())
+      ? source.trim()
+      : (req.storefront?.vendor || 'earth019')
     const lines: ResolvedLine[] = []
 
     for (const raw of items) {
@@ -110,14 +189,17 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         }
         const { data: product, error } = await supabase
           .from('products')
-          .select('id, name, price, images, is_active')
+          .select('id, name, price, images, is_active, status, metadata')
           .eq('id', raw.productId)
           .single()
 
         if (error || !product) {
           return res.status(400).json({ error: `Unknown product: ${raw.productId}` })
         }
-        if (product.is_active === false) {
+        // Same liveness gate as /catalog: only status-active AND is_active
+        // products are sellable (is_active defaults true, so drafts passed the
+        // old is_active-only check and were purchasable).
+        if (product.is_active === false || product.status !== 'active') {
           return res.status(400).json({ error: `Product not available: ${raw.productId}` })
         }
 
@@ -127,15 +209,23 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           return res.status(400).json({ error: `Invalid price for product ${raw.productId}` })
         }
 
+        // Creator (Merch Studio) products carry their print-ready files on the
+        // product itself — default the fulfillment design URL from them so the
+        // DTF queue always has the art even when the storefront omits designUrl.
+        const printFiles = (product.metadata?.print_files && typeof product.metadata.print_files === 'object')
+          ? product.metadata.print_files as { front?: string; back?: string }
+          : null
+
         lines.push({
           name: product.name || 'ITP Product',
           unitAmount,
           quantity,
           productId: product.id,
-          designUrl: isHttpUrl(raw.designUrl) ? raw.designUrl : null,
+          designUrl: isHttpUrl(raw.designUrl) ? raw.designUrl : (isHttpUrl(printFiles?.front) ? printFiles!.front! : null),
           size,
           color,
-          image: Array.isArray(product.images) ? product.images[0] : undefined
+          image: Array.isArray(product.images) ? product.images[0] : undefined,
+          printFiles
         })
       } else {
         // Custom storefront item — price is TRUSTED from the authenticated storefront
@@ -236,6 +326,9 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           image_url: l.image ?? null,
           size: l.size ?? null,
           color: l.color ?? null,
+          // Both placements for the DTF operator when the product ships with
+          // print-ready files (design_url alone only carries the front).
+          ...(l.printFiles ? { print_files: l.printFiles } : {}),
         }
       }))
     )
@@ -291,6 +384,219 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
   } catch (error: any) {
     req.log?.error({ err: error }, 'storefront checkout failed')
     return res.status(500).json({ error: 'Failed to create checkout', message: error.message })
+  }
+})
+
+// POST /api/storefront/products — a trusted creator storefront (Darrell V2
+// Merch Studio) publishes a designed product INTO ITP. Requires a
+// creator-mapped key (STOREFRONT_CREATOR_KEYS); the legacy unscoped key is
+// rejected because there is no creator to own the product.
+//
+// multipart/form-data:
+//   front_print  PNG file, REQUIRED — print-ready front art (300 DPI at print
+//                size, transparent bg; the studio enforces DPI before publish)
+//   back_print   PNG file, optional — print-ready back art (adds the
+//                extra-location upcharge to cost_price)
+//   mockups      up to 10 images (png/jpg/webp) — per-color composites shown
+//                in the review queue and on /shop
+//   name         REQUIRED
+//   retailPrice  REQUIRED, dollars ("24.99"); must beat cost or publish fails
+//   description  optional
+//   colors       optional — JSON array or CSV ("Black,White")
+//   sizes        optional — JSON array or CSV ("S,M,L,XL,2XL")
+//   placement    optional — JSON blob of designer transforms (stored verbatim)
+//   externalRef  optional — the storefront's draft id, echoed for reconciliation
+//
+// The product is created AS the mapped creator: created_by_user_id=<creator>,
+// is_user_generated=true, status='pending_approval',
+// cost_price=$10 base (+$5 back upcharge; env-tunable). Files land in ITP GCS
+// storage; the product lands in the existing admin approval queue
+// (metadata.user_submitted + status='pending_approval'), and on approval goes
+// live on the creator's scoped /catalog.
+router.post('/products', requireStorefrontSecret, (req: Request, res: Response, next) => {
+  upload.fields([
+    { name: 'front_print', maxCount: 1 },
+    { name: 'back_print', maxCount: 1 },
+    { name: 'mockups', maxCount: 10 }
+  ])(req, res, (err: any) => {
+    if (err) return res.status(400).json({ error: 'Upload failed', message: err.message })
+    next()
+  })
+}, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const creatorUserId = req.storefront?.creatorUserId
+    const vendor = req.storefront?.vendor || 'storefront'
+    if (!creatorUserId) {
+      return res.status(403).json({ error: 'This storefront key has no creator mapping — product publishing requires a creator-scoped key' })
+    }
+
+    const files = (req.files || {}) as { [field: string]: Express.Multer.File[] }
+    const frontPrint = files.front_print?.[0]
+    const backPrint = files.back_print?.[0]
+    const mockupFiles = files.mockups || []
+
+    if (!frontPrint) {
+      return res.status(400).json({ error: 'front_print PNG is required' })
+    }
+
+    const name = (typeof req.body.name === 'string' ? req.body.name : '').trim()
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' })
+    }
+
+    const retailUsd = Number(req.body.retailPrice ?? (Number(req.body.retailPriceCents) / 100))
+    if (!Number.isFinite(retailUsd) || retailUsd <= 0) {
+      return res.status(400).json({ error: 'retailPrice (dollars) is required' })
+    }
+
+    // D1 cost: base + extra-location upcharge when a back print ships.
+    const costUsd = BASE_COST_USD + (backPrint ? BACK_PRINT_UPCHARGE_USD : 0)
+    if (retailUsd <= costUsd) {
+      return res.status(400).json({
+        error: `Retail price must exceed base cost ($${costUsd.toFixed(2)})`,
+        costUsd,
+        retailUsd
+      })
+    }
+
+    const description = (typeof req.body.description === 'string' && req.body.description.trim())
+      ? req.body.description.trim()
+      : null
+    const colors = parseListField(req.body.colors)
+    const sizes = parseListField(req.body.sizes)
+    const externalRef = (typeof req.body.externalRef === 'string' && req.body.externalRef.trim())
+      ? req.body.externalRef.trim()
+      : null
+    let placement: any = null
+    if (typeof req.body.placement === 'string' && req.body.placement.trim()) {
+      try { placement = JSON.parse(req.body.placement) } catch { /* stored as null; not fatal */ }
+    }
+
+    // Store print files + mockups in ITP storage (GCS) — ITP owns everything
+    // after Publish.
+    const batchId = nanoid(10)
+    const basePath = `merch-studio/${vendor}/${batchId}`
+    const frontUpload = await uploadImageFromBuffer(frontPrint.buffer, `${basePath}/front.png`, 'image/png')
+    const backUpload = backPrint
+      ? await uploadImageFromBuffer(backPrint.buffer, `${basePath}/back.png`, 'image/png')
+      : null
+    const mockupUrls: string[] = []
+    for (let i = 0; i < mockupFiles.length; i++) {
+      const f = mockupFiles[i]
+      const ext = f.mimetype === 'image/jpeg' ? 'jpg' : f.mimetype === 'image/webp' ? 'webp' : 'png'
+      const uploaded = await uploadImageFromBuffer(f.buffer, `${basePath}/mockup-${i + 1}.${ext}`, f.mimetype)
+      mockupUrls.push(uploaded.publicUrl)
+    }
+
+    // Resolve the shirts category WITHOUT clobbering its display name (the
+    // AI-flow upsert pattern overwrites `name`; a select-then-insert doesn't).
+    let categoryId: string | null = null
+    const { data: existingCategory } = await supabase
+      .from('product_categories')
+      .select('id')
+      .eq('slug', 'shirts')
+      .maybeSingle()
+    if (existingCategory) {
+      categoryId = existingCategory.id
+    } else {
+      const { data: newCategory } = await supabase
+        .from('product_categories')
+        .insert({ slug: 'shirts', name: 'Shirts' })
+        .select('id')
+        .single()
+      categoryId = newCategory?.id ?? null
+    }
+
+    // Unique slug (same pattern as the AI product flows).
+    const baseSlug = slugify(name)
+    const { data: existingProducts } = await supabase
+      .from('products')
+      .select('slug')
+      .like('slug', `${baseSlug}%`)
+    const uniqueSlug = generateUniqueSlug(baseSlug, existingProducts?.map((p: any) => p.slug).filter(Boolean) || [])
+
+    const printLocations = backUpload ? ['front_image', 'back_image'] : ['front_image']
+    const printFiles: { front: string; back?: string } = { front: frontUpload.publicUrl }
+    if (backUpload) printFiles.back = backUpload.publicUrl
+
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .insert({
+        category_id: categoryId,
+        name,
+        slug: uniqueSlug,
+        description: description || `${name} — custom shirt`,
+        price: retailUsd,
+        cost_price: costUsd,
+        status: 'pending_approval', // lands in the existing admin approval queue
+        is_active: true, // sellable gate is status+is_active; status holds it back until approval
+        images: mockupUrls.length ? mockupUrls : [frontUpload.publicUrl],
+        category: 'shirts',
+        print_locations: printLocations,
+        ...(sizes.length ? { sizes } : {}),
+        ...(colors.length ? { colors } : {}),
+        is_user_generated: true,
+        created_by_user_id: creatorUserId,
+        metadata: {
+          user_submitted: true, // approval-queue filter key
+          creator_id: creatorUserId,
+          source: 'merch-studio',
+          storefront_vendor: vendor,
+          external_ref: externalRef,
+          placement,
+          print_files: printFiles,
+          mockup_url: mockupUrls[0] || null,
+          // Direct-print product: the uploaded 300-DPI transparent PNG IS the
+          // print-ready deliverable, so it doubles as clean art + DTF file.
+          // The approval completeness gate skips AI-generation artifacts
+          // (halftone) for products carrying print_files.
+          assets: {
+            clean: frontUpload.publicUrl,
+            dtf: frontUpload.publicUrl,
+            ...(backUpload ? { back_print: backUpload.publicUrl } : {}),
+            mockups: mockupUrls,
+          },
+          cost_breakdown: {
+            base_usd: BASE_COST_USD,
+            back_upcharge_usd: backUpload ? BACK_PRINT_UPCHARGE_USD : 0,
+          },
+          submitted_at: new Date().toISOString(),
+        },
+      })
+      .select('id, slug, status')
+      .single()
+
+    if (productError) {
+      req.log?.error({ err: productError, vendor }, 'storefront: product create failed')
+      return res.status(500).json({ error: 'Failed to create product', message: productError.message })
+    }
+
+    req.log?.info({
+      productId: product.id,
+      vendor,
+      creatorUserId,
+      retailUsd,
+      costUsd,
+      backPrint: !!backUpload,
+      mockups: mockupUrls.length
+    }, 'storefront: creator product submitted for approval')
+
+    return res.status(201).json({
+      productId: product.id,
+      slug: product.slug,
+      status: product.status, // 'pending_approval'
+      name,
+      retailUsd,
+      costUsd,
+      files: {
+        front: frontUpload.publicUrl,
+        ...(backUpload ? { back: backUpload.publicUrl } : {}),
+        mockups: mockupUrls,
+      },
+    })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'storefront: product create crashed')
+    return res.status(500).json({ error: 'Failed to create product', message: error.message })
   }
 })
 

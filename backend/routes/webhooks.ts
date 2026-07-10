@@ -4,6 +4,7 @@ import Stripe from 'stripe'
 import { supabase } from '../lib/supabase.js'
 import { sendWelcomeEmail } from '../utils/email.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
+import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
 import {
   handleConnectAccountUpdate,
   handlePayoutPaid,
@@ -359,6 +360,9 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         console.log('[Stripe Webhook] ✅ Order updated to paid:', existingOrder.id)
         // Blank-shirt inventory decrement (idempotent across paid paths)
         await decrementBlanksForOrder(existingOrder.id)
+        // Creator margin accrual (idempotent across paid paths — same
+        // (order, product) dedupe as the stripe.ts path)
+        await accrueCreatorMarginsForOrder(existingOrder.id, console)
       }
     } else {
       // No existing order found - create a new one in Supabase

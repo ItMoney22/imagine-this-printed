@@ -107,10 +107,15 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       : (tmpl.includes('3d') || tmpl.includes('toy')) ? '3d' : 'apparel'
     const assets = (product.metadata?.assets && typeof product.metadata.assets === 'object') ? product.metadata.assets : {}
     const hasMockup = !!(product.metadata?.mockup_url || (Array.isArray(assets.mockups) && assets.mockups.length))
+    // Direct-print products (Merch Studio publishes via POST
+    // /api/storefront/products) arrive with print-ready 300-DPI files —
+    // metadata.print_files — so the AI-generation artifacts (halftone) don't
+    // exist and must not hold up approval.
+    const isDirectPrint = !!product.metadata?.print_files?.front
     const missingGenerations: string[] = []
     if (!assets.clean && !(Array.isArray(product.images) && product.images.length)) missingGenerations.push('clean design')
     if (!hasMockup) missingGenerations.push('mockup')
-    if (kind === 'apparel') {
+    if (kind === 'apparel' && !isDirectPrint) {
       if (!assets.halftone) missingGenerations.push('halftone')
       if (!assets.dtf) missingGenerations.push('DTF print-ready')
     }
@@ -131,9 +136,14 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       }
     }
 
-    // Build update object with colors, sizes, and price
+    // Build update object with colors, sizes, and price.
+    // Liveness gate reconciliation (2026-07-10): the storefront catalog +
+    // checkout require BOTH status='active' AND is_active=true (is_active
+    // defaults true in the live DB, so status alone never gated anything).
+    // Approval must therefore set both flags together.
     const updateData: any = {
       status: generationStatus,
+      is_active: generationStatus === 'active',
       metadata: {
         ...product.metadata,
         approved_at: new Date().toISOString(),
@@ -346,6 +356,9 @@ router.post('/:id/reject', requireAuth, requireAdmin, async (req: Request, res: 
       .from('products')
       .update({
         status: 'rejected',
+        // is_active defaults true — clear it so a rejected product can never
+        // satisfy the storefront's sellable gate.
+        is_active: false,
         metadata: {
           ...product.metadata,
           rejected_at: new Date().toISOString(),
