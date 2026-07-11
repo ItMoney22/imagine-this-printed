@@ -53,6 +53,24 @@ creator's scoped catalog. Rejection sets `status='rejected'` + `is_active=false`
 
 Returns `201 { productId, slug, status, retailUsd, costUsd, files }`.
 
+## GET /api/storefront/products/status  (creator keys only)
+
+Review-status pull so the storefront can reconcile its local design records.
+`/catalog` only lists sellable products — approvals show up there, rejections
+never do. This endpoint reports both.
+
+- `?ids=<csv of product uuids>` narrows the report (max 200); without it, every
+  product the vendor published (`metadata.storefront_vendor`) returns, newest
+  first (max 500).
+- Response: `{ vendor, products: [{ productId, externalRef, status,
+  rejectionReason, rawStatus }] }`. `status` collapses ITP internals to the
+  contract: `active` (approved + sellable) · `rejected` (reason from
+  `metadata.rejection_reason`) · `pending_approval` (everything else — queued,
+  incomplete, deactivated). `externalRef` echoes the storefront's draft id from
+  publish time.
+- Darrell V2 consumes this on every `GET /api/merch/designs` (the My Merch
+  list): `active` → "Live", `rejected` → "Needs changes" + the reason.
+
 ## POST /api/storefront/checkout (existing, hardened)
 
 - Catalog items are only sellable when `status='active' AND is_active=true`.

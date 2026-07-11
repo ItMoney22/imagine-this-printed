@@ -600,4 +600,76 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
   }
 })
 
+// GET /api/storefront/products/status — creator-scoped review-status pull, so an
+// external storefront can reconcile its local design records with ITP's approval
+// pipeline. The /catalog only lists SELLABLE products, so an approval is visible
+// there but a REJECTION never is — this endpoint reports both, keyed by product
+// id + the externalRef the storefront sent at publish time.
+//
+// Requires a creator-mapped key (same 403 rule as POST /products — the legacy
+// unscoped key has no creator whose products it could report on).
+//
+// Query: ?ids=<csv of product uuids> narrows the report (max 200); without it,
+// every product this vendor published (metadata.storefront_vendor) is returned,
+// newest first (max 500).
+//
+// Response: { vendor, products: [{ productId, externalRef, status,
+// rejectionReason, rawStatus }] } where `status` collapses ITP internals to the
+// storefront contract:
+//   'active'           — approved AND sellable (status 'active' + is_active)
+//   'rejected'         — sent back (reason from metadata.rejection_reason)
+//   'pending_approval' — anything else (in queue, incomplete, deactivated)
+router.get('/products/status', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const creatorUserId = req.storefront?.creatorUserId
+    const vendor = req.storefront?.vendor || 'storefront'
+    if (!creatorUserId) {
+      return res.status(403).json({ error: 'This storefront key has no creator mapping — status reporting requires a creator-scoped key' })
+    }
+
+    const ids = (typeof req.query.ids === 'string' ? req.query.ids : '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(s => UUID_RE.test(s))
+      .slice(0, 200)
+
+    let query = supabase
+      .from('products')
+      .select('id, status, is_active, metadata')
+      .eq('created_by_user_id', creatorUserId)
+
+    if (ids.length > 0) {
+      query = query.in('id', ids)
+    } else {
+      query = query
+        .eq('metadata->>storefront_vendor', vendor)
+        .order('created_at', { ascending: false })
+        .limit(500)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      return res.status(500).json({ error: 'Failed to load product statuses', message: error.message })
+    }
+
+    const products = (data || []).map((p: any) => {
+      const rejected = p.status === 'rejected'
+      return {
+        productId: p.id,
+        externalRef: p.metadata?.external_ref ?? null,
+        status: (p.status === 'active' && p.is_active !== false) ? 'active'
+          : rejected ? 'rejected'
+          : 'pending_approval',
+        rawStatus: p.status,
+        rejectionReason: rejected ? (p.metadata?.rejection_reason ?? null) : null,
+      }
+    })
+
+    return res.json({ vendor, products })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'storefront: product status report failed')
+    return res.status(500).json({ error: 'Failed to load product statuses', message: error.message })
+  }
+})
+
 export default router
