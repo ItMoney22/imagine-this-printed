@@ -164,7 +164,7 @@ router.get('/catalog', requireStorefrontSecret, async (req: Request, res: Respon
 // }
 router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { items, customer, successUrl, cancelUrl, externalRef, source } = req.body || {}
+    const { items, customer, successUrl, cancelUrl, externalRef, source, embedded, shippingCents, shippingLabel } = req.body || {}
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'items array required' })
@@ -172,6 +172,21 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
     if (items.length > 50) {
       return res.status(400).json({ error: 'Too many items (max 50)' })
     }
+
+    // Shipping chosen on the storefront (from /api/shipping/rates — the Shippo
+    // flow) rides in as a fixed amount + label. Trusted like custom pricing:
+    // the storefront key is authenticated. Clamped to something sane.
+    const shipCents = Math.max(0, Math.min(20000, parseInt(shippingCents, 10) || 0))
+    const shipLabel = (typeof shippingLabel === 'string' && shippingLabel.trim())
+      ? shippingLabel.trim().slice(0, 80)
+      : 'Shipping'
+    // A storefront that collected the buyer's address itself (embedded flow)
+    // passes customer.shipping — then Stripe skips re-collecting it.
+    const providedAddress = customer?.shipping && typeof customer.shipping === 'object' &&
+      (customer.shipping.address || customer.shipping.street1) && (customer.shipping.zipCode || customer.shipping.zip)
+      ? customer.shipping
+      : null
+    const useEmbedded = embedded === true
 
     const storefront = (typeof source === 'string' && source.trim())
       ? source.trim()
@@ -271,9 +286,9 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         customer_name: customerName,
         subtotal: subtotalCents / 100,
         tax_amount: 0,
-        shipping_amount: 0,
+        shipping_amount: shipCents / 100,
         discount_amount: 0,
-        total: subtotalCents / 100,
+        total: (subtotalCents + shipCents) / 100,
         currency: 'USD',
         status: 'pending',
         payment_status: 'pending',
@@ -339,6 +354,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
     const baseSuccess = isHttpUrl(successUrl) ? successUrl : DEFAULT_SUCCESS_URL
     const baseCancel = isHttpUrl(cancelUrl) ? cancelUrl : DEFAULT_CANCEL_URL
 
+    const successWithParams = withParams(baseSuccess, { order: encodeURIComponent(orderNumber), session_id: '{CHECKOUT_SESSION_ID}' })
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lines.map(l => ({
@@ -353,10 +369,28 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         }
       })),
       ...(email ? { customer_email: email } : {}),
-      success_url: withParams(baseSuccess, { order: encodeURIComponent(orderNumber), session_id: '{CHECKOUT_SESSION_ID}' }),
-      cancel_url: baseCancel,
-      shipping_address_collection: { allowed_countries: ['US'] },
-      phone_number_collection: { enabled: true },
+      // Embedded mode renders inside the storefront's own page (no redirect);
+      // hosted mode keeps the classic success/cancel redirect pair.
+      ...(useEmbedded
+        ? { ui_mode: 'embedded' as const, return_url: successWithParams }
+        : { success_url: successWithParams, cancel_url: baseCancel }),
+      // The chosen carrier rate (from /api/shipping/rates) becomes the Stripe
+      // shipping line so the buyer pays it with the order.
+      ...(shipCents > 0
+        ? {
+            shipping_options: [{
+              shipping_rate_data: {
+                type: 'fixed_amount' as const,
+                display_name: shipLabel,
+                fixed_amount: { amount: shipCents, currency: 'usd' }
+              }
+            }]
+          }
+        : {}),
+      // Skip re-collecting the address when the storefront already captured it
+      // (that address is what the rate was quoted against, and it's on the order).
+      ...(providedAddress ? {} : { shipping_address_collection: { allowed_countries: ['US'] } }),
+      phone_number_collection: { enabled: !providedAddress },
       metadata: { orderId: order.id, orderNumber, source: storefront },
       // This is the bridge to ITP's existing webhook: payment_intent.succeeded ->
       // handleCheckoutOrderPayment marks the order paid + emails the buyer.
@@ -380,6 +414,17 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
       sessionId: session.id
     }, 'storefront checkout session created')
 
+    if (useEmbedded) {
+      // client_secret mounts Stripe's Embedded Checkout on the storefront's own
+      // page; the publishable key is public by design and pairs with it.
+      return res.json({
+        clientSecret: session.client_secret,
+        publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || null,
+        orderId: order.id,
+        orderNumber,
+        sessionId: session.id
+      })
+    }
     return res.json({ url: session.url, orderId: order.id, orderNumber, sessionId: session.id })
   } catch (error: any) {
     req.log?.error({ err: error }, 'storefront checkout failed')
