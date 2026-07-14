@@ -512,6 +512,25 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     const externalRef = (typeof req.body.externalRef === 'string' && req.body.externalRef.trim())
       ? req.body.externalRef.trim()
       : null
+    // SEO metadata fields (optional — Merch Studio "Write the listing for me").
+    // Populates existing meta_title / meta_description / search_keywords columns
+    // (20260706_product_seo_columns.sql) + the new alt_text column
+    // (20260714_product_alt_text.sql). Stored flat so product pages read them
+    // directly; keywords join to comma-separated search_keywords string.
+    const seoTitle = (typeof req.body.seoTitle === 'string' && req.body.seoTitle.trim())
+      ? req.body.seoTitle.trim().slice(0, 200)
+      : null
+    const metaDescription = (typeof req.body.metaDescription === 'string' && req.body.metaDescription.trim())
+      ? req.body.metaDescription.trim().slice(0, 320)
+      : null
+    const keywords = parseListField(req.body.keywords, 30)
+    const customSlug = (typeof req.body.customSlug === 'string' && req.body.customSlug.trim())
+      ? req.body.customSlug.trim().slice(0, 100)
+      : null
+    const altText = (typeof req.body.altText === 'string' && req.body.altText.trim())
+      ? req.body.altText.trim().slice(0, 200)
+      : null
+
     let placement: any = null
     if (typeof req.body.placement === 'string' && req.body.placement.trim()) {
       try { placement = JSON.parse(req.body.placement) } catch { /* stored as null; not fatal */ }
@@ -552,13 +571,14 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       categoryId = newCategory?.id ?? null
     }
 
-    // Unique slug (same pattern as the AI product flows).
-    const baseSlug = slugify(name)
+    // Unique slug — prefer the Merch Studio custom slug when provided, otherwise
+    // auto-generate from name (same pattern as the AI product flows).
+    const slugCandidate = customSlug ? slugify(customSlug) : slugify(name)
     const { data: existingProducts } = await supabase
       .from('products')
       .select('slug')
-      .like('slug', `${baseSlug}%`)
-    const uniqueSlug = generateUniqueSlug(baseSlug, existingProducts?.map((p: any) => p.slug).filter(Boolean) || [])
+      .like('slug', `${slugCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}%`)
+    const uniqueSlug = generateUniqueSlug(slugCandidate, existingProducts?.map((p: any) => p.slug).filter(Boolean) || [])
 
     const printLocations = backUpload ? ['front_image', 'back_image'] : ['front_image']
     const printFiles: { front: string; back?: string } = { front: frontUpload.publicUrl }
@@ -580,6 +600,10 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         print_locations: printLocations,
         ...(sizes.length ? { sizes } : {}),
         ...(colors.length ? { colors } : {}),
+        ...(seoTitle ? { meta_title: seoTitle } : {}),
+        ...(metaDescription ? { meta_description: metaDescription } : {}),
+        ...(keywords.length ? { search_keywords: keywords.join(', ') } : {}),
+        ...(altText ? { alt_text: altText } : {}),
         is_user_generated: true,
         created_by_user_id: creatorUserId,
         metadata: {

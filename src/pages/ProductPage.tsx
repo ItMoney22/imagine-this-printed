@@ -73,6 +73,12 @@ const ProductPage: React.FC = () => {
             createdAt: data.created_at,
             updatedAt: data.updated_at,
             metadata: data.metadata || {},
+            // SEO metadata from Merch Studio (products.meta_title / meta_description
+            // / search_keywords / alt_text — populated by the storefront publish API)
+            metaTitle: data.meta_title || undefined,
+            metaDescription: data.meta_description || undefined,
+            searchKeywords: data.search_keywords || undefined,
+            altText: data.alt_text || undefined,
             isThreeForTwentyFive: data.metadata?.isThreeForTwentyFive || false,
             // sizes/colors live on the products columns (set at approval); fall
             // back to metadata for legacy rows.
@@ -101,15 +107,20 @@ const ProductPage: React.FC = () => {
     loadProduct()
   }, [id])
 
-  // Client-side SEO: title, description and canonical for the loaded design
-  // (bots get these server-injected via api/product-meta.mjs; this keeps the
-  // rendered DOM consistent for Google's JS pass and for humans' tab titles).
+  // Client-side SEO: title, description, keywords, and canonical for the loaded
+  // design. Merch Studio products carry dedicated meta_title / meta_description /
+  // search_keywords / alt_text columns; fall back to the product name/description
+  // for legacy products that predate the SEO columns. This keeps the rendered DOM
+  // consistent for Google's JS pass and for humans' tab titles.
   useEffect(() => {
     if (!product) return
     const prevTitle = document.title
-    document.title = `${product.name} | Imagine This Printed`
+    // SEO title first, then product name, then the site suffix
+    const pageTitle = product.metaTitle || product.name
+    document.title = `${pageTitle} | Imagine This Printed`
 
-    const desc = product.description?.replace(/\s+/g, ' ').slice(0, 155) || ''
+    // Meta description: dedicated SEO description, then product description
+    const desc = (product.metaDescription || product.description || '').replace(/\s+/g, ' ').slice(0, 155)
     let metaDesc = document.querySelector('meta[name="description"]') as HTMLMetaElement | null
     if (!metaDesc) {
       metaDesc = document.createElement('meta')
@@ -118,6 +129,19 @@ const ProductPage: React.FC = () => {
     }
     const prevDesc = metaDesc.content
     if (desc) metaDesc.content = desc
+
+    // Keywords meta tag (surfaced only when the product carries search_keywords)
+    let metaKw = document.querySelector('meta[name="keywords"]') as HTMLMetaElement | null
+    if (product.searchKeywords) {
+      if (!metaKw) {
+        metaKw = document.createElement('meta')
+        metaKw.name = 'keywords'
+        document.head.appendChild(metaKw)
+      }
+      metaKw.content = product.searchKeywords
+    } else if (metaKw) {
+      metaKw.remove()
+    }
 
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
     if (!canonical) {
@@ -322,7 +346,7 @@ const ProductPage: React.FC = () => {
               src={galleryImages.length > 0
                 ? galleryImages[selectedImage]
                 : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
-              alt={product.name}
+              alt={product.altText || product.name}
               // object-contain (was object-cover) — mockups have varying
               // aspect ratios and the previous "cover" was cropping the top
               // off taller designs. The bg-bg/40 fills any letterbox area
@@ -345,7 +369,7 @@ const ProductPage: React.FC = () => {
                 >
                   <img
                     src={image}
-                    alt={`${product.name} ${index + 1}`}
+                    alt={`${product.altText || product.name} ${index + 1}`}
                     className="w-full h-full object-contain bg-bg/40"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'

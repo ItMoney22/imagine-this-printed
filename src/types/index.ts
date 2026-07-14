@@ -19,6 +19,12 @@ export interface Product {
   updatedAt?: string
   isThreeForTwentyFive?: boolean
   metadata?: Record<string, any>
+  // SEO metadata from Merch Studio (populated from products.meta_title /
+  // meta_description / search_keywords / alt_text columns)
+  metaTitle?: string
+  metaDescription?: string
+  searchKeywords?: string
+  altText?: string
   productType?: 'physical' | 'digital' | 'both'
   digitalPrice?: number
   fileUrl?: string
