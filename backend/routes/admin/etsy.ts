@@ -14,6 +14,7 @@ import {
   listEtsyListings,
   publishProductToEtsy
 } from '../../services/etsy.js'
+import { supabase } from '../../lib/supabase.js'
 
 const router = Router()
 
@@ -36,6 +37,30 @@ router.get('/callback', async (req: Request, res: Response) => {
 
 router.use(requireAuth)
 router.use(requireRole(['admin', 'manager']))
+
+// Enqueue a product for Rico's Etsy flow (copyright gate → draft → notify Christina).
+// Async: the etsy-jobs-worker picks up state='queued' rows. Does NOT publish (draft only).
+router.post('/queue/:productId', async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params
+    const { data: existing } = await supabase
+      .from('etsy_listings')
+      .select('listing_id, state')
+      .eq('product_id', productId)
+      .maybeSingle()
+    if (existing?.listing_id && existing.state !== 'error' && existing.state !== 'removed') {
+      return res.status(409).json({ error: `Product already has an Etsy listing (${existing.state}) — nothing queued` })
+    }
+    await supabase.from('etsy_listings').upsert(
+      { product_id: productId, state: 'queued', last_error: null, updated_at: new Date().toISOString() },
+      { onConflict: 'product_id' }
+    )
+    return res.status(202).json({ ok: true, productId, state: 'queued' })
+  } catch (error: any) {
+    console.error('[etsy] queue failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
 
 // Connection + config state for the admin panel.
 router.get('/status', async (_req: Request, res: Response) => {

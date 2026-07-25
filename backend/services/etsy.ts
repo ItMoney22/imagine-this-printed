@@ -35,6 +35,7 @@ export interface EtsyPublishOptions {
   publish?: boolean          // PATCH to active after images upload (incurs $0.20 fee)
   priceOverride?: number     // dollars
   readinessStateId?: number  // Etsy readiness state; REQUIRED on physical listings (see ETSY_READINESS_STATE_ID)
+  descriptionSuffix?: string // appended to the listing description (e.g. required AI disclosure)
 }
 
 export interface EtsyPublishResult {
@@ -362,7 +363,8 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
 
     const price = Math.max(Number(opts.priceOverride ?? product.price) || 0, MIN_PRICE_USD)
     const title = (product.meta_title || product.name || '').slice(0, MAX_TITLE_LEN)
-    const description = product.description || product.meta_description || product.name
+    const baseDescription = product.description || product.meta_description || product.name
+    const description = opts.descriptionSuffix ? `${baseDescription}\n\n${opts.descriptionSuffix}` : baseDescription
     const tags = toEtsyTags(product.search_keywords)
     const shippingProfileId = opts.shippingProfileId ?? (Number(process.env.ETSY_SHIPPING_PROFILE_ID) || undefined)
     const returnPolicyId = opts.returnPolicyId ?? (Number(process.env.ETSY_RETURN_POLICY_ID) || undefined)

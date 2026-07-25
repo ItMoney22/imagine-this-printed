@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS public.etsy_listings (
   product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
   listing_id bigint,
   shop_id bigint,
-  state text NOT NULL DEFAULT 'pending',           -- pending | draft | active | error | removed
+  state text NOT NULL DEFAULT 'pending',           -- queued | processing | blocked | pending | draft | active | error | removed
   etsy_url text,
   uploaded_image_count int NOT NULL DEFAULT 0,
   last_error text,

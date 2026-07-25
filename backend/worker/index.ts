@@ -1,6 +1,7 @@
 // MUST be the first import — see backend/load-env.ts.
 import '../load-env.js'
 import { startWorker } from './ai-jobs-worker.js'
+import { startEtsyWorker } from './etsy-jobs-worker.js'
 
 console.log('=================================')
 console.log('AI Jobs Worker Starting...')
@@ -13,5 +14,6 @@ console.log('- OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'Set' : 'MISSING')
 console.log('=================================')
 
 startWorker()
+startEtsyWorker()
 
 console.log('Worker is running. Press Ctrl+C to stop.')
