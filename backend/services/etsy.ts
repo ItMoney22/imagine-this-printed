@@ -18,7 +18,11 @@ import { supabase } from '../lib/supabase.js'
 const ETSY_API = 'https://api.etsy.com/v3'
 const ETSY_CONNECT_URL = 'https://www.etsy.com/oauth/connect'
 const ETSY_TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token'
-const OAUTH_SCOPES = 'listings_r listings_w shops_r'
+// shops_w is required, not optional: shipping profiles, readiness states, the shop
+// return policy and the shop profile itself are all writes. The consent round on
+// 2026-07-25 already granted it, and reconnecting without it would silently strip
+// abilities the shop now depends on.
+const OAUTH_SCOPES = 'listings_r listings_w shops_r shops_w'
 
 // Etsy hard limits (see research doc §4–5)
 const MAX_TITLE_LEN = 140
