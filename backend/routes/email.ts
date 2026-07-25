@@ -974,7 +974,10 @@ async function forwardInbound(input: ForwardInput): Promise<void> {
 
   try {
     await sendViaResend({
-      from: `${headerSafe(`${input.from.name || input.from.address} (via ITP)`)} <${input.mailbox.address}>`,
+      // Quoted display name: unlike our own mailbox names elsewhere, this is
+      // arbitrary sender text, and the "(via ITP)" parens would otherwise parse
+      // as an RFC 5322 comment and drop out of the name.
+      from: `"${headerSafe(`${input.from.name || input.from.address} (via ITP)`)}" <${input.mailbox.address}>`,
       to: [target],
       reply_to: input.from.address,
       subject: input.subject || '(no subject)',
