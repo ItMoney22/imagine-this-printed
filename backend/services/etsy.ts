@@ -2,8 +2,11 @@
 // product → listing publishing for the ITP Etsy store.
 //
 // Design notes (full research: docs/ETSY_API_RESEARCH.md):
-// - v3 has NO client secret: the app keystring (ETSY_KEYSTRING) + PKCE verifier
-//   is the whole credential. Every call sends `x-api-key: <keystring>`.
+// - OAuth token exchange uses PKCE (no client secret in the token call). BUT
+//   authenticated data calls require BOTH creds: the x-api-key header must be
+//   `<ETSY_KEYSTRING>:<ETSY_SHARED_SECRET>` (colon-joined). Keystring-alone now
+//   returns 403 "Shared secret is required in x-api-key header" (Etsy v3 change,
+//   verified live 2026-07-25). The OAuth client_id stays the bare keystring.
 // - Access tokens live 1h; refresh tokens live 90 days and ROTATE on every
 //   refresh, so both tokens are rewritten atomically in etsy_connection.
 // - There is no Etsy sandbox: listings are created in `draft` state (invisible,
@@ -44,7 +47,8 @@ export interface EtsyPublishResult {
 }
 
 export function isEtsyConfigured(): boolean {
-  return !!process.env.ETSY_KEYSTRING
+  // Both are required: keystring for OAuth, keystring:secret for data calls.
+  return !!process.env.ETSY_KEYSTRING && !!process.env.ETSY_SHARED_SECRET
 }
 
 export function isEtsyEnabled(): boolean {
@@ -55,6 +59,18 @@ function keystring(): string {
   const key = process.env.ETSY_KEYSTRING
   if (!key) throw new Error('ETSY_KEYSTRING is not set — create the Etsy app first (docs/plans/2026-07-24-etsy-integration-plan.md Phase 1)')
   return key
+}
+
+function sharedSecret(): string {
+  return process.env.ETSY_SHARED_SECRET || ''
+}
+
+// Etsy v3 (verified live 2026-07-25) requires the shared secret joined to the
+// keystring in the x-api-key header for authenticated data calls: `<keystring>:<secret>`.
+// Falls back to keystring-only if the secret is unset (which will 403 on data calls).
+function apiKey(): string {
+  const s = sharedSecret()
+  return s ? `${keystring()}:${s}` : keystring()
 }
 
 function redirectUri(): string {
@@ -206,7 +222,7 @@ interface EtsyFetchOpts {
 }
 
 export async function etsyFetch(path: string, opts: EtsyFetchOpts = {}): Promise<any> {
-  const headers: Record<string, string> = { 'x-api-key': keystring() }
+  const headers: Record<string, string> = { 'x-api-key': apiKey() }
   if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`
 
   let body: URLSearchParams | FormData | undefined

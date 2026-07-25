@@ -43,13 +43,27 @@ function keystring() {
   if (existsSync(VAULT)) {
     try {
       const vault = JSON.parse(readFileSync(VAULT, 'utf8'))
-      const found = vault.ETSY_KEYSTRING || vault.etsy?.ETSY_KEYSTRING
+      const found = vault.ETSY_KEYSTRING || vault.etsy?.ETSY_KEYSTRING || vault.itp?.ETSY_KEYSTRING
       if (found) return found
     } catch { /* fall through */ }
   }
   console.error('ETSY_KEYSTRING not found (env or vault). Create the Etsy app first — see header comment.')
   process.exit(1)
 }
+
+function secret() {
+  if (process.env.ETSY_SHARED_SECRET) return process.env.ETSY_SHARED_SECRET
+  if (existsSync(VAULT)) {
+    try {
+      const vault = JSON.parse(readFileSync(VAULT, 'utf8'))
+      const found = vault.ETSY_SHARED_SECRET || vault.etsy?.ETSY_SHARED_SECRET || vault.itp?.ETSY_SHARED_SECRET
+      if (found) return found
+    } catch { /* fall through */ }
+  }
+  return ''
+}
+// Etsy v3 (2026 change): x-api-key must be `keystring:shared_secret` for authenticated data calls.
+function apiKeyHeader() { const s = secret(); return s ? `${keystring()}:${s}` : keystring() }
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`)
@@ -93,7 +107,7 @@ async function accessToken() {
 }
 
 async function api(path, { method = 'GET', token, form, multipart } = {}) {
-  const headers = { 'x-api-key': keystring() }
+  const headers = { 'x-api-key': apiKeyHeader() }
   if (token) headers.Authorization = `Bearer ${token}`
   let body
   if (multipart) body = multipart
