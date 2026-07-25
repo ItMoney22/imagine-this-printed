@@ -864,6 +864,137 @@ router.post('/compose-assist', requireAuth, async (req: Request, res: Response) 
 });
 
 // ---------------------------------------------------------------------------
+// Inbound auto-forward (email_mailboxes.forward_to)
+// ---------------------------------------------------------------------------
+// The domain has no IMAP server, so a phone mail app can't open these mailboxes
+// directly. When a mailbox sets forward_to, every received message is re-sent to
+// that personal address. Resend only sends FROM our verified domain, so the copy
+// goes out AS the mailbox with the original sender in the display name and in
+// Reply-To — hitting Reply on a phone answers the customer, not us. Attachments
+// are LINKED (already re-hosted in GCS above), not re-attached, so a big inbound
+// file can't blow past Resend's request size limit.
+
+const INBOX_URL = 'https://imaginethisprinted.com/admin/email';
+
+/** Read one header out of either payload shape Resend uses (map or name/value list). */
+function headerValue(headers: unknown, name: string): string | null {
+  const want = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    const hit = headers.find(h => String((h as any)?.name || '').toLowerCase() === want);
+    return hit ? String((hit as any).value ?? '') : null;
+  }
+  if (headers && typeof headers === 'object') {
+    for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+      if (k.toLowerCase() === want) return String(v ?? '');
+    }
+  }
+  return null;
+}
+
+/** Display names go into a mail header — strip anything that could break or inject into it. */
+function headerSafe(s: string): string {
+  return String(s || '').replace(/[\r\n"<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+function formatBytes(n: number): string {
+  if (!n) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+interface ForwardInput {
+  mailbox: { address: string; display_name?: string | null; forward_to?: string | null };
+  from: { name: string; address: string };
+  to: string[];
+  cc: string[];
+  subject: string;
+  htmlBody: string | null;
+  textBody: string | null;
+  attachments: Array<{ filename: string; content_type: string; size: number; url?: string }>;
+  inboundHeaders?: unknown;
+}
+
+async function forwardInbound(input: ForwardInput): Promise<void> {
+  const target = (input.mailbox.forward_to || '').trim();
+  if (!target) return;
+
+  const sender = input.from.address.toLowerCase();
+  // Loop guards, in order: (1) she mails the ITP address from the same account
+  // we forward to — don't bounce it straight back; (2) a copy we sent came back
+  // to us, so sending again would loop forever; (3) our own marker header, in
+  // case the round trip rewrote the envelope sender.
+  if (sender === target.toLowerCase()) return;
+  if (sender === input.mailbox.address.toLowerCase()) return;
+  if (headerValue(input.inboundHeaders, 'x-itp-forwarded')) return;
+
+  const originLabel = input.from.name ? `${input.from.name} <${input.from.address}>` : input.from.address;
+  const recipients = [...input.to, ...input.cc].join(', ');
+  const linked = input.attachments.filter(a => a.url);
+
+  const attachmentsHtml = linked.length
+    ? `<div style="margin-top:4px;">Attachments: ` +
+      linked
+        .map(
+          a =>
+            `<a href="${escapeHtmlText(a.url!)}" style="color:#7c3aed;">${escapeHtmlText(a.filename)}</a>` +
+            (a.size ? ` <span style="color:#9ca3af;">(${formatBytes(a.size)})</span>` : '')
+        )
+        .join(', ') +
+      `</div>`
+    : '';
+
+  const banner =
+    `<div style="margin:0 0 18px;padding:12px 14px;border-left:3px solid #7c3aed;background:#f5f3ff;` +
+    `font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;font-size:13px;color:#374151;">` +
+    `<div style="font-weight:700;color:#7c3aed;">Forwarded from ${escapeHtmlText(input.mailbox.address)}</div>` +
+    `<div style="margin-top:4px;">From: ${escapeHtmlText(originLabel)}</div>` +
+    (recipients ? `<div>To: ${escapeHtmlText(recipients)}</div>` : '') +
+    attachmentsHtml +
+    `<div style="margin-top:6px;color:#6b7280;">Replying here answers the sender directly. ` +
+    `To reply as ${escapeHtmlText(input.mailbox.address)}, use the ` +
+    `<a href="${INBOX_URL}" style="color:#7c3aed;">ITP inbox</a>.</div>` +
+    `</div>`;
+
+  const originalHtml =
+    input.htmlBody ||
+    (input.textBody
+      ? `<pre style="white-space:pre-wrap;font-family:inherit;margin:0;">${escapeHtmlText(input.textBody)}</pre>`
+      : `<p style="color:#6b7280;">(no message body — open the <a href="${INBOX_URL}">ITP inbox</a>)</p>`);
+
+  const textParts = [
+    `--- Forwarded from ${input.mailbox.address} ---`,
+    `From: ${originLabel}`,
+    recipients ? `To: ${recipients}` : '',
+    ...linked.map(a => `Attachment: ${a.filename} ${a.url}`),
+    `Reply here to answer the sender directly. To reply as ${input.mailbox.address}: ${INBOX_URL}`,
+    '',
+    input.textBody || '',
+  ].filter(Boolean);
+
+  try {
+    await sendViaResend({
+      from: `${headerSafe(`${input.from.name || input.from.address} (via ITP)`)} <${input.mailbox.address}>`,
+      to: [target],
+      reply_to: input.from.address,
+      subject: input.subject || '(no subject)',
+      html: banner + originalHtml,
+      text: textParts.join('\n'),
+      headers: { 'X-ITP-Forwarded': '1' },
+    });
+  } catch (err) {
+    // A failed forward must never fail the webhook — the message is already
+    // stored in the in-app inbox, which stays the source of truth.
+    console.error(
+      '[email-webhook] forward to',
+      target,
+      'failed:',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Inbound webhook (Resend email.received, svix-signed, raw body)
 // ---------------------------------------------------------------------------
 
@@ -915,7 +1046,7 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
 
     const { data: mailboxes } = await supabase
       .from('email_mailboxes')
-      .select('id, address')
+      .select('id, address, display_name, forward_to')
       .in('address', ourRecipients)
       .eq('is_active', true);
 
@@ -978,8 +1109,23 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
         status: 'received',
       });
       // Unique index (mailbox_id, resend_id) absorbs webhook retries
-      if (!error) inserted++;
-      else if (!String(error.message).includes('duplicate')) {
+      if (!error) {
+        inserted++;
+        // Forward only behind a FIRST successful insert — a webhook retry hits
+        // the dedupe index above and returns an error here, so retries can't
+        // send duplicate copies to the personal address.
+        await forwardInbound({
+          mailbox,
+          from,
+          to: toAddressArray(src.to ?? data.to),
+          cc: toAddressArray(src.cc ?? data.cc),
+          subject: src.subject || data.subject || '(no subject)',
+          htmlBody,
+          textBody,
+          attachments,
+          inboundHeaders: src.headers ?? data.headers,
+        });
+      } else if (!String(error.message).includes('duplicate')) {
         console.error('[email-webhook] insert failed:', error.message);
       }
     }

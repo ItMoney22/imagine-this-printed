@@ -22,6 +22,7 @@ export interface SendEmailParams {
   to: string[];
   cc?: string[];
   bcc?: string[];
+  reply_to?: string | string[];
   subject: string;
   html?: string;
   text?: string;
