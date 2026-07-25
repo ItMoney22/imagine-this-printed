@@ -14,6 +14,7 @@
 // - Single-shop design: one etsy_connection row (id=1) for ITP's own store.
 import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
+import { toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 
 const ETSY_API = 'https://api.etsy.com/v3'
 const ETSY_CONNECT_URL = 'https://www.etsy.com/oauth/connect'
@@ -24,10 +25,8 @@ const ETSY_TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token'
 // abilities the shop now depends on.
 const OAUTH_SCOPES = 'listings_r listings_w shops_r shops_w'
 
-// Etsy hard limits (see research doc §4–5)
-const MAX_TITLE_LEN = 140
-const MAX_TAGS = 13
-const MAX_TAG_LEN = 20
+// Etsy hard limits (see research doc §4–5). Title/tag limits live in
+// etsy-listing-fields.ts alongside the mapping rules that enforce them.
 const MAX_IMAGES = 10
 const MIN_PRICE_USD = 0.2
 
@@ -316,15 +315,6 @@ function taxonomyIdFor(category: string | null): number | null {
   return Number.isFinite(fallback) && fallback > 0 ? fallback : null
 }
 
-// Etsy tag rules: ≤13 tags, ≤20 chars, letters/numbers/spaces/hyphens.
-function toEtsyTags(searchKeywords: string | null): string[] {
-  if (!searchKeywords) return []
-  return searchKeywords
-    .split(/[,;]+/)
-    .map(t => t.trim().replace(/[^A-Za-z0-9 -]/g, '').slice(0, MAX_TAG_LEN).trim())
-    .filter(t => t.length >= 2)
-    .slice(0, MAX_TAGS)
-}
 
 // Publish one ITP product to Etsy: draft listing + image uploads (+ optional
 // activate). Sync state and errors land in etsy_listings either way.
@@ -366,7 +356,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     }
 
     const price = Math.max(Number(opts.priceOverride ?? product.price) || 0, MIN_PRICE_USD)
-    const title = (product.meta_title || product.name || '').slice(0, MAX_TITLE_LEN)
+    const title = toEtsyTitle(product.meta_title || product.name || '', product.search_keywords)
     const baseDescription = product.description || product.meta_description || product.name
     const description = opts.descriptionSuffix ? `${baseDescription}\n\n${opts.descriptionSuffix}` : baseDescription
     const tags = toEtsyTags(product.search_keywords)
