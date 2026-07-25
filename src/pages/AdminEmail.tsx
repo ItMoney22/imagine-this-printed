@@ -551,6 +551,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
   const [editName, setEditName] = useState('')
   const [editOwner, setEditOwner] = useState('')
   const [editTitle, setEditTitle] = useState('')
+  const [editForward, setEditForward] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -590,6 +591,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
     setEditName(m.display_name ?? '')
     setEditOwner(m.owner?.email ?? '')
     setEditTitle(m.signature_title ?? '')
+    setEditForward(m.forward_to ?? '')
   }
 
   const cancelEdit = () => setEditingId(null)
@@ -601,6 +603,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
         display_name: editName || undefined,
         user_email: editOwner || null,
         signature_title: editTitle.trim() || null,
+        forward_to: editForward.trim() || null,
       })
       toast.success('Mailbox updated')
       setEditingId(null)
@@ -698,6 +701,7 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
                 <th className="text-left pb-2 font-medium">Display Name</th>
                 <th className="text-left pb-2 font-medium">Assigned To</th>
                 <th className="text-left pb-2 font-medium">Signature</th>
+                <th className="text-left pb-2 font-medium">Forwards To</th>
                 <th className="text-left pb-2 font-medium">Active</th>
                 <th className="pb-2" />
               </tr>
@@ -746,6 +750,21 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
                       />
                     ) : (
                       <span className="text-muted text-xs">{m.signature_title || '—'}</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    {editingId === m.id ? (
+                      <input
+                        type="email"
+                        value={editForward}
+                        onChange={e => setEditForward(e.target.value)}
+                        placeholder="name@gmail.com"
+                        className="bg-bg border border-primary/40 rounded px-2 py-1 text-xs text-text w-full focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      />
+                    ) : m.forward_to ? (
+                      <span className="text-xs text-primary font-mono">{m.forward_to}</span>
+                    ) : (
+                      <span className="text-muted text-xs">—</span>
                     )}
                   </td>
                   <td className="py-2.5 pr-3">
@@ -804,6 +823,16 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
               ))}
             </tbody>
           </table>
+
+          {/* Forwarding is the only way to read a company mailbox on a phone —
+              the domain has no IMAP server for Outlook/Gmail to connect to. */}
+          <p className="text-[11px] text-muted mt-4 leading-relaxed">
+            <span className="text-text font-medium">Forwards To</span> copies every message
+            received by that mailbox to a personal address (Gmail, Outlook, iCloud) so it can be
+            read on a phone. Replies sent from there go to the original sender, from the personal
+            address — reply here in the ITP inbox to answer as the company address. Must be an
+            outside address; leave blank to turn forwarding off.
+          </p>
         </div>
 
         {/* add new */}

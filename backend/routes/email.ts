@@ -51,6 +51,24 @@ function normalizeAddress(input: string): string {
   return address;
 }
 
+// A mailbox's forwarding target must be a real address OUTSIDE our domain: an
+// @EMAIL_DOMAIN target would re-enter through the inbound webhook, and two
+// mailboxes pointed at each other would ping-pong mail between them.
+function normalizeForwardTo(input: unknown): { value: string | null; error?: string } {
+  const raw = String(input ?? '').trim().toLowerCase();
+  if (!raw) return { value: null };
+  if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(raw)) {
+    return { value: null, error: 'Forwarding address must be a valid email address' };
+  }
+  if (raw.endsWith(`@${EMAIL_DOMAIN}`)) {
+    return {
+      value: null,
+      error: `Forward to an outside address — an @${EMAIL_DOMAIN} target would loop back into the inbox`,
+    };
+  }
+  return { value: raw };
+}
+
 async function getMailboxForUser(mailboxId: string, user: { id: string; role?: string }) {
   const { data: mailbox, error } = await supabase
     .from('email_mailboxes')
@@ -292,14 +310,19 @@ router.post('/mailboxes', requireAuth, requireAdmin, async (req: Request, res: R
   }
 });
 
-// PUT /api/email/mailboxes/:id — admin updates assignment / name / active
+// PUT /api/email/mailboxes/:id — admin updates assignment / name / active / forwarding
 router.put('/mailboxes/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const { display_name, user_email, is_active, signature_title } = req.body || {};
+    const { display_name, user_email, is_active, signature_title, forward_to } = req.body || {};
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (display_name !== undefined) updates.display_name = display_name;
     if (signature_title !== undefined) updates.signature_title = signature_title || null;
     if (is_active !== undefined) updates.is_active = !!is_active;
+    if (forward_to !== undefined) {
+      const parsed = normalizeForwardTo(forward_to);
+      if (parsed.error) { res.status(400).json({ error: parsed.error }); return; }
+      updates.forward_to = parsed.value;
+    }
     if (user_email !== undefined) {
       if (user_email === null || user_email === '') {
         updates.user_id = null;

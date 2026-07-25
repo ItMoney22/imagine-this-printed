@@ -12,6 +12,9 @@ export interface Mailbox {
   created_at: string;
   unread_count?: number;
   signature_title?: string | null;
+  /** Personal address every received message is copied to (phone access — the
+   *  domain has no IMAP server). Null = no forwarding. */
+  forward_to?: string | null;
   owner?: { id: string; email: string; username: string | null } | null;
 }
 
@@ -102,7 +105,7 @@ export const emailApi = {
   createMailbox: (body: { address: string; display_name?: string; user_email?: string }): Promise<{ mailbox: Mailbox }> =>
     apiFetch('/api/email/mailboxes', { method: 'POST', body: JSON.stringify(body) }),
 
-  updateMailbox: (id: string, body: { display_name?: string; user_email?: string | null; is_active?: boolean; signature_title?: string | null }): Promise<{ mailbox: Mailbox }> =>
+  updateMailbox: (id: string, body: { display_name?: string; user_email?: string | null; is_active?: boolean; signature_title?: string | null; forward_to?: string | null }): Promise<{ mailbox: Mailbox }> =>
     apiFetch(`/api/email/mailboxes/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
 
   deleteMailbox: (id: string): Promise<{ success: boolean }> =>
