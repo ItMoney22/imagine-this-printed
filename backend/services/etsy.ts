@@ -34,6 +34,7 @@ export interface EtsyPublishOptions {
   quantity?: number
   publish?: boolean          // PATCH to active after images upload (incurs $0.20 fee)
   priceOverride?: number     // dollars
+  readinessStateId?: number  // Etsy readiness state; REQUIRED on physical listings (see ETSY_READINESS_STATE_ID)
 }
 
 export interface EtsyPublishResult {
@@ -365,6 +366,10 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     const tags = toEtsyTags(product.search_keywords)
     const shippingProfileId = opts.shippingProfileId ?? (Number(process.env.ETSY_SHIPPING_PROFILE_ID) || undefined)
     const returnPolicyId = opts.returnPolicyId ?? (Number(process.env.ETSY_RETURN_POLICY_ID) || undefined)
+    // Etsy now REQUIRES readiness_state_id on physical listings (verified live 2026-07-25 — omitting it 400s).
+    // Provision once: POST /shops/{id}/readiness-state-definitions (readiness_state=made_to_order +
+    // min_processing_time/max_processing_time, needs shops_w), then put its id in ETSY_READINESS_STATE_ID.
+    const readinessStateId = opts.readinessStateId ?? (Number(process.env.ETSY_READINESS_STATE_ID) || undefined)
 
     await upsertSync({ state: 'pending', last_error: null })
 
@@ -383,6 +388,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
         type: 'physical',
         shipping_profile_id: shippingProfileId,
         return_policy_id: returnPolicyId,
+        readiness_state_id: readinessStateId,
         tags: tags.length ? tags.join(',') : undefined
       }
     })
