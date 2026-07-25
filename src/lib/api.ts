@@ -348,6 +348,45 @@ export const aiProducts = {
   },
 }
 
+// Etsy API — enqueue a product for Rico's flow (copyright gate → draft → Christina notify).
+export const etsy = {
+  queue: async (productId: string) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/etsy/queue/${productId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  status: async () => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/etsy/status`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+}
+
 // Image Flow API — generic gen/edit/bg-remove via gpt-image-2 etc.
 export const imageFlow = {
   edit: async (params: {

@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts, adminApi, API_BASE } from '../lib/api'
+import { aiProducts, adminApi, API_BASE, etsy } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
@@ -851,6 +851,20 @@ const AdminDashboard: React.FC = () => {
     } catch (error: any) {
       console.error('Error removing background:', error)
       toast.error('Failed to remove background', error.message)
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
+  const handlePostToEtsy = async (productId: string) => {
+    if (!confirm('Send this product to Rico for Etsy? He runs a copyright check, creates a DRAFT (nothing goes public), and emails Christina to review + publish.')) return
+    try {
+      setLoadingAction(`etsy-${productId}`)
+      await etsy.queue(productId)
+      toast.success('Sent to Rico for Etsy', 'Queued: copyright check → draft → Christina gets an email to review & publish.')
+    } catch (error: any) {
+      console.error('Error queuing for Etsy:', error)
+      toast.error('Failed to send to Etsy', error.message)
     } finally {
       setLoadingAction(null)
     }
@@ -2446,6 +2460,19 @@ const AdminDashboard: React.FC = () => {
                                         )}
                                       </div>
                                     )}
+
+                                    {/* Etsy — send to Rico's flow (available for every product) */}
+                                    <div className="border-b border-slate-200 pb-4">
+                                      <h4 className="font-semibold text-slate-900 mb-3">Etsy</h4>
+                                      <button
+                                        onClick={() => handlePostToEtsy(product.id)}
+                                        disabled={loadingAction === `etsy-${product.id}`}
+                                        className="bg-[#f1641e] hover:bg-[#d9531a] disabled:bg-slate-300 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
+                                      >
+                                        {loadingAction === `etsy-${product.id}` ? 'Sending to Rico…' : 'Post to Etsy'}
+                                      </button>
+                                      <p className="text-xs text-slate-500 mt-2">Sends to Rico: copyright check → draft → Christina reviews &amp; publishes. Nothing goes public automatically.</p>
+                                    </div>
 
                                     {/* Metadata Section */}
                                     {isAIProduct && product.metadata && (
