@@ -1038,6 +1038,15 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
     }
 
     const from = parseAddress(String(src.from || data.from || ''));
+    // Resend hands back `from` as a BARE address — the sender's display name
+    // survives only in the raw From header. Recover it (address must match, so a
+    // mismatched header can't graft someone else's name onto this sender) so the
+    // inbox and the forwarded copy show "Jane Doe", not "jane@example.com".
+    if (!from.name) {
+      const rawFrom = headerValue(src.headers ?? data.headers, 'from');
+      const parsed = rawFrom ? parseAddress(rawFrom) : null;
+      if (parsed?.name && parsed.address === from.address) from.name = parsed.name;
+    }
     const recipients = [...toAddressArray(src.to ?? data.to), ...toAddressArray(src.cc ?? data.cc)];
 
     // Resend webhooks are account-wide — only handle our domain's recipients.
