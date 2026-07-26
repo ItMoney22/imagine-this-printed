@@ -20,9 +20,16 @@
 import Replicate from 'replicate'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from './gcs-storage.js'
+import { editOpenAIImage } from './image-flow/providers/openai-image.js'
 
 const NANO_BANANA = 'google/nano-banana:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be'
 const STOCK_MODEL_BASE = 'https://storage.googleapis.com/imagine-this-printed-media/stock-models'
+
+// Engine: gpt-image (OpenAI-direct, the codebase's premium compositor — best
+// design/text fidelity, and its known empty-garment wearer-drift bug doesn't
+// apply here because a wearer is exactly what we want) with nano-banana as the
+// per-shot fallback. ETSY_SHOTS_MODEL=nano-banana flips the primary.
+const SHOTS_ENGINE = process.env.ETSY_SHOTS_MODEL === 'nano-banana' ? 'nano-banana' : 'gpt-image'
 
 const replicate = process.env.REPLICATE_API_TOKEN ? new Replicate({ auth: process.env.REPLICATE_API_TOKEN }) : null
 
@@ -49,15 +56,76 @@ const SHOT_SPECS = [
   }
 ] as const
 
+// Roled-input prompt, same discipline as the image-flow composite prompt:
+// INPUT 1 = the person to keep, INPUT 2 = the decal to apply exactly.
 function buildPrompt(scene: string, shirtColor: string): string {
   return (
-    `Professional ecommerce fashion photograph: a model wearing a ${shirtColor} crew neck t-shirt, ${scene}. ` +
-    'Show the full torso from shoulders to waist with realistic fabric texture, natural drape, and true-to-life lighting. ' +
-    'Apply the exact graphic artwork from the reference design image onto the chest print area of the shirt. ' +
-    'CRITICAL: reproduce the design precisely as provided — do not redraw, restyle, distort, crop, or alter any letters, ' +
-    'words, lines, or colors in the artwork. The print must match the reference image exactly. ' +
+    `INPUT 1 is a photo of a model. INPUT 2 is a flat 2D graphic design (a DTF print artwork). ` +
+    `Task: a professional ecommerce fashion photograph of the model from INPUT 1 wearing a ${shirtColor} crew neck t-shirt ` +
+    `with the graphic from INPUT 2 printed on the chest, ${scene}. ` +
+    'Show the full torso from shoulders to waist with realistic fabric texture, natural drape, and true-to-life lighting; ' +
+    'the print conforms to the fabric folds like a real DTF transfer on cotton. ' +
+    "CRITICAL: preserve INPUT 2's letters, words, shapes, colors, and proportions EXACTLY — do not redraw, restyle, " +
+    'distort, crop, or reinterpret the artwork in any way. ' +
     'High-resolution product photography suitable for an online marketplace listing.'
   )
+}
+
+// One shot via the primary engine, falling back to the other on failure.
+// Returns a durable GCS public URL either way.
+async function generateOneShot(
+  spec: (typeof SHOT_SPECS)[number],
+  designUrl: string,
+  shirtColor: string,
+  productId: string,
+  userId: string
+): Promise<string> {
+  const prompt = buildPrompt(spec.scene, shirtColor)
+  const modelUrl = await stockModelUrl(spec.model)
+
+  const viaGptImage = async (): Promise<string> => {
+    const { url, modelId } = await editOpenAIImage({
+      sourceUrl: modelUrl,
+      refUrls: [designUrl],
+      prompt,
+      size: '1024x1536', // portrait, matches the 3:4 listing crop
+      quality: 'high',
+      userId,
+      objectPath: `users/${userId}/mockups/etsy_shot_${productId}_${spec.key}_${Date.now()}.png`
+    })
+    console.log(`[etsy-shots] ${productId} ${spec.key} via ${modelId} → ${url}`)
+    return url
+  }
+
+  const viaNanoBanana = async (): Promise<string> => {
+    if (!replicate) throw new Error('REPLICATE_API_TOKEN is not configured')
+    const output = await replicate.run(NANO_BANANA as any, {
+      input: {
+        prompt,
+        image_input: [modelUrl, designUrl],
+        output_format: 'png',
+        aspect_ratio: '3:4'
+      }
+    })
+    const buffer = await outputToBuffer(output)
+    const upload = await gcsStorage.uploadFile(buffer, {
+      userId,
+      folder: 'mockups',
+      filename: `etsy_shot_${productId}_${spec.key}_${Date.now()}.png`,
+      contentType: 'image/png',
+      metadata: { productId, shot: spec.key, purpose: 'etsy-listing' }
+    })
+    console.log(`[etsy-shots] ${productId} ${spec.key} via nano-banana → ${upload.publicUrl}`)
+    return upload.publicUrl
+  }
+
+  const [primary, fallback] = SHOTS_ENGINE === 'gpt-image' ? [viaGptImage, viaNanoBanana] : [viaNanoBanana, viaGptImage]
+  try {
+    return await primary()
+  } catch (err: any) {
+    console.warn(`[etsy-shots] ${productId} ${spec.key} primary engine failed (${err?.message}) — trying fallback`)
+    return await fallback()
+  }
 }
 
 // Normalize Replicate output (string | array | async iterator, URL or raw
@@ -152,27 +220,10 @@ async function generateShots(productId: string, userId: string): Promise<void> {
 
     const images: string[] = []
     for (const spec of SHOT_SPECS) {
-      const modelUrl = await stockModelUrl(spec.model)
-      const output = await replicate!.run(NANO_BANANA as any, {
-        input: {
-          prompt: buildPrompt(spec.scene, shirtColor),
-          image_input: [modelUrl, designUrl],
-          output_format: 'png',
-          aspect_ratio: '3:4'
-        }
-      })
-      const buffer = await outputToBuffer(output)
-      const upload = await gcsStorage.uploadFile(buffer, {
-        userId,
-        folder: 'mockups',
-        filename: `etsy_shot_${productId}_${spec.key}_${Date.now()}.png`,
-        contentType: 'image/png',
-        metadata: { productId, shot: spec.key, purpose: 'etsy-listing' }
-      })
-      images.push(upload.publicUrl)
+      const url = await generateOneShot(spec, designUrl, shirtColor, productId, userId)
+      images.push(url)
       // Persist incrementally so a failure on shot 2 still keeps shot 1.
       await saveShotsState(productId, { images: [...images] })
-      console.log(`[etsy-shots] ${productId} ${spec.key} → ${upload.publicUrl}`)
     }
 
     await saveShotsState(productId, { status: 'done', images, generated_at: new Date().toISOString(), error: undefined })
@@ -185,7 +236,9 @@ async function generateShots(productId: string, userId: string): Promise<void> {
 // Kick off generation in the background. Returns immediately; the panel polls
 // candidates until metadata.etsy_shots.status is done/failed.
 export async function startModelShots(productId: string, userId: string): Promise<EtsyShots> {
-  if (!replicate) throw new Error('REPLICATE_API_TOKEN is not configured')
+  if (!process.env.OPENAI_API_KEY && !replicate) {
+    throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
+  }
 
   const { data: product, error } = await supabase
     .from('products')
