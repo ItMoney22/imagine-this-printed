@@ -14,7 +14,7 @@
 // - Single-shop design: one etsy_connection row (id=1) for ITP's own store.
 import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
-import { toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
+import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 
 const ETSY_API = 'https://api.etsy.com/v3'
 const ETSY_CONNECT_URL = 'https://www.etsy.com/oauth/connect'
@@ -306,7 +306,7 @@ export async function getReturnPolicies(): Promise<any[]> {
 // (JSON, e.g. {"shirts":1234,"tumblers":5678}) after browsing
 // GET /api/admin/etsy/taxonomy — Etsy's ids are theirs to define, so none are
 // hardcoded here.
-function taxonomyIdFor(category: string | null): number | null {
+export function taxonomyIdFor(category: string | null): number | null {
   try {
     const map = JSON.parse(process.env.ETSY_TAXONOMY_MAP || '{}')
     if (category && Number.isFinite(Number(map[category]))) return Number(map[category])
@@ -323,11 +323,27 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
 
   const { data: product, error: prodErr } = await supabase
     .from('products')
-    .select('id, name, description, price, images, category, meta_title, meta_description, search_keywords, status, is_active')
+    .select('id, name, description, price, images, category, meta_title, meta_description, search_keywords, status, is_active, metadata')
     .eq('id', productId)
     .maybeSingle()
   if (prodErr) throw new Error(`Product lookup failed: ${prodErr.message}`)
   if (!product) throw new Error(`Product ${productId} not found`)
+
+  // Composed Etsy pack (etsy-seo-composer.ts) beats the mechanical field
+  // mapping: it was written FOR Etsy, the fields below were written for the
+  // website. Re-sanitized here so a hand-edited pack still can't exceed limits.
+  const pack: any = (product as any).metadata?.etsy_pack ?? null
+  const packTags: string[] = []
+  if (Array.isArray(pack?.tags)) {
+    const seen = new Set<string>()
+    for (const raw of pack.tags) {
+      const tag = toEtsyTag(String(raw))
+      if (!tag || seen.has(tag.toLowerCase())) continue
+      seen.add(tag.toLowerCase())
+      packTags.push(tag)
+      if (packTags.length >= MAX_TAGS) break
+    }
+  }
 
   // One listing per product — refuse a duplicate rather than double-list.
   const { data: existing } = await supabase
@@ -355,11 +371,14 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
       throw new Error(`No Etsy taxonomy id for category "${product.category}" — set ETSY_TAXONOMY_MAP or pass taxonomyId (browse GET /api/admin/etsy/taxonomy)`)
     }
 
-    const price = Math.max(Number(opts.priceOverride ?? product.price) || 0, MIN_PRICE_USD)
-    const title = toEtsyTitle(product.meta_title || product.name || '', product.search_keywords)
-    const baseDescription = product.description || product.meta_description || product.name
+    const price = Math.max(Number(opts.priceOverride ?? pack?.price ?? product.price) || 0, MIN_PRICE_USD)
+    const title = pack?.title
+      ? String(pack.title).replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
+      : toEtsyTitle(product.meta_title || product.name || '', product.search_keywords)
+    const baseDescription = (pack?.description && String(pack.description).trim())
+      || product.description || product.meta_description || product.name
     const description = opts.descriptionSuffix ? `${baseDescription}\n\n${opts.descriptionSuffix}` : baseDescription
-    const tags = toEtsyTags(product.search_keywords)
+    const tags = packTags.length ? packTags : toEtsyTags(product.search_keywords)
     const shippingProfileId = opts.shippingProfileId ?? (Number(process.env.ETSY_SHIPPING_PROFILE_ID) || undefined)
     const returnPolicyId = opts.returnPolicyId ?? (Number(process.env.ETSY_RETURN_POLICY_ID) || undefined)
     // Etsy now REQUIRES readiness_state_id on physical listings (verified live 2026-07-25 — omitting it 400s).

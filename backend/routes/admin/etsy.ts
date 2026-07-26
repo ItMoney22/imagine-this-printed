@@ -12,8 +12,11 @@ import {
   handleOAuthCallback,
   isEtsyConfigured,
   listEtsyListings,
-  publishProductToEtsy
+  publishProductToEtsy,
+  taxonomyIdFor
 } from '../../services/etsy.js'
+import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-composer.js'
+import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
 import { supabase } from '../../lib/supabase.js'
 
 const router = Router()
@@ -58,6 +61,107 @@ router.post('/queue/:productId', async (req: Request, res: Response) => {
     return res.status(202).json({ ok: true, productId, state: 'queued' })
   } catch (error: any) {
     console.error('[etsy] queue failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Etsy flow v2 (2026-07-25): opt-in per shirt. Every ACTIVE storefront product
+// with no live ledger row is a candidate; the panel composes an Etsy-native
+// pack, David reviews/edits, then queues. Gate + taxonomy checks run here too
+// so problems show up in the review queue, not as worker errors later.
+router.get('/candidates', async (_req: Request, res: Response) => {
+  try {
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('id, name, description, price, images, category, meta_title, meta_description, search_keywords, metadata, created_at')
+      .eq('status', 'active')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) throw new Error(error.message)
+
+    const { data: listed } = await supabase.from('etsy_listings').select('product_id, state')
+    const listedState = new Map((listed ?? []).map(l => [l.product_id, l.state]))
+
+    const results = (products ?? [])
+      .filter(p => {
+        const state = listedState.get(p.id)
+        return !state || state === 'error' || state === 'removed'
+      })
+      .map(p => {
+        const tags = String(p.search_keywords || '').split(',').map(t => t.trim()).filter(Boolean)
+        const gate = runCopyrightGate({
+          name: p.meta_title || p.name,
+          description: p.description || p.meta_description,
+          tags,
+          aiGenerated: (p as any).metadata?.ai_generated === false ? false : true
+        })
+        return {
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          price: p.price,
+          hero_image: Array.isArray(p.images) ? p.images[0] ?? null : null,
+          image_count: Array.isArray(p.images) ? p.images.length : 0,
+          taxonomy_mapped: taxonomyIdFor(p.category) !== null,
+          gate_pass: gate.pass,
+          gate_reasons: gate.reasons,
+          etsy_pack: (p as any).metadata?.etsy_pack ?? null,
+          created_at: p.created_at
+        }
+      })
+    return res.json({ count: results.length, results })
+  } catch (error: any) {
+    console.error('[etsy] candidates failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Compose (or recompose) the Etsy listing pack for one product.
+router.post('/compose/:productId', async (req: Request, res: Response) => {
+  try {
+    const pack = await composeEtsyPack(req.params.productId)
+    return res.json({ ok: true, productId: req.params.productId, pack })
+  } catch (error: any) {
+    console.error('[etsy] compose failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Save admin edits to a composed pack (re-runs the same Etsy limits).
+router.put('/pack/:productId', async (req: Request, res: Response) => {
+  try {
+    const { title, tags, description, price } = req.body || {}
+    const pack = await saveEtsyPackEdits(req.params.productId, {
+      title: typeof title === 'string' ? title : undefined,
+      tags: Array.isArray(tags) ? tags.map(String) : undefined,
+      description: typeof description === 'string' ? description : undefined,
+      price: price !== undefined ? Number(price) : undefined
+    })
+    return res.json({ ok: true, productId: req.params.productId, pack })
+  } catch (error: any) {
+    console.error('[etsy] pack save failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Mark ledger rows 'removed' for listings deleted on Etsy's side (e.g. the
+// 2026-07-25 batch David deletes in Shop Manager). Takes EXPLICIT product ids —
+// no clear-all — so a future real draft can't be swept up by accident. State
+// 'removed' also frees the per-product dedupe for re-listing under the new flow.
+router.post('/listings/mark-removed', async (req: Request, res: Response) => {
+  try {
+    const productIds: string[] = Array.isArray(req.body?.productIds) ? req.body.productIds.map(String) : []
+    if (!productIds.length) return res.status(400).json({ error: 'productIds[] is required' })
+    const { data, error } = await supabase
+      .from('etsy_listings')
+      .update({ state: 'removed', updated_at: new Date().toISOString() })
+      .in('product_id', productIds)
+      .select('product_id')
+    if (error) throw new Error(error.message)
+    return res.json({ ok: true, marked: (data ?? []).length })
+  } catch (error: any) {
+    console.error('[etsy] mark-removed failed:', error)
     return res.status(500).json({ error: error.message })
   }
 })
