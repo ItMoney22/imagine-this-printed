@@ -328,6 +328,25 @@ export function taxonomyIdFor(category: string | null): number | null {
 const APPAREL_CATEGORIES = new Set(['shirts', 't-shirts', 'hoodies'])
 const APPAREL_SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL']
 
+// David 2026-07-26: metal art comes in 4x6 and 8x10 only for now, priced per
+// size ($25 / $45 anchors → $15 / $27 shown under the 40% shop sale; cheaper
+// than the lab comps researched 2026-07-26). Taxonomy 119 (Art & Collectibles
+// > Prints) via ETSY_TAXONOMY_MAP.
+const METAL_CATEGORIES = new Set(['metal-art'])
+const METAL_SIZES: VariationSize[] = [
+  { label: '4x6 inches', price: Number(process.env.ETSY_METAL_PRICE_4X6 || 25) },
+  { label: '8x10 inches', price: Number(process.env.ETSY_METAL_PRICE_8X10 || 45) }
+]
+
+interface VariationSize { label: string, price?: number }
+
+interface VariationSpec {
+  colors: string[]              // optional color axis (empty = no color axis)
+  sizes: VariationSize[]        // size axis; per-size price beats basePrice
+  basePrice: number
+  readinessStateId?: number
+}
+
 // Match a value name against the property's Etsy-defined possible values; fall
 // back to a custom string value (Etsy allows custom variation values).
 function propertyValue(prop: any, name: string, scaleId?: number) {
@@ -342,55 +361,68 @@ function propertyValue(prop: any, name: string, scaleId?: number) {
   return pv
 }
 
-// Set Size × Color variations on a freshly created listing via the inventory
-// endpoint. Property ids are discovered from the taxonomy (never hardcoded —
-// they're Etsy's to define). Uniform price/quantity across all combinations.
-// Throws on failure; the caller treats variations as best-effort.
+// Set variations on a freshly created listing via the inventory endpoint.
+// Property ids are discovered from the taxonomy (never hardcoded — they're
+// Etsy's to define). Price can vary by size (per-size price on the spec);
+// otherwise uniform. Throws on failure; the caller treats it as best-effort.
 async function applyListingVariations(
   token: string,
   listingId: number,
   taxonomyId: number,
-  colors: string[],
-  price: number,
-  readinessStateId?: number
+  spec: VariationSpec
 ): Promise<number> {
   const propsRes = await etsyFetch(`/application/seller-taxonomy/nodes/${taxonomyId}/properties`, { token })
   const props: any[] = propsRes?.results ?? []
-  const colorProp = props.find(p => p.supports_variations && /primary colou?r/i.test(p.display_name || p.name))
-    ?? props.find(p => p.supports_variations && /colou?r/i.test(p.display_name || p.name))
+  const colorProp = spec.colors.length
+    ? (props.find(p => p.supports_variations && /primary colou?r/i.test(p.display_name || p.name))
+      ?? props.find(p => p.supports_variations && /colou?r/i.test(p.display_name || p.name)))
+    : null
   const sizeProp = props.find(p => p.supports_variations && /^size\b/i.test(p.display_name || p.name))
   if (!sizeProp && !colorProp) throw new Error(`taxonomy ${taxonomyId} exposes no variation properties`)
 
-  // Size property usually carries scales (letter sizes vs numeric); prefer letters.
-  const sizeScale = sizeProp?.scales?.find((s: any) => /letter/i.test(s.display_name || ''))?.scale_id
-    ?? sizeProp?.scales?.[0]?.scale_id
-
-  const axes: Array<Array<Record<string, unknown>>> = []
-  if (colorProp && colors.length) axes.push(colors.map(c => propertyValue(colorProp, c)))
-  if (sizeProp) axes.push(APPAREL_SIZES.map(s => propertyValue(sizeProp, s, sizeScale)))
-  if (!axes.length) throw new Error('no variation axes to apply')
+  // Only attach a scale when at least one of our size labels matches the
+  // scale's own value list (letter sizes for apparel); custom labels like
+  // "4x6 inches" go scale-less as custom values.
+  const anyNamedMatch = spec.sizes.some(s =>
+    (sizeProp?.possible_values || []).some((v: any) => String(v.name).toLowerCase() === s.label.toLowerCase()))
+  const sizeScale = anyNamedMatch
+    ? (sizeProp?.scales?.find((s: any) => /letter/i.test(s.display_name || ''))?.scale_id ?? sizeProp?.scales?.[0]?.scale_id)
+    : undefined
 
   const quantity = Number(process.env.ETSY_VARIATION_QUANTITY || 25)
-  const combos: Array<Array<Record<string, unknown>>> = axes.length === 2
-    ? axes[0].flatMap(a => axes[1].map(b => [a, b]))
-    : axes[0].map(a => [a])
+  const priceVariesBySize = !!sizeProp && spec.sizes.some(s => s.price !== undefined && s.price !== spec.basePrice)
+
+  // Etsy rejects offerings without a readiness state ("All offerings need
+  // readiness state" — hit live 2026-07-26 on listing 4544388862).
+  const offering = (price: number) => [{ price, quantity, is_enabled: true, readiness_state_id: spec.readinessStateId }]
+
+  const sizeEntries = sizeProp
+    ? spec.sizes.map(s => ({ pv: propertyValue(sizeProp, s.label, sizeScale), price: s.price ?? spec.basePrice }))
+    : []
+
+  let products: Array<Record<string, unknown>>
+  if (colorProp && sizeEntries.length) {
+    products = spec.colors.flatMap(c => {
+      const colorPV = propertyValue(colorProp, c)
+      return sizeEntries.map(se => ({ property_values: [colorPV, se.pv], offerings: offering(se.price) }))
+    })
+  } else if (sizeEntries.length) {
+    products = sizeEntries.map(se => ({ property_values: [se.pv], offerings: offering(se.price) }))
+  } else {
+    products = spec.colors.map(c => ({ property_values: [propertyValue(colorProp, c)], offerings: offering(spec.basePrice) }))
+  }
 
   await etsyFetch(`/application/listings/${listingId}/inventory`, {
     method: 'PUT',
     token,
     json: {
-      products: combos.map(property_values => ({
-        property_values,
-        // Etsy rejects offerings without a readiness state ("All offerings
-        // need readiness state" — hit live 2026-07-26 on listing 4544388862).
-        offerings: [{ price, quantity, is_enabled: true, readiness_state_id: readinessStateId }]
-      })),
-      price_on_property: [],
+      products,
+      price_on_property: priceVariesBySize ? [sizeProp.property_id] : [],
       quantity_on_property: [],
       sku_on_property: []
     }
   })
-  return combos.length
+  return products.length
 }
 
 // Publish one ITP product to Etsy: draft listing + image uploads (+ optional
@@ -536,16 +568,25 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     }
     await upsertSync({ uploaded_image_count: result.uploadedImages })
 
-    // Size × Color variations for apparel — buyers pick from dropdowns.
+    // Variations — buyers pick from dropdowns. Apparel: Size S-3XL × pack
+    // colors at uniform price. Metal art: Size 4x6/8x10 with per-size pricing.
     // Best-effort: a failed inventory write leaves a valid no-variation draft
     // rather than failing the listing (the error is logged for follow-up).
-    if (APPAREL_CATEGORIES.has(String(product.category))) {
+    const category = String(product.category)
+    if (APPAREL_CATEGORIES.has(category) || METAL_CATEGORIES.has(category)) {
       try {
-        const colors: string[] = Array.isArray(pack?.colors)
+        const isMetal = METAL_CATEGORIES.has(category)
+        const colors: string[] = isMetal ? [] : (Array.isArray(pack?.colors)
           ? pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
-          : []
-        const combos = await applyListingVariations(token, listingId, taxonomyId, colors, price, readinessStateId)
-        console.log(`[etsy] ${productId} variations applied: ${colors.length || 'no'} colors × ${APPAREL_SIZES.length} sizes (${combos} combos)`)
+          : [])
+        const sizes = isMetal ? METAL_SIZES : APPAREL_SIZES.map(s => ({ label: s }))
+        const combos = await applyListingVariations(token, listingId, taxonomyId, {
+          colors,
+          sizes,
+          basePrice: price,
+          readinessStateId
+        })
+        console.log(`[etsy] ${productId} variations applied: ${colors.length || 'no'} colors × ${sizes.length} sizes (${combos} combos${isMetal ? ', price varies by size' : ''})`)
       } catch (varErr: any) {
         console.warn(`[etsy] ${productId} variations failed (draft kept without them): ${varErr.message}`)
       }

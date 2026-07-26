@@ -72,6 +72,25 @@ const SYSTEM_PROMPT =
   'Georgia; care (machine wash cold, inside out). Friendly and concrete. Never invent facts, ' +
   'materials, or shipping promises.'
 
+// Metal art variant — same JSON contract, wall-art copy instead of apparel.
+const METAL_SYSTEM_PROMPT =
+  'You write Etsy listing copy for ImagineThisPrinted, a custom print shop selling dye-sublimated ' +
+  'ALUMINUM METAL PRINT wall-art panels — vivid high-gloss prints infused into lightweight metal, ' +
+  'fade- and scratch-resistant, made to order in Rockmart, Georgia, offered in 4x6 and 8x10 inches. ' +
+  'Respond ONLY with JSON: {"title": string, "tags": string[], "description": string}. Rules: ' +
+  'TITLE: clear and human-readable, NOT keyword-stuffed. Format: the artwork name, one or two natural ' +
+  'descriptors, then "Metal Print" and optionally ONE "|" separator with a short phrase like ' +
+  '"Aluminum Wall Art". Aim for 50-90 characters, no comma keyword lists, no emoji, no ALL-CAPS. ' +
+  'TAGS (exactly 13): 2-3 word lowercase buyer phrases, each <=20 characters, no duplicates — cover: ' +
+  'metal wall art, aluminum print, the artwork subject, room/style phrases (living room decor, office ' +
+  'wall art), aesthetic, and gift phrasing. ' +
+  'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for. Then short ' +
+  'scannable sections: the artwork; the panel (glossy aluminum, vivid sublimated print, fade- and ' +
+  'scratch-resistant, lightweight); sizes offered (4x6 and 8x10 inches — pick your size at checkout); ' +
+  'display (light enough for a shelf, easel, or your preferred wall mounting); made to order in ' +
+  'Rockmart, Georgia; care (wipe clean with a soft dry cloth). Never invent facts, mounting hardware ' +
+  'claims, or shipping promises.'
+
 // Sanitize whatever the model returned through the same hard limits the
 // publisher enforces, backfilling tags from existing keywords if it came up short.
 function sanitizePack(raw: any, product: any): { title: string, tags: string[], description: string } | null {
@@ -115,6 +134,7 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
   if (error) throw new Error(`Product lookup failed: ${error.message}`)
   if (!product) throw new Error(`Product ${productId} not found`)
 
+  const isMetal = String(product.category) === 'metal-art'
   let fields: { title: string, tags: string[], description: string } | null = null
   if (openai) {
     try {
@@ -123,7 +143,7 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
         response_format: { type: 'json_object' },
         max_tokens: 900,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: isMetal ? METAL_SYSTEM_PROMPT : SYSTEM_PROMPT },
           {
             role: 'user',
             content: JSON.stringify({
@@ -147,8 +167,10 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
   const existingColors: string[] | undefined = (product as any).metadata?.etsy_pack?.colors
   const pack: EtsyPack = {
     ...fields,
+    // Metal art: base price is the 4x6 anchor; the 8x10 price rides on the
+    // Size variation (services/etsy.ts METAL_SIZES). No color axis.
     price: ETSY_ANCHOR_PRICE,
-    colors: existingColors?.length ? existingColors : defaultColorsFor(product),
+    colors: isMetal ? [] : (existingColors?.length ? existingColors : defaultColorsFor(product)),
     composed_at: new Date().toISOString(),
     model: openai ? COMPOSER_MODEL : 'mechanical'
   }
@@ -193,7 +215,9 @@ export async function saveEtsyPackEdits(
   const editedColors = Array.isArray(edits.colors)
     ? [...new Set(edits.colors.map(c => titleCaseColor(String(c))).filter(c => c.length >= 3 && c.length <= 30))].slice(0, 4)
     : undefined
-  const colors = editedColors?.length ? editedColors : (existing.colors?.length ? existing.colors : ['Black'])
+  // An explicitly empty list is valid (metal art has no color axis) — only
+  // fall back to the stored colors when the field wasn't sent at all.
+  const colors = editedColors !== undefined ? editedColors : (existing.colors ?? [])
   const pack: EtsyPack = {
     ...existing,
     ...merged,

@@ -84,20 +84,38 @@ const SCENES = [
   'in a sunlit doorway of an old building, film-photo warmth, relaxed lean'
 ] as const
 
+// Metal art gets room scenes, not people — the product hangs on a wall.
+const METAL_SCENES = [
+  { label: 'living room scene', scene: 'displayed on a bright modern living room gallery wall above a sofa, soft daylight' },
+  { label: 'home office scene', scene: 'standing on a wooden home-office shelf beside a few books and a small plant, warm light' },
+  { label: 'entryway scene', scene: 'on a styled entryway console table, leaning against the wall, morning light' },
+  { label: 'bedroom scene', scene: 'above a neutral bedroom dresser with minimal decor, calm natural light' },
+  { label: 'kitchen scene', scene: 'on open kitchen shelving among ceramics and a small plant, bright airy light' }
+] as const
+
 interface ShotPlan {
   key: string
   label: string
-  persona: string
+  persona: string | null   // null = product scene (metal art), no human model
   scene: string
 }
 
-// Randomly cast two distinct personas into two distinct scenes.
-function buildShotPlan(): ShotPlan[] {
-  const pickTwo = <T,>(pool: readonly T[]): [T, T] => {
-    const a = Math.floor(Math.random() * pool.length)
-    let b = Math.floor(Math.random() * (pool.length - 1))
-    if (b >= a) b += 1
-    return [pool[a], pool[b]]
+const pickTwo = <T,>(pool: readonly T[]): [T, T] => {
+  const a = Math.floor(Math.random() * pool.length)
+  let b = Math.floor(Math.random() * (pool.length - 1))
+  if (b >= a) b += 1
+  return [pool[a], pool[b]]
+}
+
+// Randomly cast two distinct looks: personas+scenes for apparel, room scenes
+// for metal art.
+function buildShotPlan(category: string): ShotPlan[] {
+  if (category === 'metal-art') {
+    const [r1, r2] = pickTwo(METAL_SCENES)
+    return [
+      { key: 'shot1', label: r1.label, persona: null, scene: r1.scene },
+      { key: 'shot2', label: r2.label, persona: null, scene: r2.scene }
+    ]
   }
   const [p1, p2] = pickTwo(PERSONAS)
   const [s1, s2] = pickTwo(SCENES)
@@ -114,10 +132,23 @@ const PROMPT_TAIL =
   'restyle, distort, crop, or reinterpret the artwork in any way. ' +
   'High-resolution product photography suitable for an online marketplace listing.'
 
+const METAL_PROMPT_TAIL =
+  'Natural perspective, tasteful minimal decor, photorealistic interior-design photography. ' +
+  "CRITICAL: reproduce the artwork's letters, words, shapes, colors, and proportions EXACTLY — do not redraw, " +
+  'restyle, distort, crop, or reinterpret it in any way. ' +
+  'High-resolution product photography suitable for an online marketplace listing.'
+
 // gpt-image-2 casts the model straight from the persona text — the only image
 // input is the design itself, so casting variety is unlimited (no stock-photo
-// library required).
+// library required). Metal art gets a room scene instead of a person.
 function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
+  if (!plan.persona) {
+    return (
+      `The INPUT image is a piece of artwork. Task: a professional interior photograph of that artwork ` +
+      `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${plan.scene}. ` +
+      METAL_PROMPT_TAIL
+    )
+  }
   return (
     `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
     `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck t-shirt ` +
@@ -128,8 +159,15 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
 
 // nano-banana fallback keeps a stock base photo as its anchor (its compositing
 // works best with a person to preserve) and restyles toward the persona as far
-// as the anchor allows.
+// as the anchor allows. Metal art needs no anchor — design only.
 function buildNanoPrompt(plan: ShotPlan, shirtColor: string): string {
+  if (!plan.persona) {
+    return (
+      `The INPUT image is a piece of artwork. Task: a professional interior photograph of that artwork ` +
+      `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${plan.scene}. ` +
+      METAL_PROMPT_TAIL
+    )
+  }
   return (
     `INPUT 1 is a photo of a model. INPUT 2 is a flat 2D graphic design (a DTF print artwork). ` +
     `Task: a professional ecommerce fashion photograph based on the model in INPUT 1, restyled as ${plan.persona}, ` +
@@ -162,11 +200,13 @@ async function generateOneShot(
 
   const viaNanoBanana = async (): Promise<string> => {
     if (!replicate) throw new Error('REPLICATE_API_TOKEN is not configured')
-    const modelUrl = await stockModelUrl(plan.key === 'shot1' ? 'female-caucasian-athletic' : 'male-caucasian-athletic')
+    const inputImages = plan.persona
+      ? [await stockModelUrl(plan.key === 'shot1' ? 'female-caucasian-athletic' : 'male-caucasian-athletic'), designUrl]
+      : [designUrl] // metal art: no human anchor, just the artwork
     const output = await replicate.run(NANO_BANANA as any, {
       input: {
         prompt: buildNanoPrompt(plan, shirtColor),
-        image_input: [modelUrl, designUrl],
+        image_input: inputImages,
         output_format: 'png',
         aspect_ratio: '3:4'
       }
@@ -270,7 +310,7 @@ async function generateShots(productId: string, userId: string): Promise<void> {
   try {
     const { data: product, error } = await supabase
       .from('products')
-      .select('id, name, images, metadata')
+      .select('id, name, images, metadata, category')
       .eq('id', productId)
       .maybeSingle()
     if (error || !product) throw new Error(error?.message || 'product not found')
@@ -288,10 +328,13 @@ async function generateShots(productId: string, userId: string): Promise<void> {
       : []
     const colorFor = (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase()
 
-    const plan = buildShotPlan()
+    const plan = buildShotPlan(String((product as any).category || ''))
     const images: string[] = []
     for (const [i, shot] of plan.entries()) {
-      await saveShotsState(productId, { stage: `Shooting the ${shot.label} in ${colorFor(i)} (${i + 1} of ${plan.length})…` })
+      const stage = shot.persona
+        ? `Shooting the ${shot.label} in ${colorFor(i)} (${i + 1} of ${plan.length})…`
+        : `Staging the ${shot.label} (${i + 1} of ${plan.length})…`
+      await saveShotsState(productId, { stage })
       const url = await generateOneShot(shot, designUrl, colorFor(i), productId, userId)
       images.push(url)
       // Persist incrementally so a failure on shot 2 still keeps shot 1 — and
