@@ -1,63 +1,87 @@
 # Claude Task Brief
 ## Request
-- Finish the T-shirt `print_locations` rollout after Zero Nine shipped the admin multi-select dropdown and admin AI create persistence.
-- Watchtower task: `237e822e-d8aa-424b-bdb5-4e4d55210776`.
-- Required remaining work: wire the remaining shirt create/update paths, sync Prisma, and verify with typechecks. Do not rework the shipped admin dropdown unless directly needed.
+- Improve the live Etsy shop at `https://imaginethisprinted1.etsy.com` using the evidence-backed audit below.
+- This brief is analysis and planning only. Do not change the live Etsy shop, activate drafts, spend listing fees, or edit repo implementation files until David explicitly approves execution.
 
 ## Repo detection
-- JavaScript/TypeScript project with Vite + React frontend and an Express/TypeScript backend in `backend/`.
-- Supabase/PostgreSQL database. The live configured DB was checked read-only on 2026-06-29: `products.print_locations` exists as `text[]` with default `'{}'::text[]`, and the `products_print_locations_valid` CHECK constraint exists.
-- Root scripts from `package.json`: `npm run typecheck`, `npm run test`, `npm run build`, `npm run lint`.
-- Backend scripts from `backend/package.json`: `cd backend && npm run typecheck`, `cd backend && npm run build`.
+- JavaScript/TypeScript project with a Vite + React frontend and an Express/TypeScript backend in `backend/`.
+- The repo already contains an Etsy publishing pipeline, an Etsy-native listing composer, a review queue, copyright checks, and generated model-shot support.
+- `TASK_NOTES.md` records 17 Etsy drafts and a current opt-in workflow; the public shop showed only one active listing during the 2026-07-26 audit.
+- Root commands from `package.json`: `npm run typecheck`, `npm run test`, `npm run build`, and `npm run lint`.
+- No code or automated test command is required for this live-shop audit.
 
 ## Relevant files (Claude MUST read these first)
 - `AGENTS.md`
 - `CLAUDE.md`
-- `TASK_NOTES.md`
-- `supabase/migrations/20260629_tshirt_print_locations.sql`
-- `src/types/index.ts`
-- `backend/routes/admin/ai-products.ts`
-- `backend/routes/user-products.ts`
-- `backend/routes/admin/user-product-approvals.ts`
-- `backend/prisma/schema.prisma`
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (focus on the 2026-07-25/26 Etsy entries)
+- `backend/services/etsy-seo-composer.ts`
+- `backend/services/etsy-model-shots.ts`
+- `backend/services/etsy.ts`
+- `src/components/AdminEtsyPanel.tsx`
 
 ## Files to edit (STRICT)
-- `backend/routes/user-products.ts`
-- `backend/routes/admin/user-product-approvals.ts`
-- `backend/prisma/schema.prisma`
-- `TASK_NOTES.md` (milestone/work-log bullets only)
+- No repo code files are approved for this audit.
+- `TASK_NOTES.md` may receive one concise milestone/work-log bullet after a separately approved implementation pass.
+- Live Etsy edits are not approved yet. If David approves them later, limit the first pass to shop branding/profile fields and listing `4544353578`; activating additional paid listings requires separate confirmation.
 
 ## Context from scouting
-- Already done: `src/types/index.ts` defines `TshirtPrintLocation` and adds `print_locations?` to `Product` and `AIProductCreationRequest`.
-- Already done: `src/components/AdminCreateProductWizard.tsx` has the multi-select `Print Locations` dropdown and sends `print_locations` for shirts.
-- Already done: `backend/routes/admin/ai-products.ts` `/create` whitelists/dedupes `front_image`, `back_image`, `pocket`, defaults shirt inserts to `['front_image']`, and inserts `print_locations`.
-- Still missing: `backend/routes/user-products.ts` `/create` inserts `category: normalized.category_slug` without `print_locations`, so creator-submitted shirts can violate the live CHECK.
-- Still missing: `backend/routes/admin/user-product-approvals.ts` `/:id/approve` can set `updateData.category = 'shirts'` for apparel without ensuring `print_locations` has at least one value.
-- Still missing: `backend/prisma/schema.prisma` `model Product` has `images`, `category`, etc., but no `printLocations String[] @default([]) @map("print_locations")`.
+- Audit flow captured on 2026-07-26:
+  1. Shop home: one active $25 listing, no reviews, no sales, no visible shop banner, and a detailed logo that becomes illegible at Etsy's small icon size.
+  2. Listing top: the hero is a generated purple mascot wearing the shirt; four images are present, but the visible gallery does not establish the real finished garment, print texture, fit, or size.
+  3. Listing purchase/details: no size or color selector was visible before `Add to cart`; the listing does show Georgia shipping, an arrival estimate, accepted returns, $5 shipping, care instructions, and an AI-use disclosure.
+  4. About/policies: the announcement contains useful specifics (DTF, Rockmart, 1–3 business days, custom work), but the About section is one sentence, the seller card uses a letter avatar rather than a person/photo, and the policy area is sparse.
+- Highest-risk issue: the shop says shirts are printed in-house, while the first listing image is an artistic rendering. Etsy's Listing Image Requirements say the first image should show the actual finished product; mockup exceptions are limited. Use a real photographed shirt as image 1 and treat generated/model mockups as secondary only after checking the applicable exception.
+- The announcement says every design is "drawn up in-house," while the listing calls the design AI-assisted. Replace this with transparent language such as "directed and curated in-house" and keep the required AI disclosure in each relevant listing.
+- The current title is long and keyword-stacked. Etsy's April 2026 title guidance favors clear, easy-to-scan titles because search now considers the full listing, including tags, attributes, description, first image, and reviews.
+- Suggested buyer-facing title: `Simply Be You Retro Varsity T-Shirt | Unisex Graphic Tee`.
+- Suggested focused shop promise: `Playful confidence tees and custom designs, printed to order in Georgia.` Keep 3D prints out of the lead promise until that category has enough active products to support it.
+- Official references:
+  - `https://www.etsy.com/legal/policy/listing-image-requirements/253962679005`
+  - `https://www.etsy.com/legal/sellers/`
+  - `https://www.etsy.com/seller-handbook/article/1399426136697`
+  - `https://www.etsy.com/seller-handbook/article/358680450619`
+  - `https://www.etsy.com/seller-handbook/article/22636178725`
 
 ## Plan (step-by-step)
-1) In `backend/routes/user-products.ts`, add a small local helper or constants matching the admin AI route:
-   - Valid values: `front_image`, `back_image`, `pocket`.
-   - Accept only an array from `req.body.print_locations`.
-   - Whitelist and dedupe strings.
-   - After `normalized.category_slug` is known, if category is `shirts` and the filtered list is empty, default to `['front_image']`.
-   - Include `print_locations` in the `products` insert.
-2) In `backend/routes/admin/user-product-approvals.ts`, apply the same whitelist/dedupe behavior to `req.body.print_locations`.
-   - Determine the final category that will be written: `metal-art`, `3d-prints`, existing category, or `shirts` fallback.
-   - If final category is `shirts`, set `updateData.print_locations` to the filtered request value, or existing `product.print_locations` if valid/nonempty, or `['front_image']`.
-   - If final category is not `shirts` and a valid request array was provided, allow updating it; otherwise leave it unchanged.
-3) In `backend/prisma/schema.prisma`, add `printLocations String[] @default([]) @map("print_locations")` inside `model Product`, near the other product array/config columns.
-4) Keep `src/types/index.ts`, `src/components/AdminCreateProductWizard.tsx`, and `backend/routes/admin/ai-products.ts` unchanged unless typecheck reveals a direct integration issue.
-5) Update `TASK_NOTES.md` with one concise milestone/work-log bullet after implementation.
+1. Fix purchase readiness on listing `4544353578`:
+   - Verify size and color variations are configured and visible.
+   - Add a readable size chart and state garment brand/model, fabric composition, weight, available sizes/colors, print dimensions, and processing time.
+   - Replace image 1 with a real photo of the actual finished shirt.
+   - Build a 7–10 image sequence: real hero, front, back, close-up of DTF texture, model/fit reference with model size, size chart, color options, packaging/process, and an optional final brand card.
+   - Add a short real-product video if available.
+2. Tighten listing copy:
+   - Use the concise title above or a close variant.
+   - Put the shopper benefit and physical product facts in the first two description lines.
+   - Move secondary phrases such as casual streetwear and gift intent into tags, attributes, and later description copy.
+   - Preserve the AI disclosure and make it consistent with the shop announcement.
+3. Complete the trust layer:
+   - Add a simple, legible 500×500 shop icon.
+   - Add a cohesive banner featuring real finished products and a short value promise.
+   - Add Christina's clear owner photo and a fuller About story with workspace, printing, and packing photos/video.
+   - Explain who designs, prints, quality-checks, and ships each order.
+4. Build inventory depth only after the first listing passes QA:
+   - Select 6–12 coherent designs from the existing draft queue.
+   - Keep the initial assortment centered on one promise, such as playful/affirming graphic tees.
+   - Do not activate any draft until its real-product imagery, variations, title, tags, attributes, description, shipping, return policy, and IP review are complete.
+   - Feature the strongest four listings once enough inventory is live.
+5. Measure before buying ads:
+   - Record visits, favorites, listing clicks, add-to-carts, and conversion for 30 days.
+   - Test one variable at a time, starting with the first photo and title.
 
 ## Acceptance criteria (checkboxes)
-- [ ] Creator submissions through `backend/routes/user-products.ts` cannot insert a `shirts` product with empty/missing `print_locations`.
-- [ ] Admin approval through `backend/routes/admin/user-product-approvals.ts` cannot activate/finalize an apparel product as `shirts` with empty/missing `print_locations`.
-- [ ] Existing non-shirt behavior is preserved.
-- [ ] `backend/prisma/schema.prisma` maps `products.print_locations`.
-- [ ] Backend typecheck completes with exit code 0.
-- [ ] Root typecheck completes with exit code 0 if frontend/types are touched.
+- [ ] Listing `4544353578` has visible size and color choices before `Add to cart`.
+- [ ] The first listing image is a real photo of the actual finished shirt, not a mascot scene or artistic rendering.
+- [ ] The listing has a coherent 7–10 image sequence plus a size chart; any generated mockup is secondary and policy-appropriate.
+- [ ] The title is clear and scannable, with secondary keywords moved into tags, attributes, and description.
+- [ ] The description names the garment, materials, fit, sizes, colors, print method, care, processing, shipping, returns, and AI role.
+- [ ] The shop has a legible icon, banner, owner photo, fuller About story, and process imagery.
+- [ ] The announcement and listing disclosures describe the design process consistently.
+- [ ] At least 6 coherent listings pass the same QA checklist before activation is proposed.
+- [ ] No live Etsy edit, paid activation, ad spend, or repo code change occurs without David's approval.
 
 ## Commands to run
-- Backend typecheck: `cd backend && npm run typecheck`
-- Root typecheck if frontend/shared types change: `npm run typecheck`
+- Manual shop check: open `https://imaginethisprinted1.etsy.com`.
+- Manual listing check: open `https://www.etsy.com/listing/4544353578/retro-varsity-shirt-simply-be-you`.
+- Verify desktop storefront, listing gallery, variations, `Add to cart`, About, and Shop Policies.
+- No repo test/build command is required unless a later approved pass changes the Etsy integration code.
