@@ -14,17 +14,31 @@ const router = Router()
 // visitors, but we cannot let the client pick the model — that's a wide-open
 // cost vector (e.g. someone passing 'o1-pro' on every request).
 //
-// Cost decision (2026-06-12): Mr. Imagine's brain defaults to Gemini 2.5
-// Flash via OpenRouter (~94% cheaper than gpt-4o, 1M context, low latency).
-// OpenRouter speaks the OpenAI SDK dialect and normalizes tool calling, so
-// the function-calling flow below runs unchanged. If OPENROUTER_API_KEY is
-// missing we fall back to direct OpenAI. Legacy clients that still send
-// 'gpt-4o' simply fall through the allowlist onto the cheap default.
+// Cost decision (2026-07-26): the support chat runs on the cheapest current
+// model on each provider. Via OpenRouter that's Gemini 2.5 Flash-Lite; on the
+// direct OpenAI path it's GPT-5.4-nano. OpenRouter speaks the OpenAI SDK
+// dialect and normalizes tool calling, so the function-calling flow below runs
+// unchanged. If OPENROUTER_API_KEY is missing we fall back to direct OpenAI.
+//
+// Model IDs are environment-driven (coordinated with task e881523b, "Migrate
+// OpenAI model IDs to current versions and environment variables") so ops can
+// bump a model without a code deploy. The retired gpt-4o / gpt-4o-mini and the
+// deprecated gpt-3.5-turbo IDs are gone: legacy clients that still send them
+// fall through the allowlist onto the cheap current default instead of a silent
+// fallback to an expensive or unavailable model.
 const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+
+// Cheapest current default per provider, overridable via env.
+const DEFAULT_MODEL = USE_OPENROUTER
+  ? (process.env.CHAT_MODEL_OPENROUTER || 'google/gemini-2.5-flash-lite')
+  : (process.env.CHAT_MODEL_OPENAI || 'gpt-5.4-nano')
+
+// Allowlist = the configured default plus a small set of current, valid models
+// a caller may explicitly request. The default is always a member, so an env
+// override is honored without editing this list.
 const ALLOWED_MODELS = USE_OPENROUTER
-  ? new Set(['google/gemini-2.5-flash', 'google/gemini-2.5-pro', 'openai/gpt-4o-mini'])
-  : new Set(['gpt-4o', 'gpt-4.1-mini', 'gpt-4o-mini'])
-const DEFAULT_MODEL = USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-4o'
+  ? new Set([DEFAULT_MODEL, 'google/gemini-2.5-flash-lite', 'google/gemini-2.5-flash', 'google/gemini-2.5-pro'])
+  : new Set([DEFAULT_MODEL, 'gpt-5.4-nano'])
 
 // Per-IP rate limit for anonymous callers. Authenticated users are
 // rate-limited at a higher tier (their JWT also gives us an audit trail).
@@ -64,7 +78,8 @@ const openai = new OpenAI(
 
 /**
  * POST /api/ai/chat
- * Generate conversational AI response using GPT-4o with Tool Calling.
+ * Generate conversational AI response using the configured cost-effective
+ * chat model (see DEFAULT_MODEL / ALLOWED_MODELS above) with Tool Calling.
  * optionalAuth: works for anonymous browsing visitors (Mr. Imagine on the
  * landing page) AND authenticated users; the body-supplied userId is ONLY
  * trusted when there's no authenticated session.
@@ -98,7 +113,7 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
         const requestedModel = typeof model === 'string' ? model : ''
         const resolvedModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : DEFAULT_MODEL
 
-        console.log('[chat] 💬 Processing message:', message.substring(0, 50) + '...')
+        console.log(`[chat] 💬 Processing message (model=${resolvedModel}):`, message.substring(0, 50) + '...')
 
         // Define tools
         const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [

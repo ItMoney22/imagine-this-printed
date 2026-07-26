@@ -108,7 +108,8 @@ export class ChatbotService {
         body: JSON.stringify({
           message: userMessage,
           systemPrompt: SYSTEM_PROMPT,
-          model: 'gpt-3.5-turbo',
+          // No client-supplied model: the backend picks the current cost-effective
+          // model from its server-side allowlist (see backend/routes/ai/chat.ts).
           history: historyForBackend,
         }),
       })
