@@ -38,6 +38,8 @@ interface EtsyPack {
 interface EtsyShots {
   status: 'generating' | 'done' | 'failed'
   images: string[]
+  total?: number
+  stage?: string
   error?: string
 }
 
@@ -101,12 +103,12 @@ export default function AdminEtsyPanel() {
     } catch { /* transient — next poll or manual refresh recovers */ }
   }
 
-  // While any candidate is generating model shots, poll every 10s so the
-  // thumbnails appear without the admin mashing refresh.
+  // While any candidate is generating model shots, poll every 5s so stage text
+  // and thumbnails move without the admin mashing refresh.
   useEffect(() => {
     const generating = candidates.some(c => c.etsy_shots?.status === 'generating')
     if (generating && !pollRef.current) {
-      pollRef.current = setInterval(refreshCandidates, 10_000)
+      pollRef.current = setInterval(refreshCandidates, 5_000)
     } else if (!generating && pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
@@ -231,6 +233,12 @@ export default function AdminEtsyPanel() {
       setError(null)
       const res = await api.post(`/api/admin/etsy/model-shots/${id}`)
       setCandidates(prev => prev.map(c => (c.id === id ? { ...c, etsy_shots: res.data.shots } : c)))
+      // Open the row so the progress skeletons are visible immediately.
+      const candidate = candidates.find(c => c.id === id)
+      if (candidate?.etsy_pack && !drafts[id]) {
+        setDrafts(prev => ({ ...prev, [id]: packToDraft(candidate.etsy_pack!) }))
+      }
+      setExpanded(id)
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Model shot generation failed to start')
     } finally {
@@ -440,7 +448,15 @@ export default function AdminEtsyPanel() {
                               </span>
                             )}
                             {c.etsy_shots?.status === 'generating' && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 animate-pulse">shooting…</span>
+                              <span className="inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700">
+                                <span className="relative w-14 h-1.5 rounded-full bg-blue-100 overflow-hidden">
+                                  <span
+                                    className="absolute inset-y-0 left-0 rounded-full bg-blue-600 transition-all duration-700 animate-pulse"
+                                    style={{ width: `${Math.max(8, Math.round(((c.etsy_shots.images.length) / (c.etsy_shots.total || 2)) * 100))}%` }}
+                                  />
+                                </span>
+                                {c.etsy_shots.images.length}/{c.etsy_shots.total || 2} · {c.etsy_shots.stage || 'working…'}
+                              </span>
                             )}
                             {c.etsy_shots?.status === 'done' && c.etsy_shots.images.length > 0 && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
@@ -484,9 +500,9 @@ export default function AdminEtsyPanel() {
                         </div>
                       </div>
 
-                      {isOpen && draft && (
+                      {isOpen && (
                         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                          {c.etsy_shots && c.etsy_shots.images.length > 0 && (
+                          {c.etsy_shots && (c.etsy_shots.images.length > 0 || c.etsy_shots.status === 'generating') && (
                             <div>
                               <label className="text-[10px] uppercase tracking-wide text-slate-400">
                                 Model shots — these lead the listing images
@@ -506,9 +522,24 @@ export default function AdminEtsyPanel() {
                                     </button>
                                   </div>
                                 ))}
+                                {c.etsy_shots.status === 'generating' &&
+                                  Array.from({ length: Math.max(0, (c.etsy_shots.total || 2) - c.etsy_shots.images.length) }).map((_, i) => (
+                                    <div
+                                      key={`pending-${i}`}
+                                      className="w-20 h-24 rounded-lg border border-dashed border-blue-200 bg-blue-50 animate-pulse flex items-center justify-center"
+                                    >
+                                      <Camera className="w-4 h-4 text-blue-300" />
+                                    </div>
+                                  ))}
                               </div>
+                              {c.etsy_shots.status === 'generating' && (
+                                <p className="text-[11px] text-blue-600 mt-1.5">
+                                  {c.etsy_shots.stage || 'Working…'} Each shot takes 30–60 seconds; they appear here as they finish.
+                                </p>
+                              )}
                             </div>
                           )}
+                          {draft && (<>
                           <div>
                             <label className="text-[10px] uppercase tracking-wide text-slate-400">
                               Title <span className={draft.title.length > 140 ? 'text-red-500' : ''}>({draft.title.length}/140)</span>
@@ -564,6 +595,7 @@ export default function AdminEtsyPanel() {
                               {action === 'saving' ? 'Saving…' : 'Save edits'}
                             </button>
                           </div>
+                          </>)}
                         </div>
                       )}
                     </li>

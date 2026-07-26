@@ -36,6 +36,10 @@ const replicate = process.env.REPLICATE_API_TOKEN ? new Replicate({ auth: proces
 export interface EtsyShots {
   status: 'generating' | 'done' | 'failed'
   images: string[]
+  /** Number of shots this run will produce (progress denominator). */
+  total?: number
+  /** Human-readable progress stage shown in the admin panel while generating. */
+  stage?: string
   started_at?: string
   generated_at?: string
   error?: string
@@ -46,11 +50,13 @@ export interface EtsyShots {
 const SHOT_SPECS = [
   {
     key: 'hero',
+    label: 'studio hero',
     model: 'female-caucasian-athletic',
     scene: 'clean bright studio background with soft even daylight, front-facing, relaxed confident pose'
   },
   {
     key: 'lifestyle',
+    label: 'lifestyle shot',
     model: 'male-caucasian-athletic',
     scene: 'casual city street at golden hour, natural candid pose, shallow depth of field'
   }
@@ -219,17 +225,19 @@ async function generateShots(productId: string, userId: string): Promise<void> {
     )
 
     const images: string[] = []
-    for (const spec of SHOT_SPECS) {
+    for (const [i, spec] of SHOT_SPECS.entries()) {
+      await saveShotsState(productId, { stage: `Shooting ${spec.label} (${i + 1} of ${SHOT_SPECS.length})…` })
       const url = await generateOneShot(spec, designUrl, shirtColor, productId, userId)
       images.push(url)
-      // Persist incrementally so a failure on shot 2 still keeps shot 1.
+      // Persist incrementally so a failure on shot 2 still keeps shot 1 — and
+      // so the panel shows each thumbnail the moment it exists.
       await saveShotsState(productId, { images: [...images] })
     }
 
-    await saveShotsState(productId, { status: 'done', images, generated_at: new Date().toISOString(), error: undefined })
+    await saveShotsState(productId, { status: 'done', images, stage: undefined, generated_at: new Date().toISOString(), error: undefined })
   } catch (err: any) {
     console.error(`[etsy-shots] generation failed for ${productId}:`, err?.message || err)
-    await saveShotsState(productId, { status: 'failed', error: String(err?.message || err).slice(0, 300) })
+    await saveShotsState(productId, { status: 'failed', stage: undefined, error: String(err?.message || err).slice(0, 300) })
   }
 }
 
@@ -255,7 +263,13 @@ export async function startModelShots(productId: string, userId: string): Promis
     if (age < 10 * 60 * 1000) return existing
   }
 
-  const state: EtsyShots = { status: 'generating', images: [], started_at: new Date().toISOString() }
+  const state: EtsyShots = {
+    status: 'generating',
+    images: [],
+    total: SHOT_SPECS.length,
+    stage: 'Finding the design art…',
+    started_at: new Date().toISOString()
+  }
   await supabase
     .from('products')
     .update({ metadata: { ...((product as any).metadata || {}), etsy_shots: state } })
