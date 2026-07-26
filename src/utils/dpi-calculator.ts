@@ -1,14 +1,23 @@
 // src/utils/dpi-calculator.ts
 // DPI calculation and quality assessment for print images
+// Thresholds are driven by each print type's minDPI (not hard-coded 300/150/100).
 
 const PIXELS_PER_INCH = 96;
 
-// DPI quality thresholds
+/** Fallback when a print type / preset isn't available yet */
+export const DEFAULT_MIN_DPI = 300;
+
+// Legacy absolute constants — prefer getDpiThresholds(minDPI). Kept for any
+// external references; grading logic no longer uses these directly.
 export const DPI_EXCELLENT = 300;
 export const DPI_GOOD = 150;
 export const DPI_WARNING = 100;
 
-// DPI quality levels
+// DPI quality levels (relative to print-type minDPI)
+// - good:    dpi >= 1.0 * minDPI
+// - warning: 0.5 * minDPI <= dpi < 1.0 * minDPI
+// - danger:  dpi < 0.5 * minDPI
+// 'excellent' retained for backward-compat with stored metadata; treated like 'good'.
 export type DpiQuality = 'excellent' | 'good' | 'warning' | 'danger';
 
 export interface DpiInfo {
@@ -17,21 +26,58 @@ export interface DpiInfo {
   originalWidth: number;
   originalHeight: number;
   canvasSizeInches: { width: number; height: number };
+  /** Print-type minDPI used when this grade was computed */
+  minDPI?: number;
+}
+
+export interface DpiThresholds {
+  minDPI: number;
+  /** dpi >= goodAt → 'good' */
+  goodAt: number;
+  /** dpi >= warningAt && dpi < goodAt → 'warning'; below warningAt → 'danger' */
+  warningAt: number;
 }
 
 /**
- * Calculate DPI based on original image pixels and canvas size
+ * Derive quality cutoffs from a print type's minimum required DPI.
+ * good = at/above minDPI; warning = 50–99% of minDPI; danger = below 50%.
+ */
+export const getDpiThresholds = (minDPI: number = DEFAULT_MIN_DPI): DpiThresholds => {
+  const safeMin = Number.isFinite(minDPI) && minDPI > 0 ? minDPI : DEFAULT_MIN_DPI;
+  return {
+    minDPI: safeMin,
+    goodAt: safeMin,
+    warningAt: safeMin * 0.5,
+  };
+};
+
+/**
+ * Grade a DPI value relative to the print type's minDPI.
+ */
+export const gradeDpi = (dpi: number, minDPI: number = DEFAULT_MIN_DPI): DpiQuality => {
+  const { goodAt, warningAt } = getDpiThresholds(minDPI);
+  if (dpi >= goodAt) return 'good';
+  if (dpi >= warningAt) return 'warning';
+  return 'danger';
+};
+
+/**
+ * Calculate DPI based on original image pixels and canvas size.
+ * Quality is graded relative to the print type's minDPI.
+ *
  * @param originalPixelWidth - Original image width in pixels
  * @param originalPixelHeight - Original image height in pixels
  * @param canvasPixelWidth - Current canvas width in pixels
  * @param canvasPixelHeight - Current canvas height in pixels
+ * @param minDPI - Print type minimum DPI (from imagination presets). Defaults to 300.
  * @returns DPI information including quality assessment
  */
 export const calculateDpi = (
   originalPixelWidth: number,
   originalPixelHeight: number,
   canvasPixelWidth: number,
-  canvasPixelHeight: number
+  canvasPixelHeight: number,
+  minDPI: number = DEFAULT_MIN_DPI
 ): DpiInfo => {
   // Calculate canvas size in inches
   const canvasWidthInches = canvasPixelWidth / PIXELS_PER_INCH;
@@ -41,21 +87,13 @@ export const calculateDpi = (
   const dpiWidth = originalPixelWidth / canvasWidthInches;
   const dpiHeight = originalPixelHeight / canvasHeightInches;
   const dpi = Math.min(dpiWidth, dpiHeight);
+  const roundedDpi = Math.round(dpi);
 
-  // Determine quality level
-  let quality: DpiQuality;
-  if (dpi >= DPI_EXCELLENT) {
-    quality = 'excellent';
-  } else if (dpi >= DPI_GOOD) {
-    quality = 'good';
-  } else if (dpi >= DPI_WARNING) {
-    quality = 'warning';
-  } else {
-    quality = 'danger';
-  }
+  const safeMin = Number.isFinite(minDPI) && minDPI > 0 ? minDPI : DEFAULT_MIN_DPI;
+  const quality = gradeDpi(roundedDpi, safeMin);
 
   return {
-    dpi: Math.round(dpi),
+    dpi: roundedDpi,
     quality,
     originalWidth: originalPixelWidth,
     originalHeight: originalPixelHeight,
@@ -63,26 +101,21 @@ export const calculateDpi = (
       width: parseFloat(canvasWidthInches.toFixed(2)),
       height: parseFloat(canvasHeightInches.toFixed(2)),
     },
+    minDPI: safeMin,
   };
 };
 
 /**
- * Get display properties for DPI quality level
- * @param quality - DPI quality level
- * @returns Color classes and labels for UI display
+ * Get display properties for DPI quality level.
+ * Descriptions are phrased relative to the print type's minDPI when provided.
  */
-export const getDpiQualityDisplay = (quality: DpiQuality) => {
+export const getDpiQualityDisplay = (quality: DpiQuality, minDPI: number = DEFAULT_MIN_DPI) => {
+  const { goodAt, warningAt } = getDpiThresholds(minDPI);
+  const goodLabel = Math.round(goodAt);
+  const warnFloor = Math.round(warningAt);
+
   switch (quality) {
     case 'excellent':
-      return {
-        color: 'text-green-500',
-        bgColor: 'bg-green-500/10',
-        borderColor: 'border-green-500/40',
-        indicatorColor: 'bg-green-500',
-        label: 'Excellent',
-        icon: '✓',
-        description: 'Perfect for printing at 300+ DPI',
-      };
     case 'good':
       return {
         color: 'text-green-500',
@@ -91,7 +124,7 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
         indicatorColor: 'bg-green-500',
         label: 'Good',
         icon: '✓',
-        description: 'Good quality for printing (150+ DPI)',
+        description: `Meets print quality (${goodLabel}+ DPI required)`,
       };
     case 'warning':
       return {
@@ -99,9 +132,9 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
         bgColor: 'bg-amber-500/10',
         borderColor: 'border-amber-500/40',
         indicatorColor: 'bg-amber-500',
-        label: 'Low Quality',
+        label: 'Below Minimum',
         icon: '⚠',
-        description: 'May appear pixelated when printed (100-150 DPI)',
+        description: `Below required ${goodLabel} DPI (${warnFloor}–${goodLabel - 1} DPI). Shrink, re-upload, or upscale before ordering.`,
       };
     case 'danger':
       return {
@@ -111,7 +144,7 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
         indicatorColor: 'bg-red-500',
         label: 'Poor Quality',
         icon: '✕',
-        description: 'Will look bad when printed (below 100 DPI)',
+        description: `Far below required ${goodLabel} DPI (under ${warnFloor} DPI). Will not print well.`,
       };
   }
 };
@@ -124,6 +157,39 @@ export const getDpiQualityDisplay = (quality: DpiQuality) => {
 export const getDpiFromMetadata = (metadata: Record<string, any> | null): DpiInfo | null => {
   if (!metadata?.dpiInfo) return null;
   return metadata.dpiInfo as DpiInfo;
+};
+
+/**
+ * True when a layer's DPI fails the print type's minimum (quality warning or danger).
+ * Uses the numeric dpi + current minDPI so stale quality tags can't sneak by.
+ */
+export const isBelowMinDpi = (
+  dpiInfo: DpiInfo | null | undefined,
+  minDPI: number = DEFAULT_MIN_DPI
+): boolean => {
+  if (!dpiInfo) return false;
+  const threshold = Number.isFinite(minDPI) && minDPI > 0 ? minDPI : DEFAULT_MIN_DPI;
+  if (typeof dpiInfo.dpi === 'number') {
+    return dpiInfo.dpi < threshold;
+  }
+  // Fallback to stored quality grade (treat excellent as good)
+  return dpiInfo.quality === 'warning' || dpiInfo.quality === 'danger';
+};
+
+/**
+ * Re-grade stored dpiInfo against the current print-type minDPI.
+ * Fixes layers saved under the old hard-coded 300/150/100 thresholds.
+ */
+export const resolveDpiInfo = (
+  dpiInfo: DpiInfo | null | undefined,
+  minDPI: number = DEFAULT_MIN_DPI
+): DpiInfo | null => {
+  if (!dpiInfo) return null;
+  if (typeof dpiInfo.dpi !== 'number') return dpiInfo;
+  const safeMin = Number.isFinite(minDPI) && minDPI > 0 ? minDPI : DEFAULT_MIN_DPI;
+  const quality = gradeDpi(dpiInfo.dpi, safeMin);
+  if (quality === dpiInfo.quality && dpiInfo.minDPI === safeMin) return dpiInfo;
+  return { ...dpiInfo, quality, minDPI: safeMin };
 };
 
 /**

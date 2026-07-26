@@ -20,7 +20,14 @@ import type {
 } from '../types';
 import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal, MakeProductModal } from '../components/imagination';
 import type { Layer as SimpleLayer } from '../types';
-import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../utils/dpi-calculator';
+import {
+  calculateDpi,
+  getDpiQualityDisplay,
+  isBelowMinDpi,
+  resolveDpiInfo,
+  DEFAULT_MIN_DPI,
+  type DpiInfo,
+} from '../utils/dpi-calculator';
 import {
   Sparkles,
   Upload,
@@ -195,6 +202,19 @@ const ImaginationStation: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [presets, setPresets] = useState<any>(null); // State for dynamic presets
+
+  // Print-type minDPI from loaded presets (falls back to DEFAULT_MIN_DPI = 300)
+  const getSheetMinDpi = useCallback((printType?: PrintType | string | null): number => {
+    const type = printType || sheet?.print_type;
+    if (!type || !presets) return DEFAULT_MIN_DPI;
+    const preset = presets[type as PrintType];
+    const fromRules = preset?.rules?.minDPI;
+    if (Number.isFinite(fromRules) && fromRules > 0) return fromRules as number;
+    // Some API shapes may surface minDpi at the product root
+    const fromRoot = preset?.minDpi ?? preset?.minDPI;
+    if (Number.isFinite(fromRoot) && fromRoot > 0) return fromRoot as number;
+    return DEFAULT_MIN_DPI;
+  }, [presets, sheet?.print_type]);
 
   // Pricing
   const [pricing, setPricing] = useState<ImaginationPricing[]>([]);
@@ -415,8 +435,14 @@ const ImaginationStation: React.FC = () => {
           widthInches = maxSizeInches * aspectRatio;
         }
 
-        // Calculate DPI for the layer size in inches
-        const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+        // Calculate DPI for the layer size in inches (graded against this sheet's print-type minDPI)
+        const dpiInfo = calculateDpi(
+          originalWidth,
+          originalHeight,
+          widthInches * PIXELS_PER_INCH,
+          heightInches * PIXELS_PER_INCH,
+          getSheetMinDpi(sheet.print_type)
+        );
 
         // Center the image on the sheet
         const centerX = (sheet.sheet_width - widthInches) / 2;
@@ -489,14 +515,27 @@ const ImaginationStation: React.FC = () => {
         if (presetData) {
           merged = {};
           Object.keys(presetData).forEach(key => {
+            const raw = presetData[key] || {};
+            // Normalize minDPI onto rules so grading always has a source of truth
+            // (API may put it on rules.minDPI, product.minDpi, or only in DB min_dpi)
+            const minDPI =
+              (Number.isFinite(raw.rules?.minDPI) && raw.rules.minDPI > 0 && raw.rules.minDPI) ||
+              (Number.isFinite(raw.minDpi) && raw.minDpi > 0 && raw.minDpi) ||
+              (Number.isFinite(raw.minDPI) && raw.minDPI > 0 && raw.minDPI) ||
+              DEFAULT_MIN_DPI;
             merged[key] = {
-              ...presetData[key],
+              ...raw,
               ...(PRESET_UI_CONFIG[key] || {}),
-              name: presetData[key].displayName, // Map displayName to name for compatibility
-              allowMirror: presetData[key].rules?.mirror,
-              allowCutlines: presetData[key].rules?.cutlineOption,
+              name: raw.displayName, // Map displayName to name for compatibility
+              allowMirror: raw.rules?.mirror,
+              allowCutlines: raw.rules?.cutlineOption,
               // API returns heights directly as array of numbers (not sizes array of objects)
-              heights: presetData[key].heights || []
+              heights: raw.heights || [],
+              minDpi: minDPI,
+              rules: {
+                ...(raw.rules || {}),
+                minDPI,
+              },
             };
           });
           setPresets(merged);
@@ -633,7 +672,13 @@ const ImaginationStation: React.FC = () => {
                 widthInches = maxSizeInches * aspectRatio;
               }
 
-              const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+              const dpiInfo = calculateDpi(
+                originalWidth,
+                originalHeight,
+                widthInches * PIXELS_PER_INCH,
+                heightInches * PIXELS_PER_INCH,
+                getSheetMinDpi(sheet.print_type)
+              );
 
               const centerX = (sheet.sheet_width - widthInches) / 2;
               const centerY = (sheet.sheet_height - heightInches) / 2;
@@ -679,9 +724,21 @@ const ImaginationStation: React.FC = () => {
 
   };
 
-  // calculateDpi expects the print size in PIXELS â€” layer width/height are stored in INCHES
-  const calcDpiInches = (originalPxW: number, originalPxH: number, widthInches: number, heightInches: number): DpiInfo =>
-    calculateDpi(originalPxW, originalPxH, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+  // calculateDpi expects the print size in PIXELS — layer width/height are stored in INCHES
+  const calcDpiInches = (
+    originalPxW: number,
+    originalPxH: number,
+    widthInches: number,
+    heightInches: number,
+    minDPI?: number
+  ): DpiInfo =>
+    calculateDpi(
+      originalPxW,
+      originalPxH,
+      widthInches * PIXELS_PER_INCH,
+      heightInches * PIXELS_PER_INCH,
+      minDPI ?? getSheetMinDpi()
+    );
 
   // Recalculate DPI when layer size changes
   const recalculateDpi = (layer: ImaginationLayer, newWidth?: number, newHeight?: number): DpiInfo | undefined => {
@@ -695,6 +752,44 @@ const ImaginationStation: React.FC = () => {
 
     return calcDpiInches(originalWidth, originalHeight, w, h);
   };
+
+  // Re-grade stored dpiInfo when print-type presets / minDPI become known.
+  // Old layers graded against hard-coded 150/100 thresholds get corrected here.
+  useEffect(() => {
+    if (!sheet || !presets) return;
+    const minDPI = getSheetMinDpi(sheet.print_type);
+    setLayers(prev => {
+      let changed = false;
+      const next = prev.map(layer => {
+        if (layer.layer_type !== 'image' && layer.layer_type !== 'ai_generated') return layer;
+        const existing = layer.metadata?.dpiInfo as DpiInfo | undefined;
+        if (!existing) return layer;
+
+        const ow = layer.metadata?.originalWidth;
+        const oh = layer.metadata?.originalHeight;
+        let resolved: DpiInfo | null = null;
+        if (ow && oh) {
+          resolved = calcDpiInches(ow, oh, layer.width, layer.height, minDPI);
+        } else {
+          resolved = resolveDpiInfo(existing, minDPI);
+        }
+        if (
+          !resolved ||
+          (resolved.dpi === existing.dpi &&
+            resolved.quality === existing.quality &&
+            resolved.minDPI === existing.minDPI)
+        ) {
+          return layer;
+        }
+        changed = true;
+        return {
+          ...layer,
+          metadata: { ...layer.metadata, dpiInfo: resolved },
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [sheet?.id, sheet?.print_type, presets, getSheetMinDpi]);
 
   // Layer operations
   const selectLayer = (layerId: string, multi = false) => {
@@ -884,43 +979,34 @@ const ImaginationStation: React.FC = () => {
       return;
     }
 
-    // Check for critical DPI issues (both uploaded images and AI-generated)
-    const dangerLayers = layers.filter(layer =>
-      (layer.layer_type === 'image' || layer.layer_type === 'ai_generated') &&
-      layer.metadata?.dpiInfo &&
-      layer.metadata.dpiInfo.quality === 'danger'
+    // DPI gate is relative to this print type's minDPI (e.g. DTF = 300).
+    // Anything below minDPI is a hard block — no silent pass for mid-range DPI,
+    // and no confirm-through for "warning" (warning still means under minDPI).
+    const minDPI = getSheetMinDpi(sheet.print_type);
+    const imageLayers = layers.filter(
+      layer => layer.layer_type === 'image' || layer.layer_type === 'ai_generated'
     );
 
-    const warningLayers = layers.filter(layer =>
-      (layer.layer_type === 'image' || layer.layer_type === 'ai_generated') &&
-      layer.metadata?.dpiInfo &&
-      layer.metadata.dpiInfo.quality === 'warning'
+    const belowMinLayers = imageLayers.filter(layer =>
+      isBelowMinDpi(layer.metadata?.dpiInfo as DpiInfo | undefined, minDPI)
     );
 
-    // Prevent checkout if there are critical DPI issues
-    if (dangerLayers.length > 0) {
-      const layerNames = dangerLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
+    if (belowMinLayers.length > 0) {
+      const layerNames = belowMinLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
+      const hasDanger = belowMinLayers.some(layer => {
+        const info = layer.metadata?.dpiInfo as DpiInfo | undefined;
+        if (!info) return false;
+        if (typeof info.dpi === 'number') return info.dpi < minDPI * 0.5;
+        return info.quality === 'danger';
+      });
       toast.error(
-        `${dangerLayers.length} design${dangerLayers.length !== 1 ? 's' : ''} too low quality to print`,
-        `${layerNames} — shrink them, upload a higher-resolution version, or use the Upscale tool.`,
+        `${belowMinLayers.length} design${belowMinLayers.length !== 1 ? 's' : ''} below ${minDPI} DPI minimum`,
+        hasDanger
+          ? `${layerNames} — far below the ${minDPI} DPI required for ${sheet.print_type}. Shrink them, upload higher-res, or use Upscale.`
+          : `${layerNames} — need at least ${minDPI} DPI for ${sheet.print_type}. Shrink them, upload higher-res, or use Upscale.`,
         8000
       );
       return;
-    }
-
-    // Warn about low quality but allow to proceed
-    if (warningLayers.length > 0) {
-      const layerNames = warningLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
-      const proceed = window.confirm(
-        `Warning: ${warningLayers.length} layer(s) have low DPI (100-150).\n\n` +
-        `Affected layers: ${layerNames}\n\n` +
-        `These images may appear slightly pixelated when printed.\n\n` +
-        `Do you want to continue anyway?`
-      );
-
-      if (!proceed) {
-        return;
-      }
     }
 
     setIsProcessing(true);
@@ -1450,7 +1536,13 @@ const ImaginationStation: React.FC = () => {
         heightInches = aspectRatio >= 1 ? maxSizeInches / aspectRatio : maxSizeInches;
       }
 
-      const dpiInfo = calculateDpi(img.naturalWidth, img.naturalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+      const dpiInfo = calculateDpi(
+        img.naturalWidth,
+        img.naturalHeight,
+        widthInches * PIXELS_PER_INCH,
+        heightInches * PIXELS_PER_INCH,
+        getSheetMinDpi(sheet.print_type)
+      );
       const newLayer: ImaginationLayer = {
         id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         sheet_id: sheet.id,
@@ -2563,6 +2655,7 @@ const ImaginationStation: React.FC = () => {
                   showCutLines={showCutLines}
                   mirrorForSublimation={mirrorForSublimation}
                   showSafeMargin={showSafeMargin}
+                  minDPI={getSheetMinDpi(sheet.print_type)}
                 />
 
                 {layers.length === 0 && !isProcessing && (
@@ -2636,9 +2729,9 @@ const ImaginationStation: React.FC = () => {
                             </button>
                           </div>
 
-                          {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && selectedLayers[0].metadata.dpiInfo.quality !== 'good' && (
+                          {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && selectedLayers[0].metadata.dpiInfo.quality !== 'good' && selectedLayers[0].metadata.dpiInfo.quality !== 'excellent' && (
                             <div className={`p-2 rounded-lg border text-xs ${selectedLayers[0].metadata.dpiInfo.quality === 'danger' ? 'bg-red-500/10 border-red-500/40 text-red-500' : 'bg-amber-500/10 border-amber-500/40 text-amber-600'}`}>
-                              Print quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).label} ({selectedLayers[0].metadata.dpiInfo.dpi} DPI)
+                              Print quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality, getSheetMinDpi(sheet.print_type)).label} ({selectedLayers[0].metadata.dpiInfo.dpi} DPI — need {getSheetMinDpi(sheet.print_type)}+)
                             </div>
                           )}
 
@@ -2699,7 +2792,7 @@ const ImaginationStation: React.FC = () => {
                                 const isLocked = layer.metadata?.locked === true;
                                 const layerName = layer.metadata?.name || `Layer ${layer.z_index + 1}`;
                                 const dpiInfo = layer.metadata?.dpiInfo as DpiInfo | undefined;
-                                const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality) : null;
+                                const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality, getSheetMinDpi(sheet.print_type)) : null;
                                 return (
                                   <div key={layer.id} onClick={() => selectLayer(layer.id)} className={`p-2 rounded-lg cursor-pointer transition-all flex items-center gap-2 ${selectedLayerIds.includes(layer.id) ? 'bg-primary/15 border border-primary/40' : 'hover:bg-text/5 border border-transparent'}`}>
                                     <div className="w-7 h-7 rounded bg-bg flex items-center justify-center overflow-hidden shrink-0 relative">
@@ -2759,8 +2852,21 @@ const ImaginationStation: React.FC = () => {
                       </div>
 
                       {(() => {
-                        const dangerCount = layers.filter(l => (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'danger').length;
-                        const warningCount = layers.filter(l => (l.layer_type === 'image' || l.layer_type === 'ai_generated') && l.metadata?.dpiInfo?.quality === 'warning').length;
+                        const orderMinDpi = getSheetMinDpi(sheet.print_type);
+                        const dangerCount = layers.filter(l => {
+                          if (l.layer_type !== 'image' && l.layer_type !== 'ai_generated') return false;
+                          const info = l.metadata?.dpiInfo as DpiInfo | undefined;
+                          if (!info) return false;
+                          if (typeof info.dpi === 'number') return info.dpi < orderMinDpi * 0.5;
+                          return info.quality === 'danger';
+                        }).length;
+                        const warningCount = layers.filter(l => {
+                          if (l.layer_type !== 'image' && l.layer_type !== 'ai_generated') return false;
+                          const info = l.metadata?.dpiInfo as DpiInfo | undefined;
+                          if (!info) return false;
+                          if (typeof info.dpi === 'number') return info.dpi >= orderMinDpi * 0.5 && info.dpi < orderMinDpi;
+                          return info.quality === 'warning';
+                        }).length;
                         if (dangerCount > 0 || warningCount > 0) {
                           return (
                             <div className={`p-2 rounded-xl border text-xs ${dangerCount > 0 ? 'bg-red-500/10 border-red-500/40' : 'bg-amber-500/10 border-amber-500/40'}`}>
@@ -2768,10 +2874,14 @@ const ImaginationStation: React.FC = () => {
                                 <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'}`} />
                                 <div>
                                   <p className={`font-medium mb-0.5 ${dangerCount > 0 ? 'text-red-500' : 'text-amber-500'}`}>
-                                    {dangerCount > 0 ? `${dangerCount} critical DPI issue${dangerCount !== 1 ? 's' : ''}` : `${warningCount} DPI warning${warningCount !== 1 ? 's' : ''}`}
+                                    {dangerCount > 0
+                                      ? `${dangerCount} design${dangerCount !== 1 ? 's' : ''} far below ${orderMinDpi} DPI`
+                                      : `${warningCount} design${warningCount !== 1 ? 's' : ''} below ${orderMinDpi} DPI minimum`}
                                   </p>
                                   <p className={dangerCount > 0 ? 'text-red-500/80' : 'text-amber-500/80'}>
-                                    {dangerCount > 0 ? 'Shrink or upscale affected designs before ordering.' : 'May appear pixelated. Consider upscaling.'}
+                                    {dangerCount > 0
+                                      ? `Required: ${orderMinDpi} DPI for ${sheet.print_type}. Shrink or upscale before ordering.`
+                                      : `Required: ${orderMinDpi} DPI for ${sheet.print_type}. Cannot add to cart until fixed.`}
                                   </p>
                                 </div>
                               </div>

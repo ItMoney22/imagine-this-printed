@@ -5,7 +5,7 @@ import { Stage, Layer, Rect, Image, Transformer, Line, Text, Circle, Star, Regul
 import Konva from 'konva';
 import useImage from 'use-image';
 import type { ImaginationSheet, ImaginationLayer, CanvasState } from '../../types';
-import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../../utils/dpi-calculator';
+import { calculateDpi, getDpiQualityDisplay, DEFAULT_MIN_DPI, type DpiInfo } from '../../utils/dpi-calculator';
 
 interface SheetCanvasProps {
   sheet: ImaginationSheet;
@@ -23,6 +23,8 @@ interface SheetCanvasProps {
   showCutLines?: boolean;
   mirrorForSublimation?: boolean;
   showSafeMargin?: boolean;
+  /** Print-type minDPI used to grade layer quality on resize */
+  minDPI?: number;
 }
 
 // DPI for print = 300, screen DPI ~ 96
@@ -37,7 +39,8 @@ const CanvasImage: React.FC<{
   onSelect: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onChange: (attrs: Partial<ImaginationLayer>) => void;
   showCutLines?: boolean;
-}> = ({ layer, isSelected, onSelect, onChange, showCutLines }) => {
+  minDPI?: number;
+}> = ({ layer, isSelected, onSelect, onChange, showCutLines, minDPI = DEFAULT_MIN_DPI }) => {
   const imageUrl = layer.processed_url || layer.source_url;
   const [image] = useImage(imageUrl || '', 'anonymous');
   const shapeRef = useRef<Konva.Image>(null);
@@ -105,13 +108,15 @@ const CanvasImage: React.FC<{
           const newHeightInches = newHeightPixels / PIXELS_PER_INCH;
 
           // Recalculate DPI if we have original dimensions (calculateDpi expects canvas size in PIXELS)
+          // Grade relative to this sheet's print-type minDPI
           let newDpiInfo: DpiInfo | undefined = undefined;
           if (layer.metadata?.originalWidth && layer.metadata?.originalHeight) {
             newDpiInfo = calculateDpi(
               layer.metadata.originalWidth,
               layer.metadata.originalHeight,
               newWidthPixels,
-              newHeightPixels
+              newHeightPixels,
+              minDPI
             );
           }
 
@@ -472,7 +477,8 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
   updateCanvasState,
   showCutLines = false,
   mirrorForSublimation = false,
-  showSafeMargin = false
+  showSafeMargin = false,
+  minDPI = DEFAULT_MIN_DPI,
 }) => {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -839,7 +845,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
                 return <CanvasShape {...commonProps} />;
               } else {
                 // Image or AI-generated layers
-                return <CanvasImage {...commonProps} showCutLines={showCutLines} />;
+                return <CanvasImage {...commonProps} showCutLines={showCutLines} minDPI={minDPI} />;
               }
             })}
         </Layer>

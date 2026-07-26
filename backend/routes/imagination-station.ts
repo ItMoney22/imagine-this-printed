@@ -62,6 +62,7 @@ router.get('/presets', async (req: Request, res: Response) => {
           width: preset.width,
           heights: preset.heights,
           rules: preset.rules,
+          minDpi: preset.rules.minDPI,
           displayName: preset.displayName,
           description: preset.description
         };
@@ -73,10 +74,16 @@ router.get('/presets', async (req: Request, res: Response) => {
     // Legacy frontend expects { dtf: {...}, uv_dtf: {...} } map.
     const presetsMap: any = {};
     for (const p of products) {
+      // Ensure rules.minDPI is populated even if DB rules JSON is incomplete
+      const rules = {
+        ...(p.rules || {}),
+        minDPI: (p.rules && p.rules.minDPI) || p.minDpi || 300,
+      };
       presetsMap[p.printType] = {
         width: p.width,
         heights: p.sizes?.filter(s => s.enabled).map(s => s.height) || [],
-        rules: p.rules,
+        rules,
+        minDpi: p.minDpi ?? rules.minDPI,
         displayName: p.displayName,
         description: p.description
       };
