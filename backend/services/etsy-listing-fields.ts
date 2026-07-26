@@ -58,20 +58,20 @@ export function toEtsyTags(searchKeywords: string | null | undefined): string[] 
   return tags
 }
 
-// ITP product names average ~30 characters, so a bare name throws away three
-// quarters of the title field. Append whole keyword phrases (comma separated -
-// the category convention) until the budget runs out, skipping anything the
-// title already covers.
+// Etsy's current quality guidance (their listing feedback rewrites stacked
+// titles) favors clear, readable titles over keyword stuffing — the phrases
+// belong in the 13 tags. So: the product name, plus at most ONE keyword phrase
+// after a "|" separator for context. (2026-07-26; previously this stacked
+// comma-separated phrases until the 140-char budget ran out.)
 export function toEtsyTitle(base: string, searchKeywords: string | null | undefined): string {
-  let title = base.trim().replace(/\s+/g, ' ').slice(0, MAX_TITLE_LEN)
+  const title = base.trim().replace(/\s+/g, ' ').slice(0, MAX_TITLE_LEN)
   if (!searchKeywords) return title
   for (const raw of searchKeywords.split(/[,;]+/)) {
     const phrase = raw.trim().replace(/\s+/g, ' ')
     if (phrase.length < 3) continue
     if (title.toLowerCase().includes(phrase.toLowerCase())) continue
-    const next = `${title}, ${phrase}`
-    if (next.length > MAX_TITLE_LEN) continue
-    title = next
+    const next = `${title} | ${phrase}`
+    if (next.length <= MAX_TITLE_LEN) return next
   }
   return title
 }
