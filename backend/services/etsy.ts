@@ -423,14 +423,16 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
   }
 
   // One listing per product — refuse a duplicate rather than double-list.
+  // The decision is made against ETSY's state, not the ledger's, further down
+  // (after we have a token): Shop-Manager deletes leave stale ledger rows
+  // behind, and trusting them produced a permanent bogus "already has listing"
+  // error loop (hit live 2026-07-26 on a re-queued Walk By Faith whose
+  // original draft David had deleted).
   const { data: existing } = await supabase
     .from('etsy_listings')
     .select('id, listing_id, state')
     .eq('product_id', productId)
     .maybeSingle()
-  if (existing?.listing_id && existing.state !== 'error' && existing.state !== 'removed') {
-    throw new Error(`Product already has Etsy listing ${existing.listing_id} (${existing.state}) — use update instead of re-posting`)
-  }
 
   const upsertSync = async (fields: Record<string, unknown>) => {
     await supabase.from('etsy_listings').upsert(
@@ -442,6 +444,24 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
   try {
     const { token, shopId } = await getAccessToken()
     if (!shopId) throw new Error('Connected Etsy account has no shop — create the ITP Etsy store first')
+
+    // Ledger says this product already has a listing? Verify against Etsy.
+    if (existing?.listing_id) {
+      let stateOnEtsy: string | null = null
+      try {
+        const listing = await etsyFetch(`/application/listings/${existing.listing_id}`, { token })
+        stateOnEtsy = String(listing?.state ?? 'unknown')
+      } catch (e: any) {
+        // Only a definitive 404 means "gone" — on network/auth errors, refuse
+        // to guess rather than risk a double-listing.
+        if (!/\(404\)/.test(String(e?.message))) throw e
+      }
+      if (stateOnEtsy && stateOnEtsy !== 'removed' && stateOnEtsy !== 'expired') {
+        throw new Error(`Product already has Etsy listing ${existing.listing_id} (${stateOnEtsy} on Etsy) — use update instead of re-posting`)
+      }
+      console.log(`[etsy] ${productId}: ledger pointed at deleted listing ${existing.listing_id} — re-listing fresh`)
+      await upsertSync({ listing_id: null, etsy_url: null, uploaded_image_count: 0 })
+    }
 
     const taxonomyId = opts.taxonomyId ?? taxonomyIdFor(product.category)
     if (!taxonomyId) {
