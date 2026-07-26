@@ -1,5 +1,12 @@
 # Neon 2.0 Deployment Checklist
 
+> **HISTORICAL — do not follow the deployment steps below.** This checklist was written
+> for the `feature/neon-2-themes` branch when the frontend was hand-deployed to a VPS
+> over SSH (nginx + PM2 + `/var/www/imagine-this-printed`). That path is gone.
+> Production today: frontend → **Vercel** (`vercel.json`), backend API + worker → **Render**
+> (`render.yaml`). Both auto-deploy on push to `main`. The pre-deployment QA items are
+> still useful; the SSH/nginx/PM2 steps are not.
+
 ## Pre-Deployment
 
 - [x] All PR reviews approved

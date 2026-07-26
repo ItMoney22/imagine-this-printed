@@ -1,9 +1,0 @@
-# Railway configuration for AI worker service
-
-[build]
-builder = "NIXPACKS"
-
-[deploy]
-startCommand = "npm run start:worker"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10

@@ -55,32 +55,18 @@ cd backend
 npm run worker:dev
 ```
 
-## Production (PM2)
+## Production (Render)
 
-For production deployment, use PM2 which will run both the API and worker:
+Production runs on Render, not PM2. Two services deploy from `main`, both rootDir `backend`
+(see [`render.yaml`](../render.yaml) at the repo root):
 
-```bash
-cd backend
+- `imagine-this-printed-backend` — web service, start `node dist/index.js`, health check `/api/health`
+- `imagine-this-printed-worker` — background worker, start `npm run start:worker`
 
-# Build TypeScript
-npm run build
+Both build with `npm ci --include=dev && npx prisma generate && npm run build`.
 
-# Start both API and worker with PM2
-npm run pm2:start
-
-# View logs
-npm run pm2:logs
-
-# Restart both
-npm run pm2:restart
-
-# Stop both
-npm run pm2:stop
-```
-
-The PM2 configuration ([ecosystem.config.js](ecosystem.config.js)) automatically runs:
-- `imagine-this-printed-api` - Main API server
-- `imagine-this-printed-worker` - AI jobs worker
+Deploying is just pushing to `main` — Render auto-deploys both services on commit.
+Logs, restarts, and env vars are managed from the Render dashboard.
 
 ## Verifying the Worker is Running
 
@@ -167,8 +153,8 @@ This shows recent AI jobs, product assets, and AI-generated products.
 # Development
 tail -f backend/logs/*.log
 
-# Production (PM2)
-npm run pm2:logs
+# Production — Render dashboard logs, or the API:
+#   GET /v1/logs?ownerId=<team>&resource=<service-id>&limit=100&direction=backward
 ```
 
 ## Need Help?

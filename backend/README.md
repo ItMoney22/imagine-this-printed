@@ -70,22 +70,15 @@ npm run build
 npm start
 ```
 
-### Option 3: PM2 (Recommended for VPS)
-```bash
-# Build the project
-npm run build
+### Option 3: Render (this is what production actually runs)
+Production is two Render services deployed from `main`, both with rootDir `backend`.
+Config lives in `render.yaml` at the repo root:
 
-# Create logs directory
-mkdir -p logs
+- `imagine-this-printed-backend` (web) — start `node dist/index.js`, health check `/api/health`
+- `imagine-this-printed-worker` (background worker) — start `npm run start:worker`
 
-# Start with PM2
-npm run pm2:start
-
-# Other PM2 commands
-npm run pm2:stop
-npm run pm2:restart
-npm run pm2:logs
-```
+Both build with `npm ci --include=dev && npx prisma generate && npm run build`.
+Pushing to `main` auto-deploys them; there is no PM2/VPS or Railway path anymore.
 
 ## Environment Variables
 
@@ -118,7 +111,6 @@ backend/
 ├── index.ts            # Main Express server
 ├── package.json        # Dependencies and scripts
 ├── tsconfig.json       # TypeScript configuration
-├── ecosystem.config.js # PM2 configuration
 └── .env.example        # Environment variables template
 ```
 

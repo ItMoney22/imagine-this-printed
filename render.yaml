@@ -1,0 +1,56 @@
+# Render Blueprint — ImagineThisPrinted
+#
+# Source of truth: this file mirrors the LIVE production Render dashboard exactly.
+# Captured 2026-07-26 from GET https://api.render.com/v1/services/{id} for:
+#   - srv-d7jpgut7vvec739bsid0  imagine-this-printed-backend  (web service)
+#   - srv-d7jppnn7f7vs73bb4p80  imagine-this-printed-worker   (background worker)
+# Owner/team: tea-d7jp7tt7vvec7392beeg
+#
+# IMPORTANT — both services were created in the dashboard and are NOT currently
+# Blueprint-managed. Committing this file does not change them; it documents them.
+# If you ever sync this Blueprint to the live services, re-verify it against the API
+# first, because a Blueprint takes ownership of what it declares.
+#
+# Environment variables are deliberately NOT declared here. They are managed in the
+# Render dashboard (Resend, Stripe, Supabase, OpenRouter, Replicate, DATABASE_URL, ...)
+# and listing a partial set in a Blueprint risks dropping the ones left out.
+# Single-key upsert without a full redeploy of config:
+#   PUT /v1/services/{id}/env-vars/{key}
+#
+# The FRONTEND is not on Render — it deploys to Vercel (see vercel.json), apex
+# imaginethisprinted.com -> www.imaginethisprinted.com. Do not add it to this file.
+#
+# Public API hostname: https://api.imaginethisprinted.com
+#   (Cloudflare CNAME -> imagine-this-printed-backend.onrender.com, DNS-only/not proxied)
+
+services:
+  - type: web
+    name: imagine-this-printed-backend
+    runtime: node
+    plan: starter
+    region: oregon
+    repo: https://github.com/ItMoney22/imagine-this-printed
+    branch: main
+    rootDir: backend
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    startCommand: node dist/index.js
+    healthCheckPath: /api/health
+    numInstances: 1
+    autoDeploy: true
+    previews:
+      generation: "off"
+
+  - type: worker
+    name: imagine-this-printed-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    repo: https://github.com/ItMoney22/imagine-this-printed
+    branch: main
+    rootDir: backend
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    startCommand: npm run start:worker
+    numInstances: 1
+    autoDeploy: true
+    previews:
+      generation: "off"

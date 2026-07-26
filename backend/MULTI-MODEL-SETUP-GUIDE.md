@@ -322,47 +322,30 @@ No new environment variables needed! The system uses existing vars:
 
 ## ✅ Production Deployment
 
-### Backend (PM2)
+### Backend (Render)
 
-The worker is configured to run automatically with PM2:
+The worker runs as its own Render background worker, separate from the API. Both are
+declared in [`render.yaml`](../render.yaml) at the repo root:
 
-```javascript
-// backend/ecosystem.config.js
-module.exports = {
-  apps: [
-    {
-      name: 'imagine-this-printed-api',
-      script: 'dist/index.js',
-      // ... API config
-    },
-    {
-      name: 'imagine-this-printed-worker',
-      script: 'dist/worker/index.js',
-      cwd: '/var/www/imagine-this-printed/backend',
-      instances: 1,
-      autorestart: true,
-      env: {
-        NODE_ENV: 'production'
-      }
-    }
-  ]
-}
+```yaml
+- type: worker
+  name: imagine-this-printed-worker
+  runtime: node
+  rootDir: backend
+  buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+  startCommand: npm run start:worker
 ```
 
 Deploy to production:
 
 ```bash
-# Build the backend
-cd backend
-npm run build
-
-# Start with PM2
-pm2 start ecosystem.config.js
-
-# Check status
-pm2 status
-pm2 logs imagine-this-printed-worker
+# Push to main — Render auto-deploys both the API and the worker on commit.
+git push origin main
 ```
+
+Check status and logs from the Render dashboard (service `imagine-this-printed-worker`).
+The worker needs the same AI env vars as the API — `REPLICATE_API_TOKEN`, the Google Cloud
+Storage credentials, and `DATABASE_URL` — set on the worker service, not just the API.
 
 ## 🎉 Success Criteria
 
@@ -382,7 +365,7 @@ pm2 logs imagine-this-printed-worker
 
 - [backend/services/replicate.ts](backend/services/replicate.ts) - Multi-model configuration
 - [backend/worker/ai-jobs-worker.ts](backend/worker/ai-jobs-worker.ts) - Job processing logic
-- [backend/ecosystem.config.js](backend/ecosystem.config.js) - PM2 configuration
+- [render.yaml](../render.yaml) - Render service config (API + worker)
 
 ---
 
