@@ -414,9 +414,14 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     result.etsyUrl = `https://www.etsy.com/listing/${listingId}`
     await upsertSync({ listing_id: listingId, shop_id: shopId, state: 'draft', etsy_url: result.etsyUrl })
 
-    // Upload up to 10 product images, sequentially (rate-limit friendly).
-    // First success becomes the hero image (rank 1, upload order).
-    const images: string[] = Array.isArray(product.images) ? product.images.slice(0, MAX_IMAGES) : []
+    // Upload up to 10 images, sequentially (rate-limit friendly). First success
+    // becomes the hero image (rank 1, upload order) — model shots (etsy_shots,
+    // generated in the admin review queue) lead, then the flat mockups.
+    const shotImages: string[] = Array.isArray((product as any).metadata?.etsy_shots?.images)
+      ? (product as any).metadata.etsy_shots.images.filter((u: unknown) => typeof u === 'string' && /^https?:\/\//.test(u))
+      : []
+    const productImages: string[] = Array.isArray(product.images) ? product.images : []
+    const images: string[] = [...new Set([...shotImages, ...productImages])].slice(0, MAX_IMAGES)
     for (const url of images) {
       try {
         const imgRes = await fetch(url)

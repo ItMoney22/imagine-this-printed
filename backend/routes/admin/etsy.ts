@@ -16,6 +16,7 @@ import {
   taxonomyIdFor
 } from '../../services/etsy.js'
 import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-composer.js'
+import { startModelShots, setModelShots } from '../../services/etsy-model-shots.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
 import { supabase } from '../../lib/supabase.js'
 
@@ -107,6 +108,7 @@ router.get('/candidates', async (_req: Request, res: Response) => {
           gate_pass: gate.pass,
           gate_reasons: gate.reasons,
           etsy_pack: (p as any).metadata?.etsy_pack ?? null,
+          etsy_shots: (p as any).metadata?.etsy_shots ?? null,
           created_at: p.created_at
         }
       })
@@ -124,6 +126,31 @@ router.post('/compose/:productId', async (req: Request, res: Response) => {
     return res.json({ ok: true, productId: req.params.productId, pack })
   } catch (error: any) {
     console.error('[etsy] compose failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Kick off AI model-shot generation for one product (fire-and-forget; the
+// panel polls /candidates until metadata.etsy_shots.status is done/failed).
+router.post('/model-shots/:productId', async (req: Request, res: Response) => {
+  try {
+    const userId = ((req as any).user?.id as string | undefined) || 'admin'
+    const state = await startModelShots(req.params.productId, userId)
+    return res.status(202).json({ ok: true, productId: req.params.productId, shots: state })
+  } catch (error: any) {
+    console.error('[etsy] model-shots kickoff failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Replace the shot list (prune a bad image; empty array clears all shots).
+router.put('/model-shots/:productId', async (req: Request, res: Response) => {
+  try {
+    const images: string[] = Array.isArray(req.body?.images) ? req.body.images.map(String) : []
+    const state = await setModelShots(req.params.productId, images)
+    return res.json({ ok: true, productId: req.params.productId, shots: state })
+  } catch (error: any) {
+    console.error('[etsy] model-shots update failed:', error)
     return res.status(500).json({ error: error.message })
   }
 })

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Store, RefreshCw, ExternalLink, Sparkles, Send, Eraser } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Store, RefreshCw, ExternalLink, Sparkles, Send, Eraser, Camera, X } from 'lucide-react'
 import api from '../lib/api'
 
 interface EtsyStatus {
@@ -35,6 +35,12 @@ interface EtsyPack {
   edited_at?: string
 }
 
+interface EtsyShots {
+  status: 'generating' | 'done' | 'failed'
+  images: string[]
+  error?: string
+}
+
 interface EtsyCandidate {
   id: string
   name: string
@@ -46,6 +52,7 @@ interface EtsyCandidate {
   gate_pass: boolean
   gate_reasons: string[]
   etsy_pack: EtsyPack | null
+  etsy_shots: EtsyShots | null
   created_at: string
 }
 
@@ -85,6 +92,32 @@ export default function AdminEtsyPanel() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, PackDraft>>({})
   const [busy, setBusy] = useState<Record<string, string>>({})
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const refreshCandidates = async () => {
+    try {
+      const candidateRes = await api.get('/api/admin/etsy/candidates')
+      setCandidates(candidateRes.data?.results ?? [])
+    } catch { /* transient — next poll or manual refresh recovers */ }
+  }
+
+  // While any candidate is generating model shots, poll every 10s so the
+  // thumbnails appear without the admin mashing refresh.
+  useEffect(() => {
+    const generating = candidates.some(c => c.etsy_shots?.status === 'generating')
+    if (generating && !pollRef.current) {
+      pollRef.current = setInterval(refreshCandidates, 10_000)
+    } else if (!generating && pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, [candidates])
 
   const fetchAll = async () => {
     try {
@@ -189,6 +222,33 @@ export default function AdminEtsyPanel() {
       setError(err?.response?.data?.error || err?.message || 'Save failed')
     } finally {
       setBusyFor(id, null)
+    }
+  }
+
+  const handleGenerateShots = async (id: string) => {
+    try {
+      setBusyFor(id, 'shooting')
+      setError(null)
+      const res = await api.post(`/api/admin/etsy/model-shots/${id}`)
+      setCandidates(prev => prev.map(c => (c.id === id ? { ...c, etsy_shots: res.data.shots } : c)))
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Model shot generation failed to start')
+    } finally {
+      setBusyFor(id, null)
+    }
+  }
+
+  const handleRemoveShot = async (id: string, url: string) => {
+    const candidate = candidates.find(c => c.id === id)
+    if (!candidate?.etsy_shots) return
+    try {
+      setError(null)
+      const res = await api.put(`/api/admin/etsy/model-shots/${id}`, {
+        images: candidate.etsy_shots.images.filter(u => u !== url)
+      })
+      setCandidates(prev => prev.map(c => (c.id === id ? { ...c, etsy_shots: res.data.shots } : c)))
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to remove shot')
     }
   }
 
@@ -379,6 +439,19 @@ export default function AdminEtsyPanel() {
                                 copy {c.etsy_pack.edited_at ? 'edited' : 'ready'}
                               </span>
                             )}
+                            {c.etsy_shots?.status === 'generating' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 animate-pulse">shooting…</span>
+                            )}
+                            {c.etsy_shots?.status === 'done' && c.etsy_shots.images.length > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                {c.etsy_shots.images.length} model shot{c.etsy_shots.images.length > 1 ? 's' : ''}
+                              </span>
+                            )}
+                            {c.etsy_shots?.status === 'failed' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700" title={c.etsy_shots.error}>
+                                shots failed
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -389,6 +462,15 @@ export default function AdminEtsyPanel() {
                           >
                             <Sparkles className="w-3.5 h-3.5" />
                             {action === 'composing' ? 'Composing…' : c.etsy_pack ? (isOpen ? 'Close' : 'Review') : 'Compose'}
+                          </button>
+                          <button
+                            onClick={() => handleGenerateShots(c.id)}
+                            disabled={!!action || c.etsy_shots?.status === 'generating'}
+                            title="Generate AI on-model photos with this design composited — they lead the listing images"
+                            className="inline-flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            {c.etsy_shots?.status === 'generating' ? 'Shooting…' : c.etsy_shots?.images.length ? 'Reshoot' : 'Model shots'}
                           </button>
                           <button
                             onClick={() => handleQueue(c.id)}
@@ -404,6 +486,29 @@ export default function AdminEtsyPanel() {
 
                       {isOpen && draft && (
                         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                          {c.etsy_shots && c.etsy_shots.images.length > 0 && (
+                            <div>
+                              <label className="text-[10px] uppercase tracking-wide text-slate-400">
+                                Model shots — these lead the listing images
+                              </label>
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {c.etsy_shots.images.map(url => (
+                                  <div key={url} className="relative">
+                                    <a href={url} target="_blank" rel="noopener noreferrer">
+                                      <img src={url} alt="" className="w-20 h-24 object-cover rounded-lg border border-slate-200 bg-slate-50" />
+                                    </a>
+                                    <button
+                                      onClick={() => handleRemoveShot(c.id, url)}
+                                      title="Remove this shot"
+                                      className="absolute -top-1.5 -right-1.5 bg-white border border-slate-200 rounded-full p-0.5 shadow hover:bg-red-50"
+                                    >
+                                      <X className="w-3 h-3 text-slate-500" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           <div>
                             <label className="text-[10px] uppercase tracking-wide text-slate-400">
                               Title <span className={draft.title.length > 140 ? 'text-red-500' : ''}>({draft.title.length}/140)</span>
