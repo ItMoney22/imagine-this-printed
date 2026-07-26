@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js'
 import Replicate from 'replicate'
 import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
 import { uploadFile } from '../services/gcs-storage.js'
-import { removeBackgroundWithRemoveBg } from '../services/removebg.js'
+import { removeBackgroundSync } from '../services/replicate.js'
 import { logItcTransaction } from '../utils/wallet-logger.js'
 
 const router = Router()
@@ -134,19 +134,17 @@ router.post('/generate-mockup', requireAuth, async (req: Request, res: Response)
 
     let output: any
     try {
-      // Using Replicate's image generation model
-      // Note: Adjust model based on what's available in your Replicate account
+      // Using Nano Banana (Gemini 2.5 Flash Image) — the current mockup tier leader.
+      // Replaces the deprecated stability-ai/stable-diffusion (2022-pinned) path.
       output = await replicate.run(
-        "stability-ai/stable-diffusion:db21e45d3f7023abc2a46ee38a23973f6dce16bb082a930b0c49861f96d1e5bf",
+        "google/nano-banana",
         {
           input: {
-            image: mockupBaseUrl,
-            prompt: `realistic product mockup, ${productTemplate}, professional photography, studio lighting, high quality, product photography, commercial, clean background`,
-            num_inference_steps: 20,
-            guidance_scale: 7.5,
-            width: 1024,
-            height: 1024
-          }
+            prompt: `Create a professional flat lay product photograph of a ${productTemplate} with the design applied. Professional studio lighting, high quality, product photography, commercial, clean background`,
+            image_input: [mockupBaseUrl],
+            aspect_ratio: '1:1',
+            output_format: 'png',
+          },
         }
       )
     } catch (replicateError: any) {
@@ -161,12 +159,14 @@ router.post('/generate-mockup', requireAuth, async (req: Request, res: Response)
 
     // Step 4: Extract image URL from Replicate output
     let generatedImageUrl: string
-    if (Array.isArray(output) && output.length > 0) {
-      generatedImageUrl = output[0]
-    } else if (typeof output === 'string') {
+    if (typeof output === 'string') {
       generatedImageUrl = output
+    } else if (Array.isArray(output) && output.length > 0) {
+      generatedImageUrl = output[0]
+    } else if (output && typeof output === 'object' && 'url' in output) {
+      generatedImageUrl = typeof output.url === 'function' ? output.url() : output.url
     } else if (output && typeof output === 'object' && 'output' in output) {
-      // Some models return { output: [...] }
+      // Some models return { output: [...] } or { output: <url> }
       const outputArray = Array.isArray(output.output) ? output.output : [output.output]
       generatedImageUrl = outputArray[0]
     } else {
@@ -359,21 +359,22 @@ router.post('/remove-background', requireAuth, async (req: Request, res: Respons
       })
     }
 
-    // Step 3: Call Remove.bg API to remove background
-    console.log('[designer/remove-background] 🎨 Calling Remove.bg API...')
+    // Step 3: Remove background via Replicate 851-labs/background-remover (sync, fractions of a cent)
+    // Replaces the Remove.bg path — Remove.bg account has ZERO credits (every `size:auto` call 402s).
+    console.log('[designer/remove-background] 🎨 Removing background via Replicate 851-labs...')
 
-    let processedDataUrl: string
+    let processedImageUrl: string
     try {
-      processedDataUrl = await removeBackgroundWithRemoveBg(originalImageGcsUrl)
+      processedImageUrl = await removeBackgroundSync(originalImageGcsUrl)
     } catch (removebgError: any) {
-      console.error('[designer/remove-background] ❌ Remove.bg API error:', removebgError)
+      console.error('[designer/remove-background] ❌ Background removal error:', removebgError)
       return res.status(500).json({
-        error: 'Failed to remove background with Remove.bg',
+        error: 'Failed to remove background with AI',
         detail: removebgError.message
       })
     }
 
-    console.log('[designer/remove-background] ✅ Remove.bg processed successfully')
+    console.log('[designer/remove-background] ✅ Background removed successfully')
 
     // Step 4: Upload processed image to GCS
     const destinationPath = `designer-processed/${userId}/bg-removed-${timestamp}.png`
@@ -382,21 +383,9 @@ router.post('/remove-background', requireAuth, async (req: Request, res: Respons
 
     let finalImageUrl: string
     try {
-      // Convert data URL to buffer and upload
-      const matches = processedDataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/)
-      if (!matches || matches.length !== 3) {
-        throw new Error('Invalid data URL from Remove.bg')
-      }
-      const base64Data = matches[2]
-      const buffer = Buffer.from(base64Data, 'base64')
-      console.log('[designer/remove-background] 📦 Processed image buffer size:', buffer.length, 'bytes')
+      console.log('[designer/remove-background] 📦 Processed image URL:', processedImageUrl.substring(0, 100))
 
-      const uploadResult = await uploadFile(buffer, {
-        userId,
-        folder: 'designs',
-        filename: `bg-removed-${timestamp}.png`,
-        contentType: 'image/png'
-      })
+      const uploadResult = await uploadImageFromUrl(processedImageUrl, destinationPath)
       finalImageUrl = uploadResult.publicUrl
       console.log('[designer/remove-background] ✅ Uploaded to GCS:', finalImageUrl)
     } catch (uploadError: any) {
@@ -526,15 +515,18 @@ router.post('/upscale-image', requireAuth, async (req: Request, res: Response): 
 
     let output: any
     try {
-      // Using Replicate's Real-ESRGAN upscaling model
+      // Using Recraft Crisp Upscale — the value leader ($0.004-0.006/image) per 2026 benchmarks.
+      // Replaces nightmareai/real-esrgan.
+      const upscaleModel = 'recraft-ai/recraft-crisp-upscale'
       output = await replicate.run(
-        "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
+        upscaleModel,
         {
           input: {
             image: imageUrl,
-            scale: scale,
-            face_enhance: false
-          }
+            upscale: true,
+            size: scale === 4 ? '2048x2048' : '1024x1024',
+            style: 'realistic_image',
+          },
         }
       )
     } catch (replicateError: any) {
@@ -553,6 +545,8 @@ router.post('/upscale-image', requireAuth, async (req: Request, res: Response): 
       upscaledImageUrl = output
     } else if (Array.isArray(output) && output.length > 0) {
       upscaledImageUrl = output[0]
+    } else if (output && typeof output === 'object' && 'url' in output) {
+      upscaledImageUrl = typeof output.url === 'function' ? output.url() : output.url
     } else if (output && typeof output === 'object' && 'output' in output) {
       const outputArray = Array.isArray(output.output) ? output.output : [output.output]
       upscaledImageUrl = outputArray[0]

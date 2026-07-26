@@ -32,7 +32,6 @@ import chatRouter from './routes/ai/chat.js'
 import designAssistantRouter from './routes/ai/design-assistant.js'
 import voiceChatRouter from './routes/ai/voice-chat.js'
 import mrImagineChatRouter from './routes/ai/mr-imagine-chat.js'
-import imageToolsRouter from './routes/ai/image-tools.js'
 import userProductsRouter from './routes/user-products.js'
 import userProductApprovalsRouter from './routes/admin/user-product-approvals.js'
 import adminSupportRouter from './routes/admin/support.js'
@@ -188,7 +187,6 @@ app.use('/api/ai/chat', chatRouter)
 app.use('/api/ai/design-assistant', designAssistantRouter)
 app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
-app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background, enhance
 app.use('/api/user-products', userProductsRouter)
 app.use('/api/admin/user-products', userProductApprovalsRouter)
 app.use('/api/admin/support', adminSupportRouter)
