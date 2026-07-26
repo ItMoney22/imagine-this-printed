@@ -45,69 +45,127 @@ export interface EtsyShots {
   error?: string
 }
 
-// Two looks per listing: a clean studio hero and a candid lifestyle shot.
-// Different models/scenes so the listing doesn't read as one photoshoot clone.
-const SHOT_SPECS = [
-  {
-    key: 'hero',
-    label: 'studio hero',
-    model: 'female-caucasian-athletic',
-    scene: 'clean bright studio background with soft even daylight, front-facing, relaxed confident pose'
-  },
-  {
-    key: 'lifestyle',
-    label: 'lifestyle shot',
-    model: 'male-caucasian-athletic',
-    scene: 'casual city street at golden hour, natural candid pose, shallow depth of field'
-  }
+// ---------------------------------------------------------------------------
+// Casting — David 2026-07-26: "I want the models to change all the time …
+// diff people, diff backgrounds, so we are inclusive, like have a goth teen
+// wearing our clothes". Every shoot randomly casts two DIFFERENT personas in
+// two DIFFERENT scenes, so no two listings look like the same photoshoot and
+// the shop reads as for-everyone. Reshoot = a fresh cast.
+//
+// All personas are written adult-presenting on purpose: image-model and
+// marketplace policies are strict about generating minors, and the aesthetics
+// (goth, skater, etc.) read fine on a twenty-something.
+// ---------------------------------------------------------------------------
+const PERSONAS = [
+  { label: 'goth look', persona: 'a goth young woman in her early twenties with dark eyeliner, dyed black hair, silver rings and a leather choker' },
+  { label: 'streetwear look', persona: 'a young Black man with short locs and a relaxed confident streetwear style' },
+  { label: 'skater look', persona: 'a young woman with a skater style, beanie, and a laid-back grin' },
+  { label: 'classic look', persona: 'a Latina woman in her thirties with wavy hair and a warm easy smile' },
+  { label: 'dad look', persona: 'a middle-aged man with a gray-flecked beard and a friendly dad-energy smile' },
+  { label: 'curvy fashion look', persona: 'a plus-size Black woman with natural curls and confident model posture' },
+  { label: 'studious look', persona: 'a South Asian man in his twenties with glasses and a thoughtful look' },
+  { label: 'artsy look', persona: 'an East Asian woman with a short modern haircut and minimalist artsy style' },
+  { label: 'gym look', persona: 'an athletic Latino man in his twenties with an energetic posture' },
+  { label: 'grandma look', persona: 'a silver-haired grandmother with bright eyes and a proud playful smile' },
+  { label: 'tattooed look', persona: 'a tattooed young woman with a septum piercing and an edgy alternative style' },
+  { label: 'country look', persona: 'a young white man with a trucker cap and an easygoing country style' }
 ] as const
 
-// Roled-input prompt, same discipline as the image-flow composite prompt:
-// INPUT 1 = the person to keep, INPUT 2 = the decal to apply exactly.
-function buildPrompt(scene: string, shirtColor: string): string {
+const SCENES = [
+  'in a clean bright studio with soft even daylight, front-facing, relaxed confident pose',
+  'on a casual city street at golden hour, natural candid pose, shallow depth of field',
+  'against a weathered brick wall with soft afternoon shade, urban editorial feel',
+  'in a cozy coffee shop by a big window, warm natural light, candid seated pose',
+  'at a skate park at dusk, casual stance, warm low sun',
+  'on a neon-lit city street at night, moody colorful glow, cinematic depth of field',
+  'in a leafy park in autumn, golden leaves softly out of focus behind them',
+  'in a record store aisle, shelves of vinyl blurred behind them, tungsten light',
+  'on a beach boardwalk on a bright breezy day, ocean softly blurred behind',
+  'in a sunlit doorway of an old building, film-photo warmth, relaxed lean'
+] as const
+
+interface ShotPlan {
+  key: string
+  label: string
+  persona: string
+  scene: string
+}
+
+// Randomly cast two distinct personas into two distinct scenes.
+function buildShotPlan(): ShotPlan[] {
+  const pickTwo = <T,>(pool: readonly T[]): [T, T] => {
+    const a = Math.floor(Math.random() * pool.length)
+    let b = Math.floor(Math.random() * (pool.length - 1))
+    if (b >= a) b += 1
+    return [pool[a], pool[b]]
+  }
+  const [p1, p2] = pickTwo(PERSONAS)
+  const [s1, s2] = pickTwo(SCENES)
+  return [
+    { key: 'shot1', label: p1.label, persona: p1.persona, scene: s1 },
+    { key: 'shot2', label: p2.label, persona: p2.persona, scene: s2 }
+  ]
+}
+
+const PROMPT_TAIL =
+  'Show the full torso from shoulders to waist with realistic fabric texture, natural drape, and true-to-life lighting; ' +
+  'the print conforms to the fabric folds like a real DTF transfer on cotton. The model is clearly an adult. ' +
+  "CRITICAL: preserve the graphic design's letters, words, shapes, colors, and proportions EXACTLY — do not redraw, " +
+  'restyle, distort, crop, or reinterpret the artwork in any way. ' +
+  'High-resolution product photography suitable for an online marketplace listing.'
+
+// gpt-image-2 casts the model straight from the persona text — the only image
+// input is the design itself, so casting variety is unlimited (no stock-photo
+// library required).
+function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
+  return (
+    `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
+    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck t-shirt ` +
+    `with the graphic from the INPUT printed on the chest, ${plan.scene}. ` +
+    PROMPT_TAIL
+  )
+}
+
+// nano-banana fallback keeps a stock base photo as its anchor (its compositing
+// works best with a person to preserve) and restyles toward the persona as far
+// as the anchor allows.
+function buildNanoPrompt(plan: ShotPlan, shirtColor: string): string {
   return (
     `INPUT 1 is a photo of a model. INPUT 2 is a flat 2D graphic design (a DTF print artwork). ` +
-    `Task: a professional ecommerce fashion photograph of the model from INPUT 1 wearing a ${shirtColor} crew neck t-shirt ` +
-    `with the graphic from INPUT 2 printed on the chest, ${scene}. ` +
-    'Show the full torso from shoulders to waist with realistic fabric texture, natural drape, and true-to-life lighting; ' +
-    'the print conforms to the fabric folds like a real DTF transfer on cotton. ' +
-    "CRITICAL: preserve INPUT 2's letters, words, shapes, colors, and proportions EXACTLY — do not redraw, restyle, " +
-    'distort, crop, or reinterpret the artwork in any way. ' +
-    'High-resolution product photography suitable for an online marketplace listing.'
+    `Task: a professional ecommerce fashion photograph based on the model in INPUT 1, restyled as ${plan.persona}, ` +
+    `wearing a ${shirtColor} crew neck t-shirt with the graphic from INPUT 2 printed on the chest, ${plan.scene}. ` +
+    PROMPT_TAIL
   )
 }
 
 // One shot via the primary engine, falling back to the other on failure.
 // Returns a durable GCS public URL either way.
 async function generateOneShot(
-  spec: (typeof SHOT_SPECS)[number],
+  plan: ShotPlan,
   designUrl: string,
   shirtColor: string,
   productId: string,
   userId: string
 ): Promise<string> {
-  const prompt = buildPrompt(spec.scene, shirtColor)
-  const modelUrl = await stockModelUrl(spec.model)
-
   const viaGptImage = async (): Promise<string> => {
     const { url, modelId } = await editOpenAIImage({
-      sourceUrl: modelUrl,
-      refUrls: [designUrl],
-      prompt,
+      sourceUrl: designUrl,
+      prompt: buildGptPrompt(plan, shirtColor),
       size: '1024x1536', // portrait, matches the 3:4 listing crop
       quality: 'high',
       userId,
-      objectPath: `users/${userId}/mockups/etsy_shot_${productId}_${spec.key}_${Date.now()}.png`
+      objectPath: `users/${userId}/mockups/etsy_shot_${productId}_${plan.key}_${Date.now()}.png`
     })
-    console.log(`[etsy-shots] ${productId} ${spec.key} via ${modelId} → ${url}`)
+    console.log(`[etsy-shots] ${productId} ${plan.key} (${plan.label}) via ${modelId} → ${url}`)
     return url
   }
 
   const viaNanoBanana = async (): Promise<string> => {
     if (!replicate) throw new Error('REPLICATE_API_TOKEN is not configured')
+    const modelUrl = await stockModelUrl(plan.key === 'shot1' ? 'female-caucasian-athletic' : 'male-caucasian-athletic')
     const output = await replicate.run(NANO_BANANA as any, {
       input: {
-        prompt,
+        prompt: buildNanoPrompt(plan, shirtColor),
         image_input: [modelUrl, designUrl],
         output_format: 'png',
         aspect_ratio: '3:4'
@@ -117,11 +175,11 @@ async function generateOneShot(
     const upload = await gcsStorage.uploadFile(buffer, {
       userId,
       folder: 'mockups',
-      filename: `etsy_shot_${productId}_${spec.key}_${Date.now()}.png`,
+      filename: `etsy_shot_${productId}_${plan.key}_${Date.now()}.png`,
       contentType: 'image/png',
-      metadata: { productId, shot: spec.key, purpose: 'etsy-listing' }
+      metadata: { productId, shot: plan.key, persona: plan.label, purpose: 'etsy-listing' }
     })
-    console.log(`[etsy-shots] ${productId} ${spec.key} via nano-banana → ${upload.publicUrl}`)
+    console.log(`[etsy-shots] ${productId} ${plan.key} (${plan.label}) via nano-banana → ${upload.publicUrl}`)
     return upload.publicUrl
   }
 
@@ -129,7 +187,7 @@ async function generateOneShot(
   try {
     return await primary()
   } catch (err: any) {
-    console.warn(`[etsy-shots] ${productId} ${spec.key} primary engine failed (${err?.message}) — trying fallback`)
+    console.warn(`[etsy-shots] ${productId} ${plan.key} primary engine failed (${err?.message}) — trying fallback`)
     return await fallback()
   }
 }
@@ -224,10 +282,11 @@ async function generateShots(productId: string, userId: string): Promise<void> {
       (product as any).metadata?.shirt_color || (product as any).metadata?.dtf_settings?.shirt_color || 'black'
     )
 
+    const plan = buildShotPlan()
     const images: string[] = []
-    for (const [i, spec] of SHOT_SPECS.entries()) {
-      await saveShotsState(productId, { stage: `Shooting ${spec.label} (${i + 1} of ${SHOT_SPECS.length})…` })
-      const url = await generateOneShot(spec, designUrl, shirtColor, productId, userId)
+    for (const [i, shot] of plan.entries()) {
+      await saveShotsState(productId, { stage: `Shooting the ${shot.label} (${i + 1} of ${plan.length})…` })
+      const url = await generateOneShot(shot, designUrl, shirtColor, productId, userId)
       images.push(url)
       // Persist incrementally so a failure on shot 2 still keeps shot 1 — and
       // so the panel shows each thumbnail the moment it exists.
@@ -266,8 +325,8 @@ export async function startModelShots(productId: string, userId: string): Promis
   const state: EtsyShots = {
     status: 'generating',
     images: [],
-    total: SHOT_SPECS.length,
-    stage: 'Finding the design art…',
+    total: 2, // buildShotPlan always casts two shots
+    stage: 'Casting the models…',
     started_at: new Date().toISOString()
   }
   await supabase
