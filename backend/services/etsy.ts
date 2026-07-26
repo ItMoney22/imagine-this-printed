@@ -399,6 +399,8 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
         price,
         who_made: 'i_did',            // ITP prints in-house (Rockmart, GA)
         when_made: 'made_to_order',
+        should_auto_renew: true,      // David 2026-07-26: listings self-renew ($0.20/4mo) instead of quietly expiring
+
         taxonomy_id: taxonomyId,
         type: 'physical',
         shipping_profile_id: shippingProfileId,
