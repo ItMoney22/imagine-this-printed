@@ -1,87 +1,82 @@
 # Claude Task Brief
+
 ## Request
-- Improve the live Etsy shop at `https://imaginethisprinted1.etsy.com` using the evidence-backed audit below.
-- This brief is analysis and planning only. Do not change the live Etsy shop, activate drafts, spend listing fees, or edit repo implementation files until David explicitly approves execution.
+
+- Watchtower task `a19d9784-31eb-44ab-8921-5413bf89610f`: retire the unauthenticated, uncapped AI concierge avatar generator and replace its one-off corporate headshot with a committed static PNG.
+- The retired route is `GET /api/ai/concierge/avatar`. On a cold process it calls `generateProductImage`, which selects `black-forest-labs/flux-1.1-pro-ultra`; that must no longer be possible through the concierge path.
 
 ## Repo detection
-- JavaScript/TypeScript project with a Vite + React frontend and an Express/TypeScript backend in `backend/`.
-- The repo already contains an Etsy publishing pipeline, an Etsy-native listing composer, a review queue, copyright checks, and generated model-shot support.
-- `TASK_NOTES.md` records 17 Etsy drafts and a current opt-in workflow; the public shop showed only one active listing during the 2026-07-26 audit.
-- Root commands from `package.json`: `npm run typecheck`, `npm run test`, `npm run build`, and `npm run lint`.
-- No code or automated test command is required for this live-shop audit.
+
+- TypeScript monorepo: Vite/React frontend at the root and Express/TypeScript API in `backend/`.
+- Root public files are served at root-relative URLs; existing mascot configuration follows this pattern (for example, `/mr-imagine/...`).
+- The route has no auth, rate limit, durable cache, or in-flight request deduplication. It imports `generateProductImage`, whose active model list contains Flux 1.1 Pro Ultra.
+- A full source search found no frontend/client reference to `/api/ai/concierge`, `/api/ai/concierge/avatar`, `conciergeAvatar`, or the route response field `avatarUrl`. The active chat UI is `MrImagineChatWidget`, which is a separate mascot feature.
 
 ## Relevant files (Claude MUST read these first)
+
 - `AGENTS.md`
 - `CLAUDE.md`
 - `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (focus on the 2026-07-25/26 Etsy entries)
-- `backend/services/etsy-seo-composer.ts`
-- `backend/services/etsy-model-shots.ts`
-- `backend/services/etsy.ts`
-- `src/components/AdminEtsyPanel.tsx`
+- `TASK_NOTES.md`
+- `backend/routes/ai/concierge-avatar.ts`
+- `backend/index.ts`
+- `backend/services/replicate.ts` (read only; Flux remains used by unrelated product-generation paths)
+- `src/components/MrImagineChatWidget.tsx`
+- `src/components/mr-imagine/config.ts`
+- `AI_CONCIERGE_ENHANCEMENTS.md`
 
 ## Files to edit (STRICT)
-- No repo code files are approved for this audit.
-- `TASK_NOTES.md` may receive one concise milestone/work-log bullet after a separately approved implementation pass.
-- Live Etsy edits are not approved yet. If David approves them later, limit the first pass to shop branding/profile fields and listing `4544353578`; activating additional paid listings requires separate confirmation.
+
+- `public/ai-concierge-avatar.png` (new, committed static asset)
+- `backend/index.ts` (remove only the concierge-avatar import and mount)
+- `backend/routes/ai/concierge-avatar.ts` (delete)
+- `AI_CONCIERGE_ENHANCEMENTS.md` (replace obsolete endpoint instructions with the static URL or mark the generator retired)
+- `TASK_NOTES.md` (append one concise milestone/work-log bullet after implementation)
+
+Do not edit `backend/services/replicate.ts`: Flux is still deliberately used for other image-generation features. Do not alter the Mr. Imagine mascot assets or point its mascot UI at a human corporate headshot. Do not add an unused frontend config file or change unrelated client code: no client call site currently exists.
 
 ## Context from scouting
-- Audit flow captured on 2026-07-26:
-  1. Shop home: one active $25 listing, no reviews, no sales, no visible shop banner, and a detailed logo that becomes illegible at Etsy's small icon size.
-  2. Listing top: the hero is a generated purple mascot wearing the shirt; four images are present, but the visible gallery does not establish the real finished garment, print texture, fit, or size.
-  3. Listing purchase/details: no size or color selector was visible before `Add to cart`; the listing does show Georgia shipping, an arrival estimate, accepted returns, $5 shipping, care instructions, and an AI-use disclosure.
-  4. About/policies: the announcement contains useful specifics (DTF, Rockmart, 1–3 business days, custom work), but the About section is one sentence, the seller card uses a letter avatar rather than a person/photo, and the policy area is sparse.
-- Highest-risk issue: the shop says shirts are printed in-house, while the first listing image is an artistic rendering. Etsy's Listing Image Requirements say the first image should show the actual finished product; mockup exceptions are limited. Use a real photographed shirt as image 1 and treat generated/model mockups as secondary only after checking the applicable exception.
-- The announcement says every design is "drawn up in-house," while the listing calls the design AI-assisted. Replace this with transparent language such as "directed and curated in-house" and keep the required AI disclosure in each relevant listing.
-- The current title is long and keyword-stacked. Etsy's April 2026 title guidance favors clear, easy-to-scan titles because search now considers the full listing, including tags, attributes, description, first image, and reviews.
-- Suggested buyer-facing title: `Simply Be You Retro Varsity T-Shirt | Unisex Graphic Tee`.
-- Suggested focused shop promise: `Playful confidence tees and custom designs, printed to order in Georgia.` Keep 3D prints out of the lead promise until that category has enough active products to support it.
-- Official references:
-  - `https://www.etsy.com/legal/policy/listing-image-requirements/253962679005`
-  - `https://www.etsy.com/legal/sellers/`
-  - `https://www.etsy.com/seller-handbook/article/1399426136697`
-  - `https://www.etsy.com/seller-handbook/article/358680450619`
-  - `https://www.etsy.com/seller-handbook/article/22636178725`
+
+- `backend/index.ts` imports `./routes/ai/concierge-avatar.js` and mounts it at `/api/ai/concierge`.
+- The route’s only handler is `/avatar`; it stores a generated external URL in a module variable, so every deploy/cold-start can trigger a new paid Flux generation and concurrent misses are not coalesced.
+- The route’s product-image call has no model override, so the `MODELS` default in `backend/services/replicate.ts` selects `black-forest-labs/flux-1.1-pro-ultra`.
+- Assumption — filename and path: use `public/ai-concierge-avatar.png`, available directly as `/ai-concierge-avatar.png` in both dev and production builds.
+- Assumption — configuration: use the root-relative static URL at an actual future consumer (`'/ai-concierge-avatar.png'`), not an environment variable. There is no current consumer, so adding a standalone, unused config export would create dead code; Vite’s `public/` convention is the serving configuration for this asset.
+- Assumption — artwork: generate a new 1024x1024 PNG of a fictional, friendly adult woman in modern business-casual clothing, warm studio lighting, neutral light background, head-and-shoulders crop, no text, logos, watermark, celebrity likeness, or identifiable real person. Optimize it to a crisp square avatar before committing.
 
 ## Plan (step-by-step)
-1. Fix purchase readiness on listing `4544353578`:
-   - Verify size and color variations are configured and visible.
-   - Add a readable size chart and state garment brand/model, fabric composition, weight, available sizes/colors, print dimensions, and processing time.
-   - Replace image 1 with a real photo of the actual finished shirt.
-   - Build a 7–10 image sequence: real hero, front, back, close-up of DTF texture, model/fit reference with model size, size chart, color options, packaging/process, and an optional final brand card.
-   - Add a short real-product video if available.
-2. Tighten listing copy:
-   - Use the concise title above or a close variant.
-   - Put the shopper benefit and physical product facts in the first two description lines.
-   - Move secondary phrases such as casual streetwear and gift intent into tags, attributes, and later description copy.
-   - Preserve the AI disclosure and make it consistent with the shop announcement.
-3. Complete the trust layer:
-   - Add a simple, legible 500×500 shop icon.
-   - Add a cohesive banner featuring real finished products and a short value promise.
-   - Add Christina's clear owner photo and a fuller About story with workspace, printing, and packing photos/video.
-   - Explain who designs, prints, quality-checks, and ships each order.
-4. Build inventory depth only after the first listing passes QA:
-   - Select 6–12 coherent designs from the existing draft queue.
-   - Keep the initial assortment centered on one promise, such as playful/affirming graphic tees.
-   - Do not activate any draft until its real-product imagery, variations, title, tags, attributes, description, shipping, return policy, and IP review are complete.
-   - Feature the strongest four listings once enough inventory is live.
-5. Measure before buying ads:
-   - Record visits, favorites, listing clicks, add-to-carts, and conversion for 30 days.
-   - Test one variable at a time, starting with the first photo and title.
+
+1. Generate and visually inspect the square PNG against the artwork assumption, then save it as `public/ai-concierge-avatar.png`. Confirm it is a valid PNG and can be fetched at `/ai-concierge-avatar.png` after a frontend build/dev serve.
+2. Delete `backend/routes/ai/concierge-avatar.ts`, then remove its import and `app.use('/api/ai/concierge', ...)` mount from `backend/index.ts`. Do not leave a redirect or compatibility route; the former URL must naturally return 404.
+3. Update `AI_CONCIERGE_ENHANCEMENTS.md` so it no longer tells developers or operators to call the removed endpoint. State the direct static URL and that the dynamic avatar generator is retired.
+4. Re-run a repository search for concierge route strings and Flux references. Confirm all concierge-specific Flux usage is gone while unrelated product/mockup usages remain untouched.
+5. Run the scoped typechecks/build commands below. If local dependencies prevent execution, record the exact missing dependency/error and still run the static searches.
+6. Append one concise `TASK_NOTES.md` work-log bullet with the exact checks run and results.
 
 ## Acceptance criteria (checkboxes)
-- [ ] Listing `4544353578` has visible size and color choices before `Add to cart`.
-- [ ] The first listing image is a real photo of the actual finished shirt, not a mascot scene or artistic rendering.
-- [ ] The listing has a coherent 7–10 image sequence plus a size chart; any generated mockup is secondary and policy-appropriate.
-- [ ] The title is clear and scannable, with secondary keywords moved into tags, attributes, and description.
-- [ ] The description names the garment, materials, fit, sizes, colors, print method, care, processing, shipping, returns, and AI role.
-- [ ] The shop has a legible icon, banner, owner photo, fuller About story, and process imagery.
-- [ ] The announcement and listing disclosures describe the design process consistently.
-- [ ] At least 6 coherent listings pass the same QA checklist before activation is proposed.
-- [ ] No live Etsy edit, paid activation, ad spend, or repo code change occurs without David's approval.
+
+- [ ] `public/ai-concierge-avatar.png` exists, is a valid square PNG, and is directly reachable at `/ai-concierge-avatar.png`.
+- [ ] `backend/routes/ai/concierge-avatar.ts` is removed.
+- [ ] `backend/index.ts` no longer imports or mounts `/api/ai/concierge`; `GET /api/ai/concierge/avatar` returns 404 when the backend is running.
+- [ ] No client-side reference to `/api/ai/concierge` remains; none existed at scout time, and the Mr. Imagine mascot UI remains unchanged.
+- [ ] Concierge documentation names the static image URL and no longer instructs anyone to call the retired generator.
+- [ ] No concierge path can call `black-forest-labs/flux-1.1-pro-ultra`; unrelated image-generation uses are preserved.
+- [ ] Backend typecheck and frontend typecheck/build pass, or any environment-only failure is documented precisely.
 
 ## Commands to run
-- Manual shop check: open `https://imaginethisprinted1.etsy.com`.
-- Manual listing check: open `https://www.etsy.com/listing/4544353578/retro-varsity-shirt-simply-be-you`.
-- Verify desktop storefront, listing gallery, variations, `Add to cart`, About, and Shop Policies.
-- No repo test/build command is required unless a later approved pass changes the Etsy integration code.
+
+```powershell
+npm --prefix backend run typecheck
+npm run typecheck
+npm run build
+rg -n -i -S "/api/ai/concierge|concierge-avatar|avatarUrl" backend src AI_CONCIERGE_ENHANCEMENTS.md
+rg -n -i -S "flux-1\\.1-pro-ultra" backend
+```
+
+For an optional local runtime smoke after starting the backend with its documented command:
+
+```powershell
+curl.exe -i http://localhost:4000/api/ai/concierge/avatar
+```
+
+Expected result: HTTP 404. Do not run the old endpoint before removal because that can incur a paid image-generation call.
