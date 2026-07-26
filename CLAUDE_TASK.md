@@ -1,87 +1,126 @@
 # Claude Task Brief
 ## Request
-- Improve the live Etsy shop at `https://imaginethisprinted1.etsy.com` using the evidence-backed audit below.
-- This brief is analysis and planning only. Do not change the live Etsy shop, activate drafts, spend listing fees, or edit repo implementation files until David explicitly approves execution.
+- Implement an ACP/OpenAI product feed for ChatGPT Shopping for `imagine-this-printed`.
+- Watchtower task ID for traceability: `4c595f13-f3d3-47db-9ed1-50ecab9c5f18`.
+- Codex scouting only modified this task brief and `TASK_NOTES.md`; Claude is approved to make the implementation edits listed below.
 
 ## Repo detection
 - JavaScript/TypeScript project with a Vite + React frontend and an Express/TypeScript backend in `backend/`.
-- The repo already contains an Etsy publishing pipeline, an Etsy-native listing composer, a review queue, copyright checks, and generated model-shot support.
-- `TASK_NOTES.md` records 17 Etsy drafts and a current opt-in workflow; the public shop showed only one active listing during the 2026-07-26 audit.
-- Root commands from `package.json`: `npm run typecheck`, `npm run test`, `npm run build`, and `npm run lint`.
-- No code or automated test command is required for this live-shop audit.
+- Backend entrypoint: `backend/index.ts`; routes are mounted with `app.use(...)`.
+- Supabase service-role backend client: `backend/lib/supabase.ts`.
+- Public product pages use `/product/:idOrSlug`; `src/pages/ProductPage.tsx` accepts UUID or `products.slug`.
+- Public catalog liveness gate is `products.status = 'active'` and `products.is_active = true`.
+- Product data source is the Supabase `products` table: relevant columns include `id`, `slug`, `name`, `description`, `price`, `images`, `category`, `status`, `is_active`, `stock_quantity`, `in_stock`, `sizes`, `colors`, `meta_title`, `meta_description`, `search_keywords`, `alt_text`, `metadata`.
+- Policy routes already exist in the SPA: `/privacy`, `/terms`, `/returns`.
+- Commands from repo sources:
+  - Root `package.json`: `npm run typecheck`, `npm run lint`, `npm run build`, `npm run test`.
+  - Backend `backend/package.json`: `npm --prefix backend run typecheck`, `npm --prefix backend run build`, `npm --prefix backend run dev`.
 
 ## Relevant files (Claude MUST read these first)
 - `AGENTS.md`
 - `CLAUDE.md`
 - `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (focus on the 2026-07-25/26 Etsy entries)
-- `backend/services/etsy-seo-composer.ts`
-- `backend/services/etsy-model-shots.ts`
-- `backend/services/etsy.ts`
-- `src/components/AdminEtsyPanel.tsx`
+- `TASK_NOTES.md`
+- `package.json`
+- `backend/package.json`
+- `backend/index.ts`
+- `backend/lib/supabase.ts`
+- `backend/routes/storefront.ts`
+- `backend/routes/seo.ts`
+- `api/product-meta.mjs`
+- `src/pages/ProductCatalog.tsx`
+- `src/pages/ProductPage.tsx`
+- `src/types/index.ts`
+- `supabase/migrations/001_initial_schema.sql`
+- `supabase/migrations/20260706_product_seo_columns.sql`
+- `supabase/migrations/20260710_merch_studio_storefront.sql`
 
 ## Files to edit (STRICT)
-- No repo code files are approved for this audit.
-- `TASK_NOTES.md` may receive one concise milestone/work-log bullet after a separately approved implementation pass.
-- Live Etsy edits are not approved yet. If David approves them later, limit the first pass to shop branding/profile fields and listing `4544353578`; activating additional paid listings requires separate confirmation.
+- `backend/routes/feeds/acp.ts` (new)
+- `backend/index.ts` (mount the feed route only)
+- `backend/package.json` (add a focused validation script only if you create one)
+- `backend/scripts/validate-acp-feed.ts` (new, optional but preferred for schema validation)
+- `TASK_NOTES.md` (append one concise milestone/work-log bullet after implementation)
+- Do not edit frontend pages unless a validation or URL issue proves it is required; if required, update `TASK_NOTES.md` scope first with the exact file and rationale.
 
 ## Context from scouting
-- Audit flow captured on 2026-07-26:
-  1. Shop home: one active $25 listing, no reviews, no sales, no visible shop banner, and a detailed logo that becomes illegible at Etsy's small icon size.
-  2. Listing top: the hero is a generated purple mascot wearing the shirt; four images are present, but the visible gallery does not establish the real finished garment, print texture, fit, or size.
-  3. Listing purchase/details: no size or color selector was visible before `Add to cart`; the listing does show Georgia shipping, an arrival estimate, accepted returns, $5 shipping, care instructions, and an AI-use disclosure.
-  4. About/policies: the announcement contains useful specifics (DTF, Rockmart, 1–3 business days, custom work), but the About section is one sentence, the seller card uses a letter avatar rather than a person/photo, and the policy area is sparse.
-- Highest-risk issue: the shop says shirts are printed in-house, while the first listing image is an artistic rendering. Etsy's Listing Image Requirements say the first image should show the actual finished product; mockup exceptions are limited. Use a real photographed shirt as image 1 and treat generated/model mockups as secondary only after checking the applicable exception.
-- The announcement says every design is "drawn up in-house," while the listing calls the design AI-assisted. Replace this with transparent language such as "directed and curated in-house" and keep the required AI disclosure in each relevant listing.
-- The current title is long and keyword-stacked. Etsy's April 2026 title guidance favors clear, easy-to-scan titles because search now considers the full listing, including tags, attributes, description, first image, and reviews.
-- Suggested buyer-facing title: `Simply Be You Retro Varsity T-Shirt | Unisex Graphic Tee`.
-- Suggested focused shop promise: `Playful confidence tees and custom designs, printed to order in Georgia.` Keep 3D prints out of the lead promise until that category has enough active products to support it.
-- Official references:
-  - `https://www.etsy.com/legal/policy/listing-image-requirements/253962679005`
-  - `https://www.etsy.com/legal/sellers/`
-  - `https://www.etsy.com/seller-handbook/article/1399426136697`
-  - `https://www.etsy.com/seller-handbook/article/358680450619`
-  - `https://www.etsy.com/seller-handbook/article/22636178725`
+- Official OpenAI file-upload docs (checked 2026-07-26): product feeds are full snapshot uploads, pushed to OpenAI via SFTP; supported formats include `parquet`, `jsonl.gz`, `csv.gz`, and `tsv.gz`; stable filenames should be overwritten on refresh; start with a small sample and validate all required fields.
+- Official OpenAI stable flat-file field names differ from the task wording:
+  - Task `id` maps to stable `item_id`; ACP JSON schema product also uses `id`.
+  - Task `link` maps to stable `url`; ACP JSON schema product/variant also uses `url`.
+  - Task `image_link` maps to stable `image_url`; ACP JSON schema uses `media: [{ type: "image", url }]`.
+  - Task `enable_search=true` maps to stable `is_eligible_search=true`.
+  - Task `enable_checkout=FALSE` maps to stable `is_eligible_checkout=false`; emit lower-case `false` if using stable flat-file fields because OpenAI validation rules require lower-case strings.
+- ACP repo `agentic-commerce-protocol/spec/2026-04-17/json-schema/schema.feed.json` (checked 2026-07-26) is not the same flat schema as the OpenAI stable file-upload docs. It defines a JSON API feed bundle:
+  - `$defs.ProductsResponse` requires `products`.
+  - `$defs.Product` requires `id` and `variants`.
+  - `$defs.Product` properties: `id`, `title`, `description`, `url`, `media`, `variants`.
+  - `$defs.Variant` requires `id` and `title`; useful properties include `description`, `url`, `price`, `availability`, `categories`, `condition`, `variant_options`, `media`, `seller`.
+- Implement the local endpoint against the ACP 2026-04-17 JSON schema, and include a clearly named stable flat-file export if useful for Merchant portal upload. Do not force old field aliases into the ACP schema object; it has `additionalProperties: false`.
+- Recommended public endpoint: `GET /api/feeds/acp/products.json`, mounted by `backend/index.ts` as `app.use('/api/feeds', acpFeedsRouter)`.
+- Recommended optional flat export: `GET /api/feeds/openai/products.jsonl` or `GET /api/feeds/openai/products.tsv`, if Merchant portal asks for stable file-upload format instead of the ACP JSON API shape.
+- Use the same product liveness gate as public catalog/storefront: `status='active'` AND `is_active=true`.
+- Exclude products with no usable public HTTPS image unless you intentionally mark them not searchable; feed quality ranking will suffer on missing media.
+- Use `https://www.imaginethisprinted.com` as the public site base unless a deployment env such as `FRONTEND_URL`, `VITE_SITE_URL`, or `PUBLIC_SITE_URL` is already available and valid.
+- Required policy URLs:
+  - Return policy: `https://www.imaginethisprinted.com/returns`
+  - Privacy policy: `https://www.imaginethisprinted.com/privacy`
+  - Terms: `https://www.imaginethisprinted.com/terms`
+- Seller/brand defaults:
+  - Brand/seller name: `Imagine This Printed`
+  - Condition: `new`
+  - Target country: `US`
+  - Currency: `USD`
+  - Checkout eligibility: disabled initially.
 
 ## Plan (step-by-step)
-1. Fix purchase readiness on listing `4544353578`:
-   - Verify size and color variations are configured and visible.
-   - Add a readable size chart and state garment brand/model, fabric composition, weight, available sizes/colors, print dimensions, and processing time.
-   - Replace image 1 with a real photo of the actual finished shirt.
-   - Build a 7–10 image sequence: real hero, front, back, close-up of DTF texture, model/fit reference with model size, size chart, color options, packaging/process, and an optional final brand card.
-   - Add a short real-product video if available.
-2. Tighten listing copy:
-   - Use the concise title above or a close variant.
-   - Put the shopper benefit and physical product facts in the first two description lines.
-   - Move secondary phrases such as casual streetwear and gift intent into tags, attributes, and later description copy.
-   - Preserve the AI disclosure and make it consistent with the shop announcement.
-3. Complete the trust layer:
-   - Add a simple, legible 500×500 shop icon.
-   - Add a cohesive banner featuring real finished products and a short value promise.
-   - Add Christina's clear owner photo and a fuller About story with workspace, printing, and packing photos/video.
-   - Explain who designs, prints, quality-checks, and ships each order.
-4. Build inventory depth only after the first listing passes QA:
-   - Select 6–12 coherent designs from the existing draft queue.
-   - Keep the initial assortment centered on one promise, such as playful/affirming graphic tees.
-   - Do not activate any draft until its real-product imagery, variations, title, tags, attributes, description, shipping, return policy, and IP review are complete.
-   - Feature the strongest four listings once enough inventory is live.
-5. Measure before buying ads:
-   - Record visits, favorites, listing clicks, add-to-carts, and conversion for 30 days.
-   - Test one variable at a time, starting with the first photo and title.
+1. Add `backend/routes/feeds/acp.ts`.
+   - Query active products from Supabase using service-role client.
+   - Select only fields needed for the feed.
+   - Normalize product rows into ACP schema objects with `products[]`.
+   - Each product should include `id`, `title`, `description`, `url`, `media`, and at least one variant.
+   - Each variant should include stable `id`, `title`, `description`, `url`, `price: { amount, currency: "USD" }`, `availability`, `condition: ["new"]`, `media`, `seller`, and variant options for size/color when present.
+2. Map source data conservatively.
+   - `id`: `products.id`
+   - `title`: prefer `meta_title`, then `name`
+   - `description.plain`: prefer `meta_description`, then `description`, stripped to plain text
+   - `url`: `/product/${slug || id}` on the public site base
+   - `media`: image URLs from `products.images`, filtered to public HTTP(S), first image first, with `alt_text` from `alt_text || name`
+   - `price.amount`: integer cents from `products.price`
+   - `availability.status`: `in_stock` when `is_active !== false`, `status === 'active'`, and either inventory is not tracked or stock is positive; else `out_of_stock`
+   - `availability.available`: boolean matching the status above
+   - `categories`: merchant category path from `category`
+   - `seller.links`: include `refund_policy`, `privacy_policy`, and `terms_of_service`.
+3. Add a stable OpenAI flat-file export only if it stays small and focused.
+   - Include required stable OpenAI fields: `is_eligible_search`, `is_eligible_checkout`, `item_id`, `title`, `description`, `url`, `image_url`, `price`, `availability`, `brand`, `condition`, `seller_name`, `seller_url`, `return_policy`, `seller_privacy_policy`, `seller_tos`.
+   - Set `is_eligible_search` to `true`.
+   - Set `is_eligible_checkout` to `false`.
+   - Preserve the task wording in comments/docs as a mapping note, not as non-schema JSON fields.
+4. Mount the route in `backend/index.ts`.
+5. Add a validation script if practical.
+   - Fetch the official schema from `https://raw.githubusercontent.com/agentic-commerce-protocol/agentic-commerce-protocol/main/spec/2026-04-17/json-schema/schema.feed.json` or vendor a tiny validation target in-memory.
+   - Validate the route output against `$defs.ProductsResponse` using the repo's existing package constraints. If adding a validator dependency would be too much, write a structural validator that checks required shape and document why full JSON Schema validation was not added.
+6. Register/deploy path.
+   - Do not claim Merchant portal registration is complete unless you actually have portal access and a successful registration response.
+   - If portal access is unavailable, leave the endpoint and validation complete, then file a board follow-up for Merchant portal registration with the endpoint URL, expected format, cadence, and feed flags.
 
 ## Acceptance criteria (checkboxes)
-- [ ] Listing `4544353578` has visible size and color choices before `Add to cart`.
-- [ ] The first listing image is a real photo of the actual finished shirt, not a mascot scene or artistic rendering.
-- [ ] The listing has a coherent 7–10 image sequence plus a size chart; any generated mockup is secondary and policy-appropriate.
-- [ ] The title is clear and scannable, with secondary keywords moved into tags, attributes, and description.
-- [ ] The description names the garment, materials, fit, sizes, colors, print method, care, processing, shipping, returns, and AI role.
-- [ ] The shop has a legible icon, banner, owner photo, fuller About story, and process imagery.
-- [ ] The announcement and listing disclosures describe the design process consistently.
-- [ ] At least 6 coherent listings pass the same QA checklist before activation is proposed.
-- [ ] No live Etsy edit, paid activation, ad spend, or repo code change occurs without David's approval.
+- [ ] `GET /api/feeds/acp/products.json` returns HTTP 200 JSON with `{ "products": [...] }`.
+- [ ] The generated JSON validates against ACP `spec/2026-04-17/json-schema/schema.feed.json` `$defs.ProductsResponse`, or the validation gap is explicitly documented with a focused structural verifier.
+- [ ] Every included product has a stable ID, title, plain description, canonical product URL, at least one image/media URL, USD price in minor units, availability, brand/seller identity, new condition, and policy links.
+- [ ] Search is enabled semantically for the feed.
+- [ ] Checkout is disabled semantically for the initial feed.
+- [ ] Feed generation uses live `products` table data and the same `status='active'` + `is_active=true` liveness gate as the storefront.
+- [ ] Products with missing price, missing title, or no usable public image are excluded or marked unavailable in a documented way.
+- [ ] Backend typecheck passes.
+- [ ] Merchant portal registration is either completed and documented, or a Watchtower follow-up/approval task is filed because credentials/portal access are missing.
 
 ## Commands to run
-- Manual shop check: open `https://imaginethisprinted1.etsy.com`.
-- Manual listing check: open `https://www.etsy.com/listing/4544353578/retro-varsity-shirt-simply-be-you`.
-- Verify desktop storefront, listing gallery, variations, `Add to cart`, About, and Shop Policies.
-- No repo test/build command is required unless a later approved pass changes the Etsy integration code.
+- `npm --prefix backend run typecheck`
+- `npm --prefix backend run build`
+- If a validation script is added: `npm --prefix backend run validate:acp-feed`
+- Optional local smoke:
+  - Start backend: `npm --prefix backend run dev`
+  - Fetch endpoint: `curl http://localhost:4000/api/feeds/acp/products.json`
+  - If flat export is added: `curl http://localhost:4000/api/feeds/openai/products.jsonl`
+
