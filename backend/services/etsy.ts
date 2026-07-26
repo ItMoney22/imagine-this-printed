@@ -351,7 +351,8 @@ async function applyListingVariations(
   listingId: number,
   taxonomyId: number,
   colors: string[],
-  price: number
+  price: number,
+  readinessStateId?: number
 ): Promise<number> {
   const propsRes = await etsyFetch(`/application/seller-taxonomy/nodes/${taxonomyId}/properties`, { token })
   const props: any[] = propsRes?.results ?? []
@@ -380,7 +381,9 @@ async function applyListingVariations(
     json: {
       products: combos.map(property_values => ({
         property_values,
-        offerings: [{ price, quantity, is_enabled: true }]
+        // Etsy rejects offerings without a readiness state ("All offerings
+        // need readiness state" — hit live 2026-07-26 on listing 4544388862).
+        offerings: [{ price, quantity, is_enabled: true, readiness_state_id: readinessStateId }]
       })),
       price_on_property: [],
       quantity_on_property: [],
@@ -521,7 +524,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
         const colors: string[] = Array.isArray(pack?.colors)
           ? pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
           : []
-        const combos = await applyListingVariations(token, listingId, taxonomyId, colors, price)
+        const combos = await applyListingVariations(token, listingId, taxonomyId, colors, price, readinessStateId)
         console.log(`[etsy] ${productId} variations applied: ${colors.length || 'no'} colors × ${APPAREL_SIZES.length} sizes (${combos} combos)`)
       } catch (varErr: any) {
         console.warn(`[etsy] ${productId} variations failed (draft kept without them): ${varErr.message}`)
