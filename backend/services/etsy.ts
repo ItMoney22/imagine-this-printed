@@ -223,6 +223,7 @@ interface EtsyFetchOpts {
   token?: string
   form?: Record<string, string | number | boolean | undefined>  // x-www-form-urlencoded (Etsy listing endpoints)
   multipart?: FormData                                          // image upload
+  json?: unknown                                                // application/json (inventory endpoint)
   retried?: boolean
 }
 
@@ -230,9 +231,12 @@ export async function etsyFetch(path: string, opts: EtsyFetchOpts = {}): Promise
   const headers: Record<string, string> = { 'x-api-key': apiKey() }
   if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`
 
-  let body: URLSearchParams | FormData | undefined
+  let body: URLSearchParams | FormData | string | undefined
   if (opts.multipart) {
     body = opts.multipart // fetch sets the multipart boundary header itself
+  } else if (opts.json !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    body = JSON.stringify(opts.json)
   } else if (opts.form) {
     headers['Content-Type'] = 'application/x-www-form-urlencoded'
     const params = new URLSearchParams()
@@ -315,6 +319,76 @@ export function taxonomyIdFor(category: string | null): number | null {
   return Number.isFinite(fallback) && fallback > 0 ? fallback : null
 }
 
+
+// ---------------------------------------------------------------------------
+// Variations (Size × Color) — David 2026-07-26: buyers pick their shirt color
+// and size on the listing. Applied to apparel categories only.
+// ---------------------------------------------------------------------------
+
+const APPAREL_CATEGORIES = new Set(['shirts', 't-shirts', 'hoodies'])
+const APPAREL_SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL']
+
+// Match a value name against the property's Etsy-defined possible values; fall
+// back to a custom string value (Etsy allows custom variation values).
+function propertyValue(prop: any, name: string, scaleId?: number) {
+  const hit = (prop.possible_values || []).find((v: any) => String(v.name).toLowerCase() === name.toLowerCase())
+  const pv: Record<string, unknown> = {
+    property_id: prop.property_id,
+    property_name: prop.name,
+    value_ids: hit ? [hit.value_id] : [],
+    values: [hit ? String(hit.name) : name]
+  }
+  if (scaleId) pv.scale_id = scaleId
+  return pv
+}
+
+// Set Size × Color variations on a freshly created listing via the inventory
+// endpoint. Property ids are discovered from the taxonomy (never hardcoded —
+// they're Etsy's to define). Uniform price/quantity across all combinations.
+// Throws on failure; the caller treats variations as best-effort.
+async function applyListingVariations(
+  token: string,
+  listingId: number,
+  taxonomyId: number,
+  colors: string[],
+  price: number
+): Promise<number> {
+  const propsRes = await etsyFetch(`/application/seller-taxonomy/nodes/${taxonomyId}/properties`, { token })
+  const props: any[] = propsRes?.results ?? []
+  const colorProp = props.find(p => p.supports_variations && /primary colou?r/i.test(p.display_name || p.name))
+    ?? props.find(p => p.supports_variations && /colou?r/i.test(p.display_name || p.name))
+  const sizeProp = props.find(p => p.supports_variations && /^size\b/i.test(p.display_name || p.name))
+  if (!sizeProp && !colorProp) throw new Error(`taxonomy ${taxonomyId} exposes no variation properties`)
+
+  // Size property usually carries scales (letter sizes vs numeric); prefer letters.
+  const sizeScale = sizeProp?.scales?.find((s: any) => /letter/i.test(s.display_name || ''))?.scale_id
+    ?? sizeProp?.scales?.[0]?.scale_id
+
+  const axes: Array<Array<Record<string, unknown>>> = []
+  if (colorProp && colors.length) axes.push(colors.map(c => propertyValue(colorProp, c)))
+  if (sizeProp) axes.push(APPAREL_SIZES.map(s => propertyValue(sizeProp, s, sizeScale)))
+  if (!axes.length) throw new Error('no variation axes to apply')
+
+  const quantity = Number(process.env.ETSY_VARIATION_QUANTITY || 25)
+  const combos: Array<Array<Record<string, unknown>>> = axes.length === 2
+    ? axes[0].flatMap(a => axes[1].map(b => [a, b]))
+    : axes[0].map(a => [a])
+
+  await etsyFetch(`/application/listings/${listingId}/inventory`, {
+    method: 'PUT',
+    token,
+    json: {
+      products: combos.map(property_values => ({
+        property_values,
+        offerings: [{ price, quantity, is_enabled: true }]
+      })),
+      price_on_property: [],
+      quantity_on_property: [],
+      sku_on_property: []
+    }
+  })
+  return combos.length
+}
 
 // Publish one ITP product to Etsy: draft listing + image uploads (+ optional
 // activate). Sync state and errors land in etsy_listings either way.
@@ -438,6 +512,21 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
       }
     }
     await upsertSync({ uploaded_image_count: result.uploadedImages })
+
+    // Size × Color variations for apparel — buyers pick from dropdowns.
+    // Best-effort: a failed inventory write leaves a valid no-variation draft
+    // rather than failing the listing (the error is logged for follow-up).
+    if (APPAREL_CATEGORIES.has(String(product.category))) {
+      try {
+        const colors: string[] = Array.isArray(pack?.colors)
+          ? pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
+          : []
+        const combos = await applyListingVariations(token, listingId, taxonomyId, colors, price)
+        console.log(`[etsy] ${productId} variations applied: ${colors.length || 'no'} colors × ${APPAREL_SIZES.length} sizes (${combos} combos)`)
+      } catch (varErr: any) {
+        console.warn(`[etsy] ${productId} variations failed (draft kept without them): ${varErr.message}`)
+      }
+    }
 
     // Optional activation — explicit opt-in only; costs $0.20 and goes live.
     let finalState = 'draft'

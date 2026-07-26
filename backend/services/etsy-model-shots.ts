@@ -278,15 +278,21 @@ async function generateShots(productId: string, userId: string): Promise<void> {
     const designUrl = await designReferenceUrl(product)
     if (!designUrl) throw new Error('No design art or product image to composite')
 
-    const shirtColor = String(
+    const baseColor = String(
       (product as any).metadata?.shirt_color || (product as any).metadata?.dtf_settings?.shirt_color || 'black'
     )
+    // If the pack offers a Color variation, the shots rotate through those
+    // colors so the listing photos show the range the buyer can pick.
+    const packColors: string[] = Array.isArray((product as any).metadata?.etsy_pack?.colors)
+      ? (product as any).metadata.etsy_pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
+      : []
+    const colorFor = (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase()
 
     const plan = buildShotPlan()
     const images: string[] = []
     for (const [i, shot] of plan.entries()) {
-      await saveShotsState(productId, { stage: `Shooting the ${shot.label} (${i + 1} of ${plan.length})…` })
-      const url = await generateOneShot(shot, designUrl, shirtColor, productId, userId)
+      await saveShotsState(productId, { stage: `Shooting the ${shot.label} in ${colorFor(i)} (${i + 1} of ${plan.length})…` })
+      const url = await generateOneShot(shot, designUrl, colorFor(i), productId, userId)
       images.push(url)
       // Persist incrementally so a failure on shot 2 still keeps shot 1 — and
       // so the panel shows each thumbnail the moment it exists.

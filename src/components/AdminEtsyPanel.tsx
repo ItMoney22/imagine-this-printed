@@ -30,6 +30,7 @@ interface EtsyPack {
   tags: string[]
   description: string
   price: number
+  colors?: string[]
   composed_at: string
   model: string
   edited_at?: string
@@ -63,6 +64,7 @@ interface PackDraft {
   tags: string
   description: string
   price: string
+  colors: string
 }
 
 // Ledger states worth surfacing as their own chip, in pipeline order.
@@ -81,7 +83,8 @@ const packToDraft = (pack: EtsyPack): PackDraft => ({
   title: pack.title,
   tags: pack.tags.join(', '),
   description: pack.description,
-  price: String(pack.price)
+  price: String(pack.price),
+  colors: (pack.colors ?? []).join(', ')
 })
 
 export default function AdminEtsyPanel() {
@@ -217,7 +220,8 @@ export default function AdminEtsyPanel() {
         title: draft.title,
         tags: draft.tags.split(',').map(t => t.trim()).filter(Boolean),
         description: draft.description,
-        price: Number(draft.price)
+        price: Number(draft.price),
+        colors: draft.colors.split(',').map(t => t.trim()).filter(Boolean)
       })
       applyPack(id, res.data.pack)
     } catch (err: any) {
@@ -557,6 +561,17 @@ export default function AdminEtsyPanel() {
                             <input
                               value={draft.tags}
                               onChange={e => setDrafts(prev => ({ ...prev, [c.id]: { ...draft, tags: e.target.value } }))}
+                              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase tracking-wide text-slate-400">
+                              Shirt colors, comma separated — buyer picks on Etsy; model shots rotate through them
+                            </label>
+                            <input
+                              value={draft.colors}
+                              onChange={e => setDrafts(prev => ({ ...prev, [c.id]: { ...draft, colors: e.target.value } }))}
+                              placeholder="Burgundy, Black"
                               className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900"
                             />
                           </div>

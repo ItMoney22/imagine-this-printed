@@ -158,12 +158,13 @@ router.put('/model-shots/:productId', async (req: Request, res: Response) => {
 // Save admin edits to a composed pack (re-runs the same Etsy limits).
 router.put('/pack/:productId', async (req: Request, res: Response) => {
   try {
-    const { title, tags, description, price } = req.body || {}
+    const { title, tags, description, price, colors } = req.body || {}
     const pack = await saveEtsyPackEdits(req.params.productId, {
       title: typeof title === 'string' ? title : undefined,
       tags: Array.isArray(tags) ? tags.map(String) : undefined,
       description: typeof description === 'string' ? description : undefined,
-      price: price !== undefined ? Number(price) : undefined
+      price: price !== undefined ? Number(price) : undefined,
+      colors: Array.isArray(colors) ? colors.map(String) : undefined
     })
     return res.json({ ok: true, productId: req.params.productId, pack })
   } catch (error: any) {

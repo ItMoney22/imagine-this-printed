@@ -32,9 +32,25 @@ export interface EtsyPack {
   tags: string[]
   description: string
   price: number
+  /** Shirt colors offered as an Etsy Color variation (buyer picks). First one
+   *  is the lead color; model shots rotate through the list. */
+  colors: string[]
   composed_at: string
   model: string
   edited_at?: string
+}
+
+// ITP's DTF-safe tee palette — panel edits are validated against nothing (any
+// string Etsy accepts is fine), this is just the sensible default source.
+const DEFAULT_SECOND_COLOR = 'Black'
+
+const titleCaseColor = (c: string) => c.trim().replace(/\s+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+
+export function defaultColorsFor(product: any): string[] {
+  const own = titleCaseColor(String(
+    product?.metadata?.shirt_color || product?.metadata?.dtf_settings?.shirt_color || 'Black'
+  ))
+  return [...new Set([own, DEFAULT_SECOND_COLOR])]
 }
 
 const SYSTEM_PROMPT =
@@ -128,9 +144,11 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
   }
   if (!fields) fields = mechanicalPack(product)
 
+  const existingColors: string[] | undefined = (product as any).metadata?.etsy_pack?.colors
   const pack: EtsyPack = {
     ...fields,
     price: ETSY_ANCHOR_PRICE,
+    colors: existingColors?.length ? existingColors : defaultColorsFor(product),
     composed_at: new Date().toISOString(),
     model: openai ? COMPOSER_MODEL : 'mechanical'
   }
@@ -148,7 +166,7 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
 // compose so hand-edited copy can never exceed what Etsy accepts.
 export async function saveEtsyPackEdits(
   productId: string,
-  edits: { title?: string, tags?: string[], description?: string, price?: number }
+  edits: { title?: string, tags?: string[], description?: string, price?: number, colors?: string[] }
 ): Promise<EtsyPack> {
   const { data: product, error } = await supabase
     .from('products')
@@ -172,10 +190,15 @@ export async function saveEtsyPackEdits(
   if (!merged) throw new Error('Edited pack is invalid — title, description, and at least one tag are required')
 
   const price = Number(edits.price ?? existing.price)
+  const editedColors = Array.isArray(edits.colors)
+    ? [...new Set(edits.colors.map(c => titleCaseColor(String(c))).filter(c => c.length >= 3 && c.length <= 30))].slice(0, 4)
+    : undefined
+  const colors = editedColors?.length ? editedColors : (existing.colors?.length ? existing.colors : ['Black'])
   const pack: EtsyPack = {
     ...existing,
     ...merged,
     price: Number.isFinite(price) && price >= 0.2 ? price : existing.price,
+    colors,
     edited_at: new Date().toISOString()
   }
 
