@@ -94,10 +94,24 @@ export interface User {
 
 export interface Order {
   id: string
+  /**
+   * orders.id (uuid). `id` above is the human-facing order number wherever an
+   * admin view maps a DB row, so anything calling a backend order endpoint
+   * must send THIS. Optional because kiosk/mock orders build Orders that only
+   * ever exist client-side.
+   */
+  orderId?: string
   userId: string
   items: CartItem[]
   total: number
   status: 'pending' | 'processing' | 'printed' | 'shipped' | 'delivered' | 'on_hold' | 'approved' | 'rejected'
+  /**
+   * orders.payment_status — 'pending' | 'paid' | 'partially_refunded' |
+   * 'refunded' | 'disputed'. Kept as a plain string rather than a union
+   * because the backend adds states (see backend/routes/stripe.ts refunds and
+   * disputes) without a frontend deploy.
+   */
+  paymentStatus?: string
   createdAt: string
   updatedAt?: string
   assignedTo?: string

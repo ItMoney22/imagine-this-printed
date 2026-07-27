@@ -52,6 +52,11 @@ const OrderManagement: React.FC = () => {
   const [isGeneratingLabel, setIsGeneratingLabel] = useState(false)
   const [internalNotes, setInternalNotes] = useState('')
   const [customerNotes, setCustomerNotes] = useState('')
+  const [showRefundModal, setShowRefundModal] = useState(false)
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundReason, setRefundReason] = useState('requested_by_customer')
+  const [refundNote, setRefundNote] = useState('')
+  const [isRefunding, setIsRefunding] = useState(false)
 
   // Fetch orders from database
   useEffect(() => {
@@ -242,6 +247,63 @@ const OrderManagement: React.FC = () => {
     window.open(labelUrl, '_blank')
   }
 
+  // Refunds are admin-only at the API (backend/routes/stripe.ts requires the
+  // 'admin' role), so managers/founders who can otherwise manage orders never
+  // see the button rather than seeing one that 403s. Only a Stripe-paid order
+  // with a balance left is refundable.
+  const canRefund = (order: Order) =>
+    user?.role === 'admin' && (order.paymentStatus === 'paid' || order.paymentStatus === 'partially_refunded')
+
+  const openRefundModal = (order: Order) => {
+    setSelectedOrder(order)
+    setRefundAmount(order.total.toFixed(2))
+    setRefundReason('requested_by_customer')
+    setRefundNote('')
+    setShowRefundModal(true)
+  }
+
+  const submitRefund = async () => {
+    if (!selectedOrder) return
+    const dbOrderId = selectedOrder.orderId || selectedOrder.id
+    const parsedAmount = Number(refundAmount)
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast.error('Invalid amount', 'Enter a refund amount greater than zero.')
+      return
+    }
+    if (parsedAmount > selectedOrder.total + 0.001) {
+      toast.error('Amount too high', `Refund cannot exceed the order total of $${selectedOrder.total.toFixed(2)}.`)
+      return
+    }
+
+    setIsRefunding(true)
+    try {
+      const result = await apiFetch(`/api/stripe/orders/${dbOrderId}/refund`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: parsedAmount,
+          reason: refundReason,
+          note: refundNote || undefined
+        })
+      })
+
+      toast.success(
+        result?.partial ? 'Partial refund issued' : 'Refund issued',
+        result?.message || `Refunded $${parsedAmount.toFixed(2)}.`
+      )
+      setShowRefundModal(false)
+      setShowOrderModal(false)
+      // Re-read from the server rather than patching local state: a full refund
+      // also flips status/fulfillment and reverses side effects server-side.
+      await fetchOrders()
+    } catch (err: any) {
+      console.error('Refund failed:', err)
+      toast.error('Refund failed', err?.message || 'Stripe rejected the refund. Check the order and try again.')
+    } finally {
+      setIsRefunding(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
@@ -251,6 +313,7 @@ const OrderManagement: React.FC = () => {
       case 'delivered': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
       case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
       case 'on_hold': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+      case 'refunded': return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
       case 'cancelled': return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
     }
@@ -516,6 +579,17 @@ const OrderManagement: React.FC = () => {
                               Label
                             </button>
                           )}
+                          {canRefund(order) && (
+                            <button
+                              onClick={() => openRefundModal(order)}
+                              className="px-3 py-1.5 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-lg text-sm font-medium hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors"
+                            >
+                              Refund
+                            </button>
+                          )}
+                          {order.paymentStatus === 'refunded' && (
+                            <span className="px-3 py-1.5 text-xs font-medium text-orange-600 dark:text-orange-400">Refunded</span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -637,6 +711,24 @@ const OrderManagement: React.FC = () => {
                 </div>
               </div>
 
+              {canRefund(selectedOrder) && (
+                <div className="mb-6 bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-800/50 rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <h4 className="font-semibold text-text">Refund this order</h4>
+                    <p className="text-sm text-muted mt-1">
+                      Sends the money back through Stripe. A full refund also returns the customer's ITC store
+                      credit, restocks blanks, and reverses creator margins.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => openRefundModal(selectedOrder)}
+                    className="shrink-0 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl font-medium shadow-lg shadow-orange-500/25 transition-all"
+                  >
+                    Refund
+                  </button>
+                </div>
+              )}
+
               <div className="flex space-x-3">
                 <button
                   onClick={() => {
@@ -650,6 +742,108 @@ const OrderManagement: React.FC = () => {
                 <button
                   onClick={() => setShowOrderModal(false)}
                   className="flex-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-text py-3 px-6 rounded-xl font-medium transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refund Modal */}
+      {showRefundModal && selectedOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-card rounded-2xl shadow-2xl max-w-md w-full border border-orange-500/20">
+            <div className="border-b border-orange-500/20 px-6 py-4 flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold text-text">Refund Order</h3>
+                <p className="text-sm text-muted">Order #{selectedOrder.id}</p>
+              </div>
+              <button
+                onClick={() => setShowRefundModal(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <svg className="w-6 h-6 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-4 mb-5">
+                <p className="text-sm text-orange-800 dark:text-orange-300">
+                  <span className="font-semibold">This moves real money.</span> Refunding the full
+                  ${selectedOrder.total.toFixed(2)} also returns the ITC store credit spent on this order,
+                  restocks the blanks it consumed, and claws back the creator margin it paid.
+                  A partial refund only sends the money — no side effects are reversed.
+                </p>
+              </div>
+
+              <label className="block text-sm font-medium text-text mb-2">Refund amount (USD)</label>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-muted">$</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max={selectedOrder.total}
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                  className="flex-1 bg-bg border border-orange-500/20 rounded-xl px-4 py-3 text-text focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setRefundAmount(selectedOrder.total.toFixed(2))}
+                  className="px-3 py-2 text-sm font-medium text-orange-600 dark:text-orange-400 hover:underline"
+                >
+                  Full
+                </button>
+              </div>
+              <p className="text-xs text-muted mb-4">Order total ${selectedOrder.total.toFixed(2)}</p>
+
+              <label className="block text-sm font-medium text-text mb-2">Reason</label>
+              <select
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+                className="w-full bg-bg border border-orange-500/20 rounded-xl px-4 py-3 text-text mb-4 focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+              >
+                <option value="requested_by_customer">Requested by customer</option>
+                <option value="duplicate">Duplicate charge</option>
+                <option value="fraudulent">Fraudulent</option>
+              </select>
+
+              <label className="block text-sm font-medium text-text mb-2">Internal note (optional)</label>
+              <textarea
+                value={refundNote}
+                onChange={(e) => setRefundNote(e.target.value)}
+                rows={3}
+                placeholder="Why this order is being refunded — kept on the audit log."
+                className="w-full bg-bg border border-orange-500/20 rounded-xl px-4 py-3 text-text mb-6 focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+              />
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={submitRefund}
+                  disabled={isRefunding}
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 disabled:from-gray-400 disabled:to-gray-500 text-white py-3 px-6 rounded-xl shadow-lg shadow-orange-500/25 font-medium transition-all flex items-center justify-center"
+                >
+                  {isRefunding ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Refunding...
+                    </>
+                  ) : (
+                    `Refund $${(Number(refundAmount) || 0).toFixed(2)}`
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowRefundModal(false)}
+                  disabled={isRefunding}
+                  className="flex-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 text-text py-3 px-6 rounded-xl font-medium transition-all"
                 >
                   Cancel
                 </button>
