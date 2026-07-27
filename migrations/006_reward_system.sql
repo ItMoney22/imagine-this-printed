@@ -1,3 +1,30 @@
+-- ############################################################################
+-- SUPERSEDED -- DO NOT APPLY
+-- ############################################################################
+-- Superseded by supabase/migrations/20260727_fix_award_order_rewards.sql
+-- (Watchtower task e9034a97-90f2-4759-98f1-b4d235448743).
+--
+-- This file was NEVER APPLIED to production. Verified directly against live on
+-- 2026-07-27: none of the objects it declares exist there --
+--   award_order_rewards()   MISSING     process_referral_reward() MISSING
+--   order_rewards           MISSING     referral_codes            MISSING
+--   referral_transactions   MISSING     user_total_spend (view)   MISSING
+-- (points_transactions and itc_transactions DO exist live, but they come from
+-- supabase/migrations/001_initial_schema.sql, not from this file, and their
+-- live shapes differ from the ones declared below.)
+--
+-- It is kept on disk only as the historical record of what the reward system
+-- was INTENDED to be. Running it now would be actively harmful: its
+-- CREATE OR REPLACE FUNCTION statements would overwrite the corrected,
+-- live-matching functions with bodies that INSERT into columns that do not
+-- exist (itc_transactions.usd_value/reason/related_entity_type/
+-- related_entity_id, points_transactions.type/amount/related_entity_type/
+-- related_entity_id), silently breaking every order reward again.
+--
+-- supabase/reward-function-drift.test.ts asserts this banner stays put.
+-- Do not remove it. Change the corrective migration instead.
+-- ############################################################################
+
 -- Migration: Reward System Tables
 -- Description: Creates tables for tracking points and ITC transactions, referrals, and order rewards
 -- Date: 2025-11-10
