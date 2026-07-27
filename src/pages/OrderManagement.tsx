@@ -3,8 +3,28 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
-import { shippoAPI } from '../utils/shippo'
-import type { Order, ShippingAddress } from '../types'
+import type { Order } from '../types'
+
+// The table keys rows by order_number, but every API/DB call needs the real
+// `orders.id` — fetchOrders stashes it alongside as `orderId`.
+type ManagedOrder = Order & { orderId?: string }
+const dbId = (order: ManagedOrder | undefined, fallback: string): string => order?.orderId || fallback
+
+// apiFetch throws `HTTP <status>: <body>`; pull the backend's own message out
+// of the JSON body so the toast says something useful.
+const extractApiError = (err: unknown): string => {
+  const raw = err instanceof Error ? err.message : String(err)
+  const jsonStart = raw.indexOf('{')
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(raw.slice(jsonStart))
+      if (parsed?.error) return String(parsed.error)
+    } catch {
+      // not JSON — fall through to the raw message
+    }
+  }
+  return raw
+}
 
 // Database order interface
 interface DBOrder {
@@ -50,6 +70,9 @@ const OrderManagement: React.FC = () => {
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
   const [isGeneratingLabel, setIsGeneratingLabel] = useState(false)
+  // Set from the backend's `mock` flag after an attempt — the client has no
+  // Shippo config of its own to inspect.
+  const [labelMockMode, setLabelMockMode] = useState(false)
   const [internalNotes, setInternalNotes] = useState('')
   const [customerNotes, setCustomerNotes] = useState('')
 
@@ -123,7 +146,7 @@ const OrderManagement: React.FC = () => {
   const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
     // Find the order to get the actual database ID
     const order = orders.find(o => o.id === orderId)
-    const dbOrderId = (order as any)?.orderId || orderId
+    const dbOrderId = dbId(order, orderId)
 
     try {
       const { error } = await supabase
@@ -154,7 +177,7 @@ const OrderManagement: React.FC = () => {
   const updateOrderNotes = async (orderId: string, internal: string, customer: string) => {
     // Find the order to get the actual database ID
     const order = orders.find(o => o.id === orderId)
-    const dbOrderId = (order as any)?.orderId || orderId
+    const dbOrderId = dbId(order, orderId)
 
     try {
       const { error } = await supabase
@@ -183,56 +206,74 @@ const OrderManagement: React.FC = () => {
     }
   }
 
+  // Label purchase runs entirely on the backend now
+  // (POST /api/orders/:orderId/shipping-label). The Shippo token used to live
+  // in the browser as VITE_SHIPPO_API_TOKEN, which would have published a live
+  // carrier key in the bundle; it is server-only (SHIPPO_API_TOKEN) today.
   const generateShippingLabel = async (order: Order) => {
     if (!order.shippingAddress) {
       toast.error('Missing shipping address', `Order ${order.id.slice(0, 8)} has no shipping address — can't generate a label.`)
       return
     }
 
+    const dbOrderId = dbId(order, order.id)
+
     setIsGeneratingLabel(true)
     try {
-      // Mock business address - in real app, get from settings
-      const fromAddress: ShippingAddress = {
-        name: 'ImagineThisPrinted',
-        company: 'ImagineThisPrinted LLC',
-        address1: '123 Business St',
-        city: 'San Francisco',
-        state: 'CA',
-        zip: '94105',
-        country: 'US',
-        phone: '+1-555-PRINT',
-        email: 'shipping@imaginethisprinted.com'
+      const result = await apiFetch(`/api/orders/${dbOrderId}/shipping-label`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      })
+
+      const label = result?.label
+      if (!label?.labelUrl) {
+        throw new Error(result?.error || 'The server did not return a label')
       }
 
-      // Create shipment
-      const shipment = await shippoAPI.createShipment(
-        fromAddress,
-        order.shippingAddress,
-        order.items
-      )
+      // Mock mode is now reported by the backend rather than read from
+      // import.meta.env — the client no longer knows anything about Shippo.
+      const isMock = Boolean(result?.mock)
+      setLabelMockMode(isMock)
 
-      // Create label using first rate
-      const label = await shippoAPI.createLabel(shipment.rates[0].object_id)
+      // In mock mode the backend deliberately leaves the order untouched, so
+      // don't fake a shipped state in the table either.
+      if (!isMock) {
+        setOrders(prev => prev.map(o =>
+          o.id === order.id
+            ? {
+              ...o,
+              status: 'shipped',
+              shippingLabelUrl: label.labelUrl,
+              trackingNumber: label.trackingNumber || undefined,
+              estimatedDelivery: label.estimatedDelivery || undefined
+            }
+            : o
+        ))
+      }
 
-      // Update order with shipping info
-      setOrders(prev => prev.map(o =>
-        o.id === order.id
-          ? {
-            ...o,
-            status: 'shipped',
-            shippingLabelUrl: label.labelUrl,
-            trackingNumber: label.trackingNumber,
-            estimatedDelivery: label.estimatedDelivery
-          }
-          : o
-      ))
+      if (isMock) {
+        toast.warning(
+          'Demo label only — nothing was purchased',
+          result?.message || 'Shippo is not configured on the server, so no label was bought and the order was not updated.'
+        )
+      } else if (result?.alreadyPurchased) {
+        toast.info('Label already purchased', `This order already has a label${label.trackingNumber ? ` — tracking #${label.trackingNumber}` : ''}.`)
+      } else if (result?.persisted === false) {
+        toast.warning(
+          'Label bought but not saved to the order',
+          `Tracking #${label.trackingNumber}. Save this label URL manually — ${result?.persistError || 'the order update failed'}.`
+        )
+      } else {
+        toast.success(
+          'Shipping label purchased',
+          `${[label.carrier, label.service].filter(Boolean).join(' ')} — tracking #${label.trackingNumber}`
+        )
+      }
 
-      toast.success('Shipping label generated', `Tracking #${label.trackingNumber}`)
       setShowShippingModal(false)
-
     } catch (error) {
       console.error('Error generating shipping label:', error)
-      toast.error('Label generation failed', 'Please try again. If it keeps failing, check the order shipping address.')
+      toast.error('Label generation failed', extractApiError(error))
     } finally {
       setIsGeneratingLabel(false)
     }
@@ -255,6 +296,11 @@ const OrderManagement: React.FC = () => {
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
     }
   }
+
+  // Buying a label spends real money, so the backend restricts
+  // POST /api/orders/:orderId/shipping-label to admin/manager. Founders can see
+  // this page but must not get a button that 403s.
+  const canBuyLabels = user?.role === 'admin' || user?.role === 'manager'
 
   const filteredOrders = selectedTab === 'all'
     ? orders
@@ -497,7 +543,7 @@ const OrderManagement: React.FC = () => {
                           >
                             Manage
                           </button>
-                          {(order.status === 'printed' || order.status === 'processing') && !order.shippingLabelUrl && (
+                          {canBuyLabels && (order.status === 'printed' || order.status === 'processing') && !order.shippingLabelUrl && (
                             <button
                               onClick={() => {
                                 setSelectedOrder(order)
@@ -680,8 +726,25 @@ const OrderManagement: React.FC = () => {
 
             <div className="p-6">
               <p className="text-sm text-muted mb-4">
-                This will generate a shipping label and mark the order as shipped.
+                This buys a real carrier label and marks the order as shipped.
               </p>
+
+              {labelMockMode && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-4">
+                  <div className="flex">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 005 19z" />
+                    </svg>
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-300">Demo mode — no label will be purchased</h4>
+                      <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                        The server reported that Shippo is not configured (<code>SHIPPO_API_TOKEN</code>).
+                        Labels come back as placeholders and the order is left untouched.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6">
                 <div className="flex">
@@ -691,9 +754,9 @@ const OrderManagement: React.FC = () => {
                   <div>
                     <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-300">Shipping Details</h4>
                     <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
-                      Service: USPS Priority Mail<br />
-                      Estimated Cost: $8.50<br />
-                      Estimated Delivery: 1-3 business days
+                      Ships from the Rockmart, GA warehouse.<br />
+                      The server buys the cheapest USPS/UPS rate for this order's weight —
+                      the exact carrier, service and cost come back with the label.
                     </p>
                   </div>
                 </div>

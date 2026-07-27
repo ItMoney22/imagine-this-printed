@@ -29,7 +29,6 @@ SUPABASE_SERVICE_ROLE_KEY=[Service role key from Supabase Dashboard - starts wit
 ### 4. Other Required Variables
 ```
 VITE_REPLICATE_API_TOKEN=[Copy from .env.local file]
-VITE_SHIPPO_API_TOKEN=[Production Shippo token - NOT test token, should start with shippo_live_]
 VITE_ITC_WALLET_ADDRESS=[Copy from .env.local file]
 VITE_ITC_USD_RATE=0.10
 SUPPORT_EMAIL=support@imaginethisprinted.com
@@ -37,7 +36,9 @@ VITE_OPENAI_API_KEY=[Copy from .env.local file]
 ```
 
 **⚠️ Important for Production:**
-- Replace `shippo_test_` token with live `shippo_live_` token
+- The Shippo token is **backend only** — set `SHIPPO_API_TOKEN` on the API host
+  (Render/Railway), never `VITE_SHIPPO_API_TOKEN` on Vercel. A `VITE_` value is
+  compiled into the public bundle.
 - Ensure all API tokens are production-ready
 - Remove any test/demo API keys
 
