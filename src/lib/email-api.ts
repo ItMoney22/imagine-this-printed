@@ -63,6 +63,21 @@ export interface EmailMessage {
 
 export type EmailFolder = 'inbox' | 'sent' | 'archived';
 
+/** An address we no longer send to (hard bounce or spam complaint). */
+export interface EmailSuppression {
+  id: string;
+  email: string;
+  reason: 'hard_bounce' | 'complaint' | 'manual';
+  detail: string | null;
+  source: 'resend' | 'brevo' | 'manual';
+  provider_email_id: string | null;
+  event_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  /** null = permanent */
+  expires_at: string | null;
+}
+
 export interface AssignableUser {
   id: string;
   email: string;
@@ -82,6 +97,19 @@ export const emailApi = {
   /** Admin-only — users a mailbox can be assigned to (for the dropdown). */
   listUsers: (): Promise<{ users: AssignableUser[] }> =>
     apiFetch('/api/email/users'),
+
+  /** Admin-only, READ-ONLY — the suppression list built from Resend bounce and
+   *  complaint webhooks. Removal is deliberately not exposed in the UI. */
+  listSuppressions: (
+    opts: { search?: string; limit?: number; offset?: number } = {}
+  ): Promise<{ suppressions: EmailSuppression[]; total: number }> => {
+    const params = new URLSearchParams();
+    if (opts.search) params.set('search', opts.search);
+    if (opts.limit) params.set('limit', String(opts.limit));
+    if (opts.offset) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    return apiFetch(`/api/email/suppressions${qs ? `?${qs}` : ''}`);
+  },
 
   /** Featured/active products to insert into a composed email. */
   listFeaturedProducts: (search?: string): Promise<{ products: FeaturedProduct[] }> =>

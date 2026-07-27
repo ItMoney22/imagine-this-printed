@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { sendViaResend } from '../services/email-resend.js'
+import { getSuppression } from '../services/email-suppression.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -47,6 +48,10 @@ interface EmailOptions {
 export interface SendEmailResult {
   success: boolean
   messageId?: string
+  /** True when the send was blocked by the suppression list (no mail was sent). */
+  suppressed?: boolean
+  /** 'hard_bounce' | 'complaint' | 'manual' when suppressed. */
+  suppressionReason?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +128,18 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
  * Returns messageId when available (used by email-templates route for log correlation).
  */
 export const sendEmailWithTracking = async (options: EmailOptions): Promise<SendEmailResult> => {
+  // Suppression list first — an address that hard-bounced or filed a spam
+  // complaint must never be mailed again, whichever transport is in play.
+  // getSuppression fails OPEN, so a database blip can't mute all mail.
+  const suppression = await getSuppression(options.to)
+  if (suppression) {
+    console.warn(
+      `[Email] 🚫 Suppressed — not sending to ${options.to} (${suppression.reason}).`,
+      'Subject:', options.subject
+    )
+    return { success: false, suppressed: true, suppressionReason: suppression.reason }
+  }
+
   if (!RESEND_API_KEY && !BREVO_API_KEY) {
     console.error('[Email] No transport configured — set RESEND_API_KEY (or BREVO_API_KEY as fallback)')
     console.log('[Email] Would have sent to:', options.to, '| Subject:', options.subject)
