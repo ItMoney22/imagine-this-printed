@@ -10,6 +10,7 @@ import { Sidebar, MobileMenuButton } from './components/Sidebar'
 import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
+import RoleRoute from './components/RoleRoute'
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
 import FloatingCart from './components/FloatingCart'
@@ -169,10 +170,12 @@ function App() {
                   {/* PUBLIC — opened by scanning the NFC tag in a printed figurine */}
                   <Route path="/ar/:modelId" element={<ToyAR />} />
                   <Route path="/wallet" element={<Wallet />} />
-                  <Route path="/crm" element={<CRM />} />
-                  <Route path="/admin" element={<AdminDashboard />} />
-                  <Route path="/marketing" element={<MarketingTools />} />
-                  <Route path="/orders" element={<OrderManagement />} />
+                  {/* Unprefixed aliases of the admin pages below — same
+                      components, so they carry the same role gate. */}
+                  <Route path="/crm" element={<RoleRoute allowedRoles={['admin', 'manager']}><CRM /></RoleRoute>} />
+                  <Route path="/admin" element={<RoleRoute allowedRoles={['admin']}><AdminDashboard /></RoleRoute>} />
+                  <Route path="/marketing" element={<RoleRoute allowedRoles={['admin', 'manager']}><MarketingTools /></RoleRoute>} />
+                  <Route path="/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
@@ -206,24 +209,30 @@ function App() {
                   <Route path="/founder/dashboard" element={<FoundersDashboard />} />
                   <Route path="/founder/earnings" element={<FounderEarningsPage />} />
 
-                  {/* Admin Routes */}
-                  <Route path="/admin/dashboard" element={<AdminDashboard />} />
-                  <Route path="/admin/email" element={<ProtectedRoute><AdminEmail /></ProtectedRoute>} />
-                  <Route path="/admin/toys" element={<ProtectedRoute><AdminToyLab /></ProtectedRoute>} />
-                  <Route path="/admin/control-panel" element={<AdminControlPanel />} />
-                  <Route path="/admin-panel" element={<AdminPanel />} />
-                  <Route path="/admin/orders" element={<OrderManagement />} />
-                  <Route path="/admin/crm" element={<CRM />} />
-                  <Route path="/admin/marketing" element={<MarketingTools />} />
+                  {/* Admin Routes.
+                      Every one is wrapped in RoleRoute so the lazy admin chunk
+                      is never fetched by an unauthorized visitor. The role sets
+                      mirror the checks that already live inside each page.
+                      NOTE: this is a client-side guard — defense in depth, not
+                      authorization. The matching /admin API routes must enforce
+                      the same roles server-side. */}
+                  <Route path="/admin/dashboard" element={<RoleRoute allowedRoles={['admin']}><AdminDashboard /></RoleRoute>} />
+                  <Route path="/admin/email" element={<RoleRoute allowedRoles={['admin']}><AdminEmail /></RoleRoute>} />
+                  <Route path="/admin/toys" element={<RoleRoute allowedRoles={['admin']}><AdminToyLab /></RoleRoute>} />
+                  <Route path="/admin/control-panel" element={<RoleRoute allowedRoles={['admin', 'founder']}><AdminControlPanel /></RoleRoute>} />
+                  <Route path="/admin-panel" element={<RoleRoute allowedRoles={['admin']}><AdminPanel /></RoleRoute>} />
+                  <Route path="/admin/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
+                  <Route path="/admin/crm" element={<RoleRoute allowedRoles={['admin', 'manager']}><CRM /></RoleRoute>} />
+                  <Route path="/admin/marketing" element={<RoleRoute allowedRoles={['admin', 'manager']}><MarketingTools /></RoleRoute>} />
                   {/* Removed: /admin/products route - use AdminDashboard Products tab instead */}
-                  <Route path="/admin/cost-override" element={<AdminCostOverride />} />
-                  <Route path="/admin/kiosks" element={<KioskManagement />} />
-                  <Route path="/admin/kiosk-analytics" element={<KioskAnalytics />} />
-                  <Route path="/admin/social-content" element={<SocialContentManagement />} />
-                  <Route path="/admin/ai/products/create" element={<AdminAIProductBuilder />} />
-                  <Route path="/admin/voice-settings" element={<AdminVoiceSettings />} />
-                  <Route path="/admin/imagination-products" element={<AdminImaginationProducts />} />
-                  <Route path="/admin/email-templates" element={<AdminEmailTemplates />} />
+                  <Route path="/admin/cost-override" element={<RoleRoute allowedRoles={['admin', 'founder']}><AdminCostOverride /></RoleRoute>} />
+                  <Route path="/admin/kiosks" element={<RoleRoute allowedRoles={['admin', 'founder']}><KioskManagement /></RoleRoute>} />
+                  <Route path="/admin/kiosk-analytics" element={<RoleRoute allowedRoles={['admin', 'founder', 'vendor']}><KioskAnalytics /></RoleRoute>} />
+                  <Route path="/admin/social-content" element={<RoleRoute allowedRoles={['admin', 'founder', 'manager']}><SocialContentManagement /></RoleRoute>} />
+                  <Route path="/admin/ai/products/create" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminAIProductBuilder /></RoleRoute>} />
+                  <Route path="/admin/voice-settings" element={<RoleRoute allowedRoles={['admin']}><AdminVoiceSettings /></RoleRoute>} />
+                  <Route path="/admin/imagination-products" element={<RoleRoute allowedRoles={['admin']}><AdminImaginationProducts /></RoleRoute>} />
+                  <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminEmailTemplates /></RoleRoute>} />
 
                   {/* Imagination Station Routes */}
                   <Route

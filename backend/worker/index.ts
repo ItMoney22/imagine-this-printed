@@ -3,6 +3,25 @@ import '../load-env.js'
 import { startWorker } from './ai-jobs-worker.js'
 import { startEtsyWorker } from './etsy-jobs-worker.js'
 
+// Process-level crash handlers. Node 20 defaults to
+// --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
+// this process (a missed .catch(), a fire-and-forget async call) otherwise
+// crashes the worker with no log line explaining why. Logging with the full
+// stack here, then exiting non-zero, converts a silent/confusing death into a
+// diagnosable one and hands off to Render's service-level restart (Render
+// Background Workers restart automatically on a non-zero exit — see NEEDS
+// DAVID in the handoff for confirming that's actually configured this way for
+// this service, since it isn't set via an in-repo render.yaml).
+process.on('unhandledRejection', (reason) => {
+  console.error('[worker] 💥 Unhandled rejection:', reason instanceof Error ? reason.stack : reason)
+  process.exit(1)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('[worker] 💥 Uncaught exception:', error?.stack || error)
+  process.exit(1)
+})
+
 console.log('=================================')
 console.log('AI Jobs Worker Starting...')
 console.log('=================================')
