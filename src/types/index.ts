@@ -689,10 +689,12 @@ export interface Conversation {
   updatedAt: string
 }
 
+/** One row of the real vendor_payouts ledger (see backend/services/vendor-payouts.ts). */
 export interface VendorPayout {
   id: string
   vendorId: string
   orderId: string
+  productId?: string
   saleAmount: number
   platformFeeRate: number
   platformFee: number
@@ -701,11 +703,18 @@ export interface VendorPayout {
   payoutAmount: number
   status: 'pending' | 'processing' | 'paid' | 'failed'
   stripeTransferId?: string
+  stripePayoutId?: string
+  payoutBatchId?: string
+  failureReason?: string
   processedAt?: string
   createdAt: string
   metadata?: {
-    productIds: string[]
-    customerEmail: string
+    product_name?: string | null
+    quantity?: number
+    order_number?: string | null
+    customer_email?: string | null
+    order_item_ids?: string[]
+    order_created_at?: string | null
   }
 }
 

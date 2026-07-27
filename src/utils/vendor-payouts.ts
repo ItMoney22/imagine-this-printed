@@ -1,4 +1,22 @@
-import type { VendorPayout, Order } from '../types'
+/**
+ * Vendor payouts — thin, vendor-scoped client over the real backend.
+ *
+ * Every method here talks to a live endpoint. There is no mock data, no
+ * fabricated history and no setTimeout stand-in for a payout.
+ *
+ * Two backends are involved, on purpose:
+ *   • Stripe Connect ACCOUNT concerns (status / create-account /
+ *     onboarding-link) reuse /api/wallet/connect/* — one Express account per
+ *     user already lives in stripe_connect_accounts, and the onboarding link
+ *     it returns is a real Stripe-hosted accountLinks URL (the old
+ *     hand-built connect.stripe.com/express/onboarding/<id> link 404'd).
+ *   • Vendor MONEY movement uses /api/vendor/payouts* — vendor earnings are
+ *     USD owed on product sales, not an ITC wallet balance, so they must not
+ *     go through /api/wallet/connect/cashout (which debits itc_balance).
+ */
+
+import { apiFetch } from '../lib/api'
+import type { VendorPayout } from '../types'
 
 export interface PayoutCalculation {
   saleAmount: number
@@ -15,30 +33,134 @@ export interface PayoutCalculation {
   }
 }
 
+export interface PayoutConfig {
+  platformFeeRate: number
+  stripeFeeRate: number
+  minimumPayoutUsd: number
+}
+
+export interface PayoutSummary {
+  totalPayouts: number
+  totalAmount: number
+  totalFees: number
+  pendingAmount: number
+  processingAmount: number
+  paidAmount: number
+  availableAmount: number
+  averagePayout: number
+  periodComparison: { change: number; isPositive: boolean } | null
+  config: PayoutConfig
+}
+
+export interface PayoutAnalytics {
+  chartData: Array<{ date: string; amount: number; fees: number }>
+  topProducts: Array<{ productId: string; productName: string; totalSales: number; totalPayouts: number }>
+  monthlyTrends: { payoutGrowth: number; feeOptimization: number }
+}
+
+/** Shape returned by /api/wallet/connect/status, plus the aliases the UI reads. */
 export interface StripeConnectAccount {
-  accountId: string
+  hasAccount: boolean
+  accountId: string | null
   isOnboarded: boolean
   payoutsEnabled: boolean
+  instantPayoutsEnabled: boolean
   requiresAction: boolean
   currentlyDue: string[]
-  eventuallyDue: string[]
+  externalAccountLast4: string | null
+  externalAccountBrand: string | null
+}
+
+export interface PayoutRequestResult {
+  batchId?: string
+  transferId?: string
+  payoutId?: string
+  amount: number
+  payoutCount: number
+  message: string
+  warning?: string
+}
+
+export interface PayoutFilters {
+  status?: VendorPayout['status'] | 'all'
+  startDate?: string
+  endDate?: string
+  limit?: number
+  offset?: number
+}
+
+const DEFAULT_CONFIG: PayoutConfig = {
+  platformFeeRate: 0.07,
+  stripeFeeRate: 0.035,
+  minimumPayoutUsd: 25
+}
+
+/** A vendor_payouts row exactly as Postgres returns it (snake_case). */
+interface PayoutRow {
+  id: string
+  vendor_id: string
+  order_id: string
+  product_id?: string | null
+  sale_amount?: number | string | null
+  platform_fee_rate?: number | string | null
+  platform_fee?: number | string | null
+  stripe_fee_rate?: number | string | null
+  stripe_fee?: number | string | null
+  payout_amount?: number | string | null
+  status: VendorPayout['status']
+  stripe_transfer_id?: string | null
+  stripe_payout_id?: string | null
+  payout_batch_id?: string | null
+  failure_reason?: string | null
+  processed_at?: string | null
+  created_at: string
+  metadata?: VendorPayout['metadata'] | null
+}
+
+function mapPayout(row: PayoutRow): VendorPayout {
+  return {
+    id: row.id,
+    vendorId: row.vendor_id,
+    orderId: row.order_id,
+    productId: row.product_id ?? undefined,
+    saleAmount: Number(row.sale_amount) || 0,
+    platformFeeRate: Number(row.platform_fee_rate) || 0,
+    platformFee: Number(row.platform_fee) || 0,
+    stripeFeeRate: Number(row.stripe_fee_rate) || 0,
+    stripeFee: Number(row.stripe_fee) || 0,
+    payoutAmount: Number(row.payout_amount) || 0,
+    status: row.status,
+    stripeTransferId: row.stripe_transfer_id ?? undefined,
+    stripePayoutId: row.stripe_payout_id ?? undefined,
+    payoutBatchId: row.payout_batch_id ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    processedAt: row.processed_at ?? undefined,
+    createdAt: row.created_at,
+    metadata: row.metadata ?? undefined
+  }
 }
 
 export class VendorPayoutService {
-  private platformFeeRate = 0.07 // 7% platform fee
-  private stripeFeeRate = 0.035 // 3.5% Stripe processing fee
+  /** Last config seen from the server; falls back to the documented split. */
+  private config: PayoutConfig = { ...DEFAULT_CONFIG }
 
-  // Calculate payout breakdown for a sale
+  getConfig(): PayoutConfig {
+    return this.config
+  }
+
+  /** Fee breakdown for a hypothetical sale, using the server's live rates. */
   calculatePayout(saleAmount: number): PayoutCalculation {
-    const platformFee = saleAmount * this.platformFeeRate
-    const stripeFee = saleAmount * this.stripeFeeRate
-    const payoutAmount = saleAmount - platformFee - stripeFee
+    const { platformFeeRate, stripeFeeRate } = this.config
+    const round2 = (n: number) => Math.round(n * 100) / 100
+    const platformFee = round2(saleAmount * platformFeeRate)
+    const stripeFee = round2(saleAmount * stripeFeeRate)
+    const payoutAmount = round2(saleAmount - platformFee - stripeFee)
 
     return {
       saleAmount,
-      platformFeeRate: this.platformFeeRate,
+      platformFeeRate,
       platformFee,
-      stripeFeeRate: this.stripeFeeRate,
+      stripeFeeRate,
       stripeFee,
       payoutAmount,
       breakdown: {
@@ -50,373 +172,106 @@ export class VendorPayoutService {
     }
   }
 
-  // Process vendor payout for an order
-  async processVendorPayout(orderId: string, vendorId: string): Promise<VendorPayout> {
-    try {
-      // Get order details (mock implementation)
-      const order = await this.getOrder(orderId)
-      if (!order) {
-        throw new Error('Order not found')
-      }
+  /** Real payout ledger for the signed-in vendor (identity comes from the JWT). */
+  async getVendorPayouts(filters: PayoutFilters = {}): Promise<VendorPayout[]> {
+    const params = new URLSearchParams()
+    if (filters.status && filters.status !== 'all') params.set('status', filters.status)
+    if (filters.startDate) params.set('startDate', filters.startDate)
+    if (filters.endDate) params.set('endDate', filters.endDate)
+    if (filters.limit) params.set('limit', String(filters.limit))
+    if (filters.offset) params.set('offset', String(filters.offset))
 
-      // Calculate payout
-      const calculation = this.calculatePayout(order.total)
-
-      // Create payout record
-      const payout: VendorPayout = {
-        id: `payout_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        vendorId,
-        orderId,
-        saleAmount: calculation.saleAmount,
-        platformFeeRate: calculation.platformFeeRate,
-        platformFee: calculation.platformFee,
-        stripeFeeRate: calculation.stripeFeeRate,
-        stripeFee: calculation.stripeFee,
-        payoutAmount: calculation.payoutAmount,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        metadata: {
-          productIds: order.items.map(item => item.product.id),
-          customerEmail: 'customer@example.com' // In real app, get from order
-        }
-      }
-
-      // In real app, this would save to database
-      await this.savePayout(payout)
-
-      // Process Stripe transfer (mock)
-      await this.processStripeTransfer(payout)
-
-      return payout
-    } catch (error) {
-      console.error('Error processing vendor payout:', error)
-      throw new Error('Failed to process vendor payout')
-    }
+    const qs = params.toString()
+    const response = await apiFetch(`/api/vendor/payouts${qs ? `?${qs}` : ''}`, { method: 'GET' })
+    return (response?.payouts || []).map(mapPayout)
   }
 
-  // Get vendor payouts with filtering
-  async getVendorPayouts(
-    vendorId: string,
-    filters?: {
-      status?: VendorPayout['status']
-      startDate?: string
-      endDate?: string
-      limit?: number
-      offset?: number
-    }
-  ): Promise<VendorPayout[]> {
-    try {
-      // Mock payouts data - in real app, this would query database
-      const mockPayouts: VendorPayout[] = [
-        {
-          id: 'payout_1',
-          vendorId,
-          orderId: 'order_1',
-          saleAmount: 89.99,
-          platformFeeRate: 0.07,
-          platformFee: 6.30,
-          stripeFeeRate: 0.035,
-          stripeFee: 3.15,
-          payoutAmount: 80.54,
-          status: 'paid',
-          stripeTransferId: 'tr_1234567890',
-          processedAt: '2025-01-10T10:30:00Z',
-          createdAt: '2025-01-10T08:00:00Z',
-          metadata: {
-            productIds: ['product_1'],
-            customerEmail: 'customer@example.com'
-          }
-        },
-        {
-          id: 'payout_2',
-          vendorId,
-          orderId: 'order_2',
-          saleAmount: 156.50,
-          platformFeeRate: 0.07,
-          platformFee: 10.96,
-          stripeFeeRate: 0.035,
-          stripeFee: 5.48,
-          payoutAmount: 140.06,
-          status: 'processing',
-          createdAt: '2025-01-12T14:20:00Z',
-          metadata: {
-            productIds: ['product_2', 'product_3'],
-            customerEmail: 'customer2@example.com'
-          }
-        },
-        {
-          id: 'payout_3',
-          vendorId,
-          orderId: 'order_3',
-          saleAmount: 245.00,
-          platformFeeRate: 0.07,
-          platformFee: 17.15,
-          stripeFeeRate: 0.035,
-          stripeFee: 8.58,
-          payoutAmount: 219.27,
-          status: 'pending',
-          createdAt: '2025-01-12T16:45:00Z',
-          metadata: {
-            productIds: ['product_4'],
-            customerEmail: 'customer3@example.com'
-          }
-        }
-      ]
-
-      // Apply filters
-      let filteredPayouts = mockPayouts
-
-      if (filters?.status) {
-        filteredPayouts = filteredPayouts.filter(p => p.status === filters.status)
-      }
-
-      if (filters?.startDate) {
-        filteredPayouts = filteredPayouts.filter(p => p.createdAt >= filters.startDate!)
-      }
-
-      if (filters?.endDate) {
-        filteredPayouts = filteredPayouts.filter(p => p.createdAt <= filters.endDate!)
-      }
-
-      // Apply pagination
-      const offset = filters?.offset || 0
-      const limit = filters?.limit || 50
-      
-      return filteredPayouts.slice(offset, offset + limit)
-    } catch (error) {
-      console.error('Error getting vendor payouts:', error)
-      throw new Error('Failed to get vendor payouts')
-    }
+  async getPayoutSummary(): Promise<PayoutSummary> {
+    const response = await apiFetch('/api/vendor/payouts/summary', { method: 'GET' })
+    const summary: PayoutSummary = response.summary
+    if (summary?.config) this.config = summary.config
+    return summary
   }
 
-  // Get payout summary statistics
-  async getPayoutSummary(vendorId: string, _period?: 'week' | 'month' | 'year'): Promise<{
-    totalPayouts: number
-    totalAmount: number
-    totalFees: number
-    pendingAmount: number
-    averagePayout: number
-    periodComparison?: {
-      change: number
-      isPositive: boolean
-    }
-  }> {
-    try {
-      const payouts = await this.getVendorPayouts(vendorId)
-      
-      const totalPayouts = payouts.length
-      const totalAmount = payouts.reduce((sum, p) => sum + p.payoutAmount, 0)
-      const totalFees = payouts.reduce((sum, p) => sum + p.platformFee + p.stripeFee, 0)
-      const pendingAmount = payouts
-        .filter(p => p.status === 'pending')
-        .reduce((sum, p) => sum + p.payoutAmount, 0)
-      const averagePayout = totalPayouts > 0 ? totalAmount / totalPayouts : 0
-
-      return {
-        totalPayouts,
-        totalAmount,
-        totalFees,
-        pendingAmount,
-        averagePayout,
-        periodComparison: {
-          change: 15.2, // Mock comparison - in real app, calculate from previous period
-          isPositive: true
-        }
-      }
-    } catch (error) {
-      console.error('Error getting payout summary:', error)
-      throw new Error('Failed to get payout summary')
-    }
+  async getPayoutAnalytics(period: 'week' | 'month' | 'year' = 'week'): Promise<PayoutAnalytics> {
+    const response = await apiFetch(`/api/vendor/payouts/analytics?period=${period}`, { method: 'GET' })
+    return response.analytics
   }
 
-  // Check Stripe Connect account status
-  async getStripeConnectStatus(vendorId: string): Promise<StripeConnectAccount> {
-    try {
-      // In real app, this would check with Stripe API
-      // Mock implementation
-      return {
-        accountId: `acct_${vendorId}`,
-        isOnboarded: true,
-        payoutsEnabled: true,
-        requiresAction: false,
-        currentlyDue: [],
-        eventuallyDue: []
-      }
-    } catch (error) {
-      console.error('Error checking Stripe Connect status:', error)
-      throw new Error('Failed to check Stripe Connect status')
-    }
-  }
-
-  // Create Stripe Connect onboarding link
-  async createOnboardingLink(vendorId: string, returnUrl: string): Promise<string> {
-    try {
-      // In real app, this would create an account link with Stripe
-      const mockOnboardingUrl = `https://connect.stripe.com/express/onboarding/${vendorId}?return_url=${encodeURIComponent(returnUrl)}`
-      
-      console.log('Creating onboarding link for vendor:', vendorId)
-      return mockOnboardingUrl
-    } catch (error) {
-      console.error('Error creating onboarding link:', error)
-      throw new Error('Failed to create onboarding link')
-    }
-  }
-
-  // Request payout (for vendors to manually request early payout)
-  async requestPayout(vendorId: string, amount?: number): Promise<void> {
-    try {
-      // Check available balance
-      const summary = await this.getPayoutSummary(vendorId)
-      const requestAmount = amount || summary.pendingAmount
-
-      if (requestAmount > summary.pendingAmount) {
-        throw new Error('Insufficient balance for payout request')
-      }
-
-      // In real app, this would trigger immediate payout via Stripe
-      console.log(`Processing manual payout request: $${requestAmount} for vendor ${vendorId}`)
-      
-      // Mock processing time
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-    } catch (error) {
-      console.error('Error requesting payout:', error)
-      throw new Error('Failed to request payout')
-    }
-  }
-
-  // Get payout analytics
-  async getPayoutAnalytics(_vendorId: string, _period: 'week' | 'month' | 'year'): Promise<{
-    chartData: Array<{
-      date: string
-      amount: number
-      fees: number
-    }>
-    topProducts: Array<{
-      productId: string
-      productName: string
-      totalSales: number
-      totalPayouts: number
-    }>
-    monthlyTrends: {
-      payoutGrowth: number
-      feeOptimization: number
-    }
-  }> {
-    try {
-      // Mock analytics data
-      const mockChartData = [
-        { date: '2025-01-01', amount: 450.30, fees: 47.25 },
-        { date: '2025-01-02', amount: 325.75, fees: 34.10 },
-        { date: '2025-01-03', amount: 678.90, fees: 71.15 },
-        { date: '2025-01-04', amount: 234.50, fees: 24.60 },
-        { date: '2025-01-05', amount: 567.25, fees: 59.45 },
-        { date: '2025-01-06', amount: 789.40, fees: 82.75 },
-        { date: '2025-01-07', amount: 445.80, fees: 46.75 }
-      ]
-
-      const mockTopProducts = [
-        {
-          productId: 'product_1',
-          productName: 'Custom T-Shirt Design',
-          totalSales: 1250.00,
-          totalPayouts: 1117.50
-        },
-        {
-          productId: 'product_2',
-          productName: 'DTF Transfer Pack',
-          totalSales: 890.75,
-          totalPayouts: 796.47
-        },
-        {
-          productId: 'product_3',
-          productName: 'Logo Design Service',
-          totalSales: 675.30,
-          totalPayouts: 603.89
-        }
-      ]
-
-      return {
-        chartData: mockChartData,
-        topProducts: mockTopProducts,
-        monthlyTrends: {
-          payoutGrowth: 18.5, // Percentage growth
-          feeOptimization: 2.3 // Percentage fee reduction
-        }
-      }
-    } catch (error) {
-      console.error('Error getting payout analytics:', error)
-      throw new Error('Failed to get payout analytics')
-    }
-  }
-
-  // Private helper methods
-  private async getOrder(orderId: string): Promise<Order | null> {
-    // Mock order data - in real app, this would query the database
+  /**
+   * Live Stripe Connect account status for this vendor. `isOnboarded` is the
+   * real details_submitted flag from Stripe — never an unconditional true.
+   */
+  async getStripeConnectStatus(): Promise<StripeConnectAccount> {
+    const response = await apiFetch('/api/wallet/connect/status', { method: 'GET' })
+    const status = response?.status || {}
     return {
-      id: orderId,
-      userId: 'customer_1',
-      items: [
-        {
-          id: 'item_1',
-          product: {
-            id: 'product_1',
-            name: 'Custom T-Shirt',
-            description: 'Custom designed t-shirt',
-            price: 25.99,
-            images: ['image1.jpg'],
-            category: 'shirts',
-            inStock: true,
-            vendorId: 'vendor_1'
-          },
-          quantity: 2,
-          customDesign: 'custom-design-url'
-        }
-      ],
-      total: 89.99,
-      status: 'delivered',
-      createdAt: '2025-01-10T08:00:00Z'
+      hasAccount: !!status.hasAccount,
+      accountId: status.accountId ?? null,
+      isOnboarded: !!status.onboardingComplete,
+      payoutsEnabled: !!status.payoutsEnabled,
+      instantPayoutsEnabled: !!status.instantPayoutsEnabled,
+      requiresAction: !!status.requiresAction,
+      currentlyDue: status.currentlyDue || [],
+      externalAccountLast4: status.externalAccountLast4 ?? null,
+      externalAccountBrand: status.externalAccountBrand ?? null
     }
   }
 
-  private async savePayout(payout: VendorPayout): Promise<void> {
-    // In real app, this would save to PostgreSQL with Prisma
-    console.log('Saving payout:', payout)
+  /**
+   * Create the Express account if the vendor doesn't have one yet, then return
+   * a real Stripe-hosted onboarding URL to send them to.
+   */
+  async createOnboardingLink(returnUrl: string, refreshUrl?: string): Promise<string> {
+    const status = await this.getStripeConnectStatus()
+
+    if (!status.hasAccount) {
+      await apiFetch('/api/wallet/connect/create-account', { method: 'POST' })
+    }
+
+    const response = await apiFetch('/api/wallet/connect/onboarding-link', {
+      method: 'POST',
+      body: JSON.stringify({ returnUrl, refreshUrl: refreshUrl || returnUrl })
+    })
+
+    if (!response?.url) {
+      throw new Error(response?.error || 'Stripe did not return an onboarding link')
+    }
+    return response.url
   }
 
-  private async processStripeTransfer(payout: VendorPayout): Promise<void> {
-    try {
-      // In real app, this would create a transfer via Stripe API
-      console.log('Processing Stripe transfer:', {
-        amount: payout.payoutAmount,
-        destination: `acct_${payout.vendorId}`,
-        transferGroup: payout.orderId
-      })
+  /**
+   * Request a real payout. The backend claims the vendor's pending ledger rows,
+   * transfers from the platform balance to their connected account and creates
+   * the Stripe payout — no timers, no fake success.
+   */
+  async requestPayout(amount?: number): Promise<PayoutRequestResult> {
+    const response = await apiFetch('/api/vendor/payouts/request', {
+      method: 'POST',
+      body: JSON.stringify(amount !== undefined ? { amount } : {})
+    })
 
-      // Mock Stripe API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Update payout status
-      payout.status = 'processing'
-      payout.stripeTransferId = `tr_${Date.now()}`
-      
-    } catch (error) {
-      console.error('Error processing Stripe transfer:', error)
-      throw new Error('Failed to process Stripe transfer')
+    return {
+      batchId: response.batchId,
+      transferId: response.transferId,
+      payoutId: response.payoutId,
+      amount: Number(response.amount) || 0,
+      payoutCount: Number(response.payoutCount) || 0,
+      message: response.message || 'Payout sent.',
+      warning: response.warning
     }
   }
 
-  // Utility method to format currency
   formatCurrency(amount: number): string {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
-    }).format(amount)
+    }).format(Number(amount) || 0)
   }
 
-  // Calculate fee percentage for display
-  calculateFeePercentage(_saleAmount: number): number {
-    return ((this.platformFeeRate + this.stripeFeeRate) * 100)
+  /** Combined fee percentage, for display. */
+  calculateFeePercentage(): number {
+    return Math.round((this.config.platformFeeRate + this.config.stripeFeeRate) * 1000) / 10
   }
 }
 

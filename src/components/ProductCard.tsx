@@ -31,7 +31,11 @@ interface SocialPostRow {
   author_username: string | null
   author_display_name: string | null
   approved_at: string
-  status: string
+  // /api/social/posts only ever returns approved/featured rows, but the column
+  // is a free-text status in Postgres — narrowing it here is what lets the row
+  // map cleanly onto SocialPost (a plain `string` broke `tsc -b`, and with it
+  // `npm run build`).
+  status: SocialPost['status']
   tags: string[]
   product_ids: string[]
   votes: number

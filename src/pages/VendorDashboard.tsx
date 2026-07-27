@@ -36,7 +36,7 @@ const VendorDashboard: React.FC = () => {
     totalSales: 0,
     thisMonth: 0,
     pendingPayout: 0,
-    commissionRate: 25 // 25% vendor commission on sales
+    commissionRate: 0 // real value comes from /api/vendor/analytics
   })
 
   // Real numbers from paid orders containing this vendor's products —
@@ -57,7 +57,7 @@ const VendorDashboard: React.FC = () => {
           totalSales: data.totalSales ?? 0,
           thisMonth: data.thisMonth ?? 0,
           pendingPayout: data.pendingPayout ?? 0,
-          commissionRate: data.commissionRate ?? 25,
+          commissionRate: data.commissionRate ?? 0,
         })
       } catch (error) {
         console.error('Error loading vendor analytics:', error)
@@ -375,7 +375,12 @@ const VendorDashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-muted">Commission Rate</p>
+              {/* Labelled "Your Share" rather than "Commission Rate": the API
+                  now returns the vendor's own cut (sale minus the platform and
+                  payment-processing fees), which is the same split the payout
+                  ledger accrues at. "Commission" reads ambiguously as the
+                  platform's take. */}
+              <p className="text-sm font-medium text-muted">Your Share</p>
               <p className="text-2xl font-semibold text-text">{analytics.commissionRate}%</p>
             </div>
           </div>
