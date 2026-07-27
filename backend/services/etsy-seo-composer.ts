@@ -14,15 +14,21 @@
 // sale David runs in Shop Manager (Etsy has no API for sales events), so the
 // listing shows ~~$25~~ $15.
 //
-// Model: ETSY_SEO_MODEL, default gpt-4o. This deliberately steps above the
-// cost-first gpt-4o-mini rule because bad copy is exactly what killed batch 1,
-// volume is one call per opted-in product, and the delta is ~a cent a listing.
+// Model: ETSY_SEO_MODEL, default gpt-5.6-terra (gpt-4o is retired — hard
+// shutdown 2026-10-23 for the gpt-4 family). This deliberately steps above
+// the cost-first cheap-tier rule because bad copy is exactly what killed
+// batch 1, volume is one call per opted-in product, and the delta is ~a
+// cent a listing.
 // ---------------------------------------------------------------------------
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 
-const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || 'gpt-4o'
+const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || 'gpt-5.6-terra'
+// gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
+// verified live during the sibling design-assistant.ts migration (see
+// handoff-joshua-knight-1785113728792.json).
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(COMPOSER_MODEL)
 export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
@@ -141,7 +147,7 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
       const completion = await openai.chat.completions.create({
         model: COMPOSER_MODEL,
         response_format: { type: 'json_object' },
-        max_tokens: 900,
+        ...(isReasoningModel ? { max_completion_tokens: 900 } : { max_tokens: 900 }),
         messages: [
           { role: 'system', content: isMetal ? METAL_SYSTEM_PROMPT : SYSTEM_PROMPT },
           {

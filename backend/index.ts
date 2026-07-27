@@ -32,7 +32,6 @@ import chatRouter from './routes/ai/chat.js'
 import designAssistantRouter from './routes/ai/design-assistant.js'
 import voiceChatRouter from './routes/ai/voice-chat.js'
 import mrImagineChatRouter from './routes/ai/mr-imagine-chat.js'
-import imageToolsRouter from './routes/ai/image-tools.js'
 import userProductsRouter from './routes/user-products.js'
 import userProductApprovalsRouter from './routes/admin/user-product-approvals.js'
 import adminSupportRouter from './routes/admin/support.js'
@@ -123,8 +122,13 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .map(origin => origin.trim())
   .filter(Boolean)
 
-// In development, allow all localhost origins
-const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
+// Permissive CORS (origin: true, which reflects any Origin header back with
+// credentials: true) is ONLY for local development. This used to also
+// trigger when NODE_ENV was simply unset — a misconfigured production deploy
+// with no NODE_ENV would silently allow any website to make authenticated
+// cross-origin calls against this API. NODE_ENV must now be the literal
+// string 'development'.
+const isDevelopment = process.env.NODE_ENV === 'development'
 
 const corsOptions: CorsOptions = {
   origin: isDevelopment
@@ -135,6 +139,16 @@ const corsOptions: CorsOptions = {
   credentials: true,
   allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+}
+
+// Boot-time safety net: permissive CORS must never be reachable outside
+// explicit local development. Unreachable today given the check above, but
+// guards against a future edit reintroducing the "unset NODE_ENV falls back
+// to permissive" bug this fixed.
+if (!isDevelopment && corsOptions.origin === true) {
+  throw new Error(
+    '[boot] Refusing to start: permissive CORS (origin: true) is only allowed when NODE_ENV=development.'
+  )
 }
 
 app.use(cors(corsOptions))
@@ -188,7 +202,6 @@ app.use('/api/ai/chat', chatRouter)
 app.use('/api/ai/design-assistant', designAssistantRouter)
 app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
-app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background, enhance
 app.use('/api/user-products', userProductsRouter)
 app.use('/api/admin/user-products', userProductApprovalsRouter)
 app.use('/api/admin/support', adminSupportRouter)

@@ -1,18 +1,23 @@
-// BG remove / replace — defaults to fal-ai/bria/background/remove.
+// BG remove — defaults to 851-labs/background-remover (Replicate).
 // Adapted from david-trinidad-com api/bg-remove.ts.
+//
+// Background REPLACE (prompt-driven new background) previously ran on
+// fal-ai/bria/background/replace. The fal.ai key is dead and no Replicate
+// equivalent is registered, so that model was removed from the registry
+// during the 2026-07 fal.ai purge. A forceModel pointing at the old fal id
+// now fails fast with a clean "unknown model" error via getModel() below,
+// instead of hard-failing deep inside a fetch to fal's queue API.
 
 import { supabase } from '../../../lib/supabase.js'
-import { runFal } from '../providers/fal.js'
 import { removeBackgroundSync } from '../../replicate.js'
 import { getModel, DEFAULT_BG_REMOVE_MODEL } from '../models.js'
 import { generateKey, uploadFromUrl } from '../storage.js'
 import { resolveSource } from '../source-resolver.js'
-import { buildInput } from '../input-builder.js'
 
 export interface BgRemoveRequest {
   parentAssetId?: string
   imageUrl?: string
-  /** Default: 'fal-ai/bria/background/remove'. Use 'fal-ai/bria/background/replace' with extra.bg_prompt. */
+  /** Default: '851-labs/background-remover'. */
   forceModel?: string
   productId?: string
   assetRole?: string
@@ -44,27 +49,8 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
     imageUrl: req.imageUrl,
   })
 
-  const isReplace = model.id.endsWith('/replace')
-
-  // The fal Bria key is dead (401 invalid credentials). Route plain background
-  // REMOVAL to the working Replicate 851-labs remover (same provider the worker
-  // rembg path uses). Background REPLACE needs prompt-driven generation that
-  // 851-labs can't do, so it stays on fal until a valid FAL_API_KEY is set.
-  let imageUrl: string
-  let provider: 'replicate' | 'fal'
-  if (isReplace) {
-    const input = buildInput(model, {
-      prompt: '',
-      inputImages: [src.url],
-      extra: req.extra,
-    })
-    const { imageUrls } = await runFal({ modelId: model.id, input })
-    imageUrl = imageUrls[0]
-    provider = 'fal'
-  } else {
-    imageUrl = await removeBackgroundSync(src.url)
-    provider = 'replicate'
-  }
+  const imageUrl = await removeBackgroundSync(src.url)
+  const provider = 'replicate' as const
 
   const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'
   const safeExt = ['png', 'webp'].includes(ext) ? ext : 'png'
@@ -75,7 +61,7 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
 
   let assetId: string | null = null
   if (productId) {
-    const role = req.assetRole ?? (isReplace ? 'design_bg_replaced' : 'design_no_bg')
+    const role = req.assetRole ?? 'design_no_bg'
     const { data, error } = await supabase
       .from('product_assets')
       .insert({

@@ -4,7 +4,6 @@
 
 import { supabase } from '../../../lib/supabase.js'
 import { runReplicate } from '../providers/replicate.js'
-import { runFal } from '../providers/fal.js'
 import { editOpenAIImage } from '../providers/openai-image.js'
 import {
   getModel,
@@ -139,11 +138,8 @@ export async function edit(req: EditRequest): Promise<EditResponse> {
       quality: 'high',
     })
     imageUrl = r.url
-  } else if (model.provider === 'replicate') {
-    const r = await runReplicate({ modelId: model.id, input })
-    imageUrl = r.imageUrls[0]
   } else {
-    const r = await runFal({ modelId: model.id, input })
+    const r = await runReplicate({ modelId: model.id, input })
     imageUrl = r.imageUrls[0]
   }
 
