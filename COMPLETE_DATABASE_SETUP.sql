@@ -817,6 +817,53 @@ CREATE TRIGGER create_user_wallet_trigger
   FOR EACH ROW
   EXECUTE FUNCTION create_user_wallet();
 
+-- ==========================================
+-- SECURITY: prevent role self-escalation
+-- ==========================================
+-- "Users can update own profile" above (FOR UPDATE USING (auth.uid() = id))
+-- has no WITH CHECK, so its implicit check only re-asserts auth.uid() = id --
+-- it does not constrain which columns may change. Without this trigger, any
+-- authenticated user could run
+-- supabase.from('user_profiles').update({ role: 'admin' }).eq('id', auth.uid())
+-- and self-promote. This mirrors supabase/migrations/20260727_prevent_role_self_escalation.sql;
+-- see that file for the full writeup. create_user_profile() above already
+-- hardcodes role to 'customer' and ignores signup metadata, so no change is
+-- needed there.
+CREATE OR REPLACE FUNCTION public.enforce_user_profile_role_immutable()
+RETURNS TRIGGER AS $$
+DECLARE
+  caller_role TEXT;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.role IS NOT DISTINCT FROM OLD.role THEN
+    RETURN NEW;
+  END IF;
+
+  -- Server-side connections (service role key) may always set role.
+  IF auth.role() = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+
+  -- A caller who already holds admin/founder may change any user's role.
+  SELECT role INTO caller_role FROM public.user_profiles WHERE id = auth.uid();
+  IF caller_role IN ('admin', 'founder') THEN
+    RETURN NEW;
+  END IF;
+
+  -- Non-privileged caller inserting their own profile: force a safe default.
+  IF TG_OP = 'INSERT' THEN
+    NEW.role := 'customer';
+    RETURN NEW;
+  END IF;
+
+  -- Non-privileged caller attempting to change role via UPDATE: reject.
+  RAISE EXCEPTION 'permission denied: role cannot be changed by this user';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+CREATE TRIGGER enforce_user_profile_role_immutable_trigger
+  BEFORE INSERT OR UPDATE ON public.user_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_user_profile_role_immutable();
+
 -- Triggers for wallet balance updates
 CREATE TRIGGER update_wallet_balance_points_trigger
   AFTER INSERT ON public.points_transactions

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express'
+import crypto from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { sendWelcomeEmail } from '../utils/email.js'
 
@@ -163,16 +164,54 @@ interface SupabaseAuthWebhookPayload {
  * 4. URL: https://api.imaginethisprinted.com/api/webhooks/supabase-auth
  * 5. Add header: x-webhook-secret with your SUPABASE_WEBHOOK_SECRET
  */
+
+/**
+ * Constant-time string comparison for the webhook shared secret. Mirrors
+ * middleware/requireStorefrontSecret.ts's safeEqual: crypto.timingSafeEqual
+ * throws if the two buffers differ in length, so length is checked first
+ * (leaking only length, never content, via timing) before the constant-time
+ * comparison runs.
+ */
+function safeEqual(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+/**
+ * Verifies the Supabase webhook shared secret. Fails closed: if
+ * SUPABASE_WEBHOOK_SECRET isn't configured server-side at all, every request
+ * is rejected (503) rather than falling through to "no check" — previously
+ * an unset/mistyped secret in the deploy environment turned this endpoint
+ * into an open relay that would call sendWelcomeEmail() for any
+ * attacker-supplied payload. Exported for unit testing.
+ */
+export function verifySupabaseWebhookSecret(
+  configuredSecret: string | undefined,
+  receivedHeader: string | string[] | undefined
+): { ok: true } | { ok: false; status: 401 | 503; error: string } {
+  if (!configuredSecret) {
+    return { ok: false, status: 503, error: 'Webhook not configured' }
+  }
+  if (typeof receivedHeader !== 'string' || !safeEqual(receivedHeader, configuredSecret)) {
+    return { ok: false, status: 401, error: 'Invalid webhook secret' }
+  }
+  return { ok: true }
+}
+
 router.post('/supabase-auth', async (req: Request, res: Response) => {
   try {
-    // Verify webhook secret (optional but recommended)
-    const webhookSecret = process.env.SUPABASE_WEBHOOK_SECRET
-    if (webhookSecret) {
-      const receivedSecret = req.headers['x-webhook-secret']
-      if (receivedSecret !== webhookSecret) {
+    const verification = verifySupabaseWebhookSecret(
+      process.env.SUPABASE_WEBHOOK_SECRET,
+      req.headers['x-webhook-secret']
+    )
+    if (!verification.ok) {
+      if (verification.status === 503) {
+        console.error('[Supabase Webhook] SUPABASE_WEBHOOK_SECRET is not configured — rejecting request')
+      } else {
         console.warn('[Supabase Webhook] Invalid webhook secret')
-        return res.status(401).json({ error: 'Invalid webhook secret' })
       }
+      return res.status(verification.status).json({ error: verification.error })
     }
 
     const payload = req.body as SupabaseAuthWebhookPayload
