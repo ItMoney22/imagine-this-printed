@@ -51,7 +51,7 @@ export const testConnectivity = async () => {
   console.log('🔍 Connectivity test complete')
 }
 
-// Make it available globally for manual testing
-if (typeof window !== 'undefined') {
+// Make it available globally for manual testing — development only.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
   (window as any).testConnectivity = testConnectivity
 }

@@ -10,20 +10,25 @@ import { forceRefreshSession, hardResetAuth } from './utils/forceRefreshSession'
 // Attach auth debugging hooks
 attachAuthDebug()
 
-// Expose session refresh utilities to browser console for debugging
+// Session utilities on `window` are development-only. They are auth handles —
+// hardResetAuth wipes stored credentials and signs the user out — so shipping
+// them to production hands any injected script a ready-made lever. DEV is
+// statically false in the production build, so this is dropped at build time.
 declare global {
   interface Window {
-    refreshSession: typeof forceRefreshSession
-    hardResetAuth: typeof hardResetAuth
+    refreshSession?: typeof forceRefreshSession
+    hardResetAuth?: typeof hardResetAuth
   }
 }
 
-window.refreshSession = forceRefreshSession
-window.hardResetAuth = hardResetAuth
+if (import.meta.env.DEV) {
+  window.refreshSession = forceRefreshSession
+  window.hardResetAuth = hardResetAuth
 
-console.log('[Debug] 🛠️ Session utilities available:')
-console.log('  • window.refreshSession() - Force refresh user session')
-console.log('  • window.hardResetAuth() - Clear all auth data and sign out')
+  console.log('[Debug] 🛠️ Session utilities available:')
+  console.log('  • window.refreshSession() - Force refresh user session')
+  console.log('  • window.hardResetAuth() - Clear all auth data and sign out')
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

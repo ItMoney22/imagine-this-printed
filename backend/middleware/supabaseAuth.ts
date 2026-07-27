@@ -1,5 +1,6 @@
 ﻿import type { Request, Response, NextFunction } from "express";
 import { jose } from "../lib/jose.js";
+import { getCachedRole } from "../lib/role-cache.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET!;
@@ -60,19 +61,20 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 export function requireRole(roles: string[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) { res.status(401).json({ error: "Not authenticated" }); return; }
-    // If role is set in token, check it directly
-    if (req.user.role && roles.includes(req.user.role)) { next(); return; }
-    // Otherwise fall back to a DB lookup
+    // Authorization always resolves against `user_profiles` (via the shared
+    // 60s role cache), never against the role claim carried in the JWT. A
+    // token is minted for up to an hour, so trusting its copy of the role
+    // meant a demotion did not take effect until the user's session refreshed.
+    // The cache keeps this off the DB on hot admin paths, and role changes
+    // made through /api/admin/users invalidate it immediately.
     try {
-      const { createClient } = await import("@supabase/supabase-js");
-      const sb = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      const { data } = await sb.from("user_profiles").select("role").eq("id", req.user.id).single();
-      if (data?.role && roles.includes(data.role)) {
-        req.user.role = data.role;
+      const role = await getCachedRole(req.user.id);
+      if (role && roles.includes(role)) {
+        req.user.role = role;
         next();
-      } else {
-        res.status(403).json({ error: "Insufficient permissions" });
+        return;
       }
+      res.status(403).json({ error: "Insufficient permissions" });
     } catch {
       res.status(403).json({ error: "Insufficient permissions" });
     }

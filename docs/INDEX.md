@@ -24,6 +24,7 @@ This index lists all active documentation. For historical/completed docs, see `d
 | [AI_PRODUCT_BUILDER_PIPELINE.md](AI_PRODUCT_BUILDER_PIPELINE.md) | CURRENT | Complete pipeline reference (production ready) |
 | [CUSTOMER_AI_PRODUCT_BUILDER.md](CUSTOMER_AI_PRODUCT_BUILDER.md) | CURRENT | Customer-facing AI builder docs |
 | [ENV_VARIABLES.md](ENV_VARIABLES.md) | CURRENT | Environment variable reference |
+| [SECURITY_HARDENING.md](SECURITY_HARDENING.md) | CURRENT | Security headers, rate limits, role revocation, CSP, dev-only debug handles |
 | [README.md](README.md) | CURRENT | General documentation overview |
 
 ### Feature Status Docs

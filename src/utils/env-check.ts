@@ -63,10 +63,14 @@ export const checkEnvironment = () => {
   console.log('================================')
 }
 
-// Make available globally
+// Make available globally — development only. The production auto-run below
+// still logs the same diagnostic to the console; what is withheld in
+// production is the callable handle on `window`.
 if (typeof window !== 'undefined') {
-  (window as any).checkEnvironment = checkEnvironment
-  
+  if (import.meta.env.DEV) {
+    (window as any).checkEnvironment = checkEnvironment
+  }
+
   // Auto-run in production to help debug
   if (import.meta.env.PROD) {
     console.log('🚀 Production environment detected - running automatic diagnostic...')

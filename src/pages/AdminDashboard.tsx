@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts, adminApi, API_BASE, etsy } from '../lib/api'
+import { aiProducts, adminApi, apiFetch, API_BASE, etsy } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
@@ -1533,31 +1533,44 @@ const AdminDashboard: React.FC = () => {
 
   const updateUserRole = async (userId: string, newRole: User['role']) => {
     try {
-      // Update role in database
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({ role: newRole })
-        .eq('id', userId)
+      // Go through the API rather than writing user_profiles directly: the
+      // backend caches roles in-process, so a direct DB write leaves the old
+      // role authorizing requests until the cache TTL expires. The API route
+      // updates, audits and invalidates the cache in one step.
+      try {
+        await apiFetch(`/api/admin/users/${userId}/role`, {
+          method: 'POST',
+          body: JSON.stringify({ role: newRole })
+        })
+      } catch (apiError: any) {
+        // Fall back to the direct write so a lagging/unreachable API never
+        // blocks an urgent demotion. The role cache then expires on its own
+        // (60s) instead of being invalidated immediately.
+        console.warn('[AdminDashboard] role API unavailable, falling back to direct update:', apiError)
 
-      if (error) throw error
+        const { error } = await supabase
+          .from('user_profiles')
+          .update({ role: newRole })
+          .eq('id', userId)
+
+        if (error) throw error
+
+        await supabase
+          .from('audit_logs')
+          .insert({
+            user_id: user?.id || 'admin',
+            action: 'ROLE_CHANGE',
+            entity: 'User',
+            entity_id: userId,
+            changes: { role: newRole, via: 'direct-fallback' },
+            user_agent: navigator.userAgent
+          })
+      }
 
       // Update local state
       setUsers(prev => prev.map(u =>
         u.id === userId ? { ...u, role: newRole } : u
       ))
-
-      // Add audit log to database
-      await supabase
-        .from('audit_logs')
-        .insert({
-          user_id: user?.id || 'admin',
-          action: 'ROLE_CHANGE',
-          entity: 'User',
-          entity_id: userId,
-          changes: { role: newRole },
-          ip_address: '192.168.1.100',
-          user_agent: navigator.userAgent
-        })
 
       // Reload audit logs to show the new entry
       await loadAuditLogsData()

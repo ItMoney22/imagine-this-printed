@@ -149,6 +149,34 @@ cd dist && http-server -p 8080 -a 0.0.0.0
 node server.js
 ```
 
+## Security
+
+Full reference: **[docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md)**. The
+short version:
+
+- **API headers** — `helmet` (`backend/middleware/security-headers.ts`) sets HSTS,
+  an API-shaped CSP, `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy`.
+  `Cross-Origin-Resource-Policy` is deliberately `cross-origin` so the SPA can
+  load mockups from the API domain.
+- **Rate limiting** — `express-rate-limit` (`backend/middleware/rate-limits.ts`)
+  meters auth, admin, AI, coupon-code and public-write routes per IP. Webhooks
+  (Stripe/Resend/Replicate), health probes and the print bridge are exempt.
+  Every limit is env-tunable; `RATE_LIMIT_ENABLED=false` is the kill switch.
+- **Role revocation** — roles are cached for 60s and invalidated immediately by
+  `POST /api/admin/users/:userId/role`, which is what the admin dashboard calls.
+  `requireRole` resolves against `user_profiles`, never the JWT's role claim.
+- **Browser headers** — CSP, HSTS, `Referrer-Policy` and `Permissions-Policy` are
+  set in **both** `vercel.json` (production) and `server-static.mjs`
+  (Railway/VPS). Change both together.
+- **No inline scripts.** The CSP has no `'unsafe-inline'`/`'unsafe-eval'` in
+  `script-src`; adding an inline `<script>` to `index.html` will break the site.
+- **Debug handles are dev-only.** `window.supabase`, `window.refreshSession` and
+  friends are gated behind `import.meta.env.DEV` and are absent from production
+  builds.
+
+Verify with `cd backend && npm run verify:security` (no database or `.env`
+required).
+
 ## Environment Variables
 
 Create a `.env.local` file with:

@@ -35,8 +35,10 @@ if (import.meta.env.DEV) {
   testDatabaseConnectivity()
 }
 
-// Make functions available globally for manual testing
-if (typeof window !== 'undefined') {
+// Make functions available globally for manual testing — development only.
+// These probe the database with the caller's session and dump environment
+// details; neither belongs on a production page's global object.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
   (window as any).testDatabaseConnectivity = testDatabaseConnectivity;
   (window as any).logEnvironmentInfo = logEnvironmentInfo;
 }
