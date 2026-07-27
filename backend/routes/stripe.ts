@@ -16,6 +16,7 @@ import {
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
+import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 
 const router = Router()
 
@@ -588,6 +589,17 @@ router.post('/webhook', async (req: Request, res: Response): Promise<any> => {
         break
       }
 
+      // Refund gap (Watchtower task c83da451): ITP had NO refund handling at
+      // all before this — ported nothing, this is new. Resolves the charge
+      // back to an ITP order via orders.payment_intent_id (written in
+      // handleCheckoutOrderPayment once a payment succeeds), so it only
+      // covers orders that have already gone through that paid path.
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge
+        await handleChargeRefunded(charge, req)
+        break
+      }
+
       // ===============================
       // STRIPE CONNECT EVENTS (ported from the now-removed routes/webhooks.ts
       // POST /stripe — that route could never verify its signature, since
@@ -876,12 +888,88 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   // storefront sales never paid creators.
   await accrueCreatorMarginsForOrder(orderId, req.log)
 
+  // Notify Darrell V2's merch sales ledger (docs/merch-orders-webhook.md
+  // there). Emitted AFTER margins accrue so creatorMarginCents can be read
+  // back rather than recomputed. Fail-soft: sendMerchOrderEvent never throws,
+  // and this catch is a second belt-and-suspenders guard — a delivery
+  // failure must never break checkout.
+  await sendMerchOrderEvent({ orderId, type: 'order.paid', log: req.log }).catch((err) => {
+    req.log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
+  })
+
   req.log?.info({
     orderId,
     orderNumber,
     paymentIntentId: paymentIntent.id,
     customerEmail: order?.customer_email
   }, '✅ Checkout order payment processed successfully')
+}
+
+// Handle charge.refunded — resolve the Stripe charge back to an ITP order via
+// payment_intent_id and mark it refunded. Only full refunds are handled today
+// (charge.refunded === true); a partial refund has no line-level model in ITP
+// yet, so it is logged and skipped rather than faked as a full refund.
+async function handleChargeRefunded(charge: Stripe.Charge, req: Request) {
+  if (!charge.refunded) {
+    req.log?.info({
+      chargeId: charge.id,
+      amountRefunded: charge.amount_refunded,
+      amount: charge.amount
+    }, '[stripe-webhook] Partial refund received — ITP has no partial-refund order model yet, skipping')
+    return
+  }
+
+  const paymentIntentId = typeof charge.payment_intent === 'string'
+    ? charge.payment_intent
+    : charge.payment_intent?.id
+
+  if (!paymentIntentId) {
+    req.log?.warn({ chargeId: charge.id }, '[stripe-webhook] charge.refunded had no payment_intent — cannot resolve to an ITP order')
+    return
+  }
+
+  const { data: order, error: findErr } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('payment_intent_id', paymentIntentId)
+    .maybeSingle()
+
+  if (findErr) {
+    req.log?.error({ err: findErr, paymentIntentId }, '[stripe-webhook] Failed to look up order for charge.refunded')
+    return
+  }
+  if (!order) {
+    req.log?.info({ paymentIntentId, chargeId: charge.id }, '[stripe-webhook] No ITP order matches this payment_intent — skipping')
+    return
+  }
+
+  // Idempotency claim — same atomic pattern used throughout this file
+  // (handleCheckoutOrderPayment, handleInvoicePaid): a redelivered
+  // charge.refunded finds the row no longer matches .neq('status', 'refunded')
+  // and skips side effects instead of re-emitting.
+  const { claimOnce } = await import('../lib/webhook-helpers.js')
+  const claim = await claimOnce(
+    supabase
+      .from('orders')
+      .update({ status: 'refunded', payment_status: 'refunded', updated_at: new Date().toISOString() })
+      .eq('id', order.id)
+      .neq('status', 'refunded')
+      .select('id')
+  )
+  if (claim.error) {
+    req.log?.error({ err: claim.error, orderId: order.id }, '[stripe-webhook] Failed to claim order for refund')
+    return
+  }
+  if (!claim.claimed) {
+    req.log?.info({ orderId: order.id }, '[stripe-webhook] Order already marked refunded — duplicate charge.refunded delivery, skipping')
+    return
+  }
+
+  await sendMerchOrderEvent({ orderId: order.id, type: 'order.refunded', log: req.log }).catch((err) => {
+    req.log?.error({ err, orderId: order.id }, '[merch-webhook] emission threw unexpectedly')
+  })
+
+  req.log?.info({ orderId: order.id, chargeId: charge.id }, '[stripe-webhook] Order marked refunded from charge.refunded')
 }
 
 // Send order confirmation email using Brevo
@@ -1320,6 +1408,16 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
     if (updateError) {
       req.log?.error({ err: updateError, orderId }, 'Failed to update order status')
       return res.status(500).json({ error: 'Failed to update order status' })
+    }
+
+    // Notify Darrell V2's merch sales ledger — only on an ACTUAL transition
+    // into refunded/cancelled, never on a no-op re-PATCH to the status it
+    // already had. Fail-soft: never blocks the admin's status update.
+    if (status !== order.status && (status === 'refunded' || status === 'cancelled')) {
+      const merchEventType = status === 'refunded' ? 'order.refunded' : 'order.canceled'
+      await sendMerchOrderEvent({ orderId, type: merchEventType, log: req.log }).catch((err) => {
+        req.log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
+      })
     }
 
     // Send appropriate email based on status change
