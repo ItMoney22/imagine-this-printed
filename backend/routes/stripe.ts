@@ -740,11 +740,21 @@ async function sendOrderConfirmationEmail(order: any) {
     price: item.price || 0
   })) || []
 
+  // Customer-facing identity: the friendly order_number (never the uuid) plus the
+  // name we captured from the shipping form. order.id still rides along in the
+  // options so the email can mint a tokenized, no-login order-status link.
+  const customerName =
+    order.customer_name ||
+    [order.shipping_address?.firstName, order.shipping_address?.lastName].filter(Boolean).join(' ') ||
+    undefined
+
   await sendOrderEmail(
     order.customer_email,
-    order.id,
+    order.order_number || order.id,
     items,
-    order.total || 0
+    order.total || 0,
+    customerName,
+    { orderId: order.id }
   )
   console.log(`[Email] Order confirmation sent to ${order.customer_email}: Order #${order.order_number}`)
 }
@@ -1039,14 +1049,33 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
       return res.status(500).json({ error: 'Failed to update order status' })
     }
 
-    // Send appropriate email based on status change
+    // Send appropriate email based on status change.
+    // Identify the order by its friendly order_number and address the buyer by
+    // name; orderId rides in the options so the CTA can be a tokenized guest
+    // status link. Tracking falls back to what's already stored when this status
+    // update didn't carry new tracking info.
     if (order.customer_email) {
+      const emailOptions = {
+        orderId,
+        customerName:
+          order.customer_name ||
+          [order.shipping_address?.firstName, order.shipping_address?.lastName].filter(Boolean).join(' ') ||
+          undefined
+      }
+      const orderRef = order.order_number || orderId
+
       try {
         if (status === 'shipped') {
-          await sendOrderShippedEmail(order.customer_email, orderId, trackingNumber, carrier)
+          await sendOrderShippedEmail(
+            order.customer_email,
+            orderRef,
+            trackingNumber || order.tracking_number || undefined,
+            carrier || order.tracking_company || undefined,
+            emailOptions
+          )
           req.log?.info({ orderId, email: order.customer_email }, 'Shipped notification email sent')
         } else if (status === 'delivered') {
-          await sendOrderDeliveredEmail(order.customer_email, orderId)
+          await sendOrderDeliveredEmail(order.customer_email, orderRef, emailOptions)
           req.log?.info({ orderId, email: order.customer_email }, 'Delivered notification email sent')
         }
       } catch (emailError) {

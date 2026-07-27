@@ -3,8 +3,83 @@ import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { processOrderCompletion, retryFailedRewards, scheduleRewardProcessing } from '../services/order-reward-service.js'
 import { processReferralFirstPurchase } from '../services/referral-service.js'
+import { verifyOrderStatusToken } from '../utils/order-status-token.js'
+import { resolveCarrier } from '../utils/carrier-tracking.js'
 
 const router = Router()
+
+// GET /api/orders/status/:orderId?t=<token> — PUBLIC, no auth.
+//
+// Backs the tokenized order-status link in every transactional email so a guest
+// buyer (no account, no session) can still see where their order is. The token
+// is an HMAC of the order id, so this can't be walked or enumerated, and it
+// returns a read-only, minimal projection — never the full order row.
+router.get('/status/:orderId', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const token = (req.query.t || req.query.token) as string | undefined
+
+    if (!verifyOrderStatusToken(orderId, token)) {
+      // Same response for a bad token and a missing order — don't leak existence.
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select(`
+        id, order_number, status, payment_status, fulfillment_status,
+        subtotal, tax_amount, shipping_amount, discount_amount, total, currency,
+        customer_name, customer_email, tracking_number, tracking_company,
+        estimated_delivery, shipped_at, delivered_at, created_at, metadata,
+        order_items ( product_name, quantity, price, total, image_url, variations )
+      `)
+      .eq('id', orderId)
+      .single()
+
+    if (error || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    const tracking = order.tracking_number
+      ? resolveCarrier(order.tracking_number, order.tracking_company)
+      : null
+
+    // Mask the email — enough for the buyer to recognise it, useless to anyone else.
+    const maskedEmail = (order.customer_email || '').replace(
+      /^(.)(.*)(@.*)$/,
+      (_m: string, a: string, mid: string, domain: string) => `${a}${'•'.repeat(Math.min(mid.length, 6))}${domain}`
+    )
+
+    return res.json({
+      order: {
+        order_number: order.order_number,
+        status: order.status,
+        payment_status: order.payment_status,
+        fulfillment_status: order.fulfillment_status,
+        subtotal: order.subtotal,
+        tax_amount: order.tax_amount,
+        shipping_amount: order.shipping_amount,
+        discount_amount: order.discount_amount,
+        total: order.total,
+        currency: order.currency,
+        customer_name: order.customer_name,
+        customer_email_masked: maskedEmail,
+        tracking_number: order.tracking_number,
+        carrier: tracking?.name || order.tracking_company || null,
+        tracking_url: tracking?.trackingUrl || null,
+        estimated_delivery: order.estimated_delivery,
+        shipped_at: order.shipped_at,
+        delivered_at: order.delivered_at,
+        created_at: order.created_at,
+        print: (order.metadata as any)?.print || null,
+        items: order.order_items || []
+      }
+    })
+  } catch (error: any) {
+    console.error('[orders] Public status lookup failed:', error)
+    return res.status(500).json({ error: 'Failed to load order status' })
+  }
+})
 
 // GET /api/orders - Get all orders (admin/manager only)
 router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async (req: Request, res: Response): Promise<any> => {
