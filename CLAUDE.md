@@ -34,6 +34,33 @@ npm run preview
 npm start
 ```
 
+### Testing
+
+Two Vitest suites, two configs. They are deliberately separate — never merge them
+back into a single config.
+
+```bash
+# Unit tests — jsdom, fast, no network. This is the gate for every PR.
+npm test
+npm run test:watch
+
+# E2E tests — real browser (puppeteer) + live Supabase + local backend on :4000.
+# 120s timeouts. Run on demand, not in the default loop.
+npm run test:e2e
+```
+
+| | Config | Scope | Environment |
+|---|---|---|---|
+| Unit | `vitest.config.ts` (root) | `src/**/*.test.{ts,tsx}` | jsdom |
+| E2E | `e2e/vitest.config.ts` | `e2e/**/*.test.ts` | node |
+
+- Co-locate unit tests with the module under test (`src/lib/itc-pricing.test.ts`).
+- Global setup lives in `src/test/setup.ts` (RTL cleanup + localStorage reset).
+  Vitest `globals` are **off** — import `describe`/`it`/`expect` from `vitest`.
+- The root config pins `NODE_ENV=test`. Without it, a shell exporting
+  `NODE_ENV=production` makes `react` resolve to its production build, which has
+  no `act`, and every React Testing Library render fails.
+
 ### Database Verification
 ```bash
 # Verify Supabase infrastructure
