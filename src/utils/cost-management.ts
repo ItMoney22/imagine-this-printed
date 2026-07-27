@@ -1,57 +1,154 @@
+import { supabase } from '../lib/supabase'
 import type { CostVariables, ProductCostBreakdown, GPTCostQuery, CostAnalytics } from '../types'
 
+const COST_VARIABLES_TABLE = 'cost_variables'
+
+/**
+ * Starting values for a manager who has never saved. These are a suggestion,
+ * not saved data — anything returned carrying these must be flagged
+ * `source: 'defaults'` so the dashboard never implies they came from the DB.
+ */
+export const DEFAULT_COST_VARIABLES = {
+  filamentPricePerGram: 0.025, // $0.025 per gram
+  electricityCostPerHour: 0.12, // $0.12 per hour
+  averagePackagingCost: 2.50,
+  monthlyRent: 3500,
+  overheadPercentage: 15, // 15% overhead
+  defaultMarginPercentage: 25, // 25% default margin
+  laborRatePerHour: 25.00
+} as const
+
+// Shape of a public.cost_variables row (see supabase/migrations/20260726_cost_variables.sql)
+interface CostVariablesRow {
+  id: string
+  manager_id: string
+  location_id: string | null
+  filament_price_per_gram: number | string | null
+  electricity_cost_per_hour: number | string | null
+  average_packaging_cost: number | string | null
+  monthly_rent: number | string | null
+  overhead_percentage: number | string | null
+  default_margin_percentage: number | string | null
+  labor_rate_per_hour: number | string | null
+  last_updated: string | null
+  created_at: string | null
+}
+
+// Postgres DECIMAL arrives as a string over PostgREST; coerce without turning
+// a legitimate 0 into a fallback.
+function toNumber(value: number | string | null | undefined, fallback: number): number {
+  if (value === null || value === undefined || value === '') return fallback
+  const parsed = typeof value === 'number' ? value : parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function mapRow(row: CostVariablesRow): CostVariables {
+  return {
+    id: row.id,
+    managerId: row.manager_id,
+    locationId: row.location_id ?? undefined,
+    filamentPricePerGram: toNumber(row.filament_price_per_gram, 0),
+    electricityCostPerHour: toNumber(row.electricity_cost_per_hour, 0),
+    averagePackagingCost: toNumber(row.average_packaging_cost, 0),
+    monthlyRent: toNumber(row.monthly_rent, 0),
+    overheadPercentage: toNumber(row.overhead_percentage, 0),
+    defaultMarginPercentage: toNumber(row.default_margin_percentage, 0),
+    laborRatePerHour: toNumber(row.labor_rate_per_hour, 0),
+    lastUpdated: row.last_updated || new Date().toISOString(),
+    createdAt: row.created_at || new Date().toISOString(),
+    source: 'database'
+  }
+}
+
 export class CostManagementService {
-  // Get cost variables for a manager
-  async getCostVariables(managerId: string): Promise<CostVariables | null> {
-    try {
-      // In real app, this would query PostgreSQL with Prisma
-      // Mock data for demo
-      const mockCostVariables: CostVariables = {
-        id: `cost_${managerId}`,
-        managerId,
-        filamentPricePerGram: 0.025, // $0.025 per gram
-        electricityCostPerHour: 0.12, // $0.12 per hour
-        averagePackagingCost: 2.50,
-        monthlyRent: 3500,
-        overheadPercentage: 15, // 15% overhead
-        defaultMarginPercentage: 25, // 25% default margin
-        laborRatePerHour: 25.00,
-        lastUpdated: new Date().toISOString(),
-        createdAt: '2025-01-01T00:00:00Z'
-      }
-      
-      return mockCostVariables
-    } catch (error) {
-      console.error('Error fetching cost variables:', error)
-      return null
+  // Unsaved starting point, explicitly marked so callers can say so in the UI.
+  buildDefaultCostVariables(managerId: string, loadError?: string): CostVariables {
+    return {
+      id: `cost_defaults_${managerId || 'anonymous'}`,
+      managerId,
+      ...DEFAULT_COST_VARIABLES,
+      lastUpdated: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      source: 'defaults',
+      ...(loadError ? { loadError } : {})
     }
   }
 
-  // Save cost variables
-  async saveCostVariables(costVariables: Partial<CostVariables>): Promise<CostVariables> {
+  /**
+   * Read a manager's saved cost variables. Falls back to defaults when the
+   * manager has never saved (or when the read fails) — the returned object's
+   * `source` field says which, so callers can be honest about it.
+   */
+  async getCostVariables(managerId: string): Promise<CostVariables | null> {
+    if (!managerId) return this.buildDefaultCostVariables('')
+
     try {
-      // In real app, this would save to PostgreSQL with Prisma
-      const savedVariables: CostVariables = {
-        id: costVariables.id || `cost_${Date.now()}`,
-        managerId: costVariables.managerId || '',
-        locationId: costVariables.locationId,
-        filamentPricePerGram: costVariables.filamentPricePerGram || 0,
-        electricityCostPerHour: costVariables.electricityCostPerHour || 0,
-        averagePackagingCost: costVariables.averagePackagingCost || 0,
-        monthlyRent: costVariables.monthlyRent || 0,
-        overheadPercentage: costVariables.overheadPercentage || 0,
-        defaultMarginPercentage: costVariables.defaultMarginPercentage || 25,
-        laborRatePerHour: costVariables.laborRatePerHour || 0,
-        lastUpdated: new Date().toISOString(),
-        createdAt: costVariables.createdAt || new Date().toISOString()
+      const { data, error } = await supabase
+        .from(COST_VARIABLES_TABLE)
+        .select('*')
+        .eq('manager_id', managerId)
+        .order('last_updated', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Error fetching cost variables:', error)
+        return this.buildDefaultCostVariables(managerId, error.message)
       }
 
-      console.log('Saving cost variables:', savedVariables)
-      return savedVariables
+      if (!data) return this.buildDefaultCostVariables(managerId)
+
+      return mapRow(data as CostVariablesRow)
     } catch (error) {
-      console.error('Error saving cost variables:', error)
-      throw new Error('Failed to save cost variables')
+      console.error('Error fetching cost variables:', error)
+      return this.buildDefaultCostVariables(
+        managerId,
+        error instanceof Error ? error.message : 'Unknown error'
+      )
     }
+  }
+
+  /**
+   * Persist a manager's cost variables (one row per manager, upserted on
+   * manager_id). Throws on failure — callers must not report success unless
+   * this resolves.
+   */
+  async saveCostVariables(costVariables: Partial<CostVariables>): Promise<CostVariables> {
+    const managerId = costVariables.managerId
+
+    if (!managerId) {
+      throw new Error('Cannot save cost variables without a manager account id.')
+    }
+
+    const payload = {
+      manager_id: managerId,
+      location_id: costVariables.locationId ?? null,
+      filament_price_per_gram: costVariables.filamentPricePerGram ?? 0,
+      electricity_cost_per_hour: costVariables.electricityCostPerHour ?? 0,
+      average_packaging_cost: costVariables.averagePackagingCost ?? 0,
+      monthly_rent: costVariables.monthlyRent ?? 0,
+      overhead_percentage: costVariables.overheadPercentage ?? 0,
+      default_margin_percentage: costVariables.defaultMarginPercentage ?? 25,
+      labor_rate_per_hour: costVariables.laborRatePerHour ?? 0,
+      last_updated: new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from(COST_VARIABLES_TABLE)
+      .upsert(payload, { onConflict: 'manager_id' })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error saving cost variables:', error)
+      throw new Error(`Failed to save cost variables: ${error.message}`)
+    }
+
+    if (!data) {
+      throw new Error('Failed to save cost variables: the database returned no row.')
+    }
+
+    return mapRow(data as CostVariablesRow)
   }
 
   // Calculate product cost breakdown
@@ -154,15 +251,19 @@ export class CostManagementService {
     }
   }
 
-  // GPT Cost Assistant
+  /**
+   * Keyword-matched cost assistant. Despite the historical name, this makes NO
+   * LLM call — it matches keywords in the question, runs the local pricing
+   * formulas, and returns canned guidance. The UI is labelled accordingly
+   * ("Keyword Assistant"); keep it that way unless a real model is wired in.
+   */
   async queryGPTAssistant(
     query: string,
     costVariables?: CostVariables,
     _context?: any
   ): Promise<string> {
     try {
-      // In real app, this would call OpenAI API
-      // Mock intelligent responses based on query patterns
+      // Keyword matching against the question — no network call, no model.
       const lowerQuery = query.toLowerCase()
 
       if (lowerQuery.includes('price') && lowerQuery.includes('margin')) {
@@ -236,14 +337,17 @@ export class CostManagementService {
 **Remember:** Higher margins allow for better customer service, quality improvements, and business sustainability.`
       }
 
-      // Default response for unrecognized queries
+      // Default response for unrecognized queries.
+      // These examples are kept in the phrasings the matcher above actually
+      // recognizes (covered by cost-management.test.ts) — suggesting a question
+      // that then falls through to this same text is how the tab earned its
+      // "sounds like AI, isn't" reputation.
       return `I can help you with cost and pricing calculations! Try asking me:
 
 💡 **Example Questions:**
-- "What should I price a product if it costs me $6.25 and I want 30% margin?"
-- "How much does a 3-hour print with 80g filament cost at current rates?"
-- "What margin should I recommend for premium products?"
-- "Calculate the cost breakdown for a 2.5 hour print using 45g of material"
+- "What price gives a 30% margin on a $6.25 cost?"
+- "How much does a 3 hour print with 80g filament cost?"
+- "What margin do you recommend for premium products?"
 
 📊 **I can help with:**
 - Cost calculations and breakdowns
