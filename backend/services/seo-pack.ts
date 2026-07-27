@@ -9,19 +9,46 @@
 //     product without a pack (covers admin-created products and legacy rows),
 //     bounded per run to keep model spend flat.
 //
-// Cost-first (David's standing rule): gpt-4o-mini, one call per product, and
-// existing AI copy in metadata is reused as input, never regenerated.
-// Idempotent via products.metadata.seo_pack_generated_at. If no OPENAI_API_KEY
-// the pack falls back to mechanical derivation so columns still get filled.
+// Cost-first (David's standing rule): one call per product, and existing AI
+// copy in metadata is reused as input, never regenerated. As of 2026-07-26 the
+// default routes through OpenRouter to google/gemini-2.5-flash-lite
+// ($0.10/$1M in, $0.40/$1M out — cheaper than the old gpt-4o-mini default at
+// $0.15/$0.60), falling back to gpt-5.4-nano on the direct OpenAI account when
+// no OPENROUTER_API_KEY is configured. Idempotent via
+// products.metadata.seo_pack_generated_at. With no key at all the pack falls
+// back to mechanical derivation so columns still get filled.
 // ---------------------------------------------------------------------------
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
+import { completionTokenParam } from './model-compat.js'
 
-const SEO_MODEL = process.env.SEO_PACK_MODEL || 'gpt-4o-mini'
+const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+const SEO_MODEL =
+  process.env.SEO_PACK_MODEL || (USE_OPENROUTER ? 'google/gemini-2.5-flash-lite' : 'gpt-5.4-nano')
+const SEO_FALLBACK_MODEL = process.env.SEO_PACK_FALLBACK_MODEL || 'gpt-5.4-nano'
 const SWEEP_BATCH = Number(process.env.SEO_PACK_SWEEP_BATCH || 10)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
 
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+const openrouter = USE_OPENROUTER
+  ? new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': 'https://imaginethisprinted.com',
+        'X-Title': 'ImagineThisPrinted - SEO Pack'
+      }
+    })
+  : null
+const openaiDirect = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+
+// Same two-tier ladder as the Etsy composer: OpenRouter first, direct-OpenAI
+// gpt-5.4-nano as the runtime retry, mechanical derivation only if both are
+// unavailable. See services/etsy-seo-composer.ts for why tier 2 is a retry and
+// not merely a config-time default.
+const MODEL_TIERS: { client: OpenAI, model: string }[] = [
+  ...(openrouter ? [{ client: openrouter, model: SEO_MODEL }] : []),
+  ...(openaiDirect ? [{ client: openaiDirect, model: openrouter ? SEO_FALLBACK_MODEL : SEO_MODEL }] : [])
+]
 
 interface SeoPack {
   meta_title: string
@@ -46,7 +73,14 @@ function mechanicalPack(product: any, tags: string[]): SeoPack {
 }
 
 async function aiPack(product: any, tags: string[]): Promise<SeoPack | null> {
-  if (!openai) return null
+  for (const tier of MODEL_TIERS) {
+    const pack = await aiPackWith(tier.client, tier.model, product, tags)
+    if (pack) return pack
+  }
+  return null
+}
+
+async function aiPackWith(client: OpenAI, model: string, product: any, tags: string[]): Promise<SeoPack | null> {
   try {
     const context = {
       name: product.name,
@@ -58,10 +92,10 @@ async function aiPack(product: any, tags: string[]): Promise<SeoPack | null> {
       existing_seo_title: product.metadata?.seo_title || null,
       existing_seo_description: product.metadata?.seo_description || null
     }
-    const completion = await openai.chat.completions.create({
-      model: SEO_MODEL,
+    const completion = await client.chat.completions.create({
+      model,
       response_format: { type: 'json_object' },
-      max_tokens: 600,
+      ...completionTokenParam(model, 600),
       messages: [
         {
           role: 'system',
@@ -90,7 +124,7 @@ async function aiPack(product: any, tags: string[]): Promise<SeoPack | null> {
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String).slice(0, 10) : []
     }
   } catch (err: any) {
-    console.error('[seo-pack] Model call failed (falling back to mechanical):', err?.message || err)
+    console.error(`[seo-pack] ${model} call failed:`, err?.message || err)
     return null
   }
 }

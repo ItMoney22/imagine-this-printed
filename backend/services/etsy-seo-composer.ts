@@ -14,18 +14,55 @@
 // sale David runs in Shop Manager (Etsy has no API for sales events), so the
 // listing shows ~~$25~~ $15.
 //
-// Model: ETSY_SEO_MODEL, default gpt-4o. This deliberately steps above the
-// cost-first gpt-4o-mini rule because bad copy is exactly what killed batch 1,
-// volume is one call per opted-in product, and the delta is ~a cent a listing.
+// Model: ETSY_SEO_MODEL. Default routes through OpenRouter to
+// google/gemini-2.5-flash-lite ($0.10/$1M in, $0.40/$1M out) — a 25x cost cut
+// against the old gpt-4o default ($2.50/$10.00) that also gets us off a model
+// OpenAI has slated for retirement. Copy quality was the reason this call
+// stepped above the cost-first rule in the first place, so the migration was
+// A/B'd against gpt-4o on real products before flipping (see
+// docs/2026-07-26-etsy-seo-model-migration.md).
+//
+// Two tiers, then mechanical:
+//   1. OPENROUTER_API_KEY set -> ETSY_SEO_MODEL (google/gemini-2.5-flash-lite)
+//   2. OPENAI_API_KEY set     -> ETSY_SEO_FALLBACK_MODEL (gpt-5.4-nano)
+//   3. neither, or both failed -> mechanicalPack()
+// Tier 2 is a RUNTIME retry, not just a config default, because the failure we
+// actually hit is a live-but-rejected OpenRouter key (the repo's own .env was
+// carrying a rotated-out key that 401s "User not found" on 2026-07-26). With a
+// single tier that 401 is swallowed by the catch below and every listing
+// quietly degrades to mechanical copy — which is exactly the failure mode that
+// killed draft batch 1.
 // ---------------------------------------------------------------------------
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
+import { completionTokenParam } from './model-compat.js'
 
-const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || 'gpt-4o'
+const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+const COMPOSER_MODEL =
+  process.env.ETSY_SEO_MODEL || (USE_OPENROUTER ? 'google/gemini-2.5-flash-lite' : 'gpt-5.4-nano')
+const FALLBACK_MODEL = process.env.ETSY_SEO_FALLBACK_MODEL || 'gpt-5.4-nano'
 export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
 
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+// Same client shape as routes/ai/chat.ts and services/imagine-brain.ts:
+// OpenRouter speaks the OpenAI SDK dialect, so only the model string changes.
+const openrouter = USE_OPENROUTER
+  ? new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': 'https://imaginethisprinted.com',
+        'X-Title': 'ImagineThisPrinted - Etsy Listing Composer'
+      }
+    })
+  : null
+const openaiDirect = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+
+// Ordered attempt list, built once. Empty => no key at all => mechanical only.
+const MODEL_TIERS: { client: OpenAI, model: string }[] = [
+  ...(openrouter ? [{ client: openrouter, model: COMPOSER_MODEL }] : []),
+  ...(openaiDirect ? [{ client: openaiDirect, model: openrouter ? FALLBACK_MODEL : COMPOSER_MODEL }] : [])
+]
 
 export interface EtsyPack {
   title: string
@@ -53,7 +90,9 @@ export function defaultColorsFor(product: any): string[] {
   return [...new Set([own, DEFAULT_SECOND_COLOR])]
 }
 
-const SYSTEM_PROMPT =
+// Exported so scripts/compare-etsy-seo-models.ts can A/B a candidate model
+// against the EXACT production prompt instead of a drifting copy of it.
+export const SYSTEM_PROMPT =
   'You write Etsy listing copy for ImagineThisPrinted, a custom print shop selling soft unisex tees ' +
   'with DTF-printed designs, made to order in Rockmart, Georgia. Respond ONLY with JSON: ' +
   '{"title": string, "tags": string[], "description": string}. Rules: ' +
@@ -73,7 +112,7 @@ const SYSTEM_PROMPT =
   'materials, or shipping promises.'
 
 // Metal art variant — same JSON contract, wall-art copy instead of apparel.
-const METAL_SYSTEM_PROMPT =
+export const METAL_SYSTEM_PROMPT =
   'You write Etsy listing copy for ImagineThisPrinted, a custom print shop selling dye-sublimated ' +
   'ALUMINUM METAL PRINT wall-art panels — vivid high-gloss prints infused into lightweight metal, ' +
   'fade- and scratch-resistant, made to order in Rockmart, Georgia, offered in 4x6 and 8x10 inches. ' +
@@ -93,7 +132,7 @@ const METAL_SYSTEM_PROMPT =
 
 // Sanitize whatever the model returned through the same hard limits the
 // publisher enforces, backfilling tags from existing keywords if it came up short.
-function sanitizePack(raw: any, product: any): { title: string, tags: string[], description: string } | null {
+export function sanitizePack(raw: any, product: any): { title: string, tags: string[], description: string } | null {
   const title = String(raw?.title || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
   const description = String(raw?.description || '').trim()
   if (!title || !description) return null
@@ -136,12 +175,14 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
 
   const isMetal = String(product.category) === 'metal-art'
   let fields: { title: string, tags: string[], description: string } | null = null
-  if (openai) {
+  let usedModel: string | null = null
+
+  for (const tier of MODEL_TIERS) {
     try {
-      const completion = await openai.chat.completions.create({
-        model: COMPOSER_MODEL,
+      const completion = await tier.client.chat.completions.create({
+        model: tier.model,
         response_format: { type: 'json_object' },
-        max_tokens: 900,
+        ...completionTokenParam(tier.model, 900),
         messages: [
           { role: 'system', content: isMetal ? METAL_SYSTEM_PROMPT : SYSTEM_PROMPT },
           {
@@ -158,11 +199,19 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
       })
       const rawText = completion.choices[0]?.message?.content
       if (rawText) fields = sanitizePack(JSON.parse(rawText), product)
+      if (fields) {
+        usedModel = tier.model
+        break
+      }
+      console.error(`[etsy-composer] ${tier.model} returned unusable copy for ${productId}`)
     } catch (err: any) {
-      console.error(`[etsy-composer] model call failed for ${productId} (falling back to mechanical):`, err?.message || err)
+      console.error(`[etsy-composer] ${tier.model} call failed for ${productId}:`, err?.message || err)
     }
   }
-  if (!fields) fields = mechanicalPack(product)
+  if (!fields) {
+    console.error(`[etsy-composer] all ${MODEL_TIERS.length} model tier(s) failed for ${productId} — using mechanical copy`)
+    fields = mechanicalPack(product)
+  }
 
   const existingColors: string[] | undefined = (product as any).metadata?.etsy_pack?.colors
   const pack: EtsyPack = {
@@ -172,7 +221,10 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
     price: ETSY_ANCHOR_PRICE,
     colors: isMetal ? [] : (existingColors?.length ? existingColors : defaultColorsFor(product)),
     composed_at: new Date().toISOString(),
-    model: openai ? COMPOSER_MODEL : 'mechanical'
+    // Record what actually produced this copy. Previously this stored the
+    // configured model even when the call had failed and mechanicalPack() wrote
+    // the fields, so a shelf of mechanical packs looked model-composed.
+    model: usedModel || 'mechanical'
   }
 
   const { error: updErr } = await supabase
