@@ -15,6 +15,13 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
+// Model selection (migrated 2026-07-27, Watchtower e2143c35).
+// Uses the shared OPENAI_TEXT_MODEL env var (default gpt-5.4-nano).
+// gpt-5.x / o-series reasoning models reject `max_tokens` and only accept
+// the default temperature; they want `max_completion_tokens` instead.
+const TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const IS_REASONING_MODEL = /^(gpt-5|o[1-9])/.test(TEXT_MODEL)
+
 // Generate marketing content for a product
 router.post('/generate-content', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response) => {
   try {
@@ -68,7 +75,7 @@ Generate a JSON response with the following structure:
 }`
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: TEXT_MODEL,
       messages: [
         {
           role: 'system',
@@ -80,8 +87,7 @@ Generate a JSON response with the following structure:
         }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.7,
-      max_tokens: 1000
+      ...(IS_REASONING_MODEL ? { max_completion_tokens: 1000 } : { temperature: 0.7, max_tokens: 1000 })
     })
 
     const content = JSON.parse(completion.choices[0].message.content || '{}')
@@ -153,7 +159,7 @@ Generate a JSON response with:
 }`
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: TEXT_MODEL,
       messages: [
         {
           role: 'system',
@@ -165,8 +171,7 @@ Generate a JSON response with:
         }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.7,
-      max_tokens: 2000
+      ...(IS_REASONING_MODEL ? { max_completion_tokens: 2000 } : { temperature: 0.7, max_tokens: 2000 })
     })
 
     const content = JSON.parse(completion.choices[0].message.content || '{}')

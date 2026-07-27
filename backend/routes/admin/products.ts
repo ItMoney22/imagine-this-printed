@@ -45,6 +45,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
+// Model selection (migrated 2026-07-27, Watchtower e2143c35).
+// Uses the shared OPENAI_VISION_MODEL env var (default gpt-5.6-terra)
+// because this route sends an image_url.
+// gpt-5.x / o-series reasoning models reject `max_tokens` and only accept
+// the default temperature; they want `max_completion_tokens` instead.
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+const IS_REASONING_MODEL = /^(gpt-5|o[1-9])/.test(VISION_MODEL)
+
 /**
  * POST /api/admin/upload-product-image
  * Upload a product image to GCS
@@ -142,7 +150,7 @@ router.post('/ai-suggest', requireAuth, async (req, res) => {
     const categoryName = categoryNames[category] || category
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: VISION_MODEL,
       messages: [
         {
           role: 'system',
@@ -178,8 +186,7 @@ Respond in JSON format:
           ]
         }
       ],
-      max_tokens: 300,
-      temperature: 0.7,
+      ...(IS_REASONING_MODEL ? { max_completion_tokens: 300 } : { max_tokens: 300, temperature: 0.7 }),
       response_format: { type: 'json_object' }
     })
 
