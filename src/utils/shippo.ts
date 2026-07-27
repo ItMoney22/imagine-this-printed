@@ -3,6 +3,29 @@ import type { ShippingAddress, ShippingLabel } from '../types'
 const SHIPPO_API_TOKEN = import.meta.env.VITE_SHIPPO_API_TOKEN
 const SHIPPO_BASE_URL = 'https://api.goshippo.com'
 
+/**
+ * True when `VITE_SHIPPO_API_TOKEN` is unset and every Shippo call is answered
+ * by the local mock. Callers MUST surface this to the operator: a mocked label
+ * looks exactly like a real one (it has a tracking number and a label URL) but
+ * no parcel will ever move and nothing was paid for.
+ */
+export const isShippoMocked = !SHIPPO_API_TOKEN
+
+export const SHIPPO_MOCK_WARNING =
+  'Shippo is in MOCK mode — VITE_SHIPPO_API_TOKEN is not set. Labels and ' +
+  'tracking numbers generated here are fake, no postage is purchased, and no ' +
+  'package will ship.'
+
+// Loud, once, at module load — so the warning is in the console before an admin
+// ever clicks "Generate Label", not only after they've made a fake one.
+if (isShippoMocked) {
+  console.warn(
+    `%c⚠️ SHIPPO MOCK MODE %c${SHIPPO_MOCK_WARNING}`,
+    'background:#b45309;color:#fff;font-weight:bold;padding:2px 6px;border-radius:3px',
+    'color:#b45309;font-weight:bold'
+  )
+}
+
 interface ShippoShipment {
   address_from: any
   address_to: any
@@ -23,9 +46,16 @@ export class ShippoAPI {
     this.apiToken = SHIPPO_API_TOKEN
   }
 
+  /** Exposed so UI can render a "this is fake" banner before anything is bought. */
+  get isMocked(): boolean {
+    return !this.apiToken
+  }
+
   private async makeRequest(endpoint: string, method: 'GET' | 'POST' = 'GET', data?: any) {
     if (!this.apiToken) {
-      // Mock response for demo
+      // Mock response — warn on every mocked call, not just at module load, so
+      // the warning sits right next to the action that triggered it.
+      console.warn(`[shippo] MOCK response served for ${method} ${endpoint}. ${SHIPPO_MOCK_WARNING}`)
       return this.getMockResponse(endpoint, data)
     }
 
@@ -49,6 +79,7 @@ export class ShippoAPI {
     // Production-ready fallback rates when Shippo API is unavailable
     if (endpoint === '/shipments') {
       return Promise.resolve({
+        is_mock: true,
         object_id: 'fallback_shipment_id',
         rates: [
           {
@@ -90,6 +121,7 @@ export class ShippoAPI {
 
     if (endpoint === '/transactions') {
       return Promise.resolve({
+        is_mock: true,
         object_id: 'mock_transaction_id',
         label_url: 'https://shippo-delivery-east.s3.amazonaws.com/mock-label.pdf',
         tracking_number: 'MOCK123456789',
@@ -161,13 +193,18 @@ export class ShippoAPI {
       service: 'Priority Mail',
       cost: parseFloat(response.amount || '8.50'),
       createdAt: new Date().toISOString(),
-      estimatedDelivery: response.eta
+      estimatedDelivery: response.eta,
+      // Travels with the label so anything that stores or displays it can say
+      // out loud that this label is not real.
+      isMock: response.is_mock === true
     }
   }
 
   async getTrackingInfo(trackingNumber: string): Promise<any> {
     if (!this.apiToken) {
+      console.warn(`[shippo] MOCK tracking served for ${trackingNumber}. ${SHIPPO_MOCK_WARNING}`)
       return {
+        is_mock: true,
         tracking_number: trackingNumber,
         tracking_status: {
           status: 'TRANSIT',

@@ -281,6 +281,7 @@ model Order {
   shippingAddress    Json?     @map("shipping_address")
   trackingNumber     String?   @map("tracking_number")
   trackingCompany    String?   @map("tracking_company")
+  shippingLabelUrl   String?   @map("shipping_label_url") // Shippo label PDF (supabase/migrations/20260726_order_shipping_label.sql)
   estimatedDelivery  DateTime? @map("estimated_delivery")
   notes              String?
   internalNotes      String?   @map("internal_notes")
