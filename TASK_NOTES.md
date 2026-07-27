@@ -1,13 +1,13 @@
 # TASK_NOTES
 ## Current request
-- Audit the live Etsy shop at `https://imaginethisprinted1.etsy.com` and identify the highest-impact improvements to trust, policy safety, discoverability, and conversion.
+- Watchtower task `dbb7017e-8a75-4c8e-9dff-f3e14d7025f0`: fix the live 4x6 metal-art overcharge caused by the apparel plus-size rule matching non-garment size axes.
 
 ## Current status
-- Combined UX/accessibility audit completed on 2026-07-26 across the shop home, the only active listing, listing details, and About/policies.
-- Public state: one active $25 listing, no sales/reviews, no visible banner, a small text-heavy icon, a one-line About section, and no owner photo.
-- Urgent listing issues: the hero is a generated mascot scene rather than a real finished-product photo, and no size or color selector was visible before `Add to cart`.
-- Strong foundations: specific DTF/Georgia/processing copy, clear arrival estimate, accepted returns, $5 shipping, care instructions, custom-work invitation, and AI disclosure.
-- Recommended next pass is shop/listing content work only; no live edits, paid activations, ad spend, or repo implementation changes are approved yet.
+- Scouting confirmed the client and server both use substring plus-size matching: `PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))` / `PLUS_SIZES.some(ps => upper.includes(ps))`.
+- The exact false positive is `4x6` -> `4X6`, which matches the apparel token `4X` and adds $2.50 to a metal-art print.
+- The server intentionally mirrors the client bug today; fixing only one side can trigger the checkout anti-tampering 400.
+- `ProductCard` already guards its plus-size badge with `productKindOf(product) === 'apparel'`; checkout/cart totals and server pricing need the same apparel-only discipline.
+- Per repo rules, Codex did not edit implementation files. Claude should apply the strict file list below.
 
 ## File shortlist (approved scope)
 ### Read first
@@ -15,17 +15,23 @@
 - `CLAUDE.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/services/etsy-seo-composer.ts`
-- `backend/services/etsy-model-shots.ts`
-- `backend/services/etsy.ts`
-- `src/components/AdminEtsyPanel.tsx`
+- `src/context/CartContext.tsx`
+- `src/pages/Checkout.tsx`
+- `src/lib/product-kind.ts`
+- `src/components/ProductCard.tsx`
+- `backend/services/order-pricing.ts`
+- `backend/services/order-pricing.test.ts`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
-- `TASK_NOTES.md` (one concise milestone/work-log bullet after a separately approved implementation pass)
-- No repo code files.
-- No live Etsy edits or paid listing activations without David's explicit approval.
+- `src/context/CartContext.tsx`
+- `src/pages/Checkout.tsx`
+- `backend/services/order-pricing.ts`
+- `backend/services/order-pricing.test.ts`
+- Optional only if typecheck/import structure requires it: `src/lib/product-kind.ts`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet after implementation)
+- No unrelated repo files.
 
 ### Scope expansion — UI dropdown (added 2026-06-29 by Zero Nine, per direct owner request)
 - Rationale: the original brief was scoped "No UI changes" (schema/backend only). The owner (David) then directly
@@ -249,6 +255,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-07-27 (Codex 4x6 metal-art overcharge scout): Located the shared plus-size substring bug in `src/context/CartContext.tsx`, `src/pages/Checkout.tsx`, and `backend/services/order-pricing.ts`; confirmed `4x6` matches the `4X` apparel token and that server tests currently lock in the known bug. Updated only `CLAUDE_TASK.md` and `TASK_NOTES.md` with Claude's strict implementation scope and verification commands.
 - 2026-07-26 (Codex Etsy storefront audit): Captured and inspected the live shop home, active listing, listing details, and About/policies; prioritized a real finished-product hero, visible size/color variations, concise title, fuller product facts, banner/icon/owner story, and a 6–12-listing QA-gated launch before ads. Updated only `CLAUDE_TASK.md` and `TASK_NOTES.md`; made no live Etsy or repo code changes.
 - 2026-07-24 (Rico Fernandez, task 0a675d4c) Built the Etsy product-posting integration end-to-end at code level: research report (docs/ETSY_API_RESEARCH.md — OAuth 2.0 PKCE, no client secret in v3, 1h/90d token lifetimes with refresh-token ROTATION, draft-first listing flow since Etsy has no sandbox, ~10k/day rate budget); additive migration 20260724_etsy_integration.sql (etsy_oauth_states/etsy_connection/etsy_listings, RLS deny-all = service-role only, NOT applied to live DB yet); backend/services/etsy.ts (PKCE connect, atomic token refresh, form-encoded createDraftListing + multipart image uploads + optional activate, per-product dedupe via unique product_id, 429 retry-after honor, sync ledger writes on every path incl. errors); backend/routes/admin/etsy.ts mounted at /api/admin/etsy (public /callback above the auth gate — Etsy's browser redirect carries no JWT, state row is the CSRF check; admin connect/status/taxonomy/shipping-profiles/return-policies/publish/listings); standalone PoC backend/scripts/etsy-poc.mjs (auth/whoami/taxonomy/create-listing, vault-aware); ETSY_* env block in .env.example. Verified: backend tsc exit 0, node --check on PoC exit 0. NOT verified live — no Etsy shop/app/keystring exists yet (blocker is David's ~$15 shop setup + app creation; approval filed). Ships dark behind ETSY_ENABLED=false.
 - 2026-07-10 (Zero Nine, task 0af8aa7e) Shipped Merch Studio Phase 1 storefront API upgrades: multi-key storefront auth with key→creator mapping (STOREFRONT_CREATOR_KEYS); NEW POST /api/storefront/products (multipart print files + mockups → GCS, product created AS the mapped creator with status=pending_approval + cost_price=$10 base/+$5 back, lands in the existing approval queue); creator scoping on GET /catalog (legacy earth019 key stays unscoped); liveness-gate reconciliation (catalog+checkout now require status='active' AND is_active=true — is_active defaults TRUE live, so 2,384 drafts were leaking; approve sets both flags, reject clears is_active); creator payout dead-branch fix (services/creator-margins.ts — D1 margin retail−cost−fee to ITC wallet, legacy designs keep 15%, idempotent per (order,product) via existence check + new unique index, wired into BOTH paid paths). Live DB verified via Management API BEFORE edits (no cost_price column → additive migration 20260710_merch_studio_storefront.sql, applied + verified live; no `approved` column, RLS read is USING(true) so no third gate). Verified: backend tsc exit 0, backend build exit 0, frontend build exit 0, PLUS live runtime smoke on :4999 — scoped catalog (6 items, vendor echo), unscoped (34), 401 bad key, 403 publish on unscoped key, 201 publish (row shape verified in DB: cost_price 15, print_locations front+back, queue-visible), pending product hidden from catalog, 400 below-cost; test product deleted after.
