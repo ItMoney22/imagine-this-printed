@@ -33,3 +33,6 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
+
+const ciGateNegativeTest: number = "deliberately broken - CI gate negative test - do not merge";
+void ciGateNegativeTest;
