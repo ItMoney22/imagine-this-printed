@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { sendInvoiceEmail } from '../utils/email.js'
+import { buildInvoiceStats, calculateFounderShareCents } from '../services/invoice-stats.js'
 
 const router = Router()
 
@@ -11,7 +12,25 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia'
 })
 
-// Founder earnings percentage
+/**
+ * CANONICAL founder-share rule — this file is the single source of truth.
+ *
+ *     founder_earnings_cents = Math.floor(subtotal_cents * FOUNDER_PERCENTAGE / 100)
+ *
+ * It is a REVENUE share on the invoice subtotal, NOT a profit share: cost of
+ * goods and Stripe processing fees are absorbed by the platform's 65% and are
+ * never deducted before the split. `founder_invoices` carries no cost basis
+ * (no COGS column, no per-line cost), so a profit-based split is not derivable
+ * from the data that exists — and these rows back real, already-issued Stripe
+ * invoices, so restating them under a different formula would change amounts
+ * that have already been billed or paid.
+ *
+ * The frontend mirror of this arithmetic (same floor, so previews match stored
+ * values to the cent) lives in `src/utils/founder-earnings.ts` →
+ * `calculateFounderShareCents()`. Change the rate HERE first; each invoice row
+ * also persists its own `founder_percentage`, so historical invoices keep the
+ * rate they were issued under.
+ */
 const FOUNDER_PERCENTAGE = 35
 
 interface LineItem {
@@ -84,41 +103,9 @@ router.get('/stats/summary', requireAuth, requireRole(['founder', 'admin']), asy
       return res.status(500).json({ error: 'Failed to fetch statistics' })
     }
 
-    const stats = {
-      total_invoices: invoices?.length || 0,
-      draft: 0,
-      sent: 0,
-      paid: 0,
-      overdue: 0,
-      void: 0,
-      total_billed_cents: 0,
-      total_collected_cents: 0,
-      total_earnings_cents: 0,
-      pending_earnings_cents: 0
-    }
-
-    for (const inv of invoices || []) {
-      stats[inv.status as keyof typeof stats]++
-      stats.total_billed_cents += inv.subtotal_cents
-
-      if (inv.status === 'paid') {
-        stats.total_collected_cents += inv.subtotal_cents
-        stats.total_earnings_cents += inv.founder_earnings_cents
-      } else if (inv.status === 'sent') {
-        stats.pending_earnings_cents += inv.founder_earnings_cents
-      }
-    }
-
-    return res.json({
-      ok: true,
-      stats: {
-        ...stats,
-        total_billed: stats.total_billed_cents / 100,
-        total_collected: stats.total_collected_cents / 100,
-        total_earnings: stats.total_earnings_cents / 100,
-        pending_earnings: stats.pending_earnings_cents / 100
-      }
-    })
+    // Aggregation lives in an import-free module so the money maths can be
+    // exercised without a server or a database.
+    return res.json({ ok: true, stats: buildInvoiceStats(invoices) })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error fetching invoice stats')
     return res.status(500).json({ error: error.message })
@@ -219,8 +206,12 @@ router.post('/', requireAuth, requireRole(['founder', 'admin']), async (req: Req
     )
 
     // For admin invoices: 100% to business, no founder split
-    // For founder invoices: 35% founder / 65% platform
-    const founderEarningsCents = isAdminInvoice ? 0 : Math.floor(subtotalCents * (FOUNDER_PERCENTAGE / 100))
+    // For founder invoices: 35% of the subtotal to the founder / 65% platform.
+    // Single implementation, shared with the stats roll-up and mirrored by the
+    // frontend — see the FOUNDER_PERCENTAGE doc block above.
+    const founderEarningsCents = isAdminInvoice
+      ? 0
+      : calculateFounderShareCents(subtotalCents, FOUNDER_PERCENTAGE)
     const platformFeeCents = subtotalCents - founderEarningsCents
 
     // Calculate due date

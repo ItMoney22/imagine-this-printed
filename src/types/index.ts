@@ -703,6 +703,14 @@ export interface VendorPayout {
   }
 }
 
+/**
+ * @deprecated Mock-era shape from the old profit-share model — nothing reads it
+ * as of 2026-07-27. The live founder share is a REVENUE share of an invoice
+ * subtotal (`founder_invoices.founder_earnings_cents`); COGS and Stripe fees are
+ * NOT deducted before the split. Do not resurrect the `costOfGoods` /
+ * `stripeFee` / `grossProfit` model from these fields — see the canonical rule
+ * in `backend/routes/invoices.ts` and `src/utils/founder-earnings.ts`.
+ */
 export interface FounderEarnings {
   id: string
   orderId: string
