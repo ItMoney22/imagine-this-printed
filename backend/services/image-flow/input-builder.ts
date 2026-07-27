@@ -49,9 +49,16 @@ export function buildInput(model: ImageModel, opts: BuildInputOpts): Record<stri
     case 'black-forest-labs/flux-2-max': {
       base.aspect_ratio = '1:1'
       base.output_format = 'png'
-      if (refs.length > 0 && model.id === 'black-forest-labs/flux-2-max') {
-        base.image_inputs = refs
-      }
+      // `resolution` is what gets billed on FLUX.2 ($0.015/MP in + $0.015/MP
+      // out), so pin it to 1 MP rather than inheriting a larger default.
+      base.resolution = '1 MP'
+      // BOTH flux-2 tiers take up to 8 reference images. The parameter is
+      // `input_images` — the Replicate schema for black-forest-labs/flux-2-pro
+      // and flux-2-max has no `image_inputs` field, so the previous spelling
+      // silently dropped every reference and flux-2-max ran text-only.
+      // Verified against GET /v1/models/black-forest-labs/flux-2-{pro,max}
+      // (openapi_schema.components.schemas.Input) on 2026-07-26.
+      if (refs.length > 0) base.input_images = refs.slice(0, 8)
       break
     }
     case 'xai/grok-imagine-image':

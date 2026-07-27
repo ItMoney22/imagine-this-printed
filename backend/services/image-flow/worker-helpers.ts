@@ -199,7 +199,29 @@ export interface RunMockupOpts {
    * than a blind re-roll of the same prompt that just failed.
    */
   retryNote?: string
+  /**
+   * PROTOTYPE (flat_lay / ghost_mannequin): optional blank-garment photo used
+   * as a second reference image alongside the design in the single-call
+   * flux-2-pro path. When supplied the garment becomes image 1 and the design
+   * image 2, which locks fabric colour and drape to a real product photo
+   * instead of leaving them to the model. Omit and the design is the only
+   * reference — the garment is then described in prose.
+   */
+  garmentRefImageUrl?: string
+  /**
+   * PROTOTYPE: force the single-call flux-2-pro path for flat_lay /
+   * ghost_mannequin instead of the 2-step Imagen 4 Fast → Nano Banana chain.
+   * Defaults to the MOCKUP_FLUX2_SINGLE_CALL env flag (off).
+   */
+  singleCallFlux2?: boolean
 }
+
+/** Prototype flag — see SINGLE_CALL_FLUX2_MODEL below. Off unless explicitly enabled. */
+function flux2SingleCallEnabled(): boolean {
+  return /^(1|true|yes|on)$/i.test(process.env.MOCKUP_FLUX2_SINGLE_CALL ?? '')
+}
+
+const SINGLE_CALL_FLUX2_MODEL = 'black-forest-labs/flux-2-pro'
 
 const PRODUCT_NAMES: Record<string, string> = {
   tshirt: 't-shirt',
@@ -373,6 +395,59 @@ function buildCompositePrompt(opts: RunMockupOpts): string {
 }
 
 /**
+ * PROTOTYPE — single-call flux-2-pro prompt for flat_lay / ghost_mannequin.
+ *
+ * This collapses the 2-step chain (empty-garment scene → composite) into one
+ * flux-2-pro call that takes the design (and optionally a blank-garment photo)
+ * as reference images.
+ *
+ * The prompt is deliberately written in a DIFFERENT dialect from
+ * buildEmptyGarmentPromptPair / buildCompositePrompt, and the difference is
+ * not cosmetic. Both of those lean on explicit exclusions — Imagen's dedicated
+ * `negative_prompt` field and a "STRICTLY FORBIDDEN: do NOT add a wearer …
+ * Mr. Imagine" block. flux-2-pro has NO negative_prompt parameter, and Black
+ * Forest Labs explicitly document that phrasing a request as an exclusion can
+ * make the excluded thing appear ("it might actually add what you're trying to
+ * avoid"). Naming the mascot in a negation here would therefore risk summoning
+ * the exact failure the 2-step pipeline was built to kill.
+ *
+ * So every constraint below is stated positively: the garment is "empty",
+ * "unworn", "hollow", the frame "contains only" the garment, the backdrop is
+ * "uninterrupted". Do not reintroduce "no ..." / "do NOT ..." phrasing here.
+ */
+function buildFlux2SingleCallPrompt(opts: RunMockupOpts): string {
+  const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
+  const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
+  const placement = PLACEMENT_DESC[opts.printPlacement ?? 'front-center'] ?? PLACEMENT_DESC['front-center']
+
+  // Same contrast rule as the 2-step path: a white garment on a white backdrop
+  // has nothing to anchor against, so image models darken the garment to keep
+  // it visible — which is how white shirts kept coming back black.
+  const isWhiteGarment = opts.shirtColor === 'white'
+  const bgDesc = isWhiteGarment
+    ? 'a soft neutral light-gray seamless studio background (#d6d8dc)'
+    : 'a pure white (#FFFFFF) seamless background'
+  const lightAssertion = isWhiteGarment
+    ? ` The fabric is bright white (#FFFFFF) cotton, well lit and clearly lighter than the gray backdrop.`
+    : ''
+
+  // Reference-image roles. flux-2-pro addresses references by index, so the
+  // prompt has to agree with the array order used in runImageFlowMockup.
+  const hasGarmentRef = !!opts.garmentRefImageUrl
+  const designIdx = hasGarmentRef ? 'image 2' : 'image 1'
+  const garmentClause = hasGarmentRef
+    ? `Image 1 is a photograph of the blank ${fabricColor} ${productName} — keep its exact fabric colour, cut, and proportions. `
+    : ''
+
+  const sceneDesc =
+    opts.template === 'ghost_mannequin'
+      ? `Professional ghost-mannequin product photograph of a single ${fabricColor} ${productName} on ${bgDesc}. The garment is empty and unworn and holds its own three-dimensional shape — shoulders filled out, chest rounded, natural torso taper, slight sleeve volume, and a hollow collar opening that reveals the inside of the fabric, as an invisible-mannequin e-commerce catalog shot. Soft grounding shadow, clean even studio lighting.`
+      : `Professional flat-lay catalog photograph of a single ${fabricColor} ${productName} lying flat and unworn on ${bgDesc}, photographed straight down from directly overhead. The fabric lies flat with soft natural texture and minor natural wrinkles, soft even studio lighting, subtle grounding shadow.`
+
+  return `${garmentClause}${sceneDesc}${lightAssertion} The artwork in ${designIdx} is printed on the ${productName} ${placement}, rendered as a realistic DTF transfer on cotton that follows the fabric's curvature and folds while preserving the artwork's exact colours, shapes, and proportions. The frame contains only the empty garment resting on an uninterrupted seamless backdrop, photographed as a clean product-only e-commerce listing image.`
+}
+
+/**
  * Mr. Imagine character mockup.
  *
  * ANATOMY GUARD (David 2026-07-29: "mrimagine is missing a whole arm lol"):
@@ -431,6 +506,16 @@ export function buildMrImaginePrompt(opts: RunMockupOpts): string {
  *
  *  Callers can pass opts.modelId to force a single-call path with the legacy
  *  behavior (backwards-compatible escape hatch for admin overrides).
+ *
+ *  PROTOTYPE (opt-in): MOCKUP_FLUX2_SINGLE_CALL=true / opts.singleCallFlux2
+ *  collapses the flat_lay + ghost_mannequin chain into ONE
+ *  black-forest-labs/flux-2-pro call that takes the design — and optionally a
+ *  blank-garment photo via opts.garmentRefImageUrl — as reference images
+ *  (~$0.03 vs ~$0.059, one round-trip vs two). It falls back to the 2-step
+ *  chain on any error. It is off by default because flux-2-pro has no
+ *  `negative_prompt`, and that field is precisely what stopped the mascot
+ *  hallucination; see buildFlux2SingleCallPrompt for how the constraints are
+ *  re-expressed positively, and TASK_NOTES.md for the graded A/B results.
  */
 export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: string; modelId: string }> {
   // Metal art — size-accurate staging (David 2026-07-28: a 4x6 must never be
@@ -483,6 +568,52 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     })
     const r = await runReplicate({ modelId: model.id, input })
     return { url: r.imageUrls[0], modelId: model.id }
+  }
+
+  // PROTOTYPE — single-call flux-2-pro for flat_lay / ghost_mannequin.
+  //
+  // One flux-2-pro call replaces the Imagen 4 Fast → Nano Banana chain, taking
+  // the design (and optionally a blank-garment photo) as reference images.
+  // Cost: ~$0.03 with one 1 MP reference vs ~$0.059 for the 2-step chain, and
+  // one round-trip instead of two.
+  //
+  // Gated OFF by default and reachable only via MOCKUP_FLUX2_SINGLE_CALL=true
+  // or opts.singleCallFlux2. The 2-step chain below is the product of several
+  // failed single-call attempts (see the doc comment on this function), and
+  // flux-2-pro cannot use the `negative_prompt` field that finally fixed it —
+  // so this path stays opt-in until it has been graded on real jobs.
+  if (opts.singleCallFlux2 ?? flux2SingleCallEnabled()) {
+    const model = getModel(SINGLE_CALL_FLUX2_MODEL)
+    if (!model) throw new Error(`unknown image-flow model: ${SINGLE_CALL_FLUX2_MODEL}`)
+    // Order must match buildFlux2SingleCallPrompt's index references:
+    // garment (when supplied) is image 1, design is the last image.
+    const inputImages = opts.garmentRefImageUrl
+      ? [opts.garmentRefImageUrl, opts.designImageUrl]
+      : [opts.designImageUrl]
+    const input = buildInput(model, {
+      prompt: buildFlux2SingleCallPrompt(opts),
+      inputImages,
+      // 5 = most permissive. Garment mockups are benign commercial product
+      // shots; the stricter default has a history of false-positiving on this
+      // exact content (the Imagen E005 problem documented in FANOUT_EXCLUDE).
+      extra: { safety_tolerance: 5 },
+    })
+    console.log(
+      '[image-flow] 🧪 flux-2-pro single-call mockup —',
+      opts.template,
+      `(${inputImages.length} ref${inputImages.length === 1 ? '' : 's'})`
+    )
+    try {
+      const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
+      return { url: r.imageUrls[0], modelId: model.id }
+    } catch (e: any) {
+      // Never let the prototype take down a real mockup job — fall through to
+      // the proven 2-step chain on any failure.
+      console.warn(
+        '[image-flow] ⚠️ flux-2-pro single-call failed, falling back to 2-step chain —',
+        e?.message ?? e
+      )
+    }
   }
 
   // 2-step pipeline for flat_lay / ghost_mannequin.
