@@ -50,28 +50,33 @@ CREATE POLICY "System can insert points transactions"
 -- ===================================================
 -- 2. ITC Transactions Table
 -- ===================================================
+-- NOTE: this CREATE TABLE IF NOT EXISTS is a no-op against production (the table
+-- already exists from supabase/migrations/001_initial_schema.sql). The shape below
+-- is corrected to match the verified live schema — see
+-- supabase/migrations/20260727_fix_itc_wallet_schema_drift.sql. It previously
+-- declared usd_value/reason/related_entity_type/related_entity_id/
+-- transaction_hash/stripe_payment_id/created_by, none of which exist live.
+-- The award_order_rewards() and referral RPC functions further down this file
+-- still INSERT against that old (nonexistent) shape and were NOT rewritten here —
+-- see the accompanying handoff for why, and confirm against live before touching
+-- them.
 CREATE TABLE IF NOT EXISTS itc_transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   type VARCHAR(20) NOT NULL CHECK (type IN ('purchase', 'reward', 'redemption', 'ai_generation', 'referral', 'transfer')),
   amount NUMERIC(18, 8) NOT NULL,
   balance_after NUMERIC(18, 8) NOT NULL,
-  usd_value NUMERIC(10, 2),
-  reason TEXT NOT NULL,
-  related_entity_type VARCHAR(50),
-  related_entity_id UUID,
-  transaction_hash VARCHAR(255), -- For blockchain integration later
-  stripe_payment_id VARCHAR(255),
+  reference TEXT,
   metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by UUID REFERENCES auth.users(id)
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Indexes
 CREATE INDEX idx_itc_transactions_user_id ON itc_transactions(user_id);
 CREATE INDEX idx_itc_transactions_created_at ON itc_transactions(created_at DESC);
 CREATE INDEX idx_itc_transactions_type ON itc_transactions(type);
-CREATE INDEX idx_itc_transactions_stripe_payment ON itc_transactions(stripe_payment_id);
+-- (was: idx_itc_transactions_stripe_payment on stripe_payment_id — that column
+-- never existed live under any declared shape; dropped rather than corrected.)
 
 -- Enable RLS
 ALTER TABLE itc_transactions ENABLE ROW LEVEL SECURITY;

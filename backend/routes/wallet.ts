@@ -6,7 +6,9 @@ import {
   createReferralCode,
   validateReferralCode,
   processReferralSignup,
-  getReferralStats
+  processReferralFirstPurchase,
+  getReferralStats,
+  getPlatformReferralStats
 } from '../services/referral-service.js'
 import {
   createExpressAccount,
@@ -17,6 +19,8 @@ import {
   MINIMUM_CASHOUT_ITC,
   ITC_TO_USD as CONNECT_ITC_TO_USD
 } from '../services/stripe-connect.js'
+import { ITC_TO_USD_RATE } from '../config/itc-pricing.js'
+import { validateCouponForOrder, recordCouponUsage } from './coupons.js'
 
 const router = Router()
 
@@ -289,8 +293,10 @@ router.post('/referral/apply', requireAuth, async (req: Request, res: Response):
 const MINIMUM_PAYOUT_ITC = 5000
 // Processing fee = 5%
 const PAYOUT_FEE_PERCENT = 5
-// ITC to USD conversion (1 ITC = $0.01)
-const ITC_TO_USD = 0.01
+// ITC to USD conversion — single canonical source, backend/config/itc-pricing.ts
+// (used to be a hardcoded local 0.01 that happened to agree with the canonical
+// rate; sourcing it from the config means it can't silently drift again).
+const ITC_TO_USD = ITC_TO_USD_RATE
 
 /**
  * GET /api/wallet/payout-requests
@@ -900,6 +906,26 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
       return sum + (item.product?.price || 0) * (item.quantity || 1)
     }, 0)
 
+    // Server-side coupon revalidation. This endpoint used to trust the
+    // client-supplied `discount` number outright with zero DB check — unlike
+    // the card-payment path (backend/services/order-pricing.ts), which
+    // recomputes the discount from discount_codes against the real subtotal.
+    // A user could apply a coupon while the cart was large, drop items down
+    // to a few dollars, and this endpoint would still honor the stale (or
+    // entirely fabricated) discount against the tiny current subtotal — the
+    // "$0 cart" hole described in Watchtower task 402932ab. Also enforces
+    // max_uses / per_user_limit for the first time on this path.
+    let discountAmount = 0
+    let validatedCouponId: string | null = null
+    if (couponCode) {
+      const couponValidation = await validateCouponForOrder({ code: couponCode, userId, orderTotal: subtotal })
+      if (!couponValidation.valid) {
+        return res.status(400).json({ error: couponValidation.error || 'Invalid coupon code' })
+      }
+      discountAmount = couponValidation.discountAmount
+      validatedCouponId = couponValidation.coupon?.id || null
+    }
+
     // Create the order in Supabase
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -915,7 +941,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
         // columns and fold the rest into discount_codes[] + metadata.
         shipping_amount: shippingCost || 0,
         tax_amount: tax || 0,
-        discount_amount: discount || 0,
+        discount_amount: discountAmount,
         total: parseFloat(usdEquivalent),
         currency: 'ITC',
         status: 'processing',
@@ -991,6 +1017,49 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
     })
     if (ledgerError) {
       console.error('[wallet/process-full-itc-payment] Ledger insert failed:', ledgerError)
+    }
+
+    // Record coupon redemption + award order rewards / referral bonus. This
+    // is the full-ITC-payment counterpart to the same wiring added to the
+    // card-payment webhook (backend/routes/stripe.ts handleCheckoutOrderPayment).
+    // Before this, only the admin-only POST /api/orders/:orderId/complete
+    // triggered processOrderCompletion/processReferralFirstPurchase, so a
+    // customer who paid entirely in ITC never earned rewards or triggered a
+    // referral bonus, and their coupon usage was never recorded (max_uses /
+    // per-user limits could never actually trigger). None of this should ever
+    // block the "order placed" response the customer already paid for, so
+    // every failure here is logged and swallowed rather than thrown.
+    try {
+      if (validatedCouponId) {
+        await recordCouponUsage({
+          couponId: validatedCouponId,
+          userId,
+          orderId: order.id,
+          discountApplied: discountAmount
+        })
+      }
+
+      const orderTotalUsd = parseFloat(usdEquivalent) || subtotal
+      const rewardResult = await processOrderCompletion({
+        orderId: order.id,
+        userId,
+        orderTotal: orderTotalUsd,
+        orderNumber
+      })
+      if (!rewardResult.success && rewardResult.error !== 'Duplicate reward attempt') {
+        console.error('[wallet/process-full-itc-payment] Reward processing failed:', rewardResult.error)
+      }
+
+      // processReferralFirstPurchase has its own internal idempotency guard
+      // (checks for an existing 'purchase'-type referral_transactions row for
+      // this user), so it's safe to call unconditionally on every paid order —
+      // it only actually awards ITC the first time.
+      const referralResult = await processReferralFirstPurchase(userId, orderTotalUsd)
+      if (referralResult.success) {
+        console.log('[wallet/process-full-itc-payment] Referral first-purchase bonus awarded:', referralResult)
+      }
+    } catch (rewardsError: any) {
+      console.error('[wallet/process-full-itc-payment] Rewards/referral/coupon post-processing error:', rewardsError)
     }
 
     console.log('[wallet/process-full-itc-payment] ✅ Order created:', {
@@ -1380,6 +1449,46 @@ router.get('/admin/connect/overview', requireAuth, async (req: Request, res: Res
     })
   } catch (error: any) {
     console.error('[admin/connect/overview] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// =============================================================================
+// ADMIN: Platform-wide referral stats
+// =============================================================================
+
+/**
+ * GET /api/wallet/admin/referral-stats
+ * Platform-wide referral statistics for the admin dashboard. Backs
+ * src/utils/referral-system.ts getPlatformReferralStats(), which previously
+ * returned a hardcoded all-zeros stub because this endpoint didn't exist.
+ */
+router.get('/admin/referral-stats', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', userId)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' })
+    }
+
+    const result = await getPlatformReferralStats()
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error })
+    }
+
+    return res.json({ ok: true, stats: result.stats })
+  } catch (error: any) {
+    console.error('[wallet/admin/referral-stats] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

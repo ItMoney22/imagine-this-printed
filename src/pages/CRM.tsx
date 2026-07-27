@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
+import { useToast } from '../hooks/useToast'
 import type { CustomerContact, ContactNote, CustomJobRequest, Order } from '../types'
 
 const CRM: React.FC = () => {
   const { user } = useAuth()
+  const toast = useToast()
   const [selectedTab, setSelectedTab] = useState<'customers' | 'jobs' | 'analytics' | 'orders'>('customers')
   const [customers, setCustomers] = useState<CustomerContact[]>([])
   const [jobs, setJobs] = useState<CustomJobRequest[]>([])
@@ -140,69 +142,170 @@ const CRM: React.FC = () => {
     fetchData()
   }, [])
 
-  const addNote = (customerId: string) => {
-    if (!newNote.trim()) return
+  // All five mutations below follow the same shape: update local state first
+  // (optimistic), then write to Supabase. If the write fails, revert the
+  // local state back to what it was and surface a toast — the UI must never
+  // keep showing a change that didn't actually persist.
 
-    const note: ContactNote = {
-      id: Date.now().toString(),
-      content: newNote,
-      createdBy: user?.id || 'admin',
+  const addNote = async (customerId: string) => {
+    const content = newNote.trim()
+    if (!content || !user) return
+
+    const tempId = `temp-${Date.now()}`
+    const optimisticNote: ContactNote = {
+      id: tempId,
+      content,
+      createdBy: user.id,
       createdAt: new Date().toISOString(),
       type: 'general'
     }
 
-    setCustomers(prev => prev.map(customer => 
-      customer.id === customerId 
-        ? { ...customer, notes: [note, ...customer.notes] }
+    setCustomers(prev => prev.map(customer =>
+      customer.id === customerId
+        ? { ...customer, notes: [optimisticNote, ...customer.notes] }
         : customer
     ))
-
     setNewNote('')
+
+    const { data, error } = await supabase
+      .from('crm_notes')
+      .insert({
+        customer_id: customerId,
+        content,
+        note_type: 'general',
+        created_by: user.id
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[CRM] Error saving note:', error)
+      setCustomers(prev => prev.map(customer =>
+        customer.id === customerId
+          ? { ...customer, notes: customer.notes.filter(note => note.id !== tempId) }
+          : customer
+      ))
+      toast.error('Failed to save note', error.message)
+      return
+    }
+
+    // Reconcile the optimistic temp id with the real DB-assigned id.
+    setCustomers(prev => prev.map(customer =>
+      customer.id === customerId
+        ? { ...customer, notes: customer.notes.map(note => note.id === tempId ? { ...note, id: data.id } : note) }
+        : customer
+    ))
   }
 
-
-  const removeTag = (customerId: string, tagToRemove: string) => {
+  const removeTag = async (customerId: string, tagToRemove: string) => {
     setCustomers(prev => prev.map(customer =>
       customer.id === customerId
         ? { ...customer, tags: customer.tags.filter(tag => tag !== tagToRemove) }
         : customer
     ))
+
+    const { error } = await supabase
+      .from('crm_tags')
+      .delete()
+      .eq('customer_id', customerId)
+      .eq('tag', tagToRemove)
+
+    if (error) {
+      console.error('[CRM] Error removing tag:', error)
+      setCustomers(prev => prev.map(customer =>
+        customer.id === customerId && !customer.tags.includes(tagToRemove)
+          ? { ...customer, tags: [...customer.tags, tagToRemove] }
+          : customer
+      ))
+      toast.error('Failed to remove tag', error.message)
+    }
   }
 
-  const addTag = (customerId: string) => {
+  const addTag = async (customerId: string) => {
     // TODO(audit #9): replace this `prompt()` with a tag-picker modal once
     // we have a shared "edit-list-of-strings" pattern. Until then at least
     // the button isn't inert and we de-dupe + trim.
     const raw = prompt('Add tag (use - or _ instead of spaces):')
     if (raw === null) return // user cancelled
     const tag = raw.trim()
-    if (!tag) return
-    setCustomers(prev => prev.map(customer => {
-      if (customer.id !== customerId) return customer
-      if (customer.tags.includes(tag)) return customer // de-dupe
-      return { ...customer, tags: [...customer.tags, tag] }
+    if (!tag || !user) return
+
+    const customer = customers.find(c => c.id === customerId)
+    if (customer?.tags.includes(tag)) return // de-dupe
+
+    setCustomers(prev => prev.map(c => {
+      if (c.id !== customerId) return c
+      if (c.tags.includes(tag)) return c
+      return { ...c, tags: [...c.tags, tag] }
     }))
+
+    const { error } = await supabase
+      .from('crm_tags')
+      .insert({ customer_id: customerId, tag, created_by: user.id })
+
+    if (error) {
+      console.error('[CRM] Error adding tag:', error)
+      setCustomers(prev => prev.map(c =>
+        c.id === customerId ? { ...c, tags: c.tags.filter(t => t !== tag) } : c
+      ))
+      toast.error('Failed to add tag', error.message)
+    }
   }
 
-  const updateJobStatus = (jobId: string, status: CustomJobRequest['status'], assignedTo?: string) => {
-    setJobs(prev => prev.map(job => 
-      job.id === jobId 
+  const updateJobStatus = async (jobId: string, status: CustomJobRequest['status'], assignedTo?: string) => {
+    const previous = jobs.find(job => job.id === jobId)
+    if (!previous) return
+
+    setJobs(prev => prev.map(job =>
+      job.id === jobId
         ? { ...job, status, assignedTo, updatedAt: new Date().toISOString() }
         : job
     ))
+
+    const { error } = await supabase
+      .from('custom_job_requests')
+      .update({
+        status,
+        assigned_to: assignedTo,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', jobId)
+
+    if (error) {
+      console.error('[CRM] Error updating job status:', error)
+      setJobs(prev => prev.map(job => job.id === jobId ? previous : job))
+      toast.error('Failed to update job status', error.message)
+    }
   }
 
-  const updateOrderStatus = (orderId: string, status: Order['status'], notes?: string) => {
-    setOrders(prev => prev.map(order => 
-      order.id === orderId 
-        ? { 
-            ...order, 
-            status, 
-            updatedAt: new Date().toISOString(),
-            internalNotes: notes ? `${order.internalNotes || ''}\n${new Date().toLocaleDateString()}: ${notes}` : order.internalNotes
-          }
+  const updateOrderStatus = async (orderId: string, status: Order['status'], notes?: string) => {
+    const previous = orders.find(order => order.id === orderId)
+    if (!previous) return
+
+    const internalNotes = notes
+      ? `${previous.internalNotes || ''}\n${new Date().toLocaleDateString()}: ${notes}`
+      : previous.internalNotes
+
+    setOrders(prev => prev.map(order =>
+      order.id === orderId
+        ? { ...order, status, updatedAt: new Date().toISOString(), internalNotes }
         : order
     ))
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        status,
+        internal_notes: internalNotes,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+
+    if (error) {
+      console.error('[CRM] Error updating order status:', error)
+      setOrders(prev => prev.map(order => order.id === orderId ? previous : order))
+      toast.error('Failed to update order status', error.message)
+    }
   }
 
   const exportToCSV = (data: any[], filename: string) => {

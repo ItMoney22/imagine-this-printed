@@ -15,6 +15,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
+import { METAL_ART_SIZES } from '../shared/metal-art.js'
 
 const ETSY_API = 'https://api.etsy.com/v3'
 const ETSY_CONNECT_URL = 'https://www.etsy.com/oauth/connect'
@@ -332,10 +333,16 @@ const APPAREL_SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL']
 // size ($25 / $45 anchors → $15 / $27 shown under the 40% shop sale; cheaper
 // than the lab comps researched 2026-07-26). Taxonomy 119 (Art & Collectibles
 // > Prints) via ETSY_TAXONOMY_MAP.
+//
+// Sizes here are ETSY_SIZE_KEYS in shared/metal-art.ts (4x6, 8x10) — see that
+// file's "THE CONFLICT" note: the storefront studio canvas is built for 8x11,
+// not 8x10, so if this is the same physical panel as the website sells, this
+// listing currently misdescribes what ships. Prices are a deliberate anchor
+// gap (see the note above) and are NOT part of that conflict — left as-is.
 const METAL_CATEGORIES = new Set(['metal-art'])
 const METAL_SIZES: VariationSize[] = [
-  { label: '4x6 inches', price: Number(process.env.ETSY_METAL_PRICE_4X6 || 25) },
-  { label: '8x10 inches', price: Number(process.env.ETSY_METAL_PRICE_8X10 || 45) }
+  { label: `${METAL_ART_SIZES['4x6'].widthIn}x${METAL_ART_SIZES['4x6'].heightIn} inches`, price: Number(process.env.ETSY_METAL_PRICE_4X6 || 25) },
+  { label: `${METAL_ART_SIZES['8x10'].widthIn}x${METAL_ART_SIZES['8x10'].heightIn} inches`, price: Number(process.env.ETSY_METAL_PRICE_8X10 || 45) }
 ]
 
 interface VariationSize { label: string, price?: number }

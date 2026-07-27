@@ -30,16 +30,32 @@ export interface RewardResult {
 }
 
 /**
- * Process order completion and award rewards
+ * Process order completion and award rewards.
+ *
+ * `db` is an optional injectable override (defaults to the real Supabase
+ * client) so the duplicate-reward guard below can be unit-tested with a fake
+ * in-memory table instead of a live database — same convention as
+ * backend/worker/ai-jobs-worker.ts's claimQueuedJob(db, ...). Real callers
+ * (backend/routes/orders.ts, backend/routes/stripe.ts,
+ * backend/routes/wallet.ts) never pass it and get the real client.
  */
-export async function processOrderCompletion(event: OrderCompletionEvent): Promise<RewardResult> {
+export async function processOrderCompletion(
+  event: OrderCompletionEvent,
+  db: { from: (table: string) => any; rpc: (fn: string, args: any) => any } = supabase
+): Promise<RewardResult> {
   const { orderId, userId, orderTotal, orderNumber } = event
 
   try {
     console.log(`[OrderRewardService] Processing rewards for order ${orderId}`)
 
-    // 1. Check if rewards already awarded
-    const { data: existingReward } = await supabase
+    // 1. Check if rewards already awarded. This is the guard that keeps a
+    // redelivered paid webhook (backend/routes/stripe.ts) from double-
+    // crediting a reward — the outer webhook idempotency claim already stops
+    // most retries before reaching this function at all, but this check is
+    // the function's own defense-in-depth (also protects the full-ITC
+    // payment path and the admin complete-order endpoint, which have no
+    // outer claim of their own).
+    const { data: existingReward } = await db
       .from('order_rewards')
       .select('id, status')
       .eq('order_id', orderId)
@@ -61,7 +77,7 @@ export async function processOrderCompletion(event: OrderCompletionEvent): Promi
     const promoMultiplier = getCurrentPromoMultiplier()
 
     // 3. Call the database function to award rewards
-    const { data: result, error } = await supabase.rpc('award_order_rewards', {
+    const { data: result, error } = await db.rpc('award_order_rewards', {
       p_order_id: orderId,
       p_user_id: userId,
       p_order_total: orderTotal,

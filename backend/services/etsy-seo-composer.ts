@@ -23,6 +23,7 @@
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
+import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
 
 const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || 'gpt-5.6-terra'
 // gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
@@ -79,20 +80,32 @@ const SYSTEM_PROMPT =
   'materials, or shipping promises.'
 
 // Metal art variant — same JSON contract, wall-art copy instead of apparel.
+//
+// Substrate + sizes come from shared/metal-art.ts (single source of truth
+// with the storefront studio — see that file's "THE CONFLICT" note: the
+// studio canvas is built for 8x11, not 8x10, so if this is the same physical
+// panel as the website sells, this prompt's size claim may be wrong). Do not
+// hardcode "aluminum" or "4x6 and 8x10" here again — change the shared module
+// instead once David confirms the physical panel.
+const METAL_SIZE_LIST_TEXT =
+  ETSY_SIZE_KEYS.map(k => `${METAL_ART_SIZES[k].widthIn}x${METAL_ART_SIZES[k].heightIn}`).join(' and ') + ' inches'
+const METAL_SUBSTRATE_UPPER = METAL_ART_SUBSTRATE.toUpperCase()
+const METAL_SUBSTRATE_TITLECASE = METAL_ART_SUBSTRATE.charAt(0).toUpperCase() + METAL_ART_SUBSTRATE.slice(1)
+
 const METAL_SYSTEM_PROMPT =
   'You write Etsy listing copy for ImagineThisPrinted, a custom print shop selling dye-sublimated ' +
-  'ALUMINUM METAL PRINT wall-art panels — vivid high-gloss prints infused into lightweight metal, ' +
-  'fade- and scratch-resistant, made to order in Rockmart, Georgia, offered in 4x6 and 8x10 inches. ' +
+  `${METAL_SUBSTRATE_UPPER} METAL PRINT wall-art panels — vivid high-gloss prints infused into lightweight metal, ` +
+  `fade- and scratch-resistant, made to order in Rockmart, Georgia, offered in ${METAL_SIZE_LIST_TEXT}. ` +
   'Respond ONLY with JSON: {"title": string, "tags": string[], "description": string}. Rules: ' +
   'TITLE: clear and human-readable, NOT keyword-stuffed. Format: the artwork name, one or two natural ' +
   'descriptors, then "Metal Print" and optionally ONE "|" separator with a short phrase like ' +
-  '"Aluminum Wall Art". Aim for 50-90 characters, no comma keyword lists, no emoji, no ALL-CAPS. ' +
+  `"${METAL_SUBSTRATE_TITLECASE} Wall Art". Aim for 50-90 characters, no comma keyword lists, no emoji, no ALL-CAPS. ` +
   'TAGS (exactly 13): 2-3 word lowercase buyer phrases, each <=20 characters, no duplicates — cover: ' +
-  'metal wall art, aluminum print, the artwork subject, room/style phrases (living room decor, office ' +
+  `metal wall art, ${METAL_ART_SUBSTRATE} print, the artwork subject, room/style phrases (living room decor, office ` +
   'wall art), aesthetic, and gift phrasing. ' +
   'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for. Then short ' +
-  'scannable sections: the artwork; the panel (glossy aluminum, vivid sublimated print, fade- and ' +
-  'scratch-resistant, lightweight); sizes offered (4x6 and 8x10 inches — pick your size at checkout); ' +
+  `scannable sections: the artwork; the panel (glossy ${METAL_ART_SUBSTRATE}, vivid sublimated print, fade- and ` +
+  `scratch-resistant, lightweight); sizes offered (${METAL_SIZE_LIST_TEXT} — pick your size at checkout); ` +
   'display (light enough for a shelf, easel, or your preferred wall mounting); made to order in ' +
   'Rockmart, Georgia; care (wipe clean with a soft dry cloth). Never invent facts, mounting hardware ' +
   'claims, or shipping promises.'

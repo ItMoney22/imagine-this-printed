@@ -1,4 +1,5 @@
-import type { Message, Conversation, MessageAttachment, MessageNotification } from '../types'
+import { supabase } from '../lib/supabase'
+import type { Message, Conversation, MessageAttachment } from '../types'
 
 export interface MessageData {
   content: string
@@ -21,231 +22,288 @@ export interface ConversationCreateData {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Pure helpers — exported so they're unit-testable without a Supabase client.
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonicalize a pair of user ids so the same two users always resolve to
+ * the same (participant_one, participant_two) order, regardless of who
+ * looks up or creates the conversation first. Matches the
+ * `conversations_unique_pair UNIQUE (participant_one, participant_two)`
+ * constraint in docs/sql/2026-07-27-messaging-crm-tables.sql.
+ */
+export function sortParticipantIds(a: string, b: string): [string, string] {
+  return a < b ? [a, b] : [b, a]
+}
+
+export function mapMessageRow(row: any): Message {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    senderId: row.sender_id,
+    recipientId: row.recipient_id,
+    content: row.content,
+    messageType: row.message_type,
+    attachments: Array.isArray(row.attachments) && row.attachments.length > 0 ? row.attachments : undefined,
+    metadata: row.metadata && Object.keys(row.metadata).length > 0 ? row.metadata : undefined,
+    isRead: !!row.is_read,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+export function mapConversationRow(
+  row: any,
+  participantDetails: Conversation['participantDetails'],
+  currentUserId: string,
+  lastMessage?: Message,
+  unreadCount = 0
+): Conversation {
+  return {
+    id: row.id,
+    participants: [row.participant_one, row.participant_two],
+    participantDetails,
+    lastMessage,
+    unreadCount,
+    isArchived: Array.isArray(row.archived_by) && row.archived_by.includes(currentUserId),
+    tags: row.tags || [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
 export class MessagingService {
-  // Create or get existing conversation
+  // Create or get existing conversation. Real table lookup — a pair of
+  // users always maps to one canonicalized row (see sortParticipantIds).
   async getOrCreateConversation(
     userId: string,
     participantId: string,
     context?: ConversationCreateData['context']
   ): Promise<Conversation> {
     try {
-      // In real app, this would check PostgreSQL for existing conversation
-      const conversationId = this.generateConversationId(userId, participantId)
-      
-      // Mock conversation data
-      const conversation: Conversation = {
-        id: conversationId,
-        participants: [userId, participantId],
-        participantDetails: await this.getParticipantDetails([userId, participantId]),
-        unreadCount: 0,
-        isArchived: false,
-        tags: context ? [context.type] : [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+      const [participantOne, participantTwo] = sortParticipantIds(userId, participantId)
+
+      const { data: existing, error: findError } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('participant_one', participantOne)
+        .eq('participant_two', participantTwo)
+        .maybeSingle()
+
+      if (findError) throw findError
+
+      let row = existing
+      if (!row) {
+        const { data: created, error: insertError } = await supabase
+          .from('conversations')
+          .insert({
+            participant_one: participantOne,
+            participant_two: participantTwo,
+            tags: context ? [context.type] : []
+          })
+          .select()
+          .single()
+
+        if (insertError) throw insertError
+        row = created
       }
 
-      return conversation
+      const participantDetails = await this.getParticipantDetails([userId, participantId])
+      return mapConversationRow(row, participantDetails, userId)
     } catch (error) {
       console.error('Error creating conversation:', error)
       throw new Error('Failed to create conversation')
     }
   }
 
-  // Send a message
+  // Send a message — persists to the messages table (previously logged to
+  // console and discarded).
   async sendMessage(
     conversationId: string,
     senderId: string,
     messageData: MessageData
   ): Promise<Message> {
     try {
-      // Upload attachments if any
-      const attachments = messageData.attachments 
+      const recipientId = await this.getOtherParticipant(conversationId, senderId)
+
+      const attachments = messageData.attachments
         ? await this.uploadAttachments(messageData.attachments)
         : undefined
 
-      const message: Message = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        conversationId,
-        senderId,
-        recipientId: await this.getOtherParticipant(conversationId, senderId),
-        content: messageData.content,
-        messageType: messageData.messageType,
-        attachments,
-        metadata: messageData.metadata,
-        isRead: false,
-        createdAt: new Date().toISOString()
-      }
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          sender_id: senderId,
+          recipient_id: recipientId,
+          content: messageData.content,
+          message_type: messageData.messageType,
+          attachments: attachments || [],
+          metadata: messageData.metadata || {}
+        })
+        .select()
+        .single()
 
-      // In real app, this would save to PostgreSQL with Prisma
-      await this.saveMessage(message)
+      if (error) throw error
 
-      // Update conversation
-      await this.updateConversationLastMessage(conversationId, message)
+      // Bump the conversation so it sorts to the top of getConversations().
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', conversationId)
 
-      // Send notification to recipient
-      await this.sendNotification(message)
-
-      return message
+      return mapMessageRow(data)
     } catch (error) {
       console.error('Error sending message:', error)
       throw new Error('Failed to send message')
     }
   }
 
-  // Get messages for a conversation
+  // Get messages for a conversation — real query, RLS-scoped to participants.
   async getMessages(
     conversationId: string,
     limit: number = 50,
     offset: number = 0
   ): Promise<Message[]> {
     try {
-      // In real app, this would query PostgreSQL with Prisma
-      // Mock messages for demo
-      const mockMessages: Message[] = [
-        {
-          id: 'msg_1',
-          conversationId,
-          senderId: 'customer_1',
-          recipientId: 'vendor_1',
-          content: 'Hi! I\'m interested in your custom t-shirt design services. Can you help me create a logo design for my business?',
-          messageType: 'text',
-          isRead: true,
-          createdAt: '2025-01-12T10:00:00Z'
-        },
-        {
-          id: 'msg_2',
-          conversationId,
-          senderId: 'vendor_1',
-          recipientId: 'customer_1',
-          content: 'Hello! Absolutely, I\'d be happy to help you create a custom logo design. Could you tell me more about your business and what style you\'re looking for?',
-          messageType: 'text',
-          isRead: true,
-          createdAt: '2025-01-12T10:05:00Z'
-        },
-        {
-          id: 'msg_3',
-          conversationId,
-          senderId: 'customer_1',
-          recipientId: 'vendor_1',
-          content: 'I run a coffee shop called "Bean There, Done That" and I\'m looking for a modern, minimalist logo that would work well on t-shirts and merchandise.',
-          messageType: 'text',
-          isRead: false,
-          createdAt: '2025-01-12T10:15:00Z'
-        }
-      ]
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+        .range(offset, offset + limit - 1)
 
-      return mockMessages.slice(offset, offset + limit)
+      if (error) throw error
+
+      return (data || []).map(mapMessageRow)
     } catch (error) {
       console.error('Error fetching messages:', error)
       throw new Error('Failed to fetch messages')
     }
   }
 
-  // Get conversations for a user
+  // Get conversations for a user — real query, RLS-scoped to participants.
   async getConversations(
-    _userId: string,
+    userId: string,
     limit: number = 20,
     offset: number = 0
   ): Promise<Conversation[]> {
     try {
-      // In real app, this would query PostgreSQL with Prisma
-      // Mock conversations for demo
-      const mockConversations: Conversation[] = [
-        {
-          id: 'conv_1',
-          participants: ['customer_1', 'vendor_1'],
-          participantDetails: [
-            {
-              userId: 'customer_1',
-              name: 'John Doe',
-              email: 'john@example.com',
-              role: 'customer',
-              profileImage: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
-            },
-            {
-              userId: 'vendor_1',
-              name: 'Custom Designs Co',
-              email: 'info@customdesigns.com',
-              role: 'vendor',
-              profileImage: 'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=100&h=100&fit=crop'
-            }
-          ],
-          lastMessage: {
-            id: 'msg_3',
-            conversationId: 'conv_1',
-            senderId: 'customer_1',
-            recipientId: 'vendor_1',
-            content: 'I run a coffee shop called "Bean There, Done That" and I\'m looking for a modern, minimalist logo that would work well on t-shirts and merchandise.',
-            messageType: 'text',
-            isRead: false,
-            createdAt: '2025-01-12T10:15:00Z'
-          },
-          unreadCount: 1,
-          isArchived: false,
-          tags: ['product_inquiry'],
-          createdAt: '2025-01-12T10:00:00Z',
-          updatedAt: '2025-01-12T10:15:00Z'
-        }
-      ]
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .or(`participant_one.eq.${userId},participant_two.eq.${userId}`)
+        .order('updated_at', { ascending: false })
+        .range(offset, offset + limit - 1)
 
-      return mockConversations.slice(offset, offset + limit)
+      if (error) throw error
+
+      const rows = (data || []).filter(row => !(row.archived_by || []).includes(userId))
+
+      return await Promise.all(
+        rows.map(async row => {
+          const otherUserId = row.participant_one === userId ? row.participant_two : row.participant_one
+          const [participantDetails, lastMessageRow, unreadCount] = await Promise.all([
+            this.getParticipantDetails([userId, otherUserId]),
+            this.getLastMessage(row.id),
+            this.countUnread(row.id, userId)
+          ])
+
+          return mapConversationRow(
+            row,
+            participantDetails,
+            userId,
+            lastMessageRow ? mapMessageRow(lastMessageRow) : undefined,
+            unreadCount
+          )
+        })
+      )
     } catch (error) {
       console.error('Error fetching conversations:', error)
       throw new Error('Failed to fetch conversations')
     }
   }
 
-  // Mark messages as read
-  async markAsRead(conversationId: string, _userId: string): Promise<void> {
+  // Mark messages as read — real update, scoped to the recipient (RLS also
+  // enforces this: only the recipient can flip is_read).
+  async markAsRead(conversationId: string, userId: string): Promise<void> {
     try {
-      // In real app, this would update PostgreSQL with Prisma
-      console.log(`Marking messages as read for conversation ${conversationId}`)
+      const { error } = await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('conversation_id', conversationId)
+        .eq('recipient_id', userId)
+        .eq('is_read', false)
+
+      if (error) throw error
     } catch (error) {
       console.error('Error marking messages as read:', error)
       throw new Error('Failed to mark messages as read')
     }
   }
 
-  // Archive conversation
-  async archiveConversation(conversationId: string, _userId: string): Promise<void> {
+  // Archive conversation — per-user (archived_by array), never deletes the
+  // row or hides it for the other participant.
+  async archiveConversation(conversationId: string, userId: string): Promise<void> {
     try {
-      // In real app, this would update PostgreSQL with Prisma
-      console.log(`Archiving conversation ${conversationId}`)
+      const { data: row, error: fetchError } = await supabase
+        .from('conversations')
+        .select('archived_by')
+        .eq('id', conversationId)
+        .single()
+
+      if (fetchError) throw fetchError
+
+      const archivedBy = Array.from(new Set([...(row?.archived_by || []), userId]))
+
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({ archived_by: archivedBy })
+        .eq('id', conversationId)
+
+      if (updateError) throw updateError
     } catch (error) {
       console.error('Error archiving conversation:', error)
       throw new Error('Failed to archive conversation')
     }
   }
 
-  // Get unread message count
-  async getUnreadCount(_userId: string): Promise<number> {
+  // Get unread message count — real count query for the authenticated user.
+  async getUnreadCount(userId: string): Promise<number> {
     try {
-      // In real app, this would query PostgreSQL with Prisma
-      return 3 // Mock unread count
+      const { count, error } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_id', userId)
+        .eq('is_read', false)
+
+      if (error) throw error
+
+      return count || 0
     } catch (error) {
       console.error('Error getting unread count:', error)
       return 0
     }
   }
 
-  // Search messages
+  // Search messages across the user's own conversations.
   async searchMessages(
-    _userId: string,
+    userId: string,
     query: string,
     limit: number = 20
   ): Promise<Message[]> {
     try {
-      // In real app, this would use full-text search in PostgreSQL
-      const conversations = await this.getConversations('demo-user')
+      const conversations = await this.getConversations(userId)
       const allMessages: Message[] = []
-      
+
       for (const conversation of conversations) {
         const messages = await this.getMessages(conversation.id)
         allMessages.push(...messages)
       }
 
       return allMessages
-        .filter(message => 
+        .filter(message =>
           message.content.toLowerCase().includes(query.toLowerCase())
         )
         .slice(0, limit)
@@ -256,82 +314,101 @@ export class MessagingService {
   }
 
   // Private helper methods
-  private generateConversationId(userId1: string, userId2: string): string {
-    // Create deterministic conversation ID based on participant IDs
-    const sortedIds = [userId1, userId2].sort()
-    return `conv_${sortedIds[0]}_${sortedIds[1]}`
-  }
 
   private async getParticipantDetails(userIds: string[]): Promise<Conversation['participantDetails']> {
-    // In real app, this would fetch from user table
-    return [
-      {
-        userId: userIds[0],
-        name: 'John Doe',
-        email: 'john@example.com',
-        role: 'customer',
-        profileImage: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
-      },
-      {
-        userId: userIds[1],
-        name: 'Custom Designs Co',
-        email: 'info@customdesigns.com',
-        role: 'vendor',
-        profileImage: 'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=100&h=100&fit=crop'
+    const uniqueIds = Array.from(new Set(userIds))
+
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('id, username, display_name, first_name, last_name, email, role, avatar_url')
+      .in('id', uniqueIds)
+
+    if (error) {
+      console.error('Error fetching participant details:', error)
+      return uniqueIds.map(id => ({ userId: id, name: 'Unknown', email: '', role: 'customer' }))
+    }
+
+    const byId = new Map((data || []).map((p: any) => [p.id, p]))
+
+    return uniqueIds.map(id => {
+      const profile: any = byId.get(id)
+      const name =
+        profile?.display_name ||
+        profile?.username ||
+        (profile?.first_name && profile?.last_name ? `${profile.first_name} ${profile.last_name}` : undefined) ||
+        profile?.email?.split('@')[0] ||
+        'Unknown'
+
+      return {
+        userId: id,
+        name,
+        email: profile?.email || '',
+        role: profile?.role || 'customer',
+        profileImage: profile?.avatar_url || undefined
       }
-    ]
+    })
+  }
+
+  private async getLastMessage(conversationId: string): Promise<any | null> {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error fetching last message:', error)
+      return null
+    }
+
+    return data
+  }
+
+  private async countUnread(conversationId: string, userId: string): Promise<number> {
+    const { count, error } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conversationId)
+      .eq('recipient_id', userId)
+      .eq('is_read', false)
+
+    if (error) {
+      console.error('Error counting unread messages:', error)
+      return 0
+    }
+
+    return count || 0
+  }
+
+  private async getOtherParticipant(conversationId: string, currentUserId: string): Promise<string> {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('participant_one, participant_two')
+      .eq('id', conversationId)
+      .single()
+
+    if (error || !data) {
+      throw new Error('Conversation not found')
+    }
+
+    return data.participant_one === currentUserId ? data.participant_two : data.participant_one
   }
 
   private async uploadAttachments(files: File[]): Promise<MessageAttachment[]> {
-    // In real app, this would upload to PostgreSQL with Prisma
+    // No object-storage upload pipeline is wired up in this pass — this
+    // metadata (name/size/mimeType/type) persists in the message row, but
+    // the blob URL is only valid for the current tab/session and will not
+    // survive a refresh. Real file storage is a separate, larger task.
     return files.map((file, index) => ({
       id: `att_${Date.now()}_${index}`,
       type: file.type.startsWith('image/') ? 'image' : 'file',
       name: file.name,
-      url: URL.createObjectURL(file), // Mock URL
+      url: URL.createObjectURL(file),
       size: file.size,
       mimeType: file.type
     }))
-  }
-
-  private async saveMessage(message: Message): Promise<void> {
-    // In real app, this would save to PostgreSQL messages table
-    console.log('Saving message:', message)
-  }
-
-  private async updateConversationLastMessage(
-    conversationId: string,
-    message: Message
-  ): Promise<void> {
-    // In real app, this would update the conversation's last_message
-    console.log('Updating conversation last message:', conversationId, message.id)
-  }
-
-  private async getOtherParticipant(
-    _conversationId: string,
-    currentUserId: string
-  ): Promise<string> {
-    // In real app, this would query the conversation participants
-    return currentUserId === 'customer_1' ? 'vendor_1' : 'customer_1'
-  }
-
-  private async sendNotification(message: Message): Promise<void> {
-    try {
-      const notification: MessageNotification = {
-        id: `notif_${Date.now()}`,
-        userId: message.recipientId,
-        messageId: message.id,
-        conversationId: message.conversationId,
-        type: 'new_message',
-        isRead: false,
-        createdAt: new Date().toISOString()
-      }
-
-      // In real app, this would save to notifications table and/or send push notification
-      console.log('Sending notification:', notification)
-    } catch (error) {
-      console.error('Error sending notification:', error)
-    }
   }
 
   // Quick message templates for common scenarios

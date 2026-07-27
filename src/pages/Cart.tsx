@@ -96,6 +96,9 @@ const Cart: React.FC = () => {
                     {item.customDesign && !item.designData?.mockupUrl && (
                       <p className="text-sm text-purple-600 mt-1">Custom Design Included</p>
                     )}
+                    {item.printLocation && (
+                      <p className="text-sm text-muted mt-1">Print location: {item.printLocation}</p>
+                    )}
                     <p className="text-lg font-bold text-purple-600 mt-2">
                       ${item.product.price.toFixed(2)}
                     </p>

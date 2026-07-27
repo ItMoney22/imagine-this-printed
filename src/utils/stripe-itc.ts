@@ -1,43 +1,20 @@
 import { loadStripe, type Stripe, type StripeElements, type PaymentIntent } from '@stripe/stripe-js'
 import { apiFetch } from '../lib/api'
+// Single canonical source for the ITC exchange rate and purchase packages —
+// backend/config/itc-pricing.ts. Previously this file duplicated a stale
+// $0.10/ITC package list here while every redemption path (cashout, store
+// credit, checkout ITC application) used $0.01/ITC — a real 10x buy/redeem
+// mismatch. Re-exporting instead of duplicating means this can't drift again.
+import {
+  ITC_TO_USD_RATE,
+  ITC_PACKAGES,
+  type ITCPackage
+} from '../../backend/config/itc-pricing'
 
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 
-export interface ITCPackage {
-  itcAmount: number
-  priceUSD: number
-  popular?: boolean
-  bonusPercent?: number
-}
-
-export const ITC_PACKAGES: ITCPackage[] = [
-  {
-    itcAmount: 50,
-    priceUSD: 5.00,
-    bonusPercent: 0
-  },
-  {
-    itcAmount: 100,
-    priceUSD: 10.00,
-    bonusPercent: 0
-  },
-  {
-    itcAmount: 250,
-    priceUSD: 22.50,
-    bonusPercent: 10,
-    popular: true
-  },
-  {
-    itcAmount: 500,
-    priceUSD: 40.00,
-    bonusPercent: 20
-  },
-  {
-    itcAmount: 1000,
-    priceUSD: 70.00,
-    bonusPercent: 30
-  }
-]
+export type { ITCPackage }
+export { ITC_TO_USD_RATE, ITC_PACKAGES }
 
 export interface PaymentIntentResponse {
   clientSecret: string
@@ -59,6 +36,12 @@ export class StripeITCService {
 
   constructor() {
     this.initPromise = this.initializeStripe()
+    // Mark the rejection handled at construction. This service is instantiated
+    // at module load, so a failed Stripe.js load (ad blocker, offline, blocked
+    // CDN) would otherwise raise an *unhandled* rejection before any caller
+    // exists. ensureInitialized() awaits this same promise and still rethrows,
+    // so callers get the real error — this only stops the unhandled warning.
+    this.initPromise.catch(() => {})
   }
 
   private async initializeStripe(): Promise<void> {
@@ -189,7 +172,7 @@ export const stripeITCBridge = {
     const pkg = ITC_PACKAGES.find(p => p.priceUSD === usdAmount)
     return pkg?.itcAmount || 0
   },
-  getExchangeRate: () => 0.01,
-  calculateUSDAmount: (itcAmount: number) => itcAmount * 0.01
+  getExchangeRate: () => ITC_TO_USD_RATE,
+  calculateUSDAmount: (itcAmount: number) => itcAmount * ITC_TO_USD_RATE
 }
 

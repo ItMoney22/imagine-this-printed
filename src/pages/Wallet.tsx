@@ -4,7 +4,7 @@ import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe, type StripeElementsOptions } from '@stripe/stripe-js'
 import { apiFetch } from '../lib/api'
 import type { ITCTransaction, ConnectAccountStatus, CashoutCalculation, ITCCashoutRequest, ITC_CASHOUT_CONSTANTS } from '../types'
-import { type ITCPackage, ITC_PACKAGES } from '../utils/stripe-itc'
+import { type ITCPackage, ITC_PACKAGES, ITC_TO_USD_RATE } from '../utils/stripe-itc'
 import PaymentForm from '../components/PaymentForm'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
@@ -47,8 +47,12 @@ const Wallet: React.FC = () => {
   const [cashoutSuccess, setCashoutSuccess] = useState(false)
   const [isSettingUpConnect, setIsSettingUpConnect] = useState(false)
 
-  // ITC to USD rate (1 ITC = $0.01)
-  const itcToUSD = 0.01
+  // ITC to USD rate — single canonical source (backend/config/itc-pricing.ts,
+  // re-exported via src/utils/stripe-itc.ts). Used to be hardcoded 0.01 here
+  // while the "Buy ITC" packages below (from the same stripe-itc module) were
+  // priced at a stale 0.10/ITC — this import is what keeps balance display
+  // and purchase pricing from drifting apart again.
+  const itcToUSD = ITC_TO_USD_RATE
   const MINIMUM_CASHOUT_ITC = 5000
   const PLATFORM_FEE_PERCENT = 7
   const INSTANT_FEE_PERCENT = 1.5

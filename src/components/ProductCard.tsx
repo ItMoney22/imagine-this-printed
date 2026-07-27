@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Sparkles, Loader2, ShoppingCart, Check } from 'lucide-react'
-import { socialService } from '../utils/social-service'
+import { apiFetch } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
 import ProtectedImage from './ProtectedImage'
@@ -15,6 +15,29 @@ import type { Product, SocialPost } from '../types'
 interface ProductCardProps {
   product: Product
   showSocialBadges?: boolean
+}
+
+// Raw social_posts row shape returned by GET /api/social/posts (backend/routes/social.ts)
+// — snake_case, distinct from the fabricated camelCase SocialPost type in
+// src/types/index.ts. Mapped to SocialPost right after fetch.
+interface SocialPostRow {
+  id: string
+  platform: 'tiktok' | 'instagram' | 'youtube' | 'twitter'
+  url: string
+  embed_code: string | null
+  thumbnail_url: string | null
+  title: string | null
+  description: string | null
+  author_username: string | null
+  author_display_name: string | null
+  approved_at: string
+  status: string
+  tags: string[]
+  product_ids: string[]
+  votes: number
+  is_featured: boolean
+  view_count: number
+  engagement?: { likes: number; shares: number; comments: number }
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
@@ -61,7 +84,39 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const loadSocialPosts = async () => {
     try {
       setIsLoading(true)
-      const posts = await socialService.getPostsByProduct(product.id)
+      // /api/social/posts is public (no auth required) and only ever returns
+      // approved/featured posts — see backend/routes/social.ts.
+      const result = await apiFetch(`/api/social/posts?productId=${encodeURIComponent(product.id)}`)
+      const rows: SocialPostRow[] = result?.posts || []
+
+      // Map the raw DB row (snake_case) to the SocialPost shape the rest of
+      // this component already reads (post.isFeatured, post.platform,
+      // post.engagement.{likes,shares,comments}).
+      const posts: SocialPost[] = rows.map(row => ({
+        id: row.id,
+        platform: row.platform,
+        url: row.url,
+        embedCode: row.embed_code || undefined,
+        thumbnailUrl: row.thumbnail_url || undefined,
+        title: row.title || undefined,
+        description: row.description || undefined,
+        author: {
+          username: row.author_username || 'unknown',
+          displayName: row.author_display_name || undefined
+        },
+        submittedAt: row.approved_at,
+        approvedAt: row.approved_at,
+        status: row.status,
+        tags: row.tags || [],
+        productIds: row.product_ids || [],
+        modelIds: [],
+        votes: row.votes || 0,
+        comments: [],
+        isFeatured: !!row.is_featured,
+        viewCount: row.view_count || 0,
+        engagement: row.engagement || { likes: 0, shares: 0, comments: 0 }
+      }))
+
       setSocialPosts(posts)
     } catch (error) {
       console.error('Error loading social posts for product:', error)

@@ -5,7 +5,7 @@ import { Stage, Layer, Rect, Image, Transformer, Line, Text, Circle, Star, Regul
 import Konva from 'konva';
 import useImage from 'use-image';
 import type { ImaginationSheet, ImaginationLayer, CanvasState } from '../../types';
-import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../../utils/dpi-calculator';
+import { calculateDpi, getDpiQualityDisplay, DEFAULT_MIN_DPI, type DpiInfo } from '../../utils/dpi-calculator';
 
 interface SheetCanvasProps {
   sheet: ImaginationSheet;
@@ -23,6 +23,8 @@ interface SheetCanvasProps {
   showCutLines?: boolean;
   mirrorForSublimation?: boolean;
   showSafeMargin?: boolean;
+  /** Print-type minDPI used to grade layer quality (see imagination-presets.ts rules.minDPI) */
+  minDPI?: number;
 }
 
 // DPI for print = 300, screen DPI ~ 96
@@ -37,7 +39,8 @@ const CanvasImage: React.FC<{
   onSelect: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onChange: (attrs: Partial<ImaginationLayer>) => void;
   showCutLines?: boolean;
-}> = ({ layer, isSelected, onSelect, onChange, showCutLines }) => {
+  minDPI?: number;
+}> = ({ layer, isSelected, onSelect, onChange, showCutLines, minDPI = DEFAULT_MIN_DPI }) => {
   const imageUrl = layer.processed_url || layer.source_url;
   const [image] = useImage(imageUrl || '', 'anonymous');
   const shapeRef = useRef<Konva.Image>(null);
@@ -50,21 +53,52 @@ const CanvasImage: React.FC<{
     }
   }, [isSelected]);
 
-  // Set initial dimensions when image loads (for legacy layers with pixel-based dimensions)
-  // New layers should be created with proper inch-based dimensions
+  // Recompute DPI from the image's OWN natural pixel dimensions whenever it
+  // loads or its rendered (print) size changes — this runs on sheet load too
+  // (the image loads on every mount), so a reloaded sheet gets an accurate
+  // grade even though dpiInfo isn't guaranteed to have survived a round trip,
+  // and a low-res image scaled up large is caught immediately rather than
+  // only being graded once at upload time. Never trusts stale/missing
+  // metadata.originalWidth — image.naturalWidth/naturalHeight are authoritative.
   useEffect(() => {
-    if (image && shapeRef.current && (layer.width === 100 || layer.width * PIXELS_PER_INCH < 50)) {
-      // Legacy layer or very small dimension - set to proper inches
-      const aspectRatio = image.width / image.height;
-      const targetWidthInches = 4; // 4 inches default
-      const targetHeightInches = targetWidthInches / aspectRatio;
+    if (!image) return;
+    const canvasWidthPixels = layer.width * PIXELS_PER_INCH;
+    const canvasHeightPixels = layer.height * PIXELS_PER_INCH;
+    if (canvasWidthPixels <= 0 || canvasHeightPixels <= 0) return;
 
-      onChange({
-        width: targetWidthInches,
-        height: targetHeightInches
-      });
+    const newDpiInfo = calculateDpi(
+      image.naturalWidth,
+      image.naturalHeight,
+      canvasWidthPixels,
+      canvasHeightPixels,
+      minDPI
+    );
+
+    const existing = layer.metadata?.dpiInfo as DpiInfo | undefined;
+    const originalUnchanged =
+      layer.metadata?.originalWidth === image.naturalWidth &&
+      layer.metadata?.originalHeight === image.naturalHeight;
+    if (
+      existing &&
+      originalUnchanged &&
+      existing.dpi === newDpiInfo.dpi &&
+      existing.quality === newDpiInfo.quality &&
+      existing.minDPI === newDpiInfo.minDPI
+    ) {
+      return; // no change — avoid an update loop
     }
-  }, [image, layer.width, onChange]);
+
+    onChange({
+      metadata: {
+        ...layer.metadata,
+        dpiInfo: newDpiInfo,
+        originalWidth: image.naturalWidth,
+        originalHeight: image.naturalHeight,
+      }
+    });
+    // Only re-run when the loaded image or the layer's rendered size/minDPI changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [image, layer.width, layer.height, minDPI]);
 
   if (!image) return null;
 
@@ -104,16 +138,17 @@ const CanvasImage: React.FC<{
           const newWidthInches = newWidthPixels / PIXELS_PER_INCH;
           const newHeightInches = newHeightPixels / PIXELS_PER_INCH;
 
-          // Recalculate DPI if we have original dimensions (calculateDpi expects canvas size in PIXELS)
-          let newDpiInfo: DpiInfo | undefined = undefined;
-          if (layer.metadata?.originalWidth && layer.metadata?.originalHeight) {
-            newDpiInfo = calculateDpi(
-              layer.metadata.originalWidth,
-              layer.metadata.originalHeight,
-              newWidthPixels,
-              newHeightPixels
-            );
-          }
+          // Recalculate DPI unconditionally from the image's OWN natural pixel
+          // dimensions (calculateDpi expects canvas size in PIXELS). Previously
+          // this only ran if metadata.originalWidth/Height already existed,
+          // which let a low-DPI image get scaled up large without the
+          // warning badge ever updating. image.naturalWidth/naturalHeight are
+          // always available once the image element has loaded.
+          const naturalWidth = image?.naturalWidth || layer.metadata?.originalWidth;
+          const naturalHeight = image?.naturalHeight || layer.metadata?.originalHeight;
+          const newDpiInfo: DpiInfo | undefined = (naturalWidth && naturalHeight)
+            ? calculateDpi(naturalWidth, naturalHeight, newWidthPixels, newHeightPixels, minDPI)
+            : undefined;
 
           onChange({
             position_x: node.x() / PIXELS_PER_INCH,
@@ -125,7 +160,9 @@ const CanvasImage: React.FC<{
             scale_y: 1,
             metadata: {
               ...layer.metadata,
-              dpiInfo: newDpiInfo || layer.metadata?.dpiInfo,
+              dpiInfo: newDpiInfo,
+              originalWidth: naturalWidth ?? layer.metadata?.originalWidth,
+              originalHeight: naturalHeight ?? layer.metadata?.originalHeight,
             }
           });
 
@@ -472,7 +509,8 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
   updateCanvasState,
   showCutLines = false,
   mirrorForSublimation = false,
-  showSafeMargin = false
+  showSafeMargin = false,
+  minDPI = DEFAULT_MIN_DPI,
 }) => {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -839,7 +877,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
                 return <CanvasShape {...commonProps} />;
               } else {
                 // Image or AI-generated layers
-                return <CanvasImage {...commonProps} showCutLines={showCutLines} />;
+                return <CanvasImage {...commonProps} showCutLines={showCutLines} minDPI={minDPI} />;
               }
             })}
         </Layer>

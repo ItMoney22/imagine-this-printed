@@ -547,14 +547,45 @@ export const imaginationApi = {
   deleteSheet: (id: string) =>
     api.delete(`/api/imagination-station/sheets/${id}`),
 
-  // Layer operations
-  uploadImage: (sheetId: string, file: File) => {
+  // Layer operations. layerInit lets the caller supply the REAL position/size
+  // (inches) + metadata computed from the image's natural dimensions, so the
+  // very first DB row is correct instead of a hardcoded 0,0 / 100x100in
+  // placeholder (see backend/routes/imagination-station.ts POST /upload).
+  uploadImage: (
+    sheetId: string,
+    file: File,
+    layerInit?: {
+      position_x?: number;
+      position_y?: number;
+      width?: number;
+      height?: number;
+      metadata?: Record<string, any>;
+    }
+  ) => {
     const formData = new FormData();
     formData.append('image', file);
+    if (layerInit) {
+      if (layerInit.position_x !== undefined) formData.append('position_x', String(layerInit.position_x));
+      if (layerInit.position_y !== undefined) formData.append('position_y', String(layerInit.position_y));
+      if (layerInit.width !== undefined) formData.append('width', String(layerInit.width));
+      if (layerInit.height !== undefined) formData.append('height', String(layerInit.height));
+      if (layerInit.metadata) formData.append('metadata', JSON.stringify(layerInit.metadata));
+    }
     return api.post(`/api/imagination-station/sheets/${sheetId}/upload`, formData, {
       headers: {}
     });
   },
+
+  // Server-side 300 DPI print-ready render — composites raster layers at
+  // print resolution and returns the GCS URL. See
+  // backend/routes/imagination-station.ts POST /sheets/:id/render.
+  renderPrintFile: (
+    sheetId: string,
+    params: {
+      layers: Array<{ url: string; x: number; y: number; width: number; height: number; rotation?: number }>;
+      mirror?: boolean;
+    }
+  ) => api.post(`/api/imagination-station/sheets/${sheetId}/render`, params),
 
   // AI operations - Component-friendly signatures
   generateImage: (params: { prompt: string; style: string; useTrial?: boolean; count?: number; background?: 'black' | 'white' | 'grey' | 'gray' | 'color' | 'transparent'; tier?: 'standard' | 'premium' }) =>
@@ -581,7 +612,12 @@ export const imaginationApi = {
   autoNest: (params: { sheetWidth: number; sheetHeight: number; layers: Array<{ id: string; width: number; height: number; rotation?: number }>; padding?: number }) =>
     api.post('/api/imagination-station/layout/auto-nest', params),
 
-  smartFill: (params: { sheetWidth: number; sheetHeight: number; layers: Array<{ id: string; width: number; height: number }>; padding?: number }) =>
+  // position_x/position_y/rotation are required for accurate collision
+  // detection against real layer positions (see backend/services/imagination-layout.ts).
+  // isTemplateCandidate marks which layers are eligible to be duplicated —
+  // every layer on the sheet must still be sent so the ones NOT selected are
+  // still avoided as collisions.
+  smartFill: (params: { sheetWidth: number; sheetHeight: number; layers: Array<{ id: string; width: number; height: number; position_x?: number; position_y?: number; rotation?: number; isTemplateCandidate?: boolean }>; padding?: number }) =>
     api.post('/api/imagination-station/layout/smart-fill', params),
 
   autoLayout: (sheetId: string) =>

@@ -17,6 +17,9 @@ import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
+import { processOrderCompletion } from '../services/order-reward-service.js'
+import { processReferralFirstPurchase } from '../services/referral-service.js'
+import { findCouponIdByCode, recordCouponUsage } from './coupons.js'
 
 const router = Router()
 
@@ -90,6 +93,9 @@ function snapshotCartItems(items: any[] | undefined | null) {
     image: i.product?.images?.[0] ?? null,
     size: i.selectedSize ?? null,
     color: i.selectedColor ?? null,
+    // Where on the garment the art prints. Chosen on the product page and
+    // carried through the cart — fulfillment needs it or it defaults to front.
+    printLocation: i.printLocation ?? null,
     customDesign: i.customDesign ?? null,
     // Selected add-on upsells (metal-art stand/mount/etc.) so MyOrders + the
     // print bridge / fulfillment can see what to include.
@@ -121,6 +127,7 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
         image_url: item.product?.images?.[0] ?? null,
         size: item.selectedSize ?? null,
         color: item.selectedColor ?? null,
+        print_location: item.printLocation ?? null,
         custom_design: item.customDesign ?? null,
         // Add-on upsells for fulfillment (+ per-unit add-on total).
         addons: hasAddons ? item.selectedAddons : null,
@@ -864,6 +871,62 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   if (orderError) {
     req.log?.error({ err: orderError, orderId }, 'Failed to fetch order details')
     // Don't throw - order was updated successfully
+  }
+
+  // Award order rewards + first-purchase referral bonus, and record coupon
+  // redemption. Previously NONE of this fired from the paid webhook:
+  // processOrderCompletion/processReferralFirstPurchase were only reachable
+  // from the admin-only POST /api/orders/:orderId/complete (no frontend
+  // caller), and POST /api/coupons/apply had no callers anywhere — so a real
+  // customer checkout never earned points, never triggered a referral bonus,
+  // and never actually enforced a coupon's max_uses/per-user limit. This runs
+  // only once we've won the idempotency claim above (a webhook redelivery
+  // returns before reaching this point), and processOrderCompletion /
+  // processReferralFirstPurchase each have their own internal dedup guard as
+  // a second layer. None of this should ever fail the webhook response — the
+  // payment already succeeded — so every failure here is logged and swallowed.
+  if (order) {
+    try {
+      const rewardsUserId = order.user_id || userId
+      const orderTotalUsd = Number(order.total) || 0
+
+      const rewardResult = await processOrderCompletion({
+        orderId,
+        userId: rewardsUserId,
+        orderTotal: orderTotalUsd,
+        orderNumber
+      })
+      if (!rewardResult.success && rewardResult.error !== 'Duplicate reward attempt') {
+        req.log?.error({ orderId, err: rewardResult.error }, '[rewards] Failed to award order rewards')
+      }
+
+      // Safe to call unconditionally — processReferralFirstPurchase only
+      // actually awards ITC the first time (checks for an existing
+      // 'purchase'-type referral_transactions row for this user first).
+      if (rewardsUserId) {
+        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd)
+        if (referralResult.success) {
+          req.log?.info({ orderId, referrerId: referralResult.referrerId, bonus: referralResult.bonusITC }, '[rewards] Referral first-purchase bonus awarded')
+        }
+      }
+
+      const couponCode = Array.isArray(order.discount_codes) ? order.discount_codes[0] : null
+      if (couponCode && Number(order.discount_amount) > 0) {
+        const couponId = await findCouponIdByCode(couponCode)
+        if (couponId) {
+          await recordCouponUsage({
+            couponId,
+            userId: rewardsUserId,
+            orderId,
+            discountApplied: Number(order.discount_amount) || 0
+          })
+        } else {
+          req.log?.warn({ orderId, couponCode }, '[coupons] Could not resolve coupon id for redemption recording')
+        }
+      }
+    } catch (rewardsError: any) {
+      req.log?.error({ err: rewardsError, orderId }, '[rewards] Reward/referral/coupon post-processing error')
+    }
   }
 
   // Send order confirmation email
