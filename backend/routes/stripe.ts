@@ -15,6 +15,7 @@ import {
 } from '../utils/email.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
+import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 
 const router = Router()
 
@@ -146,35 +147,104 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, discount, userId: bodyUserId, shippingCost, tax, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush } = req.body
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
-
-    // Validate amount (in cents)
-    if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents
-      return res.status(400).json({ error: 'Invalid amount - minimum is $0.50' })
-    }
+    // ITC store-credit and per-user coupon limits are only ever honored for a
+    // caller we've actually authenticated via the JWT — never a body-supplied
+    // guest id, which anyone could spoof to drain someone else's wallet.
+    const trustedUserId = req.user?.sub ?? null
 
     // Validate currency
     if (currency !== 'usd') {
       return res.status(400).json({ error: 'Only USD currency is supported' })
     }
 
-    // Calculate subtotal from items
-    const subtotal = items?.reduce((sum: number, item: any) =>
-      sum + (item.product?.price || 0) * (item.quantity || 1), 0) || 0
+    // -----------------------------------------------------------------------
+    // SECURITY (Watchtower task 9a8431d9): the client-supplied `amount`,
+    // `tax`, `discount`, and `shippingCost` are NEVER trusted. The server
+    // independently recomputes the whole order — line prices from the DB,
+    // discount from the coupon table, tax from a state rate table, shipping
+    // bounds-checked — and THAT number is what gets charged, always. See
+    // backend/services/order-pricing.ts for the engine and its documented
+    // scope/known gaps.
+    // -----------------------------------------------------------------------
+    const pricingItems: PricingCartItem[] = (items || []).map((item: any) => ({
+      productId: item?.product?.id != null ? String(item.product.id) : null,
+      quantity: item?.quantity || 1,
+      selectedSize: item?.selectedSize ?? null,
+      selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
+      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null
+    }))
+
+    let pricing
+    try {
+      pricing = await calculateOrderPricing({
+        items: pricingItems,
+        shippingAddress: { state: shipping?.state, postalCode: shipping?.zipCode, country: shipping?.country },
+        shipping: {
+          type: shippingType,
+          clientAmountCents: Math.round((Number(shippingCost) || 0) * 100),
+          rush: !!rush
+        },
+        couponCode: couponCode || null,
+        userId: trustedUserId,
+        itcCreditRequested: Number(itcCreditAmount) || 0
+      })
+    } catch (pricingError: any) {
+      req.log?.error({ err: pricingError }, 'Error computing server-side order pricing')
+      return res.status(500).json({ error: 'Failed to price order', message: pricingError.message })
+    }
+
+    if (pricing.errors.length > 0) {
+      req.log?.warn({ errors: pricing.errors }, 'Checkout pricing could not be verified')
+      return res.status(400).json({ error: 'Invalid order — pricing could not be verified', details: pricing.errors })
+    }
+
+    const serverAmountCents = pricing.totalCents
+
+    // Stripe's own floor, checked against the AUTHORITATIVE server total.
+    if (serverAmountCents < 50) {
+      return res.status(400).json({ error: 'Invalid amount - minimum is $0.50' })
+    }
+
+    // Anti-tampering gate: reject when the client's number and the server's
+    // number disagree by more than a cent of rounding slack. The response
+    // carries the real numbers back so an honest client (whose only "offense"
+    // is a stale local estimate — see src/pages/Checkout.tsx) can resync and
+    // retry instead of getting stuck.
+    const pricingResponse = {
+      subtotal: pricing.productSubtotalCents / 100,
+      discount: pricing.discountCents / 100,
+      shipping: pricing.shippingCents / 100,
+      tax: pricing.taxCents / 100,
+      taxRate: pricing.taxRate,
+      total: serverAmountCents / 100
+    }
+    const amountCheck = evaluateCheckoutAmount(Number(amount), serverAmountCents)
+    if (!amountCheck.ok) {
+      req.log?.warn({ clientAmount: amount, serverAmount: serverAmountCents }, 'Checkout amount mismatch — rejecting (possible tampering or stale client estimate)')
+      return res.status(400).json({ error: amountCheck.error, pricing: pricingResponse })
+    }
+
+    // From here on, every dollar figure comes from `pricing` — never `amount`,
+    // `tax`, `discount`, or `shippingCost` off the request body.
+    const subtotal = pricingResponse.subtotal
+    const serverDiscountAmount = pricingResponse.discount
+    const serverShippingAmount = pricingResponse.shipping
+    const serverTaxAmount = pricingResponse.tax
 
     // If we have an existing payment intent and order, update them instead of creating new
     if (existingPaymentIntentId && existingOrderId) {
       try {
-        // Update the existing payment intent amount
+        // Update the existing payment intent amount — server-calculated, never the client's.
         const updatedPaymentIntent = await stripe.paymentIntents.update(existingPaymentIntentId, {
-          amount, // Amount in cents
+          amount: serverAmountCents,
           metadata: {
             couponCode: couponCode || '',
-            discount: discount?.toString() || '0',
-            shippingCost: shippingCost?.toString() || '0'
+            discount: serverDiscountAmount.toString(),
+            shippingCost: serverShippingAmount.toString()
           }
         })
 
@@ -198,10 +268,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           .from('orders')
           .update({
             subtotal: subtotal,
-            tax_amount: tax || 0,
-            shipping_amount: shippingCost || 0,
-            discount_amount: discount || 0,
-            total: amount / 100,
+            tax_amount: serverTaxAmount,
+            shipping_amount: serverShippingAmount,
+            discount_amount: serverDiscountAmount,
+            total: serverAmountCents / 100,
             discount_codes: couponCode ? [couponCode] : [],
             shipping_address: {
               firstName: shipping?.firstName,
@@ -238,16 +308,17 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         req.log?.info({
           paymentIntentId: existingPaymentIntentId,
           orderId: existingOrderId,
-          amount: amount / 100,
-          shippingCost: shippingCost,
-          discount: discount
+          amount: serverAmountCents / 100,
+          shippingCost: serverShippingAmount,
+          discount: serverDiscountAmount
         }, 'Updated existing payment intent and order')
 
         return res.json({
           clientSecret: updatedPaymentIntent.client_secret,
           paymentIntentId: updatedPaymentIntent.id,
           orderId: existingOrderId,
-          updated: true
+          updated: true,
+          pricing: pricingResponse
         })
       } catch (updateError: any) {
         // If update fails (e.g., payment intent already confirmed), create new
@@ -267,10 +338,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         customer_email: shipping?.email || null,
         customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
         subtotal: subtotal,
-        tax_amount: tax || 0,
-        shipping_amount: shippingCost || 0,
-        discount_amount: discount || 0,
-        total: amount / 100,
+        tax_amount: serverTaxAmount,
+        shipping_amount: serverShippingAmount,
+        discount_amount: serverDiscountAmount,
+        total: serverAmountCents / 100,
         currency: 'USD',
         status: 'pending',
         payment_status: 'pending',
@@ -310,9 +381,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       `${item.quantity}x ${item.product?.name || 'Product'}`
     ).join(', ') || 'Order'
 
-    // Create payment intent
+    // Create payment intent — server-calculated amount, never the client's.
     const paymentIntent = await stripe.paymentIntents.create({
-      amount, // Amount in cents
+      amount: serverAmountCents,
       currency,
       description: `Order ${orderNumber}: ${itemDescriptions}`,
       metadata: {
@@ -325,8 +396,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           qty: i.quantity
         })) || []),
         couponCode: couponCode || '',
-        discount: discount?.toString() || '0',
-        shippingCost: shippingCost?.toString() || '0',
+        discount: serverDiscountAmount.toString(),
+        shippingCost: serverShippingAmount.toString(),
         shippingCity: shipping?.city || '',
         shippingState: shipping?.state || '',
         shippingCountry: shipping?.country || 'US',
@@ -349,9 +420,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       paymentIntentId: paymentIntent.id,
       orderId: order.id,
       orderNumber: orderNumber,
-      amount: amount / 100,
-      shippingCost: shippingCost,
-      discount: discount,
+      amount: serverAmountCents / 100,
+      shippingCost: serverShippingAmount,
+      discount: serverDiscountAmount,
       itemCount: items?.length || 0
     }, 'Checkout payment intent and order created')
 
@@ -359,7 +430,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
       orderId: order.id,
-      orderNumber: orderNumber
+      orderNumber: orderNumber,
+      pricing: pricingResponse
     })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error creating checkout payment intent')
@@ -513,6 +585,92 @@ router.post('/webhook', async (req: Request, res: Response): Promise<any> => {
           paymentIntentId: paymentIntent.id,
           userId: paymentIntent.metadata.userId
         }, 'Payment canceled')
+        break
+      }
+
+      // ===============================
+      // STRIPE CONNECT EVENTS (ported from the now-removed routes/webhooks.ts
+      // POST /stripe — that route could never verify its signature, since
+      // index.ts only gives raw body to /api/stripe/webhook, so these events
+      // never reliably processed there)
+      // ===============================
+      case 'account.updated': {
+        const account = event.data.object as Stripe.Account
+        // Pure state-sync (mirrors Stripe's current account fields) — safe to
+        // re-apply on a redelivery with no guard, so none is added here.
+        req.log?.info({ accountId: account.id }, '[Stripe Connect Webhook] Account updated')
+        const { handleConnectAccountUpdate } = await import('../services/stripe-connect.js')
+        await handleConnectAccountUpdate(account)
+        break
+      }
+
+      case 'payout.paid': {
+        const payout = event.data.object as Stripe.Payout
+        if (event.account) {
+          const cashoutRequestId = payout.metadata?.cashout_request_id
+          if (cashoutRequestId) {
+            const { data: existing } = await supabase
+              .from('itc_cashout_requests')
+              .select('status')
+              .eq('id', cashoutRequestId)
+              .maybeSingle()
+            if (existing?.status === 'paid') {
+              req.log?.info({ payoutId: payout.id, cashoutRequestId }, 'Cashout already marked paid — duplicate webhook delivery, skipping')
+              break
+            }
+          }
+          req.log?.info({ payoutId: payout.id, account: event.account }, '[Stripe Connect Webhook] Payout paid')
+          const { handlePayoutPaid } = await import('../services/stripe-connect.js')
+          await handlePayoutPaid(payout, event.account)
+        }
+        break
+      }
+
+      case 'payout.failed': {
+        const payout = event.data.object as Stripe.Payout
+        if (event.account) {
+          const cashoutRequestId = payout.metadata?.cashout_request_id
+          // Idempotency claim — same atomic pattern as the checkout-order guard
+          // above: flip status to 'failed' only if it isn't already, so a
+          // redelivered payout.failed can't refund ITC to the wallet twice.
+          if (cashoutRequestId) {
+            const { claimOnce } = await import('../lib/webhook-helpers.js')
+            const claim = await claimOnce(
+              supabase
+                .from('itc_cashout_requests')
+                .update({ status: 'failed' })
+                .eq('id', cashoutRequestId)
+                .neq('status', 'failed')
+                .select('id')
+            )
+            if (claim.error) {
+              req.log?.error({ err: claim.error, cashoutRequestId }, 'Failed to claim cashout request for payout.failed')
+            }
+            if (!claim.claimed) {
+              req.log?.info({ payoutId: payout.id, cashoutRequestId }, 'Cashout already failed — duplicate webhook delivery, skipping ITC refund')
+              break
+            }
+          }
+          req.log?.info({ payoutId: payout.id, account: event.account }, '[Stripe Connect Webhook] Payout failed')
+          const { handlePayoutFailed } = await import('../services/stripe-connect.js')
+          await handlePayoutFailed(payout, event.account)
+        }
+        break
+      }
+
+      // ===============================
+      // FOUNDER INVOICE EVENTS (ported from routes/webhooks.ts — same reason
+      // as the Connect events above)
+      // ===============================
+      case 'invoice.paid': {
+        const invoice = event.data.object as Stripe.Invoice
+        await handleInvoicePaid(invoice, req)
+        break
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice
+        await handleInvoicePaymentFailed(invoice, req)
         break
       }
 
@@ -957,6 +1115,131 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent, req: Re
         created_at: new Date().toISOString()
       })
   }
+}
+
+// ===============================
+// FOUNDER INVOICE HANDLERS (ported from routes/webhooks.ts)
+// ===============================
+
+// Handle invoice.paid — credit the founder's ITC wallet with their earnings
+async function handleInvoicePaid(stripeInvoice: Stripe.Invoice, req: Request) {
+  const founderId = stripeInvoice.metadata?.founder_id
+
+  if (!founderId) {
+    req.log?.info({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Not a founder invoice, skipping')
+    return
+  }
+
+  const { claimOnce } = await import('../lib/webhook-helpers.js')
+
+  // Idempotency claim — same atomic pattern as the checkout-order guard in
+  // handleCheckoutOrderPayment above: flip status to 'paid' only if it isn't
+  // already, so a redelivered invoice.paid can't credit founder earnings twice.
+  const claim = await claimOnce<{ id: string; founder_earnings_cents: number; subtotal_cents: number }>(
+    supabase
+      .from('founder_invoices')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString()
+      })
+      .eq('stripe_invoice_id', stripeInvoice.id)
+      .neq('status', 'paid')
+      .select('id, founder_earnings_cents, subtotal_cents')
+  )
+
+  if (claim.error) {
+    req.log?.error({ err: claim.error, invoiceId: stripeInvoice.id }, '[Invoice Webhook] Failed to update invoice status')
+    throw new Error('Failed to update invoice status')
+  }
+  if (!claim.claimed || !claim.row) {
+    req.log?.info({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Invoice already paid — duplicate webhook delivery, skipping')
+    return
+  }
+  const invoice = claim.row
+
+  const founderEarningsCents = invoice.founder_earnings_cents
+  const founderEarningsUSD = founderEarningsCents / 100
+
+  const { data: wallet, error: walletError } = await supabase
+    .from('user_wallets')
+    .select('itc_balance')
+    .eq('user_id', founderId)
+    .single()
+
+  if (walletError || !wallet) {
+    req.log?.error({ err: walletError, founderId }, '[Invoice Webhook] Founder wallet not found')
+    return
+  }
+
+  // Convert USD earnings to ITC (1 ITC = $0.01, so $1 = 100 ITC)
+  const itcEarnings = founderEarningsCents
+  const { addBalance } = await import('../lib/webhook-helpers.js')
+  const newBalance = addBalance(wallet.itc_balance, itcEarnings)
+
+  const { error: walletUpdateError } = await supabase
+    .from('user_wallets')
+    .update({
+      itc_balance: newBalance,
+      updated_at: new Date().toISOString()
+    })
+    .eq('user_id', founderId)
+
+  if (walletUpdateError) {
+    req.log?.error({ err: walletUpdateError, founderId }, '[Invoice Webhook] Failed to update wallet')
+    return
+  }
+
+  // Record the ITC transaction (live schema: type/amount/balance_after/reference/
+  // metadata — the old reason/usd_value/reference_id columns don't exist; same
+  // fix already applied in handleITCPurchase above and services/stripe-connect.ts).
+  const { error: ledgerError } = await supabase
+    .from('itc_transactions')
+    .insert({
+      user_id: founderId,
+      type: 'reward',
+      amount: itcEarnings,
+      balance_after: newBalance,
+      reference: invoice.id,
+      metadata: {
+        description: `Invoice earnings (35% of $${(invoice.subtotal_cents / 100).toFixed(2)})`,
+        usd_value: founderEarningsUSD
+      },
+      created_at: new Date().toISOString()
+    })
+  if (ledgerError) {
+    req.log?.error({ err: ledgerError, founderId }, '[Invoice Webhook] Failed to log ITC transaction')
+  }
+
+  req.log?.info({
+    invoiceId: invoice.id,
+    founderId,
+    itcEarnings,
+    founderEarningsUSD
+  }, '[Invoice Webhook] Invoice paid, founder earnings credited')
+}
+
+// Handle invoice.payment_failed — mark the invoice overdue (Stripe will retry)
+async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice, req: Request) {
+  const founderId = stripeInvoice.metadata?.founder_id
+
+  if (!founderId) {
+    req.log?.info({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Not a founder invoice, skipping')
+    return
+  }
+
+  // No wallet mutation here, so no strict claim is needed — just guard
+  // against downgrading an invoice Stripe has already reported as paid.
+  const { error } = await supabase
+    .from('founder_invoices')
+    .update({ status: 'overdue' })
+    .eq('stripe_invoice_id', stripeInvoice.id)
+    .neq('status', 'paid')
+
+  if (error) {
+    req.log?.error({ err: error, invoiceId: stripeInvoice.id }, '[Invoice Webhook] Failed to update invoice status')
+  }
+
+  req.log?.warn({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Invoice payment failed')
 }
 
 // Send purchase confirmation email
