@@ -3,10 +3,95 @@
 // figures worked out by hand from the formulas in cost-management.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { CostManagementService, costManagementService } from './cost-management'
 import type { CostVariables } from '../types'
 
+type DbRow = Record<string, string | number | null>
+type DbResult = { data: DbRow | null; error: { message: string } | null }
+type DbListResult = { data: DbRow[] | null; error: { message: string } | null }
+type UpsertPayload = Record<string, string | number | null>
+type InsertPayload = Record<string, unknown>
+
+interface FakeBuilder {
+  select: (columns?: string, opts?: { count?: string }) => FakeBuilder
+  eq: (column: string, value: unknown) => FakeBuilder
+  order: (column: string, opts?: { ascending?: boolean }) => FakeBuilder
+  limit: (n: number) => FakeBuilder
+  gte: (column: string, value: unknown) => FakeBuilder
+  maybeSingle: () => Promise<DbResult>
+  single: () => Promise<DbResult>
+  then: (resolve: (v: DbListResult) => void) => void
+  upsert: (
+    payload: UpsertPayload,
+    options: { onConflict?: string }
+  ) => { select: () => { single: () => Promise<DbResult> } }
+  insert: (payload: InsertPayload) => { select: () => { single: () => Promise<DbResult> } }
+}
+
+// Chainable stand-in for the supabase query builder. Each test sets what the
+// terminal call (maybeSingle / single / the promise itself) resolves to and
+// then inspects what the service actually sent.
+const state: {
+  readResult: DbResult
+  writeResult: DbResult
+  listResult: DbListResult
+  insertResult: DbResult
+  lastTable: string | null
+  lastFilter: { column: string; value: unknown } | null
+  lastUpsert: { payload: UpsertPayload; options: { onConflict?: string } } | null
+  lastInsert: InsertPayload | null
+} = {
+  readResult: { data: null, error: null },
+  writeResult: { data: null, error: null },
+  listResult: { data: [], error: null },
+  insertResult: { data: null, error: null },
+  lastTable: null,
+  lastFilter: null,
+  lastUpsert: null,
+  lastInsert: null
+}
+
+vi.mock('../lib/supabase', () => {
+  const builder: FakeBuilder = {
+    select: () => builder,
+    eq: (column: string, value: unknown) => {
+      state.lastFilter = { column, value }
+      return builder
+    },
+    order: () => builder,
+    limit: () => builder,
+    gte: () => builder,
+    maybeSingle: async () => state.readResult,
+    single: async () => state.writeResult,
+    then: (resolve: (v: DbListResult) => void) => resolve(state.listResult),
+    upsert: (payload: UpsertPayload, options: { onConflict?: string }) => {
+      state.lastUpsert = { payload, options }
+      return {
+        select: () => ({ single: async () => state.writeResult })
+      }
+    },
+    insert: (payload: InsertPayload) => {
+      state.lastInsert = payload
+      return {
+        select: () => ({ single: async () => state.insertResult })
+      }
+    }
+  }
+
+  return {
+    supabase: {
+      from: (table: string) => {
+        state.lastTable = table
+        return builder
+      }
+    }
+  }
+})
+
+const { CostManagementService, costManagementService, DEFAULT_COST_VARIABLES } = await import('./cost-management')
+
 const svc = new CostManagementService()
+
+const MANAGER_ID = '11111111-2222-3333-4444-555555555555'
 
 const vars: CostVariables = {
   id: 'cost_mgr1',
@@ -24,6 +109,15 @@ const vars: CostVariables = {
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  state.readResult = { data: null, error: null }
+  state.writeResult = { data: null, error: null }
+  state.listResult = { data: [], error: null }
+  state.insertResult = { data: null, error: null }
+  state.lastTable = null
+  state.lastFilter = null
+  state.lastUpsert = null
+  state.lastInsert = null
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -184,11 +278,26 @@ describe('queryGPTAssistant — the canned cost assistant', () => {
     expect(await svc.queryGPTAssistant('hello')).toContain('I can help you with cost and pricing calculations')
   })
 
-  // --- The two questions the module itself advertises do NOT parse. ---------
-  it('FAILS to answer its own advertised pricing example ("costs me $6.25")', async () => {
+  it('matches the example questions the dashboard currently advertises', async () => {
+    // These strings are shown to managers in the Keyword Assistant tab and in
+    // the fallback reply. If a phrasing stops matching, the UI is promising
+    // something the matcher will not deliver.
+    const pricing = await svc.queryGPTAssistant('What price gives a 30% margin on a $15.00 cost?')
+    expect(pricing).toContain('Selling Price')
+
+    const printCost = await svc.queryGPTAssistant(
+      'How much does a 2.5 hour print with 60g filament cost?',
+      vars
+    )
+    expect(printCost).toContain('Cost Breakdown')
+  })
+
+  // --- Phrasings that still do NOT parse, even after the example text was
+  // rewritten to match. Kept as a live regression pin on the matcher itself. --
+  it('FAILS on a natural phrasing that puts the cost word before the number ("costs me $6.25")', async () => {
     // The cost regex is /\$?(\d+\.?\d*)\s*(?:cost|costs)/ — it needs the NUMBER
-    // BEFORE the word "cost". The suggested phrasing puts it after, so the
-    // assistant silently returns the generic help instead of a price.
+    // BEFORE the word "cost". This phrasing puts it after, so the assistant
+    // silently returns the generic help instead of a price.
     const answer = await svc.queryGPTAssistant(
       'What should I price a product if it costs me $6.25 and I want 30% margin?'
     )
@@ -196,9 +305,9 @@ describe('queryGPTAssistant — the canned cost assistant', () => {
     expect(answer).not.toContain('Selling Price')
   })
 
-  it('FAILS to answer its own advertised print example ("3-hour")', async () => {
+  it('FAILS on a hyphenated duration ("3-hour")', async () => {
     // The hours regex is /(\d+\.?\d*)\s*hour/ — `\s*` does not match the hyphen
-    // in "3-hour", so the advertised phrasing never reaches the calculator.
+    // in "3-hour", so that phrasing never reaches the calculator.
     const answer = await svc.queryGPTAssistant(
       'How much does a 3-hour print with 80g filament cost at current rates?',
       vars
@@ -208,41 +317,323 @@ describe('queryGPTAssistant — the canned cost assistant', () => {
   })
 })
 
-describe('persistence stubs (mock data until Prisma is wired)', () => {
-  it('scopes the seeded cost variables to the manager and keeps the documented rates', async () => {
-    const v = await svc.getCostVariables('mgr9')
-    expect(v?.id).toBe('cost_mgr9')
-    expect(v?.managerId).toBe('mgr9')
-    expect(v?.filamentPricePerGram).toBe(0.025)
-    expect(v?.laborRatePerHour).toBe(25)
-    expect(v?.defaultMarginPercentage).toBe(25)
+describe('costManagementService cost variable persistence', () => {
+  let service: InstanceType<typeof CostManagementService>
+
+  // Postgres DECIMAL comes back as a string through PostgREST.
+  const savedRow = {
+    id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    manager_id: MANAGER_ID,
+    location_id: null,
+    filament_price_per_gram: '0.044',
+    electricity_cost_per_hour: '0.15',
+    average_packaging_cost: '3.25',
+    monthly_rent: '4500',
+    overhead_percentage: '20',
+    default_margin_percentage: '35',
+    labor_rate_per_hour: '30',
+    last_updated: '2026-07-26T12:00:00.000Z',
+    created_at: '2026-07-20T12:00:00.000Z'
+  }
+
+  beforeEach(() => {
+    service = new CostManagementService()
   })
 
-  it('defaults the margin to 25% on save and zeroes the unset rates', async () => {
-    const saved = await svc.saveCostVariables({ managerId: 'mgr1', createdAt: '2025-01-01T00:00:00Z' })
-    expect(saved.defaultMarginPercentage).toBe(25)
-    expect(saved.filamentPricePerGram).toBe(0)
-    expect(saved.createdAt).toBe('2025-01-01T00:00:00Z')
-    expect(saved.id).toMatch(/^cost_\d+$/)
+  describe('getCostVariables', () => {
+    it('returns the saved row, keyed by manager id, with DECIMAL strings coerced to numbers', async () => {
+      state.readResult = { data: savedRow, error: null }
+
+      const result = await service.getCostVariables(MANAGER_ID)
+
+      expect(state.lastTable).toBe('cost_variables')
+      expect(state.lastFilter).toEqual({ column: 'manager_id', value: MANAGER_ID })
+      expect(result?.source).toBe('database')
+      expect(result?.filamentPricePerGram).toBe(0.044)
+      expect(result?.monthlyRent).toBe(4500)
+      expect(result?.defaultMarginPercentage).toBe(35)
+      // The old bug: a reload silently reverted to these.
+      expect(result?.filamentPricePerGram).not.toBe(DEFAULT_COST_VARIABLES.filamentPricePerGram)
+      expect(result?.monthlyRent).not.toBe(DEFAULT_COST_VARIABLES.monthlyRent)
+    })
+
+    it('preserves a legitimate saved zero instead of falling back', async () => {
+      state.readResult = { data: { ...savedRow, electricity_cost_per_hour: '0' }, error: null }
+
+      const result = await service.getCostVariables(MANAGER_ID)
+
+      expect(result?.electricityCostPerHour).toBe(0)
+    })
+
+    it('falls back to defaults marked as unsaved when the manager has no row', async () => {
+      state.readResult = { data: null, error: null }
+
+      const result = await service.getCostVariables(MANAGER_ID)
+
+      expect(result?.source).toBe('defaults')
+      expect(result?.loadError).toBeUndefined()
+      expect(result?.filamentPricePerGram).toBe(DEFAULT_COST_VARIABLES.filamentPricePerGram)
+      expect(result?.monthlyRent).toBe(DEFAULT_COST_VARIABLES.monthlyRent)
+    })
+
+    it('falls back to defaults and reports the reason when the read fails', async () => {
+      state.readResult = { data: null, error: { message: 'permission denied for table cost_variables' } }
+
+      const result = await service.getCostVariables(MANAGER_ID)
+
+      expect(result?.source).toBe('defaults')
+      expect(result?.loadError).toContain('permission denied')
+    })
   })
 
-  it('turns an explicit 0% margin back into 25% on save', async () => {
-    // Same `|| 25` falsy-zero trap as the labour hours above.
-    const saved = await svc.saveCostVariables({ managerId: 'mgr1', defaultMarginPercentage: 0 })
-    expect(saved.defaultMarginPercentage).toBe(25)
-  })
+  describe('saveCostVariables', () => {
+    it('upserts on manager_id so a second save updates rather than duplicates', async () => {
+      state.writeResult = { data: savedRow, error: null }
 
-  it('returns the manager scoped breakdown list and analytics period', async () => {
-    const rows = await svc.getCostBreakdowns('mgr1')
-    expect(rows).toHaveLength(2)
-    expect(rows.every(r => r.managerId === 'mgr1')).toBe(true)
+      const result = await service.saveCostVariables({
+        managerId: MANAGER_ID,
+        filamentPricePerGram: 0.044,
+        electricityCostPerHour: 0.15,
+        averagePackagingCost: 3.25,
+        monthlyRent: 4500,
+        overheadPercentage: 20,
+        defaultMarginPercentage: 35,
+        laborRatePerHour: 30
+      })
 
-    const analytics = await svc.getCostAnalytics('mgr1')
-    expect(analytics.period).toBe('Last month')
-    expect(analytics.lowMarginProducts.every(p => p.currentMargin < p.suggestedMargin)).toBe(true)
+      expect(state.lastTable).toBe('cost_variables')
+      expect(state.lastUpsert?.options).toEqual({ onConflict: 'manager_id' })
+      expect(state.lastUpsert?.payload.manager_id).toBe(MANAGER_ID)
+      expect(state.lastUpsert?.payload.filament_price_per_gram).toBe(0.044)
+      expect(state.lastUpsert?.payload.monthly_rent).toBe(4500)
+      expect(result.source).toBe('database')
+      expect(result.monthlyRent).toBe(4500)
+    })
+
+    it('throws when the database rejects the write, so callers cannot claim success', async () => {
+      state.writeResult = { data: null, error: { message: 'new row violates row-level security policy' } }
+
+      await expect(
+        service.saveCostVariables({ managerId: MANAGER_ID, monthlyRent: 4500 })
+      ).rejects.toThrow(/row-level security/)
+    })
+
+    it('throws when no row comes back, so callers cannot claim success', async () => {
+      state.writeResult = { data: null, error: null }
+
+      await expect(
+        service.saveCostVariables({ managerId: MANAGER_ID, monthlyRent: 4500 })
+      ).rejects.toThrow(/no row/)
+    })
+
+    it('refuses to save without a manager id instead of writing an orphan row', async () => {
+      await expect(service.saveCostVariables({ monthlyRent: 4500 })).rejects.toThrow(/manager account id/)
+      expect(state.lastUpsert).toBeNull()
+    })
   })
 
   it('exposes a shared singleton', () => {
     expect(costManagementService.calculateMargin(75, 100)).toBeCloseTo(25, 6)
+  })
+})
+
+describe('product cost breakdown persistence', () => {
+  let service: InstanceType<typeof CostManagementService>
+
+  beforeEach(() => {
+    service = new CostManagementService()
+  })
+
+  const breakdown = {
+    id: 'breakdown-1',
+    productId: 'product-1',
+    managerId: MANAGER_ID,
+    printTimeHours: 3.5,
+    materialUsageGrams: 85,
+    materialCost: 2.13,
+    electricityCost: 0.42,
+    laborCost: 87.5,
+    packagingCost: 2.5,
+    overheadCost: 13.86,
+    totalCost: 106.41,
+    suggestedMargin: 25,
+    suggestedPrice: 141.88,
+    finalPrice: 139.99,
+    lastUpdated: '2026-08-16T00:00:00.000Z',
+    createdAt: '2026-08-16T00:00:00.000Z'
+  }
+
+  it('upserts a breakdown keyed on (manager_id, product_id) so recalculating a product updates in place', async () => {
+    state.writeResult = {
+      data: {
+        id: 'row-1',
+        product_id: 'product-1',
+        manager_id: MANAGER_ID,
+        print_time_hours: '3.5',
+        material_usage_grams: '85',
+        material_cost: '2.13',
+        electricity_cost: '0.42',
+        labor_cost: '87.5',
+        packaging_cost: '2.5',
+        overhead_cost: '13.86',
+        total_cost: '106.41',
+        suggested_margin: '25',
+        suggested_price: '141.88',
+        final_price: '139.99',
+        last_updated: '2026-08-16T00:00:00.000Z',
+        created_at: '2026-08-16T00:00:00.000Z'
+      },
+      error: null
+    }
+
+    await service.saveProductCostBreakdown(breakdown)
+
+    expect(state.lastTable).toBe('product_cost_breakdowns')
+    expect(state.lastUpsert?.options).toEqual({ onConflict: 'manager_id,product_id' })
+    expect(state.lastUpsert?.payload.product_id).toBe('product-1')
+    expect(state.lastUpsert?.payload.total_cost).toBe(106.41)
+  })
+
+  it('throws when the write fails, so the UI cannot claim a breakdown was saved', async () => {
+    state.writeResult = { data: null, error: { message: 'permission denied' } }
+
+    await expect(service.saveProductCostBreakdown(breakdown)).rejects.toThrow(/permission denied/)
+  })
+
+  it('reads breakdowns back scoped to the manager, coercing DECIMAL strings', async () => {
+    state.listResult = {
+      data: [
+        {
+          id: 'row-1',
+          product_id: 'product-1',
+          manager_id: MANAGER_ID,
+          print_time_hours: '3.5',
+          material_usage_grams: '85',
+          material_cost: '2.13',
+          electricity_cost: '0.42',
+          labor_cost: '87.5',
+          packaging_cost: '2.5',
+          overhead_cost: '13.86',
+          total_cost: '106.41',
+          suggested_margin: '25',
+          suggested_price: '141.88',
+          final_price: '139.99',
+          last_updated: '2026-08-16T00:00:00.000Z',
+          created_at: '2026-08-16T00:00:00.000Z'
+        }
+      ],
+      error: null
+    }
+
+    const rows = await service.getCostBreakdowns(MANAGER_ID)
+
+    expect(state.lastTable).toBe('product_cost_breakdowns')
+    expect(state.lastFilter).toEqual({ column: 'manager_id', value: MANAGER_ID })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].totalCost).toBe(106.41)
+    expect(rows[0].finalPrice).toBe(139.99)
+  })
+
+  it('returns an empty list rather than throwing when the read fails', async () => {
+    state.listResult = { data: null, error: { message: 'relation does not exist' } }
+
+    const rows = await service.getCostBreakdowns(MANAGER_ID)
+    expect(rows).toEqual([])
+  })
+})
+
+describe('getCostAnalytics — computed from real breakdown rows', () => {
+  let service: InstanceType<typeof CostManagementService>
+
+  beforeEach(() => {
+    service = new CostManagementService()
+  })
+
+  it('computes totals, averages and low-margin products from the manager\'s saved breakdowns', async () => {
+    state.listResult = {
+      data: [
+        {
+          id: 'row-1', product_id: 'p1', product_name: 'Budget Phone Case', manager_id: MANAGER_ID,
+          print_time_hours: '1', material_usage_grams: '20',
+          material_cost: '0.5', electricity_cost: '0.12', labor_cost: '25', packaging_cost: '2.5',
+          overhead_cost: '4.22', total_cost: '32.34',
+          suggested_margin: '25', suggested_price: '43.12', final_price: '37',
+          last_updated: '2026-08-01T00:00:00.000Z', created_at: '2026-08-01T00:00:00.000Z'
+        },
+        {
+          id: 'row-2', product_id: 'p2', product_name: 'Premium Vase', manager_id: MANAGER_ID,
+          print_time_hours: '4', material_usage_grams: '150',
+          material_cost: '3.75', electricity_cost: '0.48', labor_cost: '100', packaging_cost: '2.5',
+          overhead_cost: '16', total_cost: '122.73',
+          suggested_margin: '30', suggested_price: '175.33', final_price: '170',
+          last_updated: '2026-08-02T00:00:00.000Z', created_at: '2026-08-02T00:00:00.000Z'
+        }
+      ],
+      error: null
+    }
+
+    const analytics = await service.getCostAnalytics(MANAGER_ID, 'month')
+
+    expect(state.lastTable).toBe('product_cost_breakdowns')
+    expect(analytics.period).toBe('Last month')
+    expect(analytics.totalProducts).toBe(2)
+    // averageCost = (32.34 + 122.73) / 2 = 77.535
+    expect(analytics.averageCost).toBeCloseTo(77.535, 3)
+    // margin on final_price: (37-32.34)/37=12.59%%, (170-122.73)/170=27.81%
+    expect(analytics.lowMarginProducts.some(p => p.productId === 'p1')).toBe(true)
+    expect(analytics.profitableProducts).toBeGreaterThan(0)
+  })
+
+  it('returns a zeroed analytics object instead of inventing numbers when there is no data yet', async () => {
+    state.listResult = { data: [], error: null }
+
+    const analytics = await service.getCostAnalytics(MANAGER_ID, 'month')
+
+    expect(analytics.totalProducts).toBe(0)
+    expect(analytics.averageCost).toBe(0)
+    expect(analytics.averageMargin).toBe(0)
+    expect(analytics.lowMarginProducts).toEqual([])
+    expect(analytics.costTrends).toEqual([])
+  })
+})
+
+describe('saveGPTQuery — persisted assistant history', () => {
+  let service: InstanceType<typeof CostManagementService>
+
+  beforeEach(() => {
+    service = new CostManagementService()
+  })
+
+  it('inserts the query/response pair for the asking user', async () => {
+    state.insertResult = {
+      data: {
+        id: 'q1', user_id: MANAGER_ID, query: 'test', response: 'answer',
+        context: null, created_at: '2026-08-16T00:00:00.000Z'
+      },
+      error: null
+    }
+
+    await service.saveGPTQuery({
+      id: 'ignored-client-id',
+      userId: MANAGER_ID,
+      query: 'What price gives a 30% margin on a $10 cost?',
+      response: 'Price at **$14.29**',
+      context: {},
+      timestamp: '2026-08-16T00:00:00.000Z'
+    })
+
+    expect(state.lastTable).toBe('gpt_cost_queries')
+    expect(state.lastInsert?.user_id).toBe(MANAGER_ID)
+    expect(state.lastInsert?.query).toBe('What price gives a 30% margin on a $10 cost?')
+  })
+
+  it('does not throw when the insert fails — history is best-effort, never blocking', async () => {
+    state.insertResult = { data: null, error: { message: 'permission denied' } }
+
+    await expect(
+      service.saveGPTQuery({
+        id: 'x', userId: MANAGER_ID, query: 'q', response: 'r', context: {}, timestamp: '2026-08-16T00:00:00.000Z'
+      })
+    ).resolves.toBeUndefined()
   })
 })

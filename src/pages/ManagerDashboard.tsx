@@ -28,10 +28,14 @@ const ManagerDashboard: React.FC = () => {
     customLaborHours: 0
   })
 
-  // GPT Assistant State
+  // Keyword Assistant State
   const [chatQuery, setChatQuery] = useState('')
   const [chatHistory, setChatHistory] = useState<Array<{ query: string; response: string; timestamp: string }>>([])
   const [isQueryLoading, setIsQueryLoading] = useState(false)
+
+  // Persistence state for the cost variables form
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
     if (user && (user.role === 'manager' || user.role === 'admin' || user.role === 'founder')) {
@@ -68,18 +72,30 @@ const ManagerDashboard: React.FC = () => {
 
   const saveCostVariables = async () => {
     try {
+      setIsSaving(true)
+      setSaveStatus(null)
+
       const updatedVariables: Partial<CostVariables> = {
         managerId: user?.id || '',
         ...variablesForm,
         lastUpdated: new Date().toISOString()
       }
 
+      // Only reports success if the row actually came back from the database.
       const saved = await costManagementService.saveCostVariables(updatedVariables)
       setCostVariables(saved)
-      alert('Cost variables saved successfully!')
+      setSaveStatus({
+        type: 'success',
+        message: `Saved to your account at ${new Date(saved.lastUpdated).toLocaleTimeString()}. These values will load next time.`
+      })
     } catch (error) {
       console.error('Error saving cost variables:', error)
-      alert('Failed to save cost variables')
+      setSaveStatus({
+        type: 'error',
+        message: `Not saved — ${error instanceof Error ? error.message : 'unknown error'}. Your changes are still on screen but will be lost on reload.`
+      })
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -158,7 +174,7 @@ const ManagerDashboard: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-text">Manager Dashboard</h1>
-        <p className="text-muted">Cost Controls & AI Assistant</p>
+        <p className="text-muted">Cost Controls & Keyword Assistant</p>
       </div>
 
       {/* Tabs */}
@@ -167,7 +183,8 @@ const ManagerDashboard: React.FC = () => {
           {[
             { id: 'variables', label: 'Cost Variables', icon: '💰' },
             { id: 'calculator', label: 'Cost Calculator', icon: '🧮' },
-            { id: 'assistant', label: 'AI Assistant', icon: '🤖' }
+            { id: 'assistant', label: 'Keyword Assistant', icon: '🔍' },
+            { id: 'analytics', label: 'Analytics', icon: '📊' }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -192,8 +209,31 @@ const ManagerDashboard: React.FC = () => {
             <h3 className="text-lg font-medium text-text">Cost Input System</h3>
             <p className="text-sm text-muted">Configure your pricing variables</p>
           </div>
-          
+
           <div className="p-6 space-y-6">
+            {/* Where the on-screen numbers actually came from */}
+            {costVariables?.source === 'defaults' && (
+              <div
+                className={`rounded-md border p-4 text-sm ${
+                  costVariables.loadError
+                    ? 'bg-red-50 border-red-200 text-red-800'
+                    : 'bg-yellow-50 border-yellow-200 text-yellow-800'
+                }`}
+              >
+                {costVariables.loadError
+                  ? `Could not load your saved cost variables (${costVariables.loadError}). The values below are
+                     starting defaults, not your settings — saving will overwrite whatever is stored.`
+                  : `No saved cost variables yet. The values below are starting defaults and are not being
+                     stored — click Save Cost Variables to persist them to your account.`}
+              </div>
+            )}
+
+            {costVariables?.source === 'database' && (
+              <div className="rounded-md border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                Loaded your saved cost variables (last updated{' '}
+                {new Date(costVariables.lastUpdated).toLocaleString()}).
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-text mb-2">
@@ -331,13 +371,29 @@ const ManagerDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-4 border-t card-border">
+            <div className="pt-4 border-t card-border space-y-3">
               <button
                 onClick={saveCostVariables}
-                className="btn-primary"
+                disabled={isSaving}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Save Cost Variables
+                {isSaving ? 'Saving...' : 'Save Cost Variables'}
               </button>
+
+              {saveStatus && (
+                <div
+                  role="status"
+                  className={`rounded-md border p-3 text-sm ${
+                    saveStatus.type === 'success'
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}
+                >
+                  {saveStatus.type === 'success'
+                    ? `Cost variables saved successfully! ${saveStatus.message}`
+                    : saveStatus.message}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -489,8 +545,11 @@ const ManagerDashboard: React.FC = () => {
       {activeTab === 'assistant' && (
         <div className="bg-card rounded-lg shadow">
           <div className="px-6 py-4 border-b card-border">
-            <h3 className="text-lg font-medium text-text">GPT Cost Assistant</h3>
-            <p className="text-sm text-muted">Ask questions about pricing and cost strategy</p>
+            <h3 className="text-lg font-medium text-text">Keyword Cost Assistant</h3>
+            <p className="text-sm text-muted">
+              Matches keywords in your question and answers with your own cost formulas. No AI model is
+              involved — it only recognizes the question shapes listed below.
+            </p>
           </div>
           
           <div className="p-6">
@@ -498,14 +557,14 @@ const ManagerDashboard: React.FC = () => {
             <div className="mb-6 space-y-4 max-h-96 overflow-y-auto">
               {chatHistory.length === 0 ? (
                 <div className="text-center py-8 text-muted">
-                  <div className="text-4xl mb-2">🤖</div>
-                  <p>Ask me anything about cost calculations and pricing strategy!</p>
+                  <div className="text-4xl mb-2">🔍</div>
+                  <p>Ask a cost or pricing question using one of the recognized phrasings below.</p>
                   <div className="mt-4 text-sm">
                     <p className="font-medium mb-2">Example questions:</p>
                     <ul className="space-y-1 text-left max-w-md mx-auto">
-                      <li>• "What should I price a product that costs $15 with 30% margin?"</li>
-                      <li>• "Calculate cost for 2.5h print with 60g filament"</li>
-                      <li>• "What margins do you recommend for premium products?"</li>
+                      <li>• "What price gives a 30% margin on a $15.00 cost?"</li>
+                      <li>• "How much does a 2.5 hour print with 60g filament cost?"</li>
+                      <li>• "What margin do you recommend for premium products?"</li>
                     </ul>
                   </div>
                 </div>
@@ -545,7 +604,7 @@ const ManagerDashboard: React.FC = () => {
                 disabled={!chatQuery.trim() || isQueryLoading}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isQueryLoading ? 'Thinking...' : 'Ask'}
+                {isQueryLoading ? 'Matching...' : 'Ask'}
               </button>
             </div>
           </div>

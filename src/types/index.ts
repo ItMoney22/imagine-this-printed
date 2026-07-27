@@ -792,6 +792,10 @@ export interface CostVariables {
   laborRatePerHour: number
   lastUpdated: string
   createdAt: string
+  /** Where these values came from: a saved row, or unsaved starting defaults. */
+  source?: 'database' | 'defaults'
+  /** Set when a read failed and defaults were substituted, so the UI can say so. */
+  loadError?: string
 }
 
 export interface ProductCostBreakdown {
