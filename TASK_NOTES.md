@@ -22,6 +22,21 @@
 
 Note: older scope expansions below are historical context, not current edit approval.
 
+### Scope expansion — DB schema consolidation (added 2026-07-26 by Iahhm, Watchtower task c759b3d4-4c14-4b02-be11-e41db8e408e0)
+- Rationale: dispatched task is "Consolidate database schema to supabase/migrations and backend/prisma".
+  The Etsy scope above is stale relative to this dispatch. Owner dispatch = approval to expand scope.
+  Edits are confined to schema definition files, the two scripts that reference migration paths by name,
+  and `package.json` (Prisma dep alignment). No runtime/business logic is touched.
+- `supabase/migrations/*.sql` (canonical PostgreSQL timeline — receives ported migrations)
+- `backend/prisma/schema.prisma` (canonical Prisma schema — receives merged models)
+- `prisma/` (root — deleted; nothing in `src/` imports Prisma)
+- `migrations/`, `backend/migrations/`, `backend/db/migrations/`, `backend/supabase/migrations/`,
+  `backend/prisma/migrations/` (non-canonical — ported then deleted)
+- `COMPLETE_DATABASE_SETUP.sql` → `archive/database/` (historical snapshot)
+- `backend/scripts/apply-admin-settings-migration.ts`, `backend/scripts/fix-product-images-sync.ts`
+  (repoint to canonical migration paths so they don't break on deletion)
+- `package.json` (drop dead root `prisma`/`@prisma/client` ^6.12 — backend ^5.22 is the only real consumer)
+
 ### Edit allowed
 - `TASK_NOTES.md` (one concise milestone/work-log bullet after a separately approved implementation pass)
 - No repo code files.

@@ -45,7 +45,7 @@ async function runMigration() {
   try {
     console.log('Reading migration file...');
     const migrationSQL = await fs.readFile(
-      path.join(__dirname, '../prisma/migrations/001_initial_schema.sql'),
+      path.join(__dirname, '../../supabase/migrations/001_initial_schema.sql'),
       'utf-8'
     );
 

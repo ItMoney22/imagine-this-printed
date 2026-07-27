@@ -20,19 +20,21 @@ CREATE TABLE IF NOT EXISTS points_transactions (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_points_transactions_user_id ON points_transactions(user_id);
-CREATE INDEX idx_points_transactions_created_at ON points_transactions(created_at DESC);
-CREATE INDEX idx_points_transactions_type ON points_transactions(type);
-CREATE INDEX idx_points_transactions_related_entity ON points_transactions(related_entity_type, related_entity_id);
+CREATE INDEX IF NOT EXISTS idx_points_transactions_user_id ON points_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_points_transactions_created_at ON points_transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_points_transactions_type ON points_transactions(type);
+CREATE INDEX IF NOT EXISTS idx_points_transactions_related_entity ON points_transactions(related_entity_type, related_entity_id);
 
 -- Enable RLS
 ALTER TABLE points_transactions ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
+DROP POLICY IF EXISTS "Users can view their own points transactions" ON points_transactions;
 CREATE POLICY "Users can view their own points transactions"
   ON points_transactions FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all points transactions" ON points_transactions;
 CREATE POLICY "Admins can view all points transactions"
   ON points_transactions FOR SELECT
   USING (
@@ -43,6 +45,7 @@ CREATE POLICY "Admins can view all points transactions"
     )
   );
 
+DROP POLICY IF EXISTS "System can insert points transactions" ON points_transactions;
 CREATE POLICY "System can insert points transactions"
   ON points_transactions FOR INSERT
   WITH CHECK (true);
@@ -68,19 +71,21 @@ CREATE TABLE IF NOT EXISTS itc_transactions (
 );
 
 -- Indexes
-CREATE INDEX idx_itc_transactions_user_id ON itc_transactions(user_id);
-CREATE INDEX idx_itc_transactions_created_at ON itc_transactions(created_at DESC);
-CREATE INDEX idx_itc_transactions_type ON itc_transactions(type);
-CREATE INDEX idx_itc_transactions_stripe_payment ON itc_transactions(stripe_payment_id);
+CREATE INDEX IF NOT EXISTS idx_itc_transactions_user_id ON itc_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_itc_transactions_created_at ON itc_transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_itc_transactions_type ON itc_transactions(type);
+CREATE INDEX IF NOT EXISTS idx_itc_transactions_stripe_payment ON itc_transactions(stripe_payment_id);
 
 -- Enable RLS
 ALTER TABLE itc_transactions ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
+DROP POLICY IF EXISTS "Users can view their own ITC transactions" ON itc_transactions;
 CREATE POLICY "Users can view their own ITC transactions"
   ON itc_transactions FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all ITC transactions" ON itc_transactions;
 CREATE POLICY "Admins can view all ITC transactions"
   ON itc_transactions FOR SELECT
   USING (
@@ -91,6 +96,7 @@ CREATE POLICY "Admins can view all ITC transactions"
     )
   );
 
+DROP POLICY IF EXISTS "System can insert ITC transactions" ON itc_transactions;
 CREATE POLICY "System can insert ITC transactions"
   ON itc_transactions FOR INSERT
   WITH CHECK (true);
@@ -114,26 +120,30 @@ CREATE TABLE IF NOT EXISTS referral_codes (
 );
 
 -- Indexes
-CREATE INDEX idx_referral_codes_user_id ON referral_codes(user_id);
-CREATE INDEX idx_referral_codes_code ON referral_codes(code);
-CREATE INDEX idx_referral_codes_active ON referral_codes(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code);
+CREATE INDEX IF NOT EXISTS idx_referral_codes_active ON referral_codes(is_active) WHERE is_active = true;
 
 -- Enable RLS
 ALTER TABLE referral_codes ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
+DROP POLICY IF EXISTS "Users can view their own referral codes" ON referral_codes;
 CREATE POLICY "Users can view their own referral codes"
   ON referral_codes FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Anyone can view active codes for validation" ON referral_codes;
 CREATE POLICY "Anyone can view active codes for validation"
   ON referral_codes FOR SELECT
   USING (is_active = true);
 
+DROP POLICY IF EXISTS "Users can create their own referral codes" ON referral_codes;
 CREATE POLICY "Users can create their own referral codes"
   ON referral_codes FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update their own referral codes" ON referral_codes;
 CREATE POLICY "Users can update their own referral codes"
   ON referral_codes FOR UPDATE
   USING (auth.uid() = user_id);
@@ -161,20 +171,22 @@ CREATE TABLE IF NOT EXISTS referral_transactions (
 );
 
 -- Indexes
-CREATE INDEX idx_referral_transactions_referrer ON referral_transactions(referrer_id);
-CREATE INDEX idx_referral_transactions_referee ON referral_transactions(referee_id);
-CREATE INDEX idx_referral_transactions_code ON referral_transactions(referral_code_id);
-CREATE INDEX idx_referral_transactions_status ON referral_transactions(status);
-CREATE INDEX idx_referral_transactions_created_at ON referral_transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_referrer ON referral_transactions(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_referee ON referral_transactions(referee_id);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_code ON referral_transactions(referral_code_id);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_status ON referral_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_created_at ON referral_transactions(created_at DESC);
 
 -- Enable RLS
 ALTER TABLE referral_transactions ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
+DROP POLICY IF EXISTS "Users can view their referral transactions" ON referral_transactions;
 CREATE POLICY "Users can view their referral transactions"
   ON referral_transactions FOR SELECT
   USING (auth.uid() = referrer_id OR auth.uid() = referee_id);
 
+DROP POLICY IF EXISTS "Admins can view all referral transactions" ON referral_transactions;
 CREATE POLICY "Admins can view all referral transactions"
   ON referral_transactions FOR SELECT
   USING (
@@ -185,10 +197,12 @@ CREATE POLICY "Admins can view all referral transactions"
     )
   );
 
+DROP POLICY IF EXISTS "System can insert referral transactions" ON referral_transactions;
 CREATE POLICY "System can insert referral transactions"
   ON referral_transactions FOR INSERT
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "System can update referral transactions" ON referral_transactions;
 CREATE POLICY "System can update referral transactions"
   ON referral_transactions FOR UPDATE
   USING (true);
@@ -218,10 +232,10 @@ CREATE TABLE IF NOT EXISTS order_rewards (
 );
 
 -- Indexes
-CREATE INDEX idx_order_rewards_order_id ON order_rewards(order_id);
-CREATE INDEX idx_order_rewards_user_id ON order_rewards(user_id);
-CREATE INDEX idx_order_rewards_status ON order_rewards(status);
-CREATE INDEX idx_order_rewards_created_at ON order_rewards(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_order_rewards_order_id ON order_rewards(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_rewards_user_id ON order_rewards(user_id);
+CREATE INDEX IF NOT EXISTS idx_order_rewards_status ON order_rewards(status);
+CREATE INDEX IF NOT EXISTS idx_order_rewards_created_at ON order_rewards(created_at DESC);
 
 -- Unique constraint to prevent duplicate rewards for same order
 CREATE UNIQUE INDEX idx_order_rewards_unique_order ON order_rewards(order_id);
@@ -230,10 +244,12 @@ CREATE UNIQUE INDEX idx_order_rewards_unique_order ON order_rewards(order_id);
 ALTER TABLE order_rewards ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
+DROP POLICY IF EXISTS "Users can view their own order rewards" ON order_rewards;
 CREATE POLICY "Users can view their own order rewards"
   ON order_rewards FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all order rewards" ON order_rewards;
 CREATE POLICY "Admins can view all order rewards"
   ON order_rewards FOR SELECT
   USING (
@@ -244,10 +260,12 @@ CREATE POLICY "Admins can view all order rewards"
     )
   );
 
+DROP POLICY IF EXISTS "System can insert order rewards" ON order_rewards;
 CREATE POLICY "System can insert order rewards"
   ON order_rewards FOR INSERT
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "System can update order rewards" ON order_rewards;
 CREATE POLICY "System can update order rewards"
   ON order_rewards FOR UPDATE
   USING (true);

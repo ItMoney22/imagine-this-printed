@@ -59,6 +59,9 @@ model UserProfile {
   costVariables       CostVariable[]
   vendorOrderItems    OrderItem[] @relation("VendorOrderItems")
   managedCostBreakdowns ProductCostBreakdown[] @relation("ManagerCostBreakdowns")
+  tickets             SupportTicket[] @relation("UserTickets")
+  assignedTickets     SupportTicket[] @relation("AssignedTickets")
+  ticketMessages      TicketMessage[]
   
   @@map("user_profiles")
 }
@@ -565,4 +568,58 @@ model BlankInventoryMovement {
   blank     BlankInventory @relation(fields: [blankId], references: [id], onDelete: Cascade)
 
   @@map("blank_inventory_movements")
+}
+
+// ============================================================================
+// Support system
+// ----------------------------------------------------------------------------
+// Merged in from the deleted root prisma/schema.prisma during schema
+// consolidation (Watchtower task c759b3d4).
+//
+// These are NOT verbatim copies of the root models. The root schema had drifted
+// away from the live database: it declared TicketMessage.content and no
+// senderType, while the canonical SQL
+// (supabase/migrations/20251219_coupons_giftcards_support.sql) and every live
+// writer (backend/routes/support.ts, backend/routes/admin/support.ts,
+// backend/routes/ai/chat.ts) use `message` + `sender_type`. The models below
+// follow the canonical SQL, so nullability, the guest `email` column and the
+// 'waiting' status are reflected too.
+// ============================================================================
+
+model SupportTicket {
+  id          String    @id @default(uuid())
+  userId      String?   @map("user_id")
+  email       String?   // set for guest tickets
+  status      String    @default("open") // 'open', 'waiting', 'in_progress', 'resolved', 'closed'
+  priority    String    @default("medium") // 'low', 'medium', 'high', 'urgent'
+  category    String?   // 'order_status', 'product_quality', 'billing', 'technical_issue', 'other'
+  subject     String?
+  description String?
+  assignedTo  String?   @map("assigned_to")
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user          UserProfile?  @relation("UserTickets", fields: [userId], references: [id])
+  assignedAgent UserProfile?  @relation("AssignedTickets", fields: [assignedTo], references: [id])
+  messages      TicketMessage[]
+
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id         String   @id @default(uuid())
+  ticketId   String   @map("ticket_id")
+  senderId   String?  @map("sender_id") // null for system/AI messages
+  senderType String   @default("user") @map("sender_type") // 'user', 'agent', 'system', 'ai'
+  message    String?
+  isInternal Boolean  @default(false) @map("is_internal")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender     UserProfile?  @relation(fields: [senderId], references: [id])
+
+  @@map("ticket_messages")
 }

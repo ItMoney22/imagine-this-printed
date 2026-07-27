@@ -1,8 +1,17 @@
 -- ============================================
 -- AI Product Builder Database Schema
+-- Date: 2025-11-04
 -- ============================================
+-- Ported into the canonical timeline from the orphaned `migrations/2025-11-04-ai-product-builder.sql`
+-- (schema consolidation, Watchtower task c759b3d4). This migration is LOAD-BEARING: it CREATEs
+-- product_assets / ai_jobs / product_categories / product_tags / product_variants, which later
+-- canonical migrations (20251130153953, 20251209000000) ALTER. Without it a from-scratch rebuild
+-- of supabase/migrations fails. Timestamp is intentionally 20251104 so it sorts before those.
+--
+-- Policies are wrapped in DROP ... IF EXISTS so the file is safe to re-run against the live DB,
+-- which already has these objects.
 
--- Product categories (if not exists)
+-- Product categories
 CREATE TABLE IF NOT EXISTS product_categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug TEXT UNIQUE NOT NULL,
@@ -98,7 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_jobs_prediction_id ON ai_jobs(prediction_id);
 CREATE INDEX IF NOT EXISTS idx_product_tags_product_id ON product_tags(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id);
 
--- RLS Policies
+-- RLS
 ALTER TABLE product_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_jobs ENABLE ROW LEVEL SECURITY;
@@ -106,6 +115,7 @@ ALTER TABLE product_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_variants ENABLE ROW LEVEL SECURITY;
 
 -- Allow admins/managers to manage everything
+DROP POLICY IF EXISTS "Admins can manage categories" ON product_categories;
 CREATE POLICY "Admins can manage categories" ON product_categories
   FOR ALL USING (
     EXISTS (
@@ -114,6 +124,7 @@ CREATE POLICY "Admins can manage categories" ON product_categories
     )
   );
 
+DROP POLICY IF EXISTS "Admins can manage assets" ON product_assets;
 CREATE POLICY "Admins can manage assets" ON product_assets
   FOR ALL USING (
     EXISTS (
@@ -122,6 +133,7 @@ CREATE POLICY "Admins can manage assets" ON product_assets
     )
   );
 
+DROP POLICY IF EXISTS "Admins can manage ai_jobs" ON ai_jobs;
 CREATE POLICY "Admins can manage ai_jobs" ON ai_jobs
   FOR ALL USING (
     EXISTS (
@@ -130,6 +142,7 @@ CREATE POLICY "Admins can manage ai_jobs" ON ai_jobs
     )
   );
 
+DROP POLICY IF EXISTS "Admins can manage tags" ON product_tags;
 CREATE POLICY "Admins can manage tags" ON product_tags
   FOR ALL USING (
     EXISTS (
@@ -138,6 +151,7 @@ CREATE POLICY "Admins can manage tags" ON product_tags
     )
   );
 
+DROP POLICY IF EXISTS "Admins can manage variants" ON product_variants;
 CREATE POLICY "Admins can manage variants" ON product_variants
   FOR ALL USING (
     EXISTS (
@@ -147,6 +161,7 @@ CREATE POLICY "Admins can manage variants" ON product_variants
   );
 
 -- Public read access for published products
+DROP POLICY IF EXISTS "Public can read published assets" ON product_assets;
 CREATE POLICY "Public can read published assets" ON product_assets
   FOR SELECT USING (
     EXISTS (

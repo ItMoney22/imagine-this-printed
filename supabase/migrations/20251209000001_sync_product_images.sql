@@ -1,5 +1,9 @@
--- Migration: Fix product image sync to include all relevant asset kinds
--- This ensures DTF, nobg, and other asset types are included in products.images
+-- Migration: product image sync (products.images <- product_assets)
+-- Ported into the canonical timeline during schema consolidation (Watchtower task c759b3d4).
+-- Source: orphaned migrations/fix_sync_product_images.sql, which SUPERSEDES the earlier
+-- migrations/sync_product_images.sql (that first version only synced mockup+source and is
+-- dropped as obsolete). The trailing ad-hoc verification SELECT was removed - a migration
+-- should not return rows.
 
 -- Drop existing trigger first
 DROP TRIGGER IF EXISTS auto_sync_product_images ON product_assets;
@@ -39,6 +43,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS auto_sync_product_images ON product_assets;
 CREATE TRIGGER auto_sync_product_images
 AFTER INSERT OR UPDATE ON product_assets
 FOR EACH ROW
@@ -61,16 +66,3 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'Synced % products with assets', synced_count;
 END $$;
-
--- Verify the sync worked
-SELECT
-  p.id,
-  p.name,
-  p.status,
-  array_length(p.images, 1) as image_count,
-  COUNT(pa.id) as asset_count
-FROM products p
-LEFT JOIN product_assets pa ON p.id = pa.product_id
-GROUP BY p.id, p.name, p.status
-ORDER BY p.created_at DESC
-LIMIT 20;

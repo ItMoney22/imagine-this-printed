@@ -16,7 +16,7 @@ async function applyMigration() {
 
   try {
     // Read migration SQL
-    const migrationPath = path.join(__dirname, '../migrations/create_admin_settings.sql')
+    const migrationPath = path.join(__dirname, '../../supabase/migrations/20251209000002_admin_settings.sql')
     const migrationSQL = fs.readFileSync(migrationPath, 'utf-8')
 
     console.log('📄 Migration SQL:')
@@ -36,7 +36,7 @@ async function applyMigration() {
       console.error('Details:', error)
       console.log('\n⚠️  Manual steps required:')
       console.log('1. Go to Supabase Dashboard > SQL Editor')
-      console.log('2. Copy the SQL from: backend/migrations/create_admin_settings.sql')
+      console.log('2. Copy the SQL from: supabase/migrations/20251209000002_admin_settings.sql')
       console.log('3. Paste and run it manually')
       process.exit(1)
     }
@@ -64,7 +64,7 @@ async function applyMigration() {
     console.log('\n📝 Manual migration instructions:')
     console.log('1. Open Supabase Dashboard')
     console.log('2. Navigate to SQL Editor')
-    console.log('3. Run the SQL from: backend/migrations/create_admin_settings.sql')
+    console.log('3. Run the SQL from: supabase/migrations/20251209000002_admin_settings.sql')
     process.exit(1)
   }
 }
