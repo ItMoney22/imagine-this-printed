@@ -342,6 +342,24 @@ export const MODELS: ImageModel[] = [
 
   // --- MOCKUP (apparel-on-model rendering) ---
   {
+    id: 'google/nano-banana-2-lite',
+    provider: 'replicate',
+    tier: 'mockup',
+    unifiedGenAndEdit: true,
+    label: 'Nano Banana 2 Lite',
+    costPerImageUsd: 0.034,
+    approxSeconds: 5,
+    strengths: ['edit', 'multi-image', 'photoreal-product'],
+    notes:
+      'Gemini 3.1 Flash-Lite Image — the default compositor for every garment mockup (flat lay, ghost mannequin, character fusion, on-model try-on). ' +
+      'Replaced google/nano-banana v1 on 2026-07-26 after a 5-shot-per-arm A/B on the real composite prompts: 12.8% cheaper ($0.034 vs $0.039), ' +
+      '2.07x faster (4.35s vs 9.02s avg predict), zero wearer-drift regressions, and BETTER design fidelity — v1 kept flattening the outline ' +
+      'strokes and arch on varsity lettering that lite reproduces. Accepts up to 14 reference images. ' +
+      'CAVEAT: outputs 1K (~1MP) and ALWAYS returns JPEG regardless of output_format — sniff magic bytes, never trust the .png delivery URL or its content-type header.',
+    promptCraft:
+      "Multi-image input. For mockups, supply [character?, design] image_input array; describe the garment, color, and where the print sits. Keep instructions concrete.",
+  },
+  {
     id: 'google/nano-banana',
     provider: 'replicate',
     tier: 'mockup',
@@ -350,7 +368,7 @@ export const MODELS: ImageModel[] = [
     costPerImageUsd: 0.039,
     approxSeconds: 8,
     strengths: ['edit', 'multi-image', 'photoreal-product'],
-    notes: 'Gemini 2.5 Flash Image — best quality on garment mockups (flat lay, ghost mannequin, character fusion). Also the Replicate-based "Gemini" option in the Refine editor.',
+    notes: 'Gemini 2.5 Flash Image — superseded as the mockup default by nano-banana-2-lite (pricier and ~2x slower for equal-or-worse design fidelity). Kept registered because it is still the user-selectable Replicate "Gemini" option in the Refine editor, and it emits true PNG.',
     promptCraft:
       "Multi-image input. For mockups, supply [character?, design] image_input array; describe the garment, color, and where the print sits. Keep instructions concrete.",
   },
@@ -458,7 +476,7 @@ export function requiresCostGate(model: ImageModel): boolean {
 /** ITP defaults — admin product builder uses gpt-image-2 for everything. */
 export const DEFAULT_GENERATE_MODEL = 'openai/gpt-image-2'
 export const DEFAULT_EDIT_MODEL = 'openai/gpt-image-2'
-export const DEFAULT_MOCKUP_MODEL = 'google/nano-banana'
+export const DEFAULT_MOCKUP_MODEL = 'google/nano-banana-2-lite'
 export const DEFAULT_BG_REMOVE_MODEL = 'fal-ai/bria/background/remove'
 export const DEFAULT_UPSCALE_MODEL = 'recraft-ai/recraft-crisp-upscale'
 

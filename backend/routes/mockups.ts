@@ -408,8 +408,14 @@ router.post('/itp-enhance', requireAuth, async (req: Request, res: Response): Pr
     console.log(`[mockups/itp-enhance] Generating ${product_type} mockup for user ${userId}`)
     console.log(`[mockups/itp-enhance] Design URL: ${design_url.substring(0, 100)}...`)
 
-    // Call Replicate ITP Enhance Engine API
-    const itpEnhanceModel = "google/itp-enhance:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be"
+    // Call Replicate ITP Enhance Engine API.
+    // 2026-07-26: this used to read "google/itp-enhance:858e567…" — a slug that
+    // 404s on Replicate. It only ever worked because the API resolves a bare
+    // version hash, so it was silently running google/nano-banana v1 behind a
+    // cosmetic name. Now pointed at nano-banana-2-lite like every other
+    // composite call site: 12.8% cheaper, ~2x faster, same input contract.
+    // (The customer-facing "ITP Enhance Engine" branding is unchanged.)
+    const itpEnhanceModel = "google/nano-banana-2-lite"
 
     const output = await replicate.run(
       itpEnhanceModel as any,
