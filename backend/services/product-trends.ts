@@ -5,6 +5,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+// gpt-4.1-mini is being migrated off per the 2026-07 OpenAI model audit.
+// Env-configurable, current default.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(OPENAI_TEXT_MODEL)
+
 export type TrendSource = 'all' | 'tiktok' | 'etsy' | 'amazon'
 export type TrendFamily = 'all' | 'apparel' | 'tumblers' | 'dtf-transfers' | 'stickers' | 'metal-art' | '3d-toys'
 export type ExecutableProductCategory = 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
@@ -240,8 +245,8 @@ export async function suggestSimpleWordPhrases(input: {
   }
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4.1-mini',
-    temperature: 0.9,
+    model: OPENAI_TEXT_MODEL,
+    ...(isReasoningModel ? {} : { temperature: 0.9 }),
     response_format: { type: 'json_object' },
     messages: [
       {
@@ -307,8 +312,8 @@ export async function suggestProductTrends(input: {
   }
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4.1-mini',
-    temperature: 0.55,
+    model: OPENAI_TEXT_MODEL,
+    ...(isReasoningModel ? {} : { temperature: 0.55 }),
     response_format: { type: 'json_object' },
     messages: [
       {

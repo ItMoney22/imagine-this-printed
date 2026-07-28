@@ -7,6 +7,13 @@ LOG_FILE="/var/log/metadev/prisma-daily-sync.log"
 EMAIL_TO="info@davidtrinidad.com"
 DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
+# Database password must come from the environment. Never hardcode it here —
+# this file is committed, so any literal ends up in git history permanently.
+if [[ -z "${PGPASSWORD:-}" ]]; then
+    echo "[$DATE] ERROR: PGPASSWORD is not set. Export it before running this script." >&2
+    exit 1
+fi
+
 # Function to log messages
 log_message() {
     echo "[$DATE] $1" | tee -a "$LOG_FILE"
@@ -55,7 +62,7 @@ fi
 
 # Check PostgreSQL connection
 log_message "Checking PostgreSQL connection..."
-if ! PGPASSWORD="IAmGod1622#" psql -h localhost -p 5432 -U postgres -d imagine_this_printed -c "SELECT 1;" > /dev/null 2>&1; then
+if ! psql -h localhost -p 5432 -U postgres -d imagine_this_printed -c "SELECT 1;" > /dev/null 2>&1; then
     log_message "ERROR: Cannot connect to PostgreSQL database"
     send_email "Prisma Sync Failed" "Cannot connect to PostgreSQL database"
     exit 1
@@ -84,7 +91,7 @@ fi
 
 # Log database statistics
 log_message "Database statistics:"
-PGPASSWORD="IAmGod1622#" psql -h localhost -p 5432 -U postgres -d imagine_this_printed -c "
+psql -h localhost -p 5432 -U postgres -d imagine_this_printed -c "
     SELECT 
         schemaname,
         tablename,

@@ -9,15 +9,21 @@
 //     product without a pack (covers admin-created products and legacy rows),
 //     bounded per run to keep model spend flat.
 //
-// Cost-first (David's standing rule): gpt-4o-mini, one call per product, and
-// existing AI copy in metadata is reused as input, never regenerated.
+// Cost-first (David's standing rule): cheap-tier model, one call per
+// product, and existing AI copy in metadata is reused as input, never
+// regenerated. gpt-4o-mini is retired (gpt-4 family hard shutdown
+// 2026-10-23) — default is now gpt-5.4-nano, the current cheap tier.
 // Idempotent via products.metadata.seo_pack_generated_at. If no OPENAI_API_KEY
 // the pack falls back to mechanical derivation so columns still get filled.
 // ---------------------------------------------------------------------------
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 
-const SEO_MODEL = process.env.SEO_PACK_MODEL || 'gpt-4o-mini'
+const SEO_MODEL = process.env.SEO_PACK_MODEL || 'gpt-5.4-nano'
+// gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
+// verified live during the sibling design-assistant.ts migration (see
+// handoff-joshua-knight-1785113728792.json).
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(SEO_MODEL)
 const SWEEP_BATCH = Number(process.env.SEO_PACK_SWEEP_BATCH || 10)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
 
@@ -61,7 +67,7 @@ async function aiPack(product: any, tags: string[]): Promise<SeoPack | null> {
     const completion = await openai.chat.completions.create({
       model: SEO_MODEL,
       response_format: { type: 'json_object' },
-      max_tokens: 600,
+      ...(isReasoningModel ? { max_completion_tokens: 600 } : { max_tokens: 600 }),
       messages: [
         {
           role: 'system',

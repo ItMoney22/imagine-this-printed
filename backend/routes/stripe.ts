@@ -15,6 +15,11 @@ import {
 } from '../utils/email.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
+import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
+import { sendMerchOrderEvent } from '../services/merch-webhook.js'
+import { processOrderCompletion } from '../services/order-reward-service.js'
+import { processReferralFirstPurchase } from '../services/referral-service.js'
+import { findCouponIdByCode, recordCouponUsage } from './coupons.js'
 
 const router = Router()
 
@@ -88,6 +93,9 @@ function snapshotCartItems(items: any[] | undefined | null) {
     image: i.product?.images?.[0] ?? null,
     size: i.selectedSize ?? null,
     color: i.selectedColor ?? null,
+    // Where on the garment the art prints. Chosen on the product page and
+    // carried through the cart — fulfillment needs it or it defaults to front.
+    printLocation: i.printLocation ?? null,
     customDesign: i.customDesign ?? null,
     // Selected add-on upsells (metal-art stand/mount/etc.) so MyOrders + the
     // print bridge / fulfillment can see what to include.
@@ -119,6 +127,7 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
         image_url: item.product?.images?.[0] ?? null,
         size: item.selectedSize ?? null,
         color: item.selectedColor ?? null,
+        print_location: item.printLocation ?? null,
         custom_design: item.customDesign ?? null,
         // Add-on upsells for fulfillment (+ per-unit add-on total).
         addons: hasAddons ? item.selectedAddons : null,
@@ -146,35 +155,104 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, discount, userId: bodyUserId, shippingCost, tax, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush } = req.body
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
-
-    // Validate amount (in cents)
-    if (!amount || typeof amount !== 'number' || amount < 50) { // Stripe minimum is 50 cents
-      return res.status(400).json({ error: 'Invalid amount - minimum is $0.50' })
-    }
+    // ITC store-credit and per-user coupon limits are only ever honored for a
+    // caller we've actually authenticated via the JWT — never a body-supplied
+    // guest id, which anyone could spoof to drain someone else's wallet.
+    const trustedUserId = req.user?.sub ?? null
 
     // Validate currency
     if (currency !== 'usd') {
       return res.status(400).json({ error: 'Only USD currency is supported' })
     }
 
-    // Calculate subtotal from items
-    const subtotal = items?.reduce((sum: number, item: any) =>
-      sum + (item.product?.price || 0) * (item.quantity || 1), 0) || 0
+    // -----------------------------------------------------------------------
+    // SECURITY (Watchtower task 9a8431d9): the client-supplied `amount`,
+    // `tax`, `discount`, and `shippingCost` are NEVER trusted. The server
+    // independently recomputes the whole order — line prices from the DB,
+    // discount from the coupon table, tax from a state rate table, shipping
+    // bounds-checked — and THAT number is what gets charged, always. See
+    // backend/services/order-pricing.ts for the engine and its documented
+    // scope/known gaps.
+    // -----------------------------------------------------------------------
+    const pricingItems: PricingCartItem[] = (items || []).map((item: any) => ({
+      productId: item?.product?.id != null ? String(item.product.id) : null,
+      quantity: item?.quantity || 1,
+      selectedSize: item?.selectedSize ?? null,
+      selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
+      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null
+    }))
+
+    let pricing
+    try {
+      pricing = await calculateOrderPricing({
+        items: pricingItems,
+        shippingAddress: { state: shipping?.state, postalCode: shipping?.zipCode, country: shipping?.country },
+        shipping: {
+          type: shippingType,
+          clientAmountCents: Math.round((Number(shippingCost) || 0) * 100),
+          rush: !!rush
+        },
+        couponCode: couponCode || null,
+        userId: trustedUserId,
+        itcCreditRequested: Number(itcCreditAmount) || 0
+      })
+    } catch (pricingError: any) {
+      req.log?.error({ err: pricingError }, 'Error computing server-side order pricing')
+      return res.status(500).json({ error: 'Failed to price order', message: pricingError.message })
+    }
+
+    if (pricing.errors.length > 0) {
+      req.log?.warn({ errors: pricing.errors }, 'Checkout pricing could not be verified')
+      return res.status(400).json({ error: 'Invalid order — pricing could not be verified', details: pricing.errors })
+    }
+
+    const serverAmountCents = pricing.totalCents
+
+    // Stripe's own floor, checked against the AUTHORITATIVE server total.
+    if (serverAmountCents < 50) {
+      return res.status(400).json({ error: 'Invalid amount - minimum is $0.50' })
+    }
+
+    // Anti-tampering gate: reject when the client's number and the server's
+    // number disagree by more than a cent of rounding slack. The response
+    // carries the real numbers back so an honest client (whose only "offense"
+    // is a stale local estimate — see src/pages/Checkout.tsx) can resync and
+    // retry instead of getting stuck.
+    const pricingResponse = {
+      subtotal: pricing.productSubtotalCents / 100,
+      discount: pricing.discountCents / 100,
+      shipping: pricing.shippingCents / 100,
+      tax: pricing.taxCents / 100,
+      taxRate: pricing.taxRate,
+      total: serverAmountCents / 100
+    }
+    const amountCheck = evaluateCheckoutAmount(Number(amount), serverAmountCents)
+    if (!amountCheck.ok) {
+      req.log?.warn({ clientAmount: amount, serverAmount: serverAmountCents }, 'Checkout amount mismatch — rejecting (possible tampering or stale client estimate)')
+      return res.status(400).json({ error: amountCheck.error, pricing: pricingResponse })
+    }
+
+    // From here on, every dollar figure comes from `pricing` — never `amount`,
+    // `tax`, `discount`, or `shippingCost` off the request body.
+    const subtotal = pricingResponse.subtotal
+    const serverDiscountAmount = pricingResponse.discount
+    const serverShippingAmount = pricingResponse.shipping
+    const serverTaxAmount = pricingResponse.tax
 
     // If we have an existing payment intent and order, update them instead of creating new
     if (existingPaymentIntentId && existingOrderId) {
       try {
-        // Update the existing payment intent amount
+        // Update the existing payment intent amount — server-calculated, never the client's.
         const updatedPaymentIntent = await stripe.paymentIntents.update(existingPaymentIntentId, {
-          amount, // Amount in cents
+          amount: serverAmountCents,
           metadata: {
             couponCode: couponCode || '',
-            discount: discount?.toString() || '0',
-            shippingCost: shippingCost?.toString() || '0'
+            discount: serverDiscountAmount.toString(),
+            shippingCost: serverShippingAmount.toString()
           }
         })
 
@@ -198,10 +276,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           .from('orders')
           .update({
             subtotal: subtotal,
-            tax_amount: tax || 0,
-            shipping_amount: shippingCost || 0,
-            discount_amount: discount || 0,
-            total: amount / 100,
+            tax_amount: serverTaxAmount,
+            shipping_amount: serverShippingAmount,
+            discount_amount: serverDiscountAmount,
+            total: serverAmountCents / 100,
             discount_codes: couponCode ? [couponCode] : [],
             shipping_address: {
               firstName: shipping?.firstName,
@@ -238,16 +316,17 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         req.log?.info({
           paymentIntentId: existingPaymentIntentId,
           orderId: existingOrderId,
-          amount: amount / 100,
-          shippingCost: shippingCost,
-          discount: discount
+          amount: serverAmountCents / 100,
+          shippingCost: serverShippingAmount,
+          discount: serverDiscountAmount
         }, 'Updated existing payment intent and order')
 
         return res.json({
           clientSecret: updatedPaymentIntent.client_secret,
           paymentIntentId: updatedPaymentIntent.id,
           orderId: existingOrderId,
-          updated: true
+          updated: true,
+          pricing: pricingResponse
         })
       } catch (updateError: any) {
         // If update fails (e.g., payment intent already confirmed), create new
@@ -267,10 +346,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         customer_email: shipping?.email || null,
         customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
         subtotal: subtotal,
-        tax_amount: tax || 0,
-        shipping_amount: shippingCost || 0,
-        discount_amount: discount || 0,
-        total: amount / 100,
+        tax_amount: serverTaxAmount,
+        shipping_amount: serverShippingAmount,
+        discount_amount: serverDiscountAmount,
+        total: serverAmountCents / 100,
         currency: 'USD',
         status: 'pending',
         payment_status: 'pending',
@@ -310,9 +389,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       `${item.quantity}x ${item.product?.name || 'Product'}`
     ).join(', ') || 'Order'
 
-    // Create payment intent
+    // Create payment intent — server-calculated amount, never the client's.
     const paymentIntent = await stripe.paymentIntents.create({
-      amount, // Amount in cents
+      amount: serverAmountCents,
       currency,
       description: `Order ${orderNumber}: ${itemDescriptions}`,
       metadata: {
@@ -325,8 +404,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           qty: i.quantity
         })) || []),
         couponCode: couponCode || '',
-        discount: discount?.toString() || '0',
-        shippingCost: shippingCost?.toString() || '0',
+        discount: serverDiscountAmount.toString(),
+        shippingCost: serverShippingAmount.toString(),
         shippingCity: shipping?.city || '',
         shippingState: shipping?.state || '',
         shippingCountry: shipping?.country || 'US',
@@ -349,9 +428,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       paymentIntentId: paymentIntent.id,
       orderId: order.id,
       orderNumber: orderNumber,
-      amount: amount / 100,
-      shippingCost: shippingCost,
-      discount: discount,
+      amount: serverAmountCents / 100,
+      shippingCost: serverShippingAmount,
+      discount: serverDiscountAmount,
       itemCount: items?.length || 0
     }, 'Checkout payment intent and order created')
 
@@ -359,7 +438,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
       orderId: order.id,
-      orderNumber: orderNumber
+      orderNumber: orderNumber,
+      pricing: pricingResponse
     })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error creating checkout payment intent')
@@ -513,6 +593,103 @@ router.post('/webhook', async (req: Request, res: Response): Promise<any> => {
           paymentIntentId: paymentIntent.id,
           userId: paymentIntent.metadata.userId
         }, 'Payment canceled')
+        break
+      }
+
+      // Refund gap (Watchtower task c83da451): ITP had NO refund handling at
+      // all before this — ported nothing, this is new. Resolves the charge
+      // back to an ITP order via orders.payment_intent_id (written in
+      // handleCheckoutOrderPayment once a payment succeeds), so it only
+      // covers orders that have already gone through that paid path.
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge
+        await handleChargeRefunded(charge, req)
+        break
+      }
+
+      // ===============================
+      // STRIPE CONNECT EVENTS (ported from the now-removed routes/webhooks.ts
+      // POST /stripe — that route could never verify its signature, since
+      // index.ts only gives raw body to /api/stripe/webhook, so these events
+      // never reliably processed there)
+      // ===============================
+      case 'account.updated': {
+        const account = event.data.object as Stripe.Account
+        // Pure state-sync (mirrors Stripe's current account fields) — safe to
+        // re-apply on a redelivery with no guard, so none is added here.
+        req.log?.info({ accountId: account.id }, '[Stripe Connect Webhook] Account updated')
+        const { handleConnectAccountUpdate } = await import('../services/stripe-connect.js')
+        await handleConnectAccountUpdate(account)
+        break
+      }
+
+      case 'payout.paid': {
+        const payout = event.data.object as Stripe.Payout
+        if (event.account) {
+          const cashoutRequestId = payout.metadata?.cashout_request_id
+          if (cashoutRequestId) {
+            const { data: existing } = await supabase
+              .from('itc_cashout_requests')
+              .select('status')
+              .eq('id', cashoutRequestId)
+              .maybeSingle()
+            if (existing?.status === 'paid') {
+              req.log?.info({ payoutId: payout.id, cashoutRequestId }, 'Cashout already marked paid — duplicate webhook delivery, skipping')
+              break
+            }
+          }
+          req.log?.info({ payoutId: payout.id, account: event.account }, '[Stripe Connect Webhook] Payout paid')
+          const { handlePayoutPaid } = await import('../services/stripe-connect.js')
+          await handlePayoutPaid(payout, event.account)
+        }
+        break
+      }
+
+      case 'payout.failed': {
+        const payout = event.data.object as Stripe.Payout
+        if (event.account) {
+          const cashoutRequestId = payout.metadata?.cashout_request_id
+          // Idempotency claim — same atomic pattern as the checkout-order guard
+          // above: flip status to 'failed' only if it isn't already, so a
+          // redelivered payout.failed can't refund ITC to the wallet twice.
+          if (cashoutRequestId) {
+            const { claimOnce } = await import('../lib/webhook-helpers.js')
+            const claim = await claimOnce(
+              supabase
+                .from('itc_cashout_requests')
+                .update({ status: 'failed' })
+                .eq('id', cashoutRequestId)
+                .neq('status', 'failed')
+                .select('id')
+            )
+            if (claim.error) {
+              req.log?.error({ err: claim.error, cashoutRequestId }, 'Failed to claim cashout request for payout.failed')
+            }
+            if (!claim.claimed) {
+              req.log?.info({ payoutId: payout.id, cashoutRequestId }, 'Cashout already failed — duplicate webhook delivery, skipping ITC refund')
+              break
+            }
+          }
+          req.log?.info({ payoutId: payout.id, account: event.account }, '[Stripe Connect Webhook] Payout failed')
+          const { handlePayoutFailed } = await import('../services/stripe-connect.js')
+          await handlePayoutFailed(payout, event.account)
+        }
+        break
+      }
+
+      // ===============================
+      // FOUNDER INVOICE EVENTS (ported from routes/webhooks.ts — same reason
+      // as the Connect events above)
+      // ===============================
+      case 'invoice.paid': {
+        const invoice = event.data.object as Stripe.Invoice
+        await handleInvoicePaid(invoice, req)
+        break
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice
+        await handleInvoicePaymentFailed(invoice, req)
         break
       }
 
@@ -696,6 +873,62 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
     // Don't throw - order was updated successfully
   }
 
+  // Award order rewards + first-purchase referral bonus, and record coupon
+  // redemption. Previously NONE of this fired from the paid webhook:
+  // processOrderCompletion/processReferralFirstPurchase were only reachable
+  // from the admin-only POST /api/orders/:orderId/complete (no frontend
+  // caller), and POST /api/coupons/apply had no callers anywhere — so a real
+  // customer checkout never earned points, never triggered a referral bonus,
+  // and never actually enforced a coupon's max_uses/per-user limit. This runs
+  // only once we've won the idempotency claim above (a webhook redelivery
+  // returns before reaching this point), and processOrderCompletion /
+  // processReferralFirstPurchase each have their own internal dedup guard as
+  // a second layer. None of this should ever fail the webhook response — the
+  // payment already succeeded — so every failure here is logged and swallowed.
+  if (order) {
+    try {
+      const rewardsUserId = order.user_id || userId
+      const orderTotalUsd = Number(order.total) || 0
+
+      const rewardResult = await processOrderCompletion({
+        orderId,
+        userId: rewardsUserId,
+        orderTotal: orderTotalUsd,
+        orderNumber
+      })
+      if (!rewardResult.success && rewardResult.error !== 'Duplicate reward attempt') {
+        req.log?.error({ orderId, err: rewardResult.error }, '[rewards] Failed to award order rewards')
+      }
+
+      // Safe to call unconditionally — processReferralFirstPurchase only
+      // actually awards ITC the first time (checks for an existing
+      // 'purchase'-type referral_transactions row for this user first).
+      if (rewardsUserId) {
+        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd)
+        if (referralResult.success) {
+          req.log?.info({ orderId, referrerId: referralResult.referrerId, bonus: referralResult.bonusITC }, '[rewards] Referral first-purchase bonus awarded')
+        }
+      }
+
+      const couponCode = Array.isArray(order.discount_codes) ? order.discount_codes[0] : null
+      if (couponCode && Number(order.discount_amount) > 0) {
+        const couponId = await findCouponIdByCode(couponCode)
+        if (couponId) {
+          await recordCouponUsage({
+            couponId,
+            userId: rewardsUserId,
+            orderId,
+            discountApplied: Number(order.discount_amount) || 0
+          })
+        } else {
+          req.log?.warn({ orderId, couponCode }, '[coupons] Could not resolve coupon id for redemption recording')
+        }
+      }
+    } catch (rewardsError: any) {
+      req.log?.error({ err: rewardsError, orderId }, '[rewards] Reward/referral/coupon post-processing error')
+    }
+  }
+
   // Send order confirmation email
   if (order?.customer_email) {
     try {
@@ -718,12 +951,88 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   // storefront sales never paid creators.
   await accrueCreatorMarginsForOrder(orderId, req.log)
 
+  // Notify Darrell V2's merch sales ledger (docs/merch-orders-webhook.md
+  // there). Emitted AFTER margins accrue so creatorMarginCents can be read
+  // back rather than recomputed. Fail-soft: sendMerchOrderEvent never throws,
+  // and this catch is a second belt-and-suspenders guard — a delivery
+  // failure must never break checkout.
+  await sendMerchOrderEvent({ orderId, type: 'order.paid', log: req.log }).catch((err) => {
+    req.log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
+  })
+
   req.log?.info({
     orderId,
     orderNumber,
     paymentIntentId: paymentIntent.id,
     customerEmail: order?.customer_email
   }, '✅ Checkout order payment processed successfully')
+}
+
+// Handle charge.refunded — resolve the Stripe charge back to an ITP order via
+// payment_intent_id and mark it refunded. Only full refunds are handled today
+// (charge.refunded === true); a partial refund has no line-level model in ITP
+// yet, so it is logged and skipped rather than faked as a full refund.
+async function handleChargeRefunded(charge: Stripe.Charge, req: Request) {
+  if (!charge.refunded) {
+    req.log?.info({
+      chargeId: charge.id,
+      amountRefunded: charge.amount_refunded,
+      amount: charge.amount
+    }, '[stripe-webhook] Partial refund received — ITP has no partial-refund order model yet, skipping')
+    return
+  }
+
+  const paymentIntentId = typeof charge.payment_intent === 'string'
+    ? charge.payment_intent
+    : charge.payment_intent?.id
+
+  if (!paymentIntentId) {
+    req.log?.warn({ chargeId: charge.id }, '[stripe-webhook] charge.refunded had no payment_intent — cannot resolve to an ITP order')
+    return
+  }
+
+  const { data: order, error: findErr } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('payment_intent_id', paymentIntentId)
+    .maybeSingle()
+
+  if (findErr) {
+    req.log?.error({ err: findErr, paymentIntentId }, '[stripe-webhook] Failed to look up order for charge.refunded')
+    return
+  }
+  if (!order) {
+    req.log?.info({ paymentIntentId, chargeId: charge.id }, '[stripe-webhook] No ITP order matches this payment_intent — skipping')
+    return
+  }
+
+  // Idempotency claim — same atomic pattern used throughout this file
+  // (handleCheckoutOrderPayment, handleInvoicePaid): a redelivered
+  // charge.refunded finds the row no longer matches .neq('status', 'refunded')
+  // and skips side effects instead of re-emitting.
+  const { claimOnce } = await import('../lib/webhook-helpers.js')
+  const claim = await claimOnce(
+    supabase
+      .from('orders')
+      .update({ status: 'refunded', payment_status: 'refunded', updated_at: new Date().toISOString() })
+      .eq('id', order.id)
+      .neq('status', 'refunded')
+      .select('id')
+  )
+  if (claim.error) {
+    req.log?.error({ err: claim.error, orderId: order.id }, '[stripe-webhook] Failed to claim order for refund')
+    return
+  }
+  if (!claim.claimed) {
+    req.log?.info({ orderId: order.id }, '[stripe-webhook] Order already marked refunded — duplicate charge.refunded delivery, skipping')
+    return
+  }
+
+  await sendMerchOrderEvent({ orderId: order.id, type: 'order.refunded', log: req.log }).catch((err) => {
+    req.log?.error({ err, orderId: order.id }, '[merch-webhook] emission threw unexpectedly')
+  })
+
+  req.log?.info({ orderId: order.id, chargeId: charge.id }, '[stripe-webhook] Order marked refunded from charge.refunded')
 }
 
 // Send order confirmation email using Brevo
@@ -959,6 +1268,131 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent, req: Re
   }
 }
 
+// ===============================
+// FOUNDER INVOICE HANDLERS (ported from routes/webhooks.ts)
+// ===============================
+
+// Handle invoice.paid — credit the founder's ITC wallet with their earnings
+async function handleInvoicePaid(stripeInvoice: Stripe.Invoice, req: Request) {
+  const founderId = stripeInvoice.metadata?.founder_id
+
+  if (!founderId) {
+    req.log?.info({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Not a founder invoice, skipping')
+    return
+  }
+
+  const { claimOnce } = await import('../lib/webhook-helpers.js')
+
+  // Idempotency claim — same atomic pattern as the checkout-order guard in
+  // handleCheckoutOrderPayment above: flip status to 'paid' only if it isn't
+  // already, so a redelivered invoice.paid can't credit founder earnings twice.
+  const claim = await claimOnce<{ id: string; founder_earnings_cents: number; subtotal_cents: number }>(
+    supabase
+      .from('founder_invoices')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString()
+      })
+      .eq('stripe_invoice_id', stripeInvoice.id)
+      .neq('status', 'paid')
+      .select('id, founder_earnings_cents, subtotal_cents')
+  )
+
+  if (claim.error) {
+    req.log?.error({ err: claim.error, invoiceId: stripeInvoice.id }, '[Invoice Webhook] Failed to update invoice status')
+    throw new Error('Failed to update invoice status')
+  }
+  if (!claim.claimed || !claim.row) {
+    req.log?.info({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Invoice already paid — duplicate webhook delivery, skipping')
+    return
+  }
+  const invoice = claim.row
+
+  const founderEarningsCents = invoice.founder_earnings_cents
+  const founderEarningsUSD = founderEarningsCents / 100
+
+  const { data: wallet, error: walletError } = await supabase
+    .from('user_wallets')
+    .select('itc_balance')
+    .eq('user_id', founderId)
+    .single()
+
+  if (walletError || !wallet) {
+    req.log?.error({ err: walletError, founderId }, '[Invoice Webhook] Founder wallet not found')
+    return
+  }
+
+  // Convert USD earnings to ITC (1 ITC = $0.01, so $1 = 100 ITC)
+  const itcEarnings = founderEarningsCents
+  const { addBalance } = await import('../lib/webhook-helpers.js')
+  const newBalance = addBalance(wallet.itc_balance, itcEarnings)
+
+  const { error: walletUpdateError } = await supabase
+    .from('user_wallets')
+    .update({
+      itc_balance: newBalance,
+      updated_at: new Date().toISOString()
+    })
+    .eq('user_id', founderId)
+
+  if (walletUpdateError) {
+    req.log?.error({ err: walletUpdateError, founderId }, '[Invoice Webhook] Failed to update wallet')
+    return
+  }
+
+  // Record the ITC transaction (live schema: type/amount/balance_after/reference/
+  // metadata — the old reason/usd_value/reference_id columns don't exist; same
+  // fix already applied in handleITCPurchase above and services/stripe-connect.ts).
+  const { error: ledgerError } = await supabase
+    .from('itc_transactions')
+    .insert({
+      user_id: founderId,
+      type: 'reward',
+      amount: itcEarnings,
+      balance_after: newBalance,
+      reference: invoice.id,
+      metadata: {
+        description: `Invoice earnings (35% of $${(invoice.subtotal_cents / 100).toFixed(2)})`,
+        usd_value: founderEarningsUSD
+      },
+      created_at: new Date().toISOString()
+    })
+  if (ledgerError) {
+    req.log?.error({ err: ledgerError, founderId }, '[Invoice Webhook] Failed to log ITC transaction')
+  }
+
+  req.log?.info({
+    invoiceId: invoice.id,
+    founderId,
+    itcEarnings,
+    founderEarningsUSD
+  }, '[Invoice Webhook] Invoice paid, founder earnings credited')
+}
+
+// Handle invoice.payment_failed — mark the invoice overdue (Stripe will retry)
+async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice, req: Request) {
+  const founderId = stripeInvoice.metadata?.founder_id
+
+  if (!founderId) {
+    req.log?.info({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Not a founder invoice, skipping')
+    return
+  }
+
+  // No wallet mutation here, so no strict claim is needed — just guard
+  // against downgrading an invoice Stripe has already reported as paid.
+  const { error } = await supabase
+    .from('founder_invoices')
+    .update({ status: 'overdue' })
+    .eq('stripe_invoice_id', stripeInvoice.id)
+    .neq('status', 'paid')
+
+  if (error) {
+    req.log?.error({ err: error, invoiceId: stripeInvoice.id }, '[Invoice Webhook] Failed to update invoice status')
+  }
+
+  req.log?.warn({ invoiceId: stripeInvoice.id }, '[Invoice Webhook] Invoice payment failed')
+}
+
 // Send purchase confirmation email
 async function sendPurchaseConfirmationEmail(userId: string, itcAmount: number, usdAmount: number) {
   // Get user email
@@ -1037,6 +1471,16 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
     if (updateError) {
       req.log?.error({ err: updateError, orderId }, 'Failed to update order status')
       return res.status(500).json({ error: 'Failed to update order status' })
+    }
+
+    // Notify Darrell V2's merch sales ledger — only on an ACTUAL transition
+    // into refunded/cancelled, never on a no-op re-PATCH to the status it
+    // already had. Fail-soft: never blocks the admin's status update.
+    if (status !== order.status && (status === 'refunded' || status === 'cancelled')) {
+      const merchEventType = status === 'refunded' ? 'order.refunded' : 'order.canceled'
+      await sendMerchOrderEvent({ orderId, type: merchEventType, log: req.log }).catch((err) => {
+        req.log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
+      })
     }
 
     // Send appropriate email based on status change

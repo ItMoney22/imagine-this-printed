@@ -1,11 +1,28 @@
 // backend/services/imagination-layout.ts
 // Auto-layout algorithms for Imagination Sheet™ optimization
 
+// Physical trim/safe zone every DTF sheet is printed with — rendered client-side
+// as the dashed rectangle in SheetCanvas.tsx ("Safe Margin - 0.25\" from edge").
+// Auto-Nest must never place a layer's outer edge inside this zone, regardless
+// of whatever (smaller) `padding` a caller passes for gaps between items.
+const SAFE_MARGIN_IN = 0.25;
+
 interface LayerDimensions {
   id: string;
   width: number;
   height: number;
+  // Real position on the sheet, in inches. Required for Smart Fill to detect
+  // collisions against where a layer actually sits — without these it can
+  // only assume every layer is anchored at the origin (see smartFill below).
+  position_x?: number;
+  position_y?: number;
   rotation?: number;
+  // Smart Fill only: false marks a layer that exists on the sheet (and must
+  // still be avoided for collisions) but was NOT selected by the user as a
+  // duplication source. Defaults to true so Auto-Nest payloads (which never
+  // set this) and any older caller keep treating every layer as fair game to
+  // pick a template from.
+  isTemplateCandidate?: boolean;
 }
 
 interface Position {
@@ -17,6 +34,11 @@ interface Position {
 
 interface AutoNestResult {
   positions: Position[];
+  // Ids of layers that could not be placed anywhere on the sheet. These are
+  // NOT stacked at the origin (that used to overlap whatever else landed
+  // there and inflate the efficiency number with phantom area) — callers are
+  // expected to leave them at their existing position and tell the user.
+  unplaced: string[];
   efficiency: number;
   wastedSpace: number;
 }
@@ -43,8 +65,13 @@ export function autoNest(
   padding: number = 0.125
 ): AutoNestResult {
   if (!layers.length) {
-    return { positions: [], efficiency: 0, wastedSpace: sheetWidth * sheetHeight };
+    return { positions: [], unplaced: [], efficiency: 0, wastedSpace: sheetWidth * sheetHeight };
   }
+
+  // Edge-adjacent bounds always respect the physical safe margin, even if a
+  // caller passes a smaller `padding` for gaps between items. `padding` still
+  // controls item-to-item spacing (shelf gaps, x-advance within a shelf).
+  const edgeMargin = Math.max(padding, SAFE_MARGIN_IN);
 
   // Sort layers by area (largest first) for better packing
   const sortedLayers = [...layers].sort((a, b) => {
@@ -54,8 +81,9 @@ export function autoNest(
   });
 
   const positions: Position[] = [];
+  const unplaced: string[] = [];
   const shelves: Array<{ y: number; height: number; currentX: number }> = [];
-  let currentShelf = { y: padding, height: 0, currentX: padding };
+  let currentShelf = { y: edgeMargin, height: 0, currentX: edgeMargin };
   shelves.push(currentShelf);
 
   for (const layer of sortedLayers) {
@@ -68,8 +96,8 @@ export function autoNest(
 
       // Try without rotation
       if (
-        shelf.currentX + layer.width + padding <= sheetWidth &&
-        shelf.y + Math.max(shelf.height, layer.height) + padding <= sheetHeight
+        shelf.currentX + layer.width + edgeMargin <= sheetWidth &&
+        shelf.y + Math.max(shelf.height, layer.height) + edgeMargin <= sheetHeight
       ) {
         bestFit = {
           x: shelf.currentX,
@@ -84,8 +112,8 @@ export function autoNest(
       const rotatedWidth = layer.height;
       const rotatedHeight = layer.width;
       if (
-        shelf.currentX + rotatedWidth + padding <= sheetWidth &&
-        shelf.y + Math.max(shelf.height, rotatedHeight) + padding <= sheetHeight
+        shelf.currentX + rotatedWidth + edgeMargin <= sheetWidth &&
+        shelf.y + Math.max(shelf.height, rotatedHeight) + edgeMargin <= sheetHeight
       ) {
         bestFit = {
           x: shelf.currentX,
@@ -104,13 +132,13 @@ export function autoNest(
 
       // Try without rotation on new shelf
       if (
-        padding + layer.width + padding <= sheetWidth &&
-        newShelfY + layer.height + padding <= sheetHeight
+        edgeMargin + layer.width + edgeMargin <= sheetWidth &&
+        newShelfY + layer.height + edgeMargin <= sheetHeight
       ) {
-        const newShelf = { y: newShelfY, height: layer.height, currentX: padding };
+        const newShelf = { y: newShelfY, height: layer.height, currentX: edgeMargin };
         shelves.push(newShelf);
         bestFit = {
-          x: padding,
+          x: edgeMargin,
           y: newShelfY,
           rotation: 0,
           shelfIndex: shelves.length - 1
@@ -118,13 +146,13 @@ export function autoNest(
       }
       // Try with rotation on new shelf
       else if (
-        padding + layer.height + padding <= sheetWidth &&
-        newShelfY + layer.width + padding <= sheetHeight
+        edgeMargin + layer.height + edgeMargin <= sheetWidth &&
+        newShelfY + layer.width + edgeMargin <= sheetHeight
       ) {
-        const newShelf = { y: newShelfY, height: layer.width, currentX: padding };
+        const newShelf = { y: newShelfY, height: layer.width, currentX: edgeMargin };
         shelves.push(newShelf);
         bestFit = {
-          x: padding,
+          x: edgeMargin,
           y: newShelfY,
           rotation: 90,
           shelfIndex: shelves.length - 1
@@ -149,25 +177,30 @@ export function autoNest(
       shelf.height = Math.max(shelf.height, itemHeight);
       placed = true;
     } else {
-      // Item too large - place at origin with warning
-      console.warn(`Layer ${layer.id} is too large to fit on sheet`);
-      positions.push({
-        id: layer.id,
-        x: padding,
-        y: padding,
-        rotation: layer.rotation || 0
-      });
+      // Doesn't fit anywhere on the sheet — report it instead of silently
+      // stacking it at the origin (that used to overlap whatever else landed
+      // there and inflate the efficiency number below with phantom area that
+      // was never actually placed).
+      console.warn(`Layer ${layer.id} could not be placed by Auto-Nest — sheet is full or the layer is too large`);
+      unplaced.push(layer.id);
     }
   }
 
-  // Calculate efficiency
-  const totalLayerArea = layers.reduce((sum, l) => sum + (l.width * l.height), 0);
+  // Calculate packing efficiency from PLACED layers only. Unplaced layers
+  // contribute no area — they aren't on the sheet — so this can never exceed
+  // the sheet area (placed layers don't overlap by construction) and the
+  // Math.min(100, ...) is a defensive clamp, not a correction for real overage.
+  const placedIds = new Set(positions.map(p => p.id));
+  const placedArea = layers
+    .filter(l => placedIds.has(l.id))
+    .reduce((sum, l) => sum + (l.width * l.height), 0);
   const sheetArea = sheetWidth * sheetHeight;
-  const efficiency = Math.round((totalLayerArea / sheetArea) * 100);
-  const wastedSpace = sheetArea - totalLayerArea;
+  const efficiency = sheetArea > 0 ? Math.min(100, Math.round((placedArea / sheetArea) * 100)) : 0;
+  const wastedSpace = Math.max(0, sheetArea - placedArea);
 
   return {
     positions,
+    unplaced,
     efficiency,
     wastedSpace
   };
@@ -187,12 +220,19 @@ export function smartFill(
     return { duplicates: [], coverage: 0, totalAdded: 0 };
   }
 
+  // Template comes from the layers the caller marked as selected
+  // (isTemplateCandidate !== false). `layers` itself always holds every layer
+  // on the sheet — selected or not — because ALL of them must be checked for
+  // collisions below; only candidacy for "what do we duplicate" narrows.
+  const templateCandidates = layers.filter(l => l.isTemplateCandidate !== false);
+  const candidatePool = templateCandidates.length ? templateCandidates : layers;
+
   // Use the first/smallest layer as the template to duplicate
-  const template = layers.reduce((smallest, current) => {
+  const template = candidatePool.reduce((smallest, current) => {
     const smallestArea = smallest.width * smallest.height;
     const currentArea = current.width * current.height;
     return currentArea < smallestArea ? current : smallest;
-  }, layers[0]);
+  }, candidatePool[0]);
 
   const duplicates: Array<{ sourceId: string; x: number; y: number; rotation?: number }> = [];
 
@@ -213,19 +253,25 @@ export function smartFill(
       const x = padding + col * itemWidth;
       const y = padding + row * itemHeight;
 
-      // Check if this position would overlap with existing layers
-      const overlaps = layers.some(existing => {
-        const existingRight = existing.width;
-        const existingBottom = existing.height;
-        const newRight = x + template.width;
-        const newBottom = y + template.height;
+      // Check if this position would overlap with existing layers. Uses each
+      // existing layer's TRUE position (position_x/position_y default to 0
+      // only when a caller genuinely omits them) and a rotation-aware AABB —
+      // previously this compared against {0,0,width,height} for every layer
+      // regardless of where it actually sat, so it excluded a phantom
+      // top-left block and then tiled duplicates over real artwork anywhere
+      // else on the sheet.
+      const newLeft = x;
+      const newTop = y;
+      const newRight = x + template.width;
+      const newBottom = y + template.height;
 
-        // Simple AABB collision detection (assumes no rotation for simplicity)
+      const overlaps = layers.some(existing => {
+        const bounds = axisAlignedBounds(existing);
         return !(
-          x >= existingRight ||
-          newRight <= 0 ||
-          y >= existingBottom ||
-          newBottom <= 0
+          newRight <= bounds.left ||
+          newLeft >= bounds.right ||
+          newBottom <= bounds.top ||
+          newTop >= bounds.bottom
         );
       });
 
@@ -240,16 +286,37 @@ export function smartFill(
     }
   }
 
-  // Calculate coverage
-  const filledArea = (layers.length + duplicates.length) * (template.width * template.height);
+  // Calculate coverage using each EXISTING layer's own real area (not the
+  // template's) plus the added duplicates, which are always template-sized.
+  // The old formula multiplied (layers.length + duplicates.length) by the
+  // template's area alone, so a sheet with a handful of large hero designs
+  // and one small template layer wildly under- or over-reported coverage —
+  // and by extension the price charged for a "ruined" gang sheet.
+  const existingArea = layers.reduce((sum, l) => sum + l.width * l.height, 0);
+  const duplicateArea = duplicates.length * (template.width * template.height);
+  const filledArea = existingArea + duplicateArea;
   const sheetArea = sheetWidth * sheetHeight;
-  const coverage = Math.round((filledArea / sheetArea) * 100);
+  const coverage = sheetArea > 0 ? Math.min(100, Math.round((filledArea / sheetArea) * 100)) : 0;
 
   return {
     duplicates,
     coverage,
     totalAdded: duplicates.length
   };
+}
+
+// Rotation-aware axis-aligned bounding box for a layer at its real position.
+// For a 0/180deg rotation this is just {x,y,width,height}; for 90/270 it's the
+// swapped width/height; for any other angle it's the standard AABB-of-a-
+// rotated-rectangle formula so collision checks stay correct even if a layer
+// was rotated to an arbitrary angle.
+function axisAlignedBounds(layer: LayerDimensions): { left: number; top: number; right: number; bottom: number } {
+  const x = layer.position_x ?? 0;
+  const y = layer.position_y ?? 0;
+  const rad = ((layer.rotation ?? 0) * Math.PI) / 180;
+  const w = Math.abs(layer.width * Math.cos(rad)) + Math.abs(layer.height * Math.sin(rad));
+  const h = Math.abs(layer.width * Math.sin(rad)) + Math.abs(layer.height * Math.cos(rad));
+  return { left: x, top: y, right: x + w, bottom: y + h };
 }
 
 /**

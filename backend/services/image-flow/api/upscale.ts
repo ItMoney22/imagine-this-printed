@@ -3,7 +3,6 @@
 
 import { supabase } from '../../../lib/supabase.js'
 import { runReplicate } from '../providers/replicate.js'
-import { runFal } from '../providers/fal.js'
 import { getModel, DEFAULT_UPSCALE_MODEL } from '../models.js'
 import { generateKey, uploadFromUrl } from '../storage.js'
 import { resolveSource } from '../source-resolver.js'
@@ -47,9 +46,7 @@ export async function upscale(req: UpscaleRequest): Promise<UpscaleResponse> {
     extra: req.extra,
   })
 
-  const r = model.provider === 'replicate'
-    ? await runReplicate({ modelId: model.id, input, timeoutMs: 90_000 })
-    : await runFal({ modelId: model.id, input, timeoutMs: 90_000 })
+  const r = await runReplicate({ modelId: model.id, input, timeoutMs: 90_000 })
   const imageUrl = r.imageUrls[0]
 
   const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'

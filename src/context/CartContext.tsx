@@ -44,7 +44,7 @@ function loadCouponFromStorage(): AppliedCoupon | null {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[]) => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -60,7 +60,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[] } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation'] } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -123,13 +123,14 @@ const calculateTotal = (items: CartItem[]): number => {
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
         item.selectedSize === selectedSize &&
         item.selectedColor === selectedColor &&
         item.paymentMethod === paymentMethod &&
+        item.printLocation === printLocation &&
         addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons)
       )
 
@@ -147,6 +148,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           quantity,
           selectedSize,
           selectedColor,
+          printLocation,
           selectedAddons,
           customDesign,
           designData,
@@ -222,8 +224,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [appliedCoupon])
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[]) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } })
   }
 
   const removeFromCart = (itemId: string) => {
@@ -256,6 +258,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       quantity: item.quantity || 1,
       selectedSize: item.selectedSize || item.variations?.size,
       selectedColor: item.selectedColor || item.variations?.color,
+      printLocation: item.printLocation || item.print_location || item.variations?.printLocation,
       customDesign: item.customDesign,
       designData: item.designData,
       paymentMethod: item.paymentMethod || 'usd'

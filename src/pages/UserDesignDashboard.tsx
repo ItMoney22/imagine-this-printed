@@ -33,7 +33,7 @@ import {
 import { CreateDesignModal } from '../components/CreateDesignModal'
 import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
 import type { User3DModel } from '../types'
-import api from '../lib/api'
+import api, { imaginationApi } from '../lib/api'
 
 interface UserDesign {
   id: string
@@ -215,27 +215,11 @@ export default function UserDesignDashboard() {
 
     setToolProcessing('upscale')
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
+      // Metered, server-billed route — deducts ITC itself via pricingService.deductITC
+      const { data } = await imaginationApi.upscaleImage({ imageUrl, factor: 4 })
 
-      // Deduct ITC first
-      await axios.post('/api/wallet/deduct-itc', {
-        amount: UPSCALE_COST,
-        reason: 'Image upscaling (4x)'
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      // Call upscale API
-      const { data } = await axios.post('/api/ai/upscale', {
-        image_url: imageUrl,
-        scale: 4
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      setToolResult({ url: data.upscaled_url, type: 'upscale' })
-      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - UPSCALE_COST }))
+      setToolResult({ url: data.processedUrl, type: 'upscale' })
+      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - (typeof data.cost === 'number' ? data.cost : UPSCALE_COST) }))
     } catch (error: any) {
       console.error('[Dashboard] Upscale error:', error)
       alert(error.response?.data?.error || 'Failed to upscale image')
@@ -253,26 +237,11 @@ export default function UserDesignDashboard() {
 
     setToolProcessing('bg-remove')
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
+      // Metered, server-billed route — deducts ITC itself via pricingService.deductITC
+      const { data } = await imaginationApi.removeBackground({ imageUrl })
 
-      // Deduct ITC first
-      await axios.post('/api/wallet/deduct-itc', {
-        amount: BG_REMOVE_COST,
-        reason: 'Background removal'
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      // Call background removal API
-      const { data } = await axios.post('/api/ai/remove-background', {
-        image_url: imageUrl
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      setToolResult({ url: data.result_url, type: 'bg-remove' })
-      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - BG_REMOVE_COST }))
+      setToolResult({ url: data.processedUrl, type: 'bg-remove' })
+      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - (typeof data.cost === 'number' ? data.cost : BG_REMOVE_COST) }))
     } catch (error: any) {
       console.error('[Dashboard] BG remove error:', error)
       alert(error.response?.data?.error || 'Failed to remove background')

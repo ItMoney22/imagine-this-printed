@@ -8,6 +8,7 @@
 // the category column) have a null category but carry product_template
 // 'metal-art' in metadata — without the fallback they'd render as t-shirts.
 import type { Product, CartAddon } from '../types'
+import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 
 export type ProductKind = 'metal' | '3d' | 'apparel'
 
@@ -70,7 +71,7 @@ export function canonicalCategoryOf(product: Pick<Product, 'category' | 'metadat
 // Default size options when a product has none set on its column. Type-aware so
 // metal shows print sizes and 3D shows tiers instead of shirt sizes.
 export function defaultSizesFor(kind: ProductKind): string[] {
-  if (kind === 'metal') return ['4x6', '8x11']
+  if (kind === 'metal') return STUDIO_SIZE_KEYS
   if (kind === '3d') return ['mini', 'small', 'medium', 'large']
   return ['S', 'M', 'L', 'XL', '2XL']
 }

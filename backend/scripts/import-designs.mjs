@@ -36,6 +36,13 @@ const storage = new Storage({
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME || 'imagine-this-printed-main')
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
 
+// Model selection (migrated 2026-07-27, Watchtower e2143c35).
+// Sends an image_url, so uses OPENAI_VISION_MODEL (default gpt-5.6-terra).
+// gpt-5.x / o-series reasoning models reject `max_tokens` and only accept
+// the default temperature; they want `max_completion_tokens` instead.
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+const IS_REASONING_MODEL = /^(gpt-5|o[1-9])/.test(VISION_MODEL)
+
 const args = process.argv.slice(2)
 const flag = (name) => args.includes(`--${name}`)
 const opt = (name) => {
@@ -58,9 +65,9 @@ async function nameDesign(pngPath, collection) {
   try {
     const b64 = fs.readFileSync(pngPath).toString('base64')
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: VISION_MODEL,
       response_format: { type: 'json_object' },
-      max_tokens: 300,
+      ...(IS_REASONING_MODEL ? { max_completion_tokens: 300 } : { max_tokens: 300 }),
       messages: [
         {
           role: 'system',

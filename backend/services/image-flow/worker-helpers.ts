@@ -2,7 +2,6 @@
 // a generated image URL. The worker handles its own GCS upload + DB writes.
 
 import { runReplicate } from './providers/replicate.js'
-import { runFal } from './providers/fal.js'
 import { buildInput } from './input-builder.js'
 import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
 import { enhancePrompt } from './prompt-enhancer.js'
@@ -21,9 +20,7 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
   const input = buildInput(model, { prompt: opts.prompt, extra: opts.extra })
-  const r = model.provider === 'replicate'
-    ? await runReplicate({ modelId: model.id, input })
-    : await runFal({ modelId: model.id, input })
+  const r = await runReplicate({ modelId: model.id, input })
   return { url: r.imageUrls[0], modelId: model.id }
 }
 
@@ -159,9 +156,7 @@ export async function runImageFlowMultiGenerate(opts: {
       const model = getModel(id)
       if (!model) throw new Error(`unknown image-flow model: ${id}`)
       const input = buildInput(model, { prompt: finalPrompts[i], extra: opts.extra })
-      const r = model.provider === 'replicate'
-        ? await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
-        : await runFal({ modelId: model.id, input, timeoutMs: 150_000 })
+      const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
       return { id: model.id, label: model.label, url: r.imageUrls[0] }
     })
   )
@@ -354,9 +349,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
       ? [opts.characterImageUrl, opts.designImageUrl]
       : [opts.designImageUrl]
     const input = buildInput(model, { prompt: buildMrImaginePrompt(opts), inputImages })
-    const r = model.provider === 'replicate'
-      ? await runReplicate({ modelId: model.id, input })
-      : await runFal({ modelId: model.id, input })
+    const r = await runReplicate({ modelId: model.id, input })
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
@@ -368,9 +361,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
       prompt: buildCompositePrompt(opts),
       inputImages: [opts.designImageUrl],
     })
-    const r = model.provider === 'replicate'
-      ? await runReplicate({ modelId: model.id, input })
-      : await runFal({ modelId: model.id, input })
+    const r = await runReplicate({ modelId: model.id, input })
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
@@ -388,9 +379,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     prompt: scenePrompt,
     extra: { negative_prompt: sceneNeg },
   })
-  const sceneRes = sceneModel.provider === 'replicate'
-    ? await runReplicate({ modelId: sceneModel.id, input: sceneInput })
-    : await runFal({ modelId: sceneModel.id, input: sceneInput })
+  const sceneRes = await runReplicate({ modelId: sceneModel.id, input: sceneInput })
   const emptyGarmentUrl = sceneRes.imageUrls[0]
 
   // Step B: composite the design onto the empty garment via Nano Banana.
@@ -402,9 +391,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     prompt: buildCompositePrompt(opts),
     inputImages: [emptyGarmentUrl, opts.designImageUrl],
   })
-  const compositeRes = compositeModel.provider === 'replicate'
-    ? await runReplicate({ modelId: compositeModel.id, input: compositeInput })
-    : await runFal({ modelId: compositeModel.id, input: compositeInput })
+  const compositeRes = await runReplicate({ modelId: compositeModel.id, input: compositeInput })
   return { url: compositeRes.imageUrls[0], modelId: compositeModel.id }
 }
 
@@ -424,8 +411,6 @@ export async function runImageFlowEdit(opts: RunEditOpts): Promise<{ url: string
 
   const inputImages = [opts.sourceImageUrl, ...(opts.refImageUrls ?? [])]
   const input = buildInput(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
-  const r = model.provider === 'replicate'
-    ? await runReplicate({ modelId: model.id, input })
-    : await runFal({ modelId: model.id, input })
+  const r = await runReplicate({ modelId: model.id, input })
   return { url: r.imageUrls[0], modelId: model.id }
 }

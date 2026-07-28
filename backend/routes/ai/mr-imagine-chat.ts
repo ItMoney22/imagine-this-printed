@@ -21,6 +21,16 @@ const openrouter = new OpenAI({
 
 const GEMINI_VISION_MODEL = 'google/gemini-2.5-pro'
 
+// gpt-4o is retired from OpenAI's current model + pricing pages (gpt-4
+// family hard shutdown 2026-10-23). Env-configurable, current defaults.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+// gpt-5.x/o-series reasoning models reject a non-default `temperature` and
+// the legacy `max_tokens` param (verified live during the sibling
+// design-assistant.ts migration — see
+// handoff-joshua-knight-1785113728792.json).
+const isReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
+
 // Mr. Imagine's personality and site knowledge - customer-facing only
 const MR_IMAGINE_SYSTEM_PROMPT = `You are Mr. Imagine, the friendly and creative AI mascot of ImagineThisPrinted.com - a custom print-on-demand platform.
 
@@ -129,9 +139,9 @@ router.post('/chat', requireAuth, async (req: Request, res: Response): Promise<a
         }
 
         // Use Gemini 2.5 Pro (vision-capable) via OpenRouter when refs are present OR we have OPENROUTER_API_KEY.
-        // Falls back to OpenAI gpt-4o (which is also vision-capable) if OpenRouter not set.
+        // Falls back to OPENAI_VISION_MODEL (also vision-capable) if OpenRouter not set.
         const useGemini = !!process.env.OPENROUTER_API_KEY
-        const modelLabel = useGemini ? GEMINI_VISION_MODEL : 'gpt-4o'
+        const modelLabel = useGemini ? GEMINI_VISION_MODEL : OPENAI_VISION_MODEL
 
         const completion = useGemini
             ? await openrouter.chat.completions.create({
@@ -145,13 +155,16 @@ router.post('/chat', requireAuth, async (req: Request, res: Response): Promise<a
                   max_tokens: 1200,
               })
             : await openai.chat.completions.create({
-                  model: 'gpt-4o',
+                  model: OPENAI_VISION_MODEL,
                   messages,
-                  temperature: 0.8,
-                  // gpt-4o doesn't have hidden reasoning tokens, but 400 was
-                  // tight on longer answers. 800 gives full sentences in every
-                  // observed case.
-                  max_tokens: 800,
+                  // Previous model (gpt-4o) had no hidden reasoning tokens and
+                  // took plain max_tokens/temperature; gpt-5.x reasoning models
+                  // reject both, so max_tokens becomes max_completion_tokens and
+                  // temperature is dropped for those models. 800 gives full
+                  // sentences in every observed case for the legacy model.
+                  ...(isReasoningModel(OPENAI_VISION_MODEL)
+                      ? { max_completion_tokens: 800 }
+                      : { temperature: 0.8, max_tokens: 800 }),
               })
 
         const responseText = completion.choices[0].message.content
@@ -192,7 +205,7 @@ router.post('/design-guidance', requireAuth, async (req: Request, res: Response)
         const contextPrompt = stepContext[currentStep as keyof typeof stepContext] || ''
 
         const completion = await openai.chat.completions.create({
-            model: 'gpt-4o',
+            model: OPENAI_TEXT_MODEL,
             messages: [
                 { role: 'system', content: MR_IMAGINE_SYSTEM_PROMPT },
                 {
@@ -200,11 +213,12 @@ router.post('/design-guidance', requireAuth, async (req: Request, res: Response)
                     content: `Current step: ${currentStep}\nContext: ${contextPrompt}\n\nUser said: "${userPrompt}"\n\nRespond as Mr. Imagine (1-2 sentences, conversational, encouraging):`
                 }
             ],
-            temperature: 0.8,
             // Was 150 — too tight for design-guidance prompts that include a
             // suggestion + question. 350 keeps replies short but doesn't
             // truncate mid-sentence.
-            max_tokens: 350,
+            ...(isReasoningModel(OPENAI_TEXT_MODEL)
+                ? { max_completion_tokens: 350 }
+                : { temperature: 0.8, max_tokens: 350 }),
         })
 
         const responseText = completion.choices[0].message.content

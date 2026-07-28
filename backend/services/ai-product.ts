@@ -4,6 +4,17 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+// gpt-4o / gpt-4o-mini are retired from OpenAI's current model + pricing
+// pages (hard shutdown 2026-10-23 for the gpt-4 family). Env-configurable
+// with current defaults so a future migration is a one-var change.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+// gpt-5.x/o-series reasoning models reject a non-default `temperature` and
+// the legacy `max_tokens` param (verified live during the sibling
+// design-assistant.ts migration — see
+// handoff-joshua-knight-1785113728792.json). Guard both call sites below.
+const isReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
+
 export interface ProductNormalizationInput {
   prompt: string
   priceTarget?: number
@@ -126,13 +137,13 @@ DTF Print Settings:
 - Print placement: ${input.printPlacement || 'front-center'} (${placementDescriptions[input.printPlacement || 'front-center']})`
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: OPENAI_TEXT_MODEL,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.7,
+    ...(isReasoningModel(OPENAI_TEXT_MODEL) ? {} : { temperature: 0.7 }),
   })
 
   const result = completion.choices[0].message.content!
@@ -158,15 +169,16 @@ export interface DesignCopy {
  * store-ready title + description from what it sees — so a submitted design
  * becomes a "solid" product (real title/description) the moment it's approved,
  * even when no good text prompt is available (e.g. uploaded art, or a vague
- * "Custom shirt design" concept). Uses gpt-4o (vision-capable). `hint` is the
+ * "Custom shirt design" concept). Uses a vision-capable model. `hint` is the
  * user's original idea/concept if we have it, used only as light context.
  */
 export async function describeDesignForProduct(imageUrl: string, hint?: string): Promise<DesignCopy> {
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0.85,
-    max_tokens: 500,
+    model: OPENAI_VISION_MODEL,
     response_format: { type: 'json_object' },
+    ...(isReasoningModel(OPENAI_VISION_MODEL)
+      ? { max_completion_tokens: 500 }
+      : { max_tokens: 500, temperature: 0.85 }),
     messages: [
       {
         role: 'system',

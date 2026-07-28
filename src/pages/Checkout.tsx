@@ -22,6 +22,35 @@ const isPlusSize = (size?: string): boolean => {
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
+// Server-calculated order totals, returned by POST /checkout-payment-intent.
+// Tax in particular is authoritative here — the client no longer invents a
+// flat rate (see ServerPricing usage below).
+interface ServerPricing {
+  subtotal: number
+  discount: number
+  shipping: number
+  tax: number
+  taxRate: number
+  total: number
+}
+
+// apiFetch (src/lib/api.ts) throws `Error("HTTP <status>: <raw body>")` on a
+// non-2xx response. checkout-payment-intent's 400 for a stale/mismatched
+// amount still carries the authoritative `pricing` breakdown in that body —
+// pulling it out here lets the UI resync to the real numbers (see the
+// createPaymentIntent catch block) instead of getting stuck.
+function extractPricingFromApiError(err: unknown): ServerPricing | null {
+  if (!(err instanceof Error)) return null
+  const match = err.message.match(/^HTTP \d+: ([\s\S]*)$/)
+  if (!match) return null
+  try {
+    const body = JSON.parse(match[1])
+    return body?.pricing ?? null
+  } catch {
+    return null
+  }
+}
+
 const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, orderId: string }> = ({ orderId }) => {
   const { clearCart } = useCart()
   const navigate = useNavigate()
@@ -181,6 +210,9 @@ const Checkout: React.FC = () => {
   // Payment method selection: 'card' | 'itc_full'
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'itc_full'>('card')
   const [processingFullITC, setProcessingFullITC] = useState(false)
+  // Server-calculated tax/discount/shipping/total, refreshed on every
+  // checkout-payment-intent response (success or the amount-mismatch 400).
+  const [serverPricing, setServerPricing] = useState<ServerPricing | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -339,7 +371,11 @@ const Checkout: React.FC = () => {
   // If free_shipping coupon is applied, the base shipping is $0 (rush still adds)
   const baseShipping = selectedRate?.amount || 0
   const shipping = (appliedCoupon?.freeShipping ? 0 : baseShipping) + rushFee
-  const tax = usdTotal * 0.08 // Only apply tax to USD items
+  // Tax is calculated server-side (US state rate table, keyed off the
+  // shipping address) and reflected back from checkout-payment-intent — the
+  // client never invents a flat rate. Shows $0 until the first server
+  // round-trip resolves, same as the pre-address state in Cart.tsx.
+  const tax = serverPricing?.tax ?? 0
   // ITC credit converts to USD at rate of 1 ITC = $0.01
   const itcCreditUSD = itcCreditAmount * 0.01
   const totalUSD = Math.max(0, usdTotal + shipping + tax - itcCreditUSD)
@@ -468,6 +504,9 @@ const Checkout: React.FC = () => {
       })
 
       console.log('[checkout] Payment intent API response:', data)
+      if (data.pricing) {
+        setServerPricing(data.pricing)
+      }
       if (data.clientSecret) {
         console.log('[checkout] Setting clientSecret')
         setClientSecret(data.clientSecret)
@@ -482,6 +521,15 @@ const Checkout: React.FC = () => {
       }
     } catch (error) {
       console.error('Error creating payment intent:', error)
+      // The server rejects a stale/mismatched amount with 400, but still
+      // returns its authoritative pricing (tax in particular — see the `tax`
+      // definition above). Picking it up here lets the totals re-render with
+      // the real numbers, which changes `totalUSD` and automatically retries
+      // via the effect below instead of leaving checkout stuck.
+      const serverPricingFromError = extractPricingFromApiError(error)
+      if (serverPricingFromError) {
+        setServerPricing(serverPricingFromError)
+      }
     }
   }
 
@@ -1398,6 +1446,11 @@ const Checkout: React.FC = () => {
                           style={{ backgroundColor: item.selectedColor }}
                           title={item.selectedColor}
                         />
+                      )}
+                      {item.printLocation && (
+                        <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
+                          {item.printLocation}
+                        </span>
                       )}
                       {item.paymentMethod === 'itc' && (
                         <span className="text-xs px-2 py-0.5 bg-secondary/20 text-secondary rounded flex items-center gap-1">

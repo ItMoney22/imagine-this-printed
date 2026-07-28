@@ -6,6 +6,7 @@
 
 import { supabase } from '../lib/supabase.js'
 import { calculateReferralRewards } from '../utils/reward-calculator.js'
+import { addBalance } from '../lib/webhook-helpers.js'
 
 export interface ReferralCodeData {
   userId: string
@@ -280,7 +281,10 @@ export async function processReferralFirstPurchase(
       .eq('user_id', profile.referred_by)
       .single()
 
-    const newBalance = (wallet?.itc_balance || 0) + bonusITC
+    // Supabase returns NUMERIC columns as strings — plain `+` here previously
+    // string-concatenated ("100" + 50 -> "10050") instead of adding whenever
+    // itc_balance hadn't already been parsed. addBalance() coerces first.
+    const newBalance = addBalance(wallet?.itc_balance, bonusITC)
 
     // Live itc_transactions shape is (user_id, type, amount, reference,
     // balance_after, metadata) — the old insert wrote reason/related_entity_*
@@ -399,6 +403,88 @@ export async function getReferralLeaderboard(limit: number = 10) {
       success: false,
       error: error.message
     }
+  }
+}
+
+/**
+ * Get platform-wide referral statistics (admin dashboard). Backs
+ * GET /api/wallet/admin/referral-stats, called from
+ * src/utils/referral-system.ts getPlatformReferralStats(), which previously
+ * had no backend endpoint and returned a hardcoded all-zeros stub.
+ *
+ * Data source decision (no existing spec to follow): totalReferrals counts
+ * completed 'signup'-type referral_transactions (i.e. codes that were
+ * actually used, not just created); totalEarnings sums referrer_reward_itc
+ * across every completed transaction (signup + first-purchase bonuses);
+ * conversionRate is completed 'purchase' transactions over completed
+ * 'signup' transactions (what fraction of referred signups went on to make
+ * their first purchase); topPerformers ranks referrers by total ITC earned.
+ */
+export async function getPlatformReferralStats(): Promise<{
+  success: boolean
+  stats?: {
+    totalReferrals: number
+    totalEarnings: number
+    conversionRate: number
+    topPerformers: Array<{ userId: string; name: string; referralCount: number; earnings: number }>
+  }
+  error?: string
+}> {
+  try {
+    const { data: transactions, error } = await supabase
+      .from('referral_transactions')
+      .select('referrer_id, type, referrer_reward_itc, status')
+      .eq('status', 'completed')
+
+    if (error) throw error
+
+    const rows = transactions || []
+    const signups = rows.filter(t => t.type === 'signup')
+    const purchases = rows.filter(t => t.type === 'purchase')
+
+    const totalReferrals = signups.length
+    const totalEarnings = rows.reduce((sum, t) => sum + (t.referrer_reward_itc || 0), 0)
+    const conversionRate = totalReferrals > 0 ? purchases.length / totalReferrals : 0
+
+    // Aggregate per referrer for the leaderboard
+    const byReferrer = new Map<string, { referralCount: number; earnings: number }>()
+    for (const t of rows) {
+      const entry = byReferrer.get(t.referrer_id) || { referralCount: 0, earnings: 0 }
+      entry.referralCount += 1
+      entry.earnings += t.referrer_reward_itc || 0
+      byReferrer.set(t.referrer_id, entry)
+    }
+
+    const referrerIds = Array.from(byReferrer.keys())
+    let names: Record<string, string> = {}
+    if (referrerIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, email, first_name, last_name')
+        .in('id', referrerIds)
+
+      for (const p of profiles || []) {
+        names[p.id] = [p.first_name, p.last_name].filter(Boolean).join(' ') || p.email || 'Unknown'
+      }
+    }
+
+    const topPerformers = referrerIds
+      .map(userId => ({
+        userId,
+        name: names[userId] || 'Unknown',
+        referralCount: byReferrer.get(userId)!.referralCount,
+        earnings: byReferrer.get(userId)!.earnings
+      }))
+      .sort((a, b) => b.earnings - a.earnings)
+      .slice(0, 10)
+
+    return {
+      success: true,
+      stats: { totalReferrals, totalEarnings, conversionRate, topPerformers }
+    }
+  } catch (error: any) {
+    console.error('[ReferralService] Error fetching platform referral stats:', error)
+    return { success: false, error: error.message }
   }
 }
 

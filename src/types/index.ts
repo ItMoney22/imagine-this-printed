@@ -57,6 +57,10 @@ export interface CartItem {
   customDesign?: string
   selectedSize?: string
   selectedColor?: string
+  // Chosen print placement for products offering more than one
+  // (product.print_locations). Required at add-to-cart time when the
+  // product has >1 option; undefined for products with 0-1 (no choice to make).
+  printLocation?: TshirtPrintLocation
   selectedAddons?: CartAddon[]
   paymentMethod?: 'usd' | 'itc'
   designData?: {
@@ -64,6 +68,8 @@ export interface CartItem {
     template: string
     mockupUrl: string
     canvasSnapshot?: string
+    /** Server-rendered 300 DPI print-ready file URL (Imagination Sheets) */
+    printReadyUrl?: string
   }
 }
 

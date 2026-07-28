@@ -3,17 +3,22 @@
 // Metal Art Studio — Displate-style premium metal print designer.
 //
 // Price constants are exported so admin catalog items can reference them
-// when building their own metal-art product entries.
+// when building their own metal-art product entries. Prices are a deliberate
+// website-vs-Etsy anchor gap (see backend/services/etsy.ts:331) — do not
+// change these. Panel geometry comes from shared/metal-art.ts, the one place
+// both the storefront and the Etsy lane now read it from.
 // eslint-disable-next-line react-refresh/only-export-components
 export const METAL_ART_PRICES: Record<string, number> = {
   '4x6': 14.99,
   '8x11': 29.99,
 }
 
-// Physical dimensions (portrait orientation) in pixels at ~72 dpi equivalent
+// Physical dimensions (portrait orientation) in pixels at ~72 dpi equivalent.
+// STUDIO_SIZE_KEYS in shared/metal-art.ts is the list actually offered here —
+// this map just looks up each key's canvas geometry from the shared source.
 const PLATE_DIMS: Record<string, { w: number; h: number; labelIn: string }> = {
-  '4x6':  { w: 240, h: 360,  labelIn: '4 × 6"' },
-  '8x11': { w: 330, h: 454,  labelIn: '8 × 11"' },
+  '4x6':  { w: METAL_ART_SIZES['4x6'].canvas.w,  h: METAL_ART_SIZES['4x6'].canvas.h,  labelIn: METAL_ART_SIZES['4x6'].labelIn },
+  '8x11': { w: METAL_ART_SIZES['8x11'].canvas.w, h: METAL_ART_SIZES['8x11'].canvas.h, labelIn: METAL_ART_SIZES['8x11'].labelIn },
 }
 
 // Wall-scene plate position/size as % of container (left%, top%, w%)
@@ -53,6 +58,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import type { Product } from '../types'
+import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY } from '../../backend/shared/metal-art'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -542,15 +548,15 @@ export default function MetalArtStudio() {
       const product: Product = {
         id: `metal-art-custom-${Date.now()}`,
         name: `Custom Metal Art Print ${sizeLabel}`,
-        description: `Museum-grade ${finish} metal print — ${sizeLabel}. Magnet-mounted steel plate, vivid full-color print, arrives ready to hang.`,
+        description: `Museum-grade ${finish} metal print — ${sizeLabel}. ${METAL_ART_SUBSTRATE.charAt(0).toUpperCase()}${METAL_ART_SUBSTRATE.slice(1)} plate, vivid full-color print, ${METAL_ART_MOUNTING_COPY}.`,
         price,
         category: 'metal-art',
         images: [artworkUrl],
         inStock: true,
         metadata: {
           size,
-          width_in:  size === '4x6' ? 4 : 8,
-          height_in: size === '4x6' ? 6 : 11,
+          width_in:  METAL_ART_SIZES[size].widthIn,
+          height_in: METAL_ART_SIZES[size].heightIn,
           finish,
           artwork_url: artworkUrl,
           custom: true,
@@ -1202,7 +1208,7 @@ export default function MetalArtStudio() {
                   options={['4x6', '8x11'] as const}
                   value={size}
                   onChange={v => setSize(v as SizeKey)}
-                  labelMap={{ '4x6': '4 × 6"', '8x11': '8 × 11"' }}
+                  labelMap={{ '4x6': METAL_ART_SIZES['4x6'].labelIn, '8x11': METAL_ART_SIZES['8x11'].labelIn }}
                 />
               </ControlGroup>
 
