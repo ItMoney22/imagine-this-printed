@@ -15,6 +15,9 @@ import {
   getDpiThresholds,
   isBelowMinDpi,
   resolveDpiInfo,
+  getDpiQualityDisplay,
+  getDpiFromMetadata,
+  formatDpi,
   DEFAULT_MIN_DPI,
   type DpiInfo,
 } from './dpi-calculator'
@@ -120,5 +123,46 @@ describe('resolveDpiInfo — re-grades stored dpiInfo against the current minDPI
   it('passes through null/undefined unchanged', () => {
     expect(resolveDpiInfo(null, 300)).toBeNull()
     expect(resolveDpiInfo(undefined, 300)).toBeNull()
+  })
+})
+
+describe('getDpiQualityDisplay — the copy the customer reads before paying', () => {
+  it('quotes the print type real minimum, not a hardcoded 300', () => {
+    expect(getDpiQualityDisplay('good', 150).description).toBe('Meets print quality (150+ DPI required)')
+    expect(getDpiQualityDisplay('good', 300).description).toBe('Meets print quality (300+ DPI required)')
+  })
+
+  it('names the exact failing band so the customer knows how far off they are', () => {
+    const warn = getDpiQualityDisplay('warning', 300)
+    expect(warn.label).toBe('Below Minimum')
+    expect(warn.description).toContain('Below required 300 DPI (150–299 DPI)')
+    expect(warn.description).toContain('Shrink, re-upload, or upscale before ordering.')
+
+    const danger = getDpiQualityDisplay('danger', 300)
+    expect(danger.label).toBe('Poor Quality')
+    expect(danger.description).toContain('under 150 DPI')
+  })
+
+  it('shows the legacy "excellent" grade exactly like "good"', () => {
+    expect(getDpiQualityDisplay('excellent', 300)).toEqual(getDpiQualityDisplay('good', 300))
+  })
+
+  it('colours pass green, below-minimum amber and failure red', () => {
+    expect(getDpiQualityDisplay('good').color).toBe('text-green-500')
+    expect(getDpiQualityDisplay('warning').color).toBe('text-amber-500')
+    expect(getDpiQualityDisplay('danger').color).toBe('text-red-500')
+  })
+})
+
+describe('metadata + display helpers', () => {
+  it('reads dpiInfo off layer metadata and returns null when it was never stored', () => {
+    const info: DpiInfo = { dpi: 300, quality: 'good', originalWidth: 1200, originalHeight: 1200, canvasSizeInches: { width: 4, height: 4 } }
+    expect(getDpiFromMetadata({ dpiInfo: info })).toBe(info)
+    expect(getDpiFromMetadata({})).toBeNull()
+    expect(getDpiFromMetadata(null)).toBeNull()
+  })
+
+  it('formats a DPI value for the badge', () => {
+    expect(formatDpi(300)).toBe('300 DPI')
   })
 })
