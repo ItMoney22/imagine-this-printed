@@ -28,8 +28,6 @@ import Signup from './pages/Signup'
 import AuthCallback from './pages/AuthCallback'
 import AuthError from './pages/AuthError'
 import ProductCatalog from './pages/ProductCatalog'
-import America250 from './pages/America250'
-import WorldCup from './pages/WorldCup'
 import ProductPage from './pages/ProductPage'
 import Cart from './pages/Cart'
 import OrderSuccess from './pages/OrderSuccess'
@@ -149,10 +147,11 @@ function App() {
                   <Route path="/auth/error" element={<AuthError />} />
                   <Route path="/auth/reset-password" element={<AuthCallback />} />
                   <Route path="/catalog" element={<ProductCatalog />} />
-                  <Route path="/america-250" element={<America250 />} />
-                  <Route path="/july4" element={<America250 />} />
-                  <Route path="/world-cup" element={<WorldCup />} />
-                  <Route path="/worldcup" element={<WorldCup />} />
+                  {/* Retired seasonal pages (July 4th / World Cup) — send old links to the catalog */}
+                  <Route path="/america-250" element={<Navigate to="/catalog" replace />} />
+                  <Route path="/july4" element={<Navigate to="/catalog" replace />} />
+                  <Route path="/world-cup" element={<Navigate to="/catalog" replace />} />
+                  <Route path="/worldcup" element={<Navigate to="/catalog" replace />} />
                   <Route path="/catalog/:category" element={<ProductCatalog />} />
                   <Route path="/product/:id" element={<ProductPage />} />
                   {/* Redirect old design routes to Imagination Station */}
