@@ -46,7 +46,7 @@ const bucket: Bucket = storage.bucket(bucketName)
 
 export interface UploadOptions {
   userId: string
-  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed' | 'email-attachments'
+  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed' | 'email-attachments' | 'message-attachments'
   filename?: string
   contentType?: string
   metadata?: Record<string, any>

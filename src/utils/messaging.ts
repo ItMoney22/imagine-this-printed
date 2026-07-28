@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import api from '../lib/api'
 import type { Message, Conversation, MessageAttachment } from '../types'
 
 export interface MessageData {
@@ -35,6 +36,30 @@ export interface ConversationCreateData {
  */
 export function sortParticipantIds(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a]
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
+ * Resolve a fresh, short-lived signed download URL for a message attachment.
+ * Attachments are stored privately (gcsPath only, see uploadAttachments) —
+ * this always mints a new URL server-side, after the backend confirms the
+ * caller is the sender or recipient of the message the attachment belongs
+ * to. Throws if the attachment is missing, unavailable (e.g. a legacy row
+ * from before real uploads existed), or the caller isn't a participant.
+ */
+export async function getAttachmentDownloadUrl(
+  attachmentId: string
+): Promise<{ url: string; name: string; mimeType: string }> {
+  const { data } = await api.get(`/api/messaging/attachments/${attachmentId}`)
+  return data
 }
 
 export function mapMessageRow(row: any): Message {
@@ -128,7 +153,7 @@ export class MessagingService {
       const recipientId = await this.getOtherParticipant(conversationId, senderId)
 
       const attachments = messageData.attachments
-        ? await this.uploadAttachments(messageData.attachments)
+        ? await this.uploadAttachments(messageData.attachments, conversationId)
         : undefined
 
       const { data, error } = await supabase
@@ -396,19 +421,36 @@ export class MessagingService {
     return data.participant_one === currentUserId ? data.participant_two : data.participant_one
   }
 
-  private async uploadAttachments(files: File[]): Promise<MessageAttachment[]> {
-    // No object-storage upload pipeline is wired up in this pass — this
-    // metadata (name/size/mimeType/type) persists in the message row, but
-    // the blob URL is only valid for the current tab/session and will not
-    // survive a refresh. Real file storage is a separate, larger task.
-    return files.map((file, index) => ({
-      id: `att_${Date.now()}_${index}`,
-      type: file.type.startsWith('image/') ? 'image' : 'file',
-      name: file.name,
-      url: URL.createObjectURL(file),
-      size: file.size,
-      mimeType: file.type
-    }))
+  // Uploads each file to GCS via the backend (backend/routes/messaging.ts —
+  // the frontend has no GCS credentials). Any single failed upload rejects
+  // the whole call; sendMessage()'s try/catch then blocks the send entirely
+  // rather than persisting a message that claims an attachment it doesn't
+  // have (Watchtower task 2f4f06ea deliverable: fail closed, not silently).
+  private async uploadAttachments(files: File[], conversationId: string): Promise<MessageAttachment[]> {
+    return Promise.all(
+      files.map(async (file): Promise<MessageAttachment> => {
+        const dataUrl = await fileToBase64(file)
+        const { data } = await api.post('/api/messaging/attachments/upload', {
+          conversationId,
+          filename: file.name,
+          file: dataUrl
+        })
+
+        // `url` is intentionally left empty — attachments are private and
+        // resolved on demand via getAttachmentDownloadUrl(id), never stored
+        // as a durable link (see backend route for why: a public/long-lived
+        // URL is unacceptable for message attachments).
+        return {
+          id: data.id,
+          type: data.type,
+          name: data.name,
+          url: '',
+          size: data.size,
+          mimeType: data.mimeType,
+          gcsPath: data.gcsPath
+        }
+      })
+    )
   }
 
   // Quick message templates for common scenarios

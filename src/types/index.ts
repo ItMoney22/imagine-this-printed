@@ -669,6 +669,11 @@ export interface MessageAttachment {
   url: string
   size: number
   mimeType: string
+  // GCS object path for a durably-uploaded attachment. Present on real
+  // uploads (see src/utils/messaging.ts uploadAttachments); absent on
+  // legacy rows that only ever had a dead blob: URL. `url` itself is no
+  // longer used for downloads -- see getAttachmentDownloadUrl().
+  gcsPath?: string
 }
 
 export interface Conversation {
@@ -741,6 +746,14 @@ export interface AdminEarningsOverview {
   totalRevenue: number
   totalPlatformFees: number
   totalVendorPayouts: number
+  /**
+   * Founder's cut of the MARKETPLACE take: platform fee (7% of order revenue)
+   * x founder_earnings_percentage (35%) = ~2.45% of order revenue. NOT the
+   * canonical founder invoice share (35% of invoice subtotal, see
+   * backend/services/invoice-stats.ts). Field name kept for wire-contract
+   * stability; the UI labels it "Founder Share of Platform Fees".
+   * Watchtower task c82667d5.
+   */
   totalFounderEarnings: number
   pendingPayouts: number
   period: string
@@ -1081,7 +1094,7 @@ export interface AIJob {
 // No user selection needed - system generates from all models simultaneously
 export const AI_GENERATION_MODELS = [
   { id: 'google/imagen-4-ultra', name: 'Google Imagen 4 Ultra' },
-  { id: 'black-forest-labs/flux-1.1-pro-ultra', name: 'Flux 1.1 Pro Ultra' },
+  { id: 'black-forest-labs/flux-2-pro', name: 'Flux 2 Pro' },
   { id: 'leonardoai/lucid-origin', name: 'Lucid Origin' },
 ] as const
 
