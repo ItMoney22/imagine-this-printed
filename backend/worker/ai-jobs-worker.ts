@@ -843,7 +843,9 @@ async function startJob(job: any) {
     const template = job.input?.template || 'flat_lay'
     const templateName = template === 'mr_imagine' ? 'Mr. Imagine mascot' :
                          template === 'flat_lay' ? 'professional flat lay' :
-                         template === 'ghost_mannequin' ? 'ghost mannequin' : template
+                         template === 'ghost_mannequin' ? 'ghost mannequin' :
+                         template === 'metal_shelf' ? 'metal print shelf scene' :
+                         template === 'metal_wall' ? 'metal print wall scene' : template
 
     await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Replicate AI...`, 1, 3)
     console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
@@ -874,12 +876,14 @@ async function startJob(job: any) {
       await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
       const mockupResult = await runImageFlowMockup({
-        template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine',
+        template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall',
         designImageUrl: garmentImageUrl!,
         productType: productType as 'tshirt' | 'hoodie' | 'tank',
         shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
         characterImageUrl,
         printPlacement: printPlacement as any,
+        // Metal templates: physical panel size for the scale anchors.
+        metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
       })
 
       mockupImageUrl = mockupResult.url

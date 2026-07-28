@@ -23,7 +23,7 @@
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
-import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
+import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
 
 const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || 'gpt-5.6-terra'
 // gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
@@ -106,9 +106,9 @@ const METAL_SYSTEM_PROMPT =
   'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for. Then short ' +
   `scannable sections: the artwork; the panel (glossy ${METAL_ART_SUBSTRATE}, vivid sublimated print, fade- and ` +
   `scratch-resistant, lightweight); sizes offered (${METAL_SIZE_LIST_TEXT} — pick your size at checkout); ` +
-  'display (light enough for a shelf, easel, or your preferred wall mounting); made to order in ' +
-  'Rockmart, Georgia; care (wipe clean with a soft dry cloth). Never invent facts, mounting hardware ' +
-  'claims, or shipping promises.'
+  `display (${METAL_ART_MOUNTING_COPY} — also light enough for a shelf or easel); made to order in ` +
+  'Rockmart, Georgia; care (wipe clean with a soft dry cloth). Never invent facts beyond these, and no ' +
+  'shipping promises.'
 
 // Sanitize whatever the model returned through the same hard limits the
 // publisher enforces, backfilling tags from existing keywords if it came up short.

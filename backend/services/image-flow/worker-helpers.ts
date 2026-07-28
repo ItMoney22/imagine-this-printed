@@ -6,6 +6,7 @@ import { buildInput } from './input-builder.js'
 import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
 import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
+import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
 
 export interface RunGenerateOpts {
   prompt: string
@@ -172,7 +173,7 @@ export async function runImageFlowMultiGenerate(opts: {
   })
 }
 
-export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine'
+export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall'
 
 export interface RunMockupOpts {
   template: MockupTemplate
@@ -182,6 +183,8 @@ export interface RunMockupOpts {
   /** For mr_imagine — URL of the Mr. Imagine character base. */
   characterImageUrl?: string
   printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  /** For metal_shelf / metal_wall — physical panel size; drives the scale anchors. */
+  metalSize?: MetalArtSizeKey
   modelId?: string
 }
 
@@ -341,6 +344,34 @@ function buildMrImaginePrompt(opts: RunMockupOpts): string {
  *  behavior (backwards-compatible escape hatch for admin overrides).
  */
 export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: string; modelId: string }> {
+  // Metal art — size-accurate staging (David 2026-07-28: a 4x6 must never be
+  // mocked up looking massive on a wall). Single call to nano-banana with the
+  // artwork as the only input; the prompt carries hard scale anchors from
+  // shared/metal-art.ts for the panel's real physical size.
+  if (opts.template === 'metal_shelf' || opts.template === 'metal_wall') {
+    const sizeKey: MetalArtSizeKey = opts.metalSize ?? '4x6'
+    const scene = opts.template === 'metal_wall'
+      ? (sizeKey === '4x6'
+        ? 'hanging on a wall in a tight close-up vignette beside a door frame and a light switch, a small accent piece'
+        : 'hanging on a small wall spot above a desk, nearby furniture visible for scale')
+      : (sizeKey === '4x6'
+        ? 'standing on a styled desk among everyday objects — next to a coffee mug and a small plant'
+        : 'standing on a wooden shelf leaning against the wall, books and a small plant beside it')
+    const prompt =
+      `The INPUT image is a piece of artwork. Task: a professional interior product photograph of that artwork ` +
+      `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${scene}. ` +
+      `${metalScaleAnchor(sizeKey)} ` +
+      'Photorealistic, tasteful minimal decor, soft natural light. ' +
+      'CRITICAL: reproduce the artwork exactly — do not redraw, restyle, distort, crop, or reinterpret it in any way. ' +
+      'High-resolution ecommerce product photography.'
+    const modelId = 'google/nano-banana'
+    const model = getModel(modelId)
+    if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
+    const input = buildInput(model, { prompt, inputImages: [opts.designImageUrl] })
+    const r = await runReplicate({ modelId: model.id, input })
+    return { url: r.imageUrls[0], modelId: model.id }
+  }
+
   if (opts.template === 'mr_imagine') {
     const modelId = opts.modelId ?? DEFAULT_MOCKUP_MODEL
     const model = getModel(modelId)

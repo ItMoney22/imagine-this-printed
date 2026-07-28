@@ -50,7 +50,7 @@ export interface NormalizedProduct {
 
 const SYSTEM_PROMPT = `You are a witty product copywriter for a custom-print shop. Given a free-form idea, output normalized product metadata strictly as compact JSON with these fields:
 
-- category_slug: one of ['dtf-transfers', 'shirts', 'hoodies', 'tumblers']
+- category_slug: one of ['dtf-transfers', 'shirts', 'hoodies', 'tumblers', 'metal-art'] — when the idea contains a "Product Category:" line, use that category verbatim
 - category_name: human-readable category name
 - title: concise product title (max 80 chars)
 - summary: one-line summary (max 160 chars)

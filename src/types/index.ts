@@ -1149,6 +1149,8 @@ export interface AIProductCreationRequest {
   // products.print_locations. Distinct from printPlacement, which drives the
   // single AI mockup composition.
   print_locations?: TshirtPrintLocation[]
+  // Metal art: physical panel size → metadata.metal_size (drives size-accurate mockups)
+  metal_size?: '4x6' | '8x10'
   printStyle?: 'clean' | 'halftone' | 'grunge'
   modelId?: string
   forceSingleModel?: boolean

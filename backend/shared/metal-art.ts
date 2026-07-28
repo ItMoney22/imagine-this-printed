@@ -42,49 +42,46 @@ export const METAL_ART_SIZES: Record<MetalArtSizeKey, MetalArtSizeSpec> = {
   '8x11': { labelIn: '8 × 11"', widthIn: 8, heightIn: 11, canvas: { w: 330, h: 454 } },
 }
 
-// What the storefront studio currently sells (src/pages/MetalArtStudio.tsx,
-// src/lib/product-kind.ts). Unchanged by this refactor.
-export const STUDIO_SIZE_KEYS: MetalArtSizeKey[] = ['4x6', '8x11']
+// RESOLVED by David 2026-07-28 (in-session, direct answer): the physical
+// panels stocked and pressed are 4x6 and 8x10 — Candidate C. Etsy was right;
+// the studio canvas was the wrong one and now renders the 8x10 geometry from
+// the map above. '8x11' stays in METAL_ART_SIZES only as legacy geometry for
+// old carts/products that recorded it.
+export const STUDIO_SIZE_KEYS: MetalArtSizeKey[] = ['4x6', '8x10']
 
-// What the Etsy lane currently publishes (backend/services/etsy.ts). Also
-// unchanged by this refactor.
+// What the Etsy lane publishes (backend/services/etsy.ts).
 export const ETSY_SIZE_KEYS: MetalArtSizeKey[] = ['4x6', '8x10']
 
-// ---------------------------------------------------------------------------
-// THE CONFLICT — single point of change once David confirms the physical
-// panel(s):
-//
-// Candidate A — one real SKU, 8x11: the studio canvas is right (330x454 =
-//   8/11, zero cropping) and the Etsy listing is wrong. Fix: change
-//   ETSY_SIZE_KEYS's second entry to '8x11' and correct + republish the live
-//   Etsy listing (title/description/variation currently say 8x10).
-// Candidate B — two real SKUs: the website sells 8x11, Etsy separately sells
-//   a true 8x10 panel pressed differently. Fix: nothing structural — both
-//   lists above already reflect this split; just delete this comment block
-//   and STUDIO/ETSY_SIZE_KEYS documents it going forward.
-// Candidate C — one real SKU, 8x10: Etsy is right and the studio canvas is
-//   wrong. Fix: change STUDIO_SIZE_KEYS's second entry to '8x10' and give
-//   MetalArtStudio.tsx an 8x10 canvas ratio (already defined above) instead
-//   of 8x11 — a real product-behavior change, not just a copy fix.
-//
-// Nothing here silently picks one. Both lists keep shipping exactly what
-// they ship today until this comment is replaced with a decision.
-export const METAL_ART_SIZE_CONFLICT_OPEN = true
+export const METAL_ART_SIZE_CONFLICT_OPEN = false
 
 // ---------------------------------------------------------------------------
-// Substrate / mounting — ALSO owner-gated, ALSO a live contradiction:
-//   - backend/services/etsy-seo-composer.ts (published Etsy copy): dye-
-//     sublimated ALUMINUM metal print.
-//   - src/pages/MetalArtStudio.tsx (storefront cart line, before this fix):
-//     "Magnet-mounted steel plate."
-// Aluminum isn't ferromagnetic, so either one substrate claim is wrong, or
-// the magnet mounts to a separate wall bracket/plate rather than the panel
-// itself. Defaulting to ALUMINUM since that's the wording already live on
-// Etsy; the storefront copy has been reworded to stop claiming a bare
-// "magnet-mounted steel plate" until David confirms the real substrate and
-// mounting hardware.
+// Substrate / mounting — RESOLVED by David 2026-07-28: the panels are
+// ALUMINUM and ship WITH a hanger included. Listings may claim "ready to
+// hang". (The old storefront "magnet-mounted steel plate" line was wrong.)
 export const METAL_ART_SUBSTRATE = 'aluminum' as const
 
-// Deliberately mount-agnostic until the mounting hardware is confirmed — see
-// the substrate note above.
-export const METAL_ART_MOUNTING_COPY = 'arrives ready to hang'
+export const METAL_ART_MOUNTING_COPY = 'includes a hanger — arrives ready to hang'
+
+// ---------------------------------------------------------------------------
+// Scale anchors for AI mockups — David 2026-07-28: "I don't want to post a
+// 4x6 and they mock it up on a wall looking massive." Image models ignore
+// bare dimensions; they respect COMPARISONS to everyday objects. Every metal
+// mockup prompt must embed the anchor text for the size being staged.
+export function metalScaleAnchor(sizeKey: MetalArtSizeKey): string {
+  const s = METAL_ART_SIZES[sizeKey]
+  if (sizeKey === '4x6') {
+    return (
+      `The panel is SMALL: exactly ${s.widthIn}x${s.heightIn} inches — postcard-sized, ` +
+      'smaller than a sheet of paper, about the height of a coffee mug and a half. It reads as a ' +
+      'small desk/shelf accent piece. Stage it TRUE TO SCALE next to everyday objects that prove the ' +
+      'size (a coffee mug, a phone, a small plant pot roughly as tall as the panel). It must NOT ' +
+      'look like large statement wall art.'
+    )
+  }
+  return (
+    `The panel is exactly ${s.widthIn}x${s.heightIn} inches — the size of a sheet of letter paper, ` +
+    'a modest tabletop/shelf piece or a small accent on a wall. Stage it TRUE TO SCALE next to ' +
+    'everyday objects that prove the size (books, a lamp, a standard picture frame of similar size). ' +
+    'It must NOT look like a large statement piece or poster-sized art.'
+  )
+}

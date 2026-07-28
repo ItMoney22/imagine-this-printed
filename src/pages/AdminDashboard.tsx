@@ -152,9 +152,10 @@ const AdminDashboard: React.FC = () => {
     'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
     '3d-models': [],
     // Metal print sizes WITHOUT the inch mark — must match the canonical values
-    // written by the approval flow + defaultSizesFor (['4x6','8x11']) so the
-    // size buttons reflect the product's actual selection.
-    'metal-art': ['4x6', '8x11']
+    // written by the approval flow + defaultSizesFor (['4x6','8x10']) so the
+    // size buttons reflect the product's actual selection. (8x10 confirmed the
+    // real panel by David 2026-07-28; 8x11 was a canvas-era mistake.)
+    'metal-art': ['4x6', '8x10']
   }
 
   // Preset colors for products

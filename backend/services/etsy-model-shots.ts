@@ -21,6 +21,7 @@ import Replicate from 'replicate'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from './gcs-storage.js'
 import { editOpenAIImage } from './image-flow/providers/openai-image.js'
+import { ETSY_SIZE_KEYS, metalScaleAnchor, type MetalArtSizeKey } from '../shared/metal-art.js'
 
 const NANO_BANANA = 'google/nano-banana:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be'
 const STOCK_MODEL_BASE = 'https://storage.googleapis.com/imagine-this-printed-media/stock-models'
@@ -84,12 +85,21 @@ const SCENES = [
   'in a sunlit doorway of an old building, film-photo warmth, relaxed lean'
 ] as const
 
-// Metal art gets room scenes, not people — the product hangs on a wall.
-const METAL_SCENES = [
-  { label: 'living room scene', scene: 'displayed on a bright modern living room gallery wall above a sofa, soft daylight' },
-  { label: 'home office scene', scene: 'standing on a wooden home-office shelf beside a few books and a small plant, warm light' },
-  { label: 'entryway scene', scene: 'on a styled entryway console table, leaning against the wall, morning light' },
-  { label: 'bedroom scene', scene: 'above a neutral bedroom dresser with minimal decor, calm natural light' },
+// Metal art gets room scenes, not people — and each scene is bound to a REAL
+// panel size with scale anchors (David 2026-07-28: a 4x6 must never be staged
+// looking like massive wall art). Shot 1 stages the 4x6, shot 2 the 8x10, so
+// the listing honestly shows both buyable sizes.
+const METAL_SCENES_SMALL = [
+  { label: 'desk scene', scene: 'standing on a styled wooden desk next to a coffee mug and a small potted plant, warm daylight' },
+  { label: 'bedside scene', scene: 'on a bedside table beside a small lamp and a paperback book, calm morning light' },
+  { label: 'bookshelf scene', scene: 'tucked between books on a bookshelf, leaning against the shelf back, cozy light' },
+  { label: 'entryway scene', scene: 'on a styled entryway console close-up, leaning against the wall beside keys and a small plant' }
+] as const
+
+const METAL_SCENES_MEDIUM = [
+  { label: 'shelf scene', scene: 'standing on a wooden shelf leaning against the wall, books and a small plant beside it, warm light' },
+  { label: 'desk-wall scene', scene: 'hanging on the wall just above a home-office desk, monitor and lamp nearby for scale' },
+  { label: 'dresser scene', scene: 'leaning on a neutral bedroom dresser against the wall, minimal decor, calm natural light' },
   { label: 'kitchen scene', scene: 'on open kitchen shelving among ceramics and a small plant, bright airy light' }
 ] as const
 
@@ -98,6 +108,8 @@ interface ShotPlan {
   label: string
   persona: string | null   // null = product scene (metal art), no human model
   scene: string
+  /** Metal art only — which physical panel size this shot stages. */
+  metalSize?: MetalArtSizeKey
 }
 
 const pickTwo = <T,>(pool: readonly T[]): [T, T] => {
@@ -108,13 +120,15 @@ const pickTwo = <T,>(pool: readonly T[]): [T, T] => {
 }
 
 // Randomly cast two distinct looks: personas+scenes for apparel, room scenes
-// for metal art.
+// for metal art (one shot per buyable size, scale-anchored).
 function buildShotPlan(category: string): ShotPlan[] {
   if (category === 'metal-art') {
-    const [r1, r2] = pickTwo(METAL_SCENES)
+    const small = METAL_SCENES_SMALL[Math.floor(Math.random() * METAL_SCENES_SMALL.length)]
+    const medium = METAL_SCENES_MEDIUM[Math.floor(Math.random() * METAL_SCENES_MEDIUM.length)]
+    const [smallKey, mediumKey] = ETSY_SIZE_KEYS
     return [
-      { key: 'shot1', label: r1.label, persona: null, scene: r1.scene },
-      { key: 'shot2', label: r2.label, persona: null, scene: r2.scene }
+      { key: 'shot1', label: `${small.label} (${smallKey})`, persona: null, scene: small.scene, metalSize: smallKey },
+      { key: 'shot2', label: `${medium.label} (${mediumKey})`, persona: null, scene: medium.scene, metalSize: mediumKey }
     ]
   }
   const [p1, p2] = pickTwo(PERSONAS)
@@ -146,6 +160,7 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
     return (
       `The INPUT image is a piece of artwork. Task: a professional interior photograph of that artwork ` +
       `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${plan.scene}. ` +
+      `${metalScaleAnchor(plan.metalSize ?? '4x6')} ` +
       METAL_PROMPT_TAIL
     )
   }
@@ -165,6 +180,7 @@ function buildNanoPrompt(plan: ShotPlan, shirtColor: string): string {
     return (
       `The INPUT image is a piece of artwork. Task: a professional interior photograph of that artwork ` +
       `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${plan.scene}. ` +
+      `${metalScaleAnchor(plan.metalSize ?? '4x6')} ` +
       METAL_PROMPT_TAIL
     )
   }
