@@ -26,7 +26,6 @@ import mockupsRouter from './routes/mockups.js'
 import designerRouter from './routes/designer.js'
 import realisticMockupsRouter from './routes/realistic-mockups.js'
 import voiceRouter from './routes/ai/voice.js'
-import conciergeAvatarRouter from './routes/ai/concierge-avatar.js'
 import transcribeRouter from './routes/ai/transcribe.js'
 import chatRouter from './routes/ai/chat.js'
 import designAssistantRouter from './routes/ai/design-assistant.js'
@@ -62,7 +61,11 @@ import emailRouter from './routes/email.js'
 import adminProductsRouter from './routes/admin/products.js'
 import shippingRouter from './routes/shipping.js'
 import invoicesRouter from './routes/invoices.js'
+import wholesaleRouter from './routes/wholesale.js'
 import imageFlowRouter from './routes/image-flow.js'
+import kioskRouter from './routes/kiosk.js'
+import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
+import messagingRouter from './routes/messaging.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -92,8 +95,6 @@ logger.info({
     PORT: process.env.PORT || 4000,
     RESEND_API_KEY: !!process.env.RESEND_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM,
-    BREVO_API_KEY: !!process.env.BREVO_API_KEY,   // fallback only — remove after migration
-    BREVO_SENDER_EMAIL: process.env.BREVO_SENDER_EMAIL,
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
@@ -196,7 +197,10 @@ app.use('/api/mockups', mockupsRouter)
 app.use('/api/designer', designerRouter)
 app.use('/api/realistic-mockups', realisticMockupsRouter)
 app.use('/api/ai/voice', voiceRouter)
-app.use('/api/ai/concierge', conciergeAvatarRouter)
+// /api/ai/concierge retired 2026-07-28 (Watchtower a19d9784 / cab59113): it was
+// an unauthenticated, unrate-limited GET that paid for a Flux 1.1 Pro Ultra
+// generation on every cold start. The avatar is now the committed static asset
+// public/ai-concierge-avatar.png, served at /ai-concierge-avatar.png.
 app.use('/api/ai/transcribe', transcribeRouter)
 app.use('/api/ai/chat', chatRouter)
 app.use('/api/ai/design-assistant', designAssistantRouter)
@@ -233,6 +237,10 @@ app.use('/api/admin', adminProductsRouter)
 app.use('/api/products', adminProductsRouter)
 app.use('/api/shipping', shippingRouter)
 app.use('/api/invoices', invoicesRouter)
+app.use('/api/wholesale', wholesaleRouter)
+app.use('/api/kiosk', kioskRouter) // kiosk terminal device-secret -> session exchange + session-gated ordering
+app.use('/api/admin/kiosks', adminKioskDevicesRouter) // admin: provision/revoke per-device kiosk secrets
+app.use('/api/messaging', messagingRouter) // durable message attachment upload + per-request signed-URL resolution
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

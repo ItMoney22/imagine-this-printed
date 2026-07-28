@@ -1,7 +1,7 @@
 // One-shot setup for the in-app email system (Resend + Cloudflare + DB).
 //
 // Run from backend/: npx tsx scripts/setup-email-system.ts [flags]
-//   --migrate      apply supabase/migrations/20260612_email_system.sql to the DB (DATABASE_URL)
+//   --migrate      apply supabase/migrations/20260612000001_email_system.sql to the DB (DATABASE_URL)
 //   --dns          add Resend's sending DNS records to Cloudflare (additive, safe)
 //   --mx-cutover   REPLACE the root MX records with Resend's receiving MX
 //                  (moves ALL inbound @imaginethisprinted.com mail to Resend —
@@ -63,7 +63,7 @@ async function migrate() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL not set');
   // Run from backend/ — resolve the migration relative to the repo root
-  const sqlPath = path.resolve(process.cwd(), '../supabase/migrations/20260612_email_system.sql');
+  const sqlPath = path.resolve(process.cwd(), '../supabase/migrations/20260612000001_email_system.sql');
   const sql = fs.readFileSync(sqlPath, 'utf8');
   // Supabase's pooler presents a self-signed chain; strip sslmode from the URL
   // (it overrides the ssl object) and relax verification for THIS connection

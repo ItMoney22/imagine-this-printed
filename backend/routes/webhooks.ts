@@ -1,133 +1,16 @@
 import { Router, Request, Response } from 'express'
 import crypto from 'crypto'
-import { supabase } from '../lib/supabase.js'
 import { sendWelcomeEmail } from '../utils/email.js'
 
 const router = Router()
 
-// ===============================
-// BREVO EMAIL TRACKING WEBHOOKS
-// ===============================
-
-interface BrevoWebhookEvent {
-  event: 'delivered' | 'opened' | 'click' | 'hard_bounce' | 'soft_bounce' | 'spam' | 'unsubscribe' | 'blocked' | 'invalid'
-  email: string
-  'message-id': string
-  date: string
-  link?: string
-  tag?: string
-  ts_event?: number
-}
-
-/**
- * POST /api/webhooks/brevo
- * Receives real-time email tracking events from Brevo
- */
-router.post('/brevo', async (req: Request, res: Response) => {
-  try {
-    const event = req.body as BrevoWebhookEvent
-
-    console.log('[Brevo Webhook] Received event:', event.event, 'for messageId:', event['message-id'])
-
-    if (!event['message-id']) {
-      console.warn('[Brevo Webhook] No message-id in event')
-      return res.status(200).json({ received: true })
-    }
-
-    const messageId = event['message-id']
-    const eventTime = new Date(event.ts_event ? event.ts_event * 1000 : event.date)
-
-    // Find the email log entry by message_id
-    const { data: emailLog, error: findError } = await supabase
-      .from('email_logs')
-      .select('id, open_count, click_count, clicked_links')
-      .eq('message_id', messageId)
-      .single()
-
-    if (findError || !emailLog) {
-      console.warn('[Brevo Webhook] Email log not found for messageId:', messageId)
-      // Still return 200 to prevent retries
-      return res.status(200).json({ received: true })
-    }
-
-    // Build update based on event type
-    const update: Record<string, any> = {}
-
-    switch (event.event) {
-      case 'delivered':
-        update.status = 'delivered'
-        break
-
-      case 'opened':
-        update.open_count = (emailLog.open_count || 0) + 1
-        if (!emailLog.open_count || emailLog.open_count === 0) {
-          update.opened_at = eventTime.toISOString()
-        }
-        break
-
-      case 'click':
-        update.click_count = (emailLog.click_count || 0) + 1
-        if (!emailLog.click_count || emailLog.click_count === 0) {
-          update.clicked_at = eventTime.toISOString()
-        }
-        // Track clicked links
-        const currentLinks = emailLog.clicked_links || []
-        if (event.link) {
-          currentLinks.push({
-            url: event.link,
-            clicked_at: eventTime.toISOString()
-          })
-          update.clicked_links = currentLinks
-        }
-        break
-
-      case 'hard_bounce':
-      case 'soft_bounce':
-        update.status = 'bounced'
-        update.bounced_at = eventTime.toISOString()
-        update.error_message = `${event.event}: Email could not be delivered`
-        break
-
-      case 'spam':
-        update.status = 'spam'
-        update.spam_reported_at = eventTime.toISOString()
-        break
-
-      case 'unsubscribe':
-        update.unsubscribed_at = eventTime.toISOString()
-        break
-
-      case 'blocked':
-      case 'invalid':
-        update.status = 'failed'
-        update.error_message = `${event.event}: Email blocked or invalid`
-        break
-
-      default:
-        console.log('[Brevo Webhook] Unhandled event type:', event.event)
-    }
-
-    // Update the email log if we have updates
-    if (Object.keys(update).length > 0) {
-      const { error: updateError } = await supabase
-        .from('email_logs')
-        .update(update)
-        .eq('id', emailLog.id)
-
-      if (updateError) {
-        console.error('[Brevo Webhook] Failed to update email log:', updateError)
-      } else {
-        console.log('[Brevo Webhook] Updated email log:', emailLog.id, 'with:', Object.keys(update))
-      }
-    }
-
-    return res.status(200).json({ received: true })
-  } catch (error: any) {
-    console.error('[Brevo Webhook] Processing error:', error)
-    // Still return 200 to prevent Brevo from retrying
-    return res.status(200).json({ received: true, error: error.message })
-  }
-})
+// Brevo email-tracking webhook (POST /brevo) lived here — removed. This app
+// does not use Brevo as an email provider (Resend is the only transport, see
+// backend/utils/email.ts); Brevo's env vars were a legacy fallback that never
+// actually fired in production, and this endpoint had zero authentication —
+// an unauthenticated bounce/spam-status writer for email_logs. Resend's
+// delivery-event handling (including hard-bounce/complaint suppression) lives
+// at POST /api/email/webhooks/resend, which IS svix-signature-verified.
 
 // ===============================
 // SUPABASE AUTH WEBHOOKS

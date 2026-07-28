@@ -452,7 +452,7 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Log email to database with optional Brevo message ID for tracking
+ * Log email to database with optional Resend message ID for tracking
  */
 export async function logEmail(
   templateKey: string,
