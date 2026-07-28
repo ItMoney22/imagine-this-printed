@@ -3,7 +3,7 @@
 ## 🎭 Overview
 
 Enhanced the Voice-Guided Product Creation system with:
-1. **AI-generated concierge avatar** using your existing Replicate/Imagen-4 setup
+1. **Static concierge avatar** committed to the repo (the generator is retired)
 2. **Auto-microphone activation** for seamless voice interaction
 3. **Fast conversational mode** with visual feedback
 
@@ -11,34 +11,31 @@ Enhanced the Voice-Guided Product Creation system with:
 
 ## ✅ What's New
 
-### 1. **AI Concierge Avatar Generation**
+### 1. **AI Concierge Avatar — static asset (generator RETIRED)**
 
-**Backend**: [backend/routes/ai/concierge-avatar.ts](backend/routes/ai/concierge-avatar.ts)
+**Asset**: `public/ai-concierge-avatar.png` → served at **`/ai-concierge-avatar.png`**
+in both dev and production. Reference it directly; no fetch, no API call.
 
-```typescript
-GET /api/ai/concierge/avatar
+```tsx
+<img src="/ai-concierge-avatar.png" alt="AI concierge" />
 ```
 
 **Features**:
-- Generates professional AI assistant portrait using Google Imagen 4
-- **Cached after first generation** (no repeated API calls)
-- 512x512 high-quality headshot
-- Clean professional appearance
+- 512x512 PNG, committed to the repo
+- Zero cost, zero latency, cacheable by the CDN
+- Identical image on every deploy and every process
 
-**How it works**:
-```typescript
-const prompt = `Professional headshot portrait of a friendly female AI assistant
-with a warm smile, modern professional attire, studio lighting, clean white
-background, photorealistic, high quality, corporate photography style,
-approachable and professional demeanor, 4k resolution`
+> ⚠️ **`GET /api/ai/concierge/avatar` no longer exists.** It was removed on
+> 2026-07-28 (Watchtower `a19d9784` / `cab59113`) along with
+> `backend/routes/ai/concierge-avatar.ts`. The route was unauthenticated, had no
+> rate limit and no durable cache — it held the generated URL in a module
+> variable, so **every cold start and every deploy paid for a fresh
+> `black-forest-labs/flux-1.1-pro-ultra` generation**, and concurrent cache
+> misses were not coalesced. It now returns 404 by design; do not add a
+> compatibility redirect.
 
-const result = await generateImage({
-  prompt,
-  modelId: 'google/imagen-4',
-  width: 512,
-  height: 512
-})
-```
+**To change the avatar**: replace `public/ai-concierge-avatar.png` with a new
+square PNG and commit it. Do not reintroduce a generation endpoint.
 
 ### 2. **Enhanced Voice Component**
 
@@ -178,11 +175,10 @@ export const TalkToAI = () => {
 
 ## 🚀 Deployment Steps
 
-### 1. **Backend is Ready** ✅
-- Avatar generation endpoint: `/api/ai/concierge/avatar`
-- Already registered in `backend/index.ts`
-- Uses existing Replicate API token
-- No additional configuration needed
+### 1. **Avatar needs no backend** ✅
+- Static asset: `public/ai-concierge-avatar.png` → `/ai-concierge-avatar.png`
+- No route, no API token, no configuration
+- The old `/api/ai/concierge/avatar` endpoint was removed — see above
 
 ### 2. **Frontend Integration**
 
@@ -230,33 +226,24 @@ import { VoiceConversationEnhanced } from './VoiceConversationEnhanced'
 
 ### Avatar Customization
 
-Edit [backend/routes/ai/concierge-avatar.ts](backend/routes/ai/concierge-avatar.ts#L20) to change appearance:
+Replace the committed file — there is no prompt to edit and no endpoint to call:
 
-```typescript
-// More professional
-const prompt = `Executive business woman in suit, confident smile, studio portrait`
-
-// More friendly/casual
-const prompt = `Friendly young woman with warm smile, casual professional attire`
-
-// Different style
-const prompt = `Futuristic holographic AI assistant, glowing purple accents, sci-fi`
+```bash
+# any square PNG; 512x512 is what ships today
+cp my-new-avatar.png public/ai-concierge-avatar.png
 ```
 
 ---
 
 ## 🧪 Testing
 
-### Test Avatar Generation
+### Test the Avatar
 ```bash
-curl http://localhost:4000/api/ai/concierge/avatar
-```
+# dev (vite serves public/ at the root) or production
+curl -I http://localhost:5173/ai-concierge-avatar.png   # expect 200, image/png
 
-**Expected Response**:
-```json
-{
-  "avatarUrl": "https://replicate.delivery/pbxt/..."
-}
+# the retired generator must NOT come back
+curl -i http://localhost:4000/api/ai/concierge/avatar   # expect 404
 ```
 
 ### Test in UI
@@ -285,10 +272,10 @@ curl http://localhost:4000/api/ai/concierge/avatar
 
 ## 📊 Performance
 
-### Avatar Generation
-- **First request**: ~5 seconds (Imagen-4 generation)
-- **Cached requests**: Instant (returns cached URL)
-- **No repeated API calls** after initial generation
+### Avatar
+- **Every request**: instant — a static file off the CDN
+- **Cost**: $0. The generator it replaced re-billed a Flux 1.1 Pro Ultra run on
+  every cold start, because its "cache" was a module-level variable
 
 ### Voice Synthesis
 - Uses existing Minimax/Replicate integration
@@ -320,15 +307,15 @@ curl http://localhost:4000/api/ai/concierge/avatar
 ## 🎉 Summary
 
 **What You Get**:
-- ✅ Professional AI concierge avatar (auto-generated)
+- ✅ Professional AI concierge avatar (static, committed, free)
 - ✅ Auto-mic activation (no clicking to start)
 - ✅ Conversational mode (stays active between turns)
 - ✅ Visual feedback (glow effects, live transcript)
 - ✅ Fast, natural conversation flow
-- ✅ Uses your existing Replicate API setup
+- ✅ Voice still uses your existing Replicate/Minimax setup
 
 **Next Steps**:
-1. Test avatar generation: `GET /api/ai/concierge/avatar`
+1. Point any avatar UI at `/ai-concierge-avatar.png`
 2. Replace VoiceConversation with VoiceConversationEnhanced
 3. Add `autoMicOn={true}` and `conversationalMode={true}` props
 4. Deploy and test the conversational experience! 🚀
