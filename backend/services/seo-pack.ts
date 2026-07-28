@@ -16,8 +16,10 @@
 // Idempotent via products.metadata.seo_pack_generated_at. If no OPENAI_API_KEY
 // the pack falls back to mechanical derivation so columns still get filled.
 // ---------------------------------------------------------------------------
+import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
+import { withSocialUtm } from './social-utm.js'
 
 const SEO_MODEL = process.env.SEO_PACK_MODEL || 'gpt-5.4-nano'
 // gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
@@ -146,16 +148,26 @@ export async function generateSeoPackForProduct(productId: string): Promise<bool
     // Queue a DRAFT TikTok post in the social outbox (David approves/edits in
     // the admin Outbox tab before Rico ever sees it). Idempotent via the
     // (product_id, platform, kind) unique index; never fails the pack.
+    //
+    // The row id is generated here rather than by the database so the caption
+    // can carry utm_campaign=<outbox id> in the SAME insert — the alternative
+    // is insert-then-update, and a caption is worth more than a round trip.
+    // metadata.marketing_hooks.product_url stays UNTAGGED on purpose: it is the
+    // canonical product link, and every post that reuses it gets its own
+    // campaign id at enqueue time.
     try {
+      const outboxId = randomUUID()
+      const trackedUrl = withSocialUtm(productUrl, { platform: 'tiktok', outboxId })
       const { data: images } = await supabase.from('products').select('images').eq('id', productId).single()
       await supabase.from('social_outbox').upsert({
+        id: outboxId,
         product_id: productId,
         platform: 'tiktok',
         kind: 'post',
-        caption: `${pack.captions[0] || product.name} ${productUrl}`.trim(),
+        caption: `${pack.captions[0] || product.name} ${trackedUrl}`.trim(),
         hashtags: pack.hashtags,
         media_urls: images?.images || [],
-        listing: { title: product.name, description: product.description, price: product.price, product_url: productUrl },
+        listing: { title: product.name, description: product.description, price: product.price, product_url: trackedUrl },
         status: 'draft'
       }, { onConflict: 'product_id,platform,kind', ignoreDuplicates: true })
     } catch (outboxErr: any) {

@@ -172,7 +172,56 @@ const ProductPage: React.FC = () => {
       canonical.rel = 'canonical'
       document.head.appendChild(canonical)
     }
-    canonical.href = `https://www.imaginethisprinted.com/product/${product.slug || product.id}`
+    const canonicalUrl = `https://www.imaginethisprinted.com/product/${product.slug || product.id}`
+    canonical.href = canonicalUrl
+
+    // Product JSON-LD. For bot user-agents the server already injected a block
+    // built from the raw DB row (api/_seo/bot-meta.mjs) — that one is richer
+    // than anything the SPA can produce, so it is left alone while it still
+    // describes THIS url. It only goes stale on a client-side navigation to a
+    // different product, and only then do we swap in a client-built block.
+    // Every block either side writes carries data-itp-jsonld, so this never
+    // touches JSON-LD emitted by anything else on the page.
+    const existing = document.querySelector('script[type="application/ld+json"][data-itp-jsonld]')
+    let existingMatches = false
+    if (existing?.textContent) {
+      try {
+        existingMatches = String(JSON.parse(existing.textContent)['@id'] || '').startsWith(canonicalUrl)
+      } catch {
+        existingMatches = false
+      }
+    }
+    if (!existingMatches) {
+      document.querySelectorAll('script[type="application/ld+json"][data-itp-jsonld]').forEach(n => n.remove())
+      const images = (product.images || []).filter(Boolean).slice(0, 6)
+      const ld: Record<string, unknown> = {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        '@id': `${canonicalUrl}#product`,
+        name: product.name,
+        description: desc,
+        image: images.length ? images : ['https://www.imaginethisprinted.com/itp-logo-v3.png'],
+        url: canonicalUrl,
+        sku: product.id,
+        brand: { '@type': 'Brand', name: 'Imagine This Printed' }
+      }
+      if (product.category) ld.category = product.category
+      if (Number.isFinite(product.price) && product.price > 0) {
+        ld.offers = {
+          '@type': 'Offer',
+          url: canonicalUrl,
+          price: product.price.toFixed(2),
+          priceCurrency: 'USD',
+          availability: product.inStock === false ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
+          itemCondition: 'https://schema.org/NewCondition'
+        }
+      }
+      const script = document.createElement('script')
+      script.type = 'application/ld+json'
+      script.dataset.itpJsonld = 'client'
+      script.textContent = JSON.stringify(ld)
+      document.head.appendChild(script)
+    }
 
     return () => {
       document.title = prevTitle
