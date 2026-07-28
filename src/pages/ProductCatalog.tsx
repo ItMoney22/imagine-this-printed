@@ -1,9 +1,93 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
 import { canonicalCategoryOf } from '../lib/product-kind'
 import type { Product } from '../types'
+
+// Products per page. Chosen as a multiple of the 3-column xl grid so the
+// last row on desktop doesn't dangle with 1-2 orphaned cards.
+const PAGE_SIZE = 24
+
+function mapProductRow(p: any): Product {
+  return {
+    // isUserSubmitted below isn't a declared Product field (ProductCard.tsx
+    // reads it via `(product as any).isUserSubmitted`) — cast at the return,
+    // same as this file's previous `as Product[]`, so it still compiles.
+    id: p.id,
+    name: p.name,
+    description: p.description || '',
+    price: p.price || 0,
+    images: p.images || [],
+    // Classify by kind (column → metadata.product_template fallback) so
+    // metal/3D products with a null category stop landing under T-Shirts.
+    category: canonicalCategoryOf({ category: p.category, metadata: p.metadata }) as Product['category'],
+    inStock: p.is_active !== false,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+    metadata: p.metadata || {},
+    isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false,
+    // sizes/colors live on the columns (set at approval); metadata fallback for legacy rows
+    sizes: p.sizes || p.metadata?.sizes || [],
+    colors: p.colors || p.metadata?.colors || [],
+    isUserSubmitted: p.metadata?.is_user_submitted || false
+  } as Product
+}
+
+// Unapproved user-submitted designs must never leave the server — this used
+// to be a client-side `.filter(Boolean)` run AFTER the full row (name,
+// image, price, everything) had already been sent to the browser. Written as
+// an explicit "keep if NOT flagged unapproved" OR, not a negated AND: most
+// catalog rows never set metadata.is_user_submitted at all, and Postgres's
+// 3-valued NULL logic makes `NOT (a AND b)` silently drop rows where a/b are
+// simply unset — this would have hidden the entire non-user-submitted catalog.
+function applyApprovalFilter(query: any) {
+  return query.or(
+    'metadata->>is_user_submitted.is.null,metadata->>is_user_submitted.eq.false,metadata->>approved_by_admin.eq.true'
+  )
+}
+
+// Server-side mirror of canonicalCategoryOf (src/lib/product-kind.ts). Metal
+// and 3D-print products often carry a null `category` column and rely on
+// metadata.product_template/category instead, so those two buckets match on
+// either signal. Apparel-style categories match the column directly — a
+// product whose category column disagrees with its own metadata tag is a
+// data-hygiene edge case, not something this filter tries to resolve, since
+// doing so safely (NULL-guarding every metadata comparison) would need a
+// wall of `.or()` calls this pass didn't have a live DB to verify against.
+function applyCategoryFilter(query: any, categoryId: string) {
+  if (categoryId === 'all') return query
+  if (categoryId === 'metal-art') {
+    return query.or(
+      'category.ilike.%metal%,metadata->>product_template.ilike.%metal%,metadata->>product_template.ilike.%wall%,metadata->>category.ilike.%metal%,metadata->>category.ilike.%wall%'
+    )
+  }
+  if (categoryId === '3d-prints') {
+    return query.or(
+      'category.ilike.%3d%,category.ilike.%toy%,metadata->>product_template.ilike.%3d%,metadata->>product_template.ilike.%toy%,metadata->>category.ilike.%3d%,metadata->>category.ilike.%toy%'
+    )
+  }
+  return query.eq('category', categoryId)
+}
+
+// "Popular" used to sort by metadata.viewCount — a JSONB field that's rarely
+// populated and can't be ordered server-side with a syntax this pass could
+// verify against a live Supabase instance. `featured` is a real, indexed
+// boolean column, so it's used as the server-safe stand-in: featured items
+// first, then newest. Documented simplification, not a silent behavior swap.
+function applySort(query: any, sortBy: string) {
+  switch (sortBy) {
+    case 'price-low':
+      return query.order('price', { ascending: true })
+    case 'price-high':
+      return query.order('price', { ascending: false })
+    case 'popular':
+      return query.order('featured', { ascending: false }).order('created_at', { ascending: false })
+    case 'newest':
+    default:
+      return query.order('created_at', { ascending: false })
+  }
+}
 
 const ProductCatalog: React.FC = () => {
   const { category } = useParams<{ category?: string }>()
@@ -14,56 +98,110 @@ const ProductCatalog: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'popular'>('newest')
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  // Server-computed count for the CURRENT category+search filter (drives the
+  // toolbar count + pagination), distinct from catalogTotalCount below.
+  const [totalCount, setTotalCount] = useState(0)
+  // Approval-filtered, category-independent count used for the sidebar
+  // "Total Products" stat and the per-category pill badges.
+  const [catalogTotalCount, setCatalogTotalCount] = useState(0)
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({})
 
-  // Load products from Supabase - reload when navigating to this page
+  // Debounce free-text search so typing doesn't fire a query per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  // Any filter/sort change starts the user back on page 1. A small amount of
+  // double-fetch (this effect + the loadProducts effect below both firing)
+  // is the tradeoff for keeping page-reset simple — cheap against a 24-row
+  // paginated query, unlike the full-catalog fetch this replaces.
+  useEffect(() => {
+    setPage(1)
+  }, [selectedCategory, debouncedSearch, sortBy])
+
+  // Load products from Supabase - reload when navigating to this page or
+  // when the category/search/sort/page changes.
   useEffect(() => {
     loadProducts()
-  }, [location.pathname])
+  }, [location.pathname, selectedCategory, debouncedSearch, sortBy, page])
+
+  // Category pill counts + sidebar total load once — they're independent of
+  // the current page/search and don't need to refetch on every filter change.
+  useEffect(() => {
+    loadCategoryCounts()
+  }, [])
 
   const loadProducts = async () => {
     try {
       setLoading(true)
-      const { data, error } = await supabase
+      const from = (page - 1) * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
+
+      let query = supabase
         .from('products')
-        .select('*')
+        .select(
+          'id, name, description, price, images, category, is_active, created_at, updated_at, metadata, sizes, colors, featured',
+          { count: 'exact' }
+        )
         .eq('status', 'active')
         .eq('is_active', true)
-        .order('created_at', { ascending: false })
 
+      query = applyApprovalFilter(query)
+      query = applyCategoryFilter(query, selectedCategory)
+
+      if (debouncedSearch) {
+        const q = debouncedSearch.replace(/[%_]/g, '')
+        query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%`)
+      }
+
+      query = applySort(query, sortBy).range(from, to)
+
+      const { data, error, count } = await query
       if (error) throw error
 
-      const mappedProducts: Product[] = (data || []).map((p: any) => {
-        // For user submitted designs, they must be approved
-        if (p.metadata?.is_user_submitted && !p.metadata?.approved_by_admin) {
-          return null
-        }
-
-        return {
-          id: p.id,
-          name: p.name,
-          description: p.description || '',
-          price: p.price || 0,
-          images: p.images || [],
-          // Classify by kind (column → metadata.product_template fallback) so
-          // metal/3D products with a null category stop landing under T-Shirts.
-          category: canonicalCategoryOf({ category: p.category, metadata: p.metadata }),
-          inStock: p.is_active !== false,
-          createdAt: p.created_at,
-          updatedAt: p.updated_at,
-          metadata: p.metadata || {},
-          isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false,
-          // sizes/colors live on the columns (set at approval); metadata fallback for legacy rows
-          sizes: p.sizes || p.metadata?.sizes || [],
-          colors: p.colors || p.metadata?.colors || [],
-          isUserSubmitted: p.metadata?.is_user_submitted || false
-        }
-      }).filter(Boolean) as Product[]
-
-      setProducts(mappedProducts)
+      setProducts((data || []).map(mapProductRow))
+      setTotalCount(count || 0)
     } catch (error) {
       console.error('Error loading products:', error)
+      setProducts([])
+      setTotalCount(0)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCategoryCounts = async () => {
+    try {
+      const ids = categories.filter(c => c.id !== 'all').map(c => c.id)
+      const [totalResult, ...perCategoryResults] = await Promise.all([
+        applyApprovalFilter(
+          supabase.from('products').select('id', { count: 'exact', head: true }).eq('status', 'active').eq('is_active', true)
+        ),
+        ...ids.map(id =>
+          applyCategoryFilter(
+            applyApprovalFilter(
+              supabase.from('products').select('id', { count: 'exact', head: true }).eq('status', 'active').eq('is_active', true)
+            ),
+            id
+          )
+        )
+      ])
+
+      if (totalResult.error) throw totalResult.error
+      setCatalogTotalCount(totalResult.count || 0)
+
+      const counts: Record<string, number> = {}
+      ids.forEach((id, index) => {
+        const result = perCategoryResults[index]
+        counts[id] = result.error ? 0 : result.count || 0
+        if (result.error) console.error(`Error counting category "${id}":`, result.error)
+      })
+      setCategoryCounts(counts)
+    } catch (error) {
+      console.error('Error loading category counts:', error)
     }
   }
 
@@ -119,63 +257,15 @@ const ProductCatalog: React.FC = () => {
     }
   ]
 
-  // Filter + sort run on every render of this large component (category
-  // pills, search box, view toggle, etc. all live above the grid). With
-  // 200+ products the array clone + sort is cheap individually but the
-  // resulting `sortedProducts` reference changes every render, which
-  // breaks `ProductCard`'s implicit memoization and re-renders the whole
-  // grid on unrelated state changes.
-  const filteredProducts = useMemo(() => {
-    const byCategory = selectedCategory === 'all'
-      ? products
-      : products.filter(product => product.category === selectedCategory)
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return byCategory
-    return byCategory.filter(product => {
-      const tags: string[] = Array.isArray(product.metadata?.tags) ? product.metadata.tags : []
-      return (
-        product.name.toLowerCase().includes(q) ||
-        product.description.toLowerCase().includes(q) ||
-        tags.some(t => String(t).toLowerCase().includes(q))
-      )
-    })
-  }, [products, selectedCategory, searchQuery])
-
-  const sortedProducts = useMemo(() => {
-    return [...filteredProducts].sort((a, b) => {
-      switch (sortBy) {
-        case 'price-low':
-          return a.price - b.price
-        case 'price-high':
-          return b.price - a.price
-        case 'popular':
-          return (b.metadata?.viewCount || 0) - (a.metadata?.viewCount || 0)
-        case 'newest':
-        default:
-          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
-          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
-          return dateB - dateA
-      }
-    })
-  }, [filteredProducts, sortBy])
-
   useEffect(() => {
     if (category) {
       setSelectedCategory(category)
     }
   }, [category])
 
-  // Single-pass count map (memoized) instead of filtering the full products
-  // array once per category pill on every render.
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const p of products) {
-      counts[p.category] = (counts[p.category] || 0) + 1
-    }
-    return counts
-  }, [products])
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const getCategoryCount = (catId: string) =>
-    catId === 'all' ? products.length : (categoryCounts[catId] || 0)
+    catId === 'all' ? catalogTotalCount : (categoryCounts[catId] || 0)
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -231,7 +321,7 @@ const ProductCatalog: React.FC = () => {
               <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/50">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center">
-                    <p className="text-2xl font-display font-bold text-slate-900">{products.length}</p>
+                    <p className="text-2xl font-display font-bold text-slate-900">{catalogTotalCount}</p>
                     <p className="text-xs text-slate-500">Total Products</p>
                   </div>
                   <div className="text-center">
@@ -256,7 +346,7 @@ const ProductCatalog: React.FC = () => {
                       </span>
                     ) : (
                       <>
-                        <span className="font-semibold text-slate-900">{sortedProducts.length}</span>
+                        <span className="font-semibold text-slate-900">{totalCount}</span>
                         <span className="text-slate-500"> products</span>
                         {selectedCategory !== 'all' && (
                           <span className="text-slate-400"> in {categories.find(c => c.id === selectedCategory)?.name}</span>
@@ -328,25 +418,50 @@ const ProductCatalog: React.FC = () => {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
                 <p className="text-slate-500">Loading products...</p>
               </div>
-            ) : sortedProducts.length > 0 ? (
-              <div className={
-                viewMode === 'grid'
-                  ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'
-                  : 'space-y-4'
-              }>
-                {sortedProducts.map((product, index) => (
-                  <div
-                    key={product.id}
-                    className="animate-fade-in"
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    <ProductCard
-                      product={product}
-                      showSocialBadges={true}
-                    />
+            ) : products.length > 0 ? (
+              <>
+                <div className={
+                  viewMode === 'grid'
+                    ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6'
+                    : 'space-y-4'
+                }>
+                  {products.map((product, index) => (
+                    <div
+                      key={product.id}
+                      className="animate-fade-in"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <ProductCard
+                        product={product}
+                        showSocialBadges={true}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="mt-8 flex items-center justify-center gap-4">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm text-slate-600">
+                      Page {page} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page >= totalPages}
+                      className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                    </button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             ) : (
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-12 text-center">
                 <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-slate-100 flex items-center justify-center">
