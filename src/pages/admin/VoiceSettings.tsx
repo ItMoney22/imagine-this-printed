@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { API_BASE } from '../../lib/api'
 
 export const AdminVoiceSettings = () => {
     const [settings, setSettings] = useState({
@@ -12,7 +13,7 @@ export const AdminVoiceSettings = () => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const { data } = await axios.get('/api/ai/voice/settings')
+                const { data } = await axios.get(`${API_BASE}/api/ai/voice/settings`)
                 setSettings(data)
             } catch (error) {
                 console.error('Failed to fetch settings', error)
@@ -24,7 +25,7 @@ export const AdminVoiceSettings = () => {
     const handleSave = async () => {
         setIsSaving(true)
         try {
-            await axios.post('/api/ai/voice/settings', settings)
+            await axios.post(`${API_BASE}/api/ai/voice/settings`, settings)
             alert('Voice settings saved successfully!')
         } catch (error) {
             alert('Failed to save settings')

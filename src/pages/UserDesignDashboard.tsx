@@ -3,6 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { API_BASE } from '../lib/api'
 import {
   Palette,
   FileText,
@@ -118,17 +119,17 @@ export default function UserDesignDashboard() {
       // Fetch in parallel
       const [designsRes, sessionsRes, statsRes, walletRes] = await Promise.all([
         // User's designs (products they created)
-        axios.get('/api/user-products/my-products', {
+        axios.get(`${API_BASE}/api/user-products/my-products`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => ({ data: { products: [] } })),
 
         // Design sessions (drafts)
-        axios.get('/api/user-products/design-sessions', {
+        axios.get(`${API_BASE}/api/user-products/design-sessions`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => ({ data: { sessions: [] } })),
 
         // Creator analytics
-        axios.get('/api/user-products/creator-analytics', {
+        axios.get(`${API_BASE}/api/user-products/creator-analytics`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => ({ data: null })),
 
@@ -265,7 +266,7 @@ export default function UserDesignDashboard() {
       const token = session?.access_token
 
       // Deduct ITC first
-      await axios.post('/api/wallet/deduct-itc', {
+      await axios.post(`${API_BASE}/api/wallet/deduct-itc`, {
         amount: DOWNLOAD_COST,
         reason: 'High-resolution design download'
       }, {
@@ -304,7 +305,7 @@ export default function UserDesignDashboard() {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
 
-      await axios.delete(`/api/user-products/design-sessions/${sessionId}`, {
+      await axios.delete(`${API_BASE}/api/user-products/design-sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 

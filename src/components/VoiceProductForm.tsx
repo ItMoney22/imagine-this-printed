@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
+import { API_BASE } from '../lib/api'
 import { VoiceConversationEnhanced } from './VoiceConversationEnhanced'
 
 interface VoiceProductFormProps {
@@ -39,7 +40,7 @@ export const VoiceProductForm = ({ onComplete }: VoiceProductFormProps) => {
             const { data: { session } } = await supabase.auth.getSession()
             const token = session?.access_token
 
-            const { data } = await axios.post('/api/ai/chat', {
+            const { data } = await axios.post(`${API_BASE}/api/ai/chat`, {
                 message: userInput,
                 context: context,
                 systemPrompt: "You are an expert AI design assistant for a print-on-demand site. Your goal is to help customers create amazing products. Be enthusiastic, helpful, and concise. Guide them through the creation process. Keep your responses short and conversational."
@@ -86,7 +87,7 @@ export const VoiceProductForm = ({ onComplete }: VoiceProductFormProps) => {
 
             if (!token) throw new Error('Authentication required')
 
-            const { data } = await axios.post('/api/admin/products/ai/create', {
+            const { data } = await axios.post(`${API_BASE}/api/admin/products/ai/create`, {
                 prompt: formData.prompt,
                 imageStyle: formData.imageStyle,
                 shirtColor: formData.shirtColor,
@@ -116,7 +117,7 @@ export const VoiceProductForm = ({ onComplete }: VoiceProductFormProps) => {
                 const { data: { session } } = await supabase.auth.getSession()
                 const token = session?.access_token
 
-                const { data } = await axios.get(`/api/admin/products/ai/${productId}/status`, {
+                const { data } = await axios.get(`${API_BASE}/api/admin/products/ai/${productId}/status`, {
                     headers: token ? { Authorization: `Bearer ${token}` } : {}
                 })
                 const imageJob = data.jobs.find((j: any) => j.type === 'replicate_image')
@@ -148,7 +149,7 @@ export const VoiceProductForm = ({ onComplete }: VoiceProductFormProps) => {
         try {
             const { data: { session } } = await supabase.auth.getSession()
             const token = session?.access_token
-            await axios.post(`/api/admin/products/ai/${productId}/remove-background`, {}, {
+            await axios.post(`${API_BASE}/api/admin/products/ai/${productId}/remove-background`, {}, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {}
             })
         } catch (e) {
@@ -162,7 +163,7 @@ export const VoiceProductForm = ({ onComplete }: VoiceProductFormProps) => {
         try {
             const { data: { session } } = await supabase.auth.getSession()
             const token = session?.access_token
-            await axios.post(`/api/admin/products/ai/${productId}/create-mockups`, {}, {
+            await axios.post(`${API_BASE}/api/admin/products/ai/${productId}/create-mockups`, {}, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {}
             })
         } catch (e) {

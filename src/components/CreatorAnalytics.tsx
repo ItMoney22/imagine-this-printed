@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import axios from 'axios'
+import { API_BASE } from '../lib/api'
 
 interface MonthlyTrend {
   month: string
@@ -48,7 +49,7 @@ export const CreatorAnalytics = () => {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
 
-      const { data } = await axios.get('/api/user-products/creator-analytics', {
+      const { data } = await axios.get(`${API_BASE}/api/user-products/creator-analytics`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
