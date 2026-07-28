@@ -31,7 +31,11 @@ interface SocialPostRow {
   author_username: string | null
   author_display_name: string | null
   approved_at: string
-  status: string
+  // The route filters `.in('status', ['approved', 'featured'])`
+  // (backend/routes/social.ts:283), so those are the only values that can
+  // reach this component — narrower than the DB CHECK, which also allows
+  // 'hidden' (supabase/migrations/20251222_social_content.sql:45).
+  status: 'approved' | 'featured'
   tags: string[]
   product_ids: string[]
   votes: number
