@@ -6,6 +6,30 @@
 - If another file is needed: STOP and ask for approval OR update `TASK_NOTES.md` scope first (with rationale) before proceeding.
 - After each milestone, append one new bullet to `TASK_NOTES.md` → “Work log (append-only)” describing what changed and the result.
 
+## Multi-session git discipline (locked by David 2026-07-28)
+Multiple agent sessions work this repo concurrently and have wrecked each other by
+sharing one checkout (branch switched underneath a live session; foreign staged
+changes nearly swept into commits; a 15-commit mega-branch stranding finished work).
+These rules are mandatory:
+
+1. **The shared checkout (`D:\Projects for MetaSphere\imagine-this-printed`) stays on
+   `main`. NEVER `git checkout`/`git switch` a branch in it.** Any work that needs a
+   branch gets its own linked worktree:
+   `git worktree add "..\itp-worktrees\<branch>" -b <branch>` — work there, and
+   `git worktree remove` it after merge. (Exception in force until the
+   `earth/zero-nine/itp-payments-hardening` branch merges: the shared checkout is
+   currently sitting on that branch — do not "fix" it back to main mid-flight.)
+2. **Commit only files YOU changed.** Run `git status` first; if the index carries
+   another session's staged work (staged deletions included), commit with explicit
+   paths or unstage the foreign entries — never sweep them into your commit.
+3. **Branches are small and short-lived.** Merge within ~a day via the pre-merge
+   gate. No mega-branches: slice big efforts into independently mergeable pieces.
+   A branch that outlives a day of divergence strands everyone else's work behind it.
+4. **A push to `main` IS a production deploy** (Render backend+worker and Vercel
+   auto-deploy). Before pushing, confirm `git branch --show-current` says the branch
+   you think you're on — a session that assumes `main` while the checkout sits on a
+   feature branch "pushes" nothing and thinks it shipped.
+
 ---
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
