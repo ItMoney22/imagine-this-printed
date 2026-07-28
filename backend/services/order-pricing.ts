@@ -23,31 +23,39 @@
 //   - ITC store-credit — capped to the caller's REAL wallet balance, and only
 //     honored for an authenticated userId (never a guest-supplied one).
 //
-// KNOWN GAPS (documented, not silently papered over — see AUDIT/FOLLOW-UPS in
-// the task handoff):
+// GAPS CLOSED (Watchtower task 188ead33, follow-up to 9a8431d9):
 //   1. Imagination-sheet (`imagination-sheet-*`) and 3D-print (`3d-print-*`)
-//      custom line items have pricing formulas that live elsewhere (sheet
-//      sq-inch pricing needs the persisted sheet width/height + print-type
-//      presets; 3D-print pricing needs model volume/complexity) and are NOT
-//      ported here. These fall back to the client-declared unit price,
-//      clamped to UNVERIFIED_CUSTOM_ITEM_MAX_CENTS as a bounded stopgap —
-//      tampering is capped, not eliminated. Follow-up: fetch the authoritative
-//      sheet/model row server-side and price it for real.
-//   2. Standard carrier shipping (USPS/UPS live quotes via Shippo) is not
-//      independently re-quoted here — that would require calling Shippo from
-//      this module. Instead the client-declared amount is bounds-checked
-//      against MIN/MAX_CARRIER_SHIPPING_CENTS. Local pickup (always $0) and
-//      local delivery (fixed $10/$15 tiers) ARE fully authoritative. Follow-up:
-//      have /api/shipping/rates return a short-lived signed quote token this
-//      engine can verify instead of trusting a bounded client number.
-//   3. Tax uses STATE-level base rates only — no county/city surtax, no
-//      nexus/registration awareness. This is an intentional interim measure;
-//      wiring Stripe Tax needs David to configure tax registrations and
-//      per-product tax codes in the Stripe dashboard (owner-gated), so it is
-//      out of scope for this pass. The interface below is shaped so a real
-//      tax provider can be dropped in later without changing callers.
+//      custom line items now price from the SAME server rows the rest of the
+//      app trusts: imagination_sheets.{print_type,sheet_height} through
+//      backend/config/imagination-presets.ts getSheetPrice(), and
+//      user_3d_models.print_price_usd through the same color4/paint-kit
+//      formula POST /api/3d-models/:id/order already uses. See
+//      fetchCustomItemPrices below. The client-declared unit price is no
+//      longer consulted for either prefix — an item that can't be resolved
+//      from the DB is a pricing error, not a clamped fallback.
+//   2. Standard carrier shipping (USPS/UPS live quotes via Shippo) is
+//      verified via a short-lived HMAC-signed quote token minted by POST
+//      /api/shipping/rates (backend/services/shipping-quote.ts), not a
+//      bounds-checked client number. The old $3-$60 sanity band is gone — a
+//      legitimate quote of any size is honored; a missing/tampered/expired/
+//      mismatched token is rejected outright. Local pickup (always $0) and
+//      local delivery (fixed $10/$15 tiers) remain fully authoritative
+//      without a token.
+//   3. Tax can use Stripe Tax (compliance-grade, county/city/district aware)
+//      via calculateTaxViaStripe below, behind the deps.calculateTax seam —
+//      but it is OFF by default (STRIPE_TAX_ENABLED unset/false) because
+//      Stripe Tax returns $0 tax for any jurisdiction with no configured
+//      registration, and nothing is registered yet. Flipping it on without
+//      that dashboard work would silently UNDER-collect tax everywhere,
+//      which is a legal problem, not a rounding one — see NEEDS-DAVID in the
+//      task handoff. US_STATE_BASE_SALES_TAX_RATES remains the active
+//      fallback (and the only source) until David configures registrations +
+//      product tax codes and sets STRIPE_TAX_ENABLED=true.
 
 import { supabase } from '../lib/supabase.js'
+import Stripe from 'stripe'
+import { getSheetPrice, SHEET_PRESETS, type PrintType } from '../config/imagination-presets.js'
+import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -91,19 +99,35 @@ function isPlusSize(size?: string | null): boolean {
   return PLUS_SIZES.some(ps => upper.includes(ps))
 }
 
-// Bounded fallback ceiling for custom line items whose real pricing formula
-// isn't ported yet (see KNOWN GAP #1 above). Generous on purpose — this is an
-// anti-abuse cap, not a price model.
-const UNVERIFIED_CUSTOM_ITEM_MAX_CENTS = 30000 // $300/unit
+// Mirrors backend/routes/3d-models.ts PRINT_PRICING + the color4/paint-kit
+// formula in its POST /:id/order handler. Duplicated rather than imported —
+// that file has no exports for these — same convention as every other
+// mirrored constant table in this module.
+const PRINT_3D_BASE_PRICE_DOLLARS = 25
+const PRINT_3D_PAINT_KIT_DOLLARS = 15
+const PRINT_3D_COLOR4_PREMIUM_MULTIPLIER = 1.3
+
+// Mirrors the discountPercentage values in
+// src/utils/wholesale-pricing.ts WholesalePricingCalculator's tiers.
+// Duplicated across the frontend/backend build boundary like the constants
+// above — this is the flat "off retail" rate applied to REAL cart items,
+// which don't carry the per-product wholesalePricing arrays that class's
+// calculateProductPricing() expects (those exist only on the mocked
+// WholesaleProduct catalog on the wholesale portal, not on src/types
+// Product). Only this flat rate is reusable for real catalog products.
+export const WHOLESALE_TIER_DISCOUNT_RATES: Record<string, number> = {
+  bronze: 0.15,
+  silver: 0.25,
+  gold: 0.35,
+  platinum: 0.45
+}
 
 // Shipping constants — mirrors src/utils/shipping-calculator.ts.
 export const FREE_SHIPPING_THRESHOLD_CENTS = 5000 // $50
 export const RUSH_FEE_CENTS = 799 // $7.99
 const LOCAL_DELIVERY_TIER_CENTS = [1000, 1500] // $10 / $15, mirrors LOCAL_DELIVERY_TIERS
-// Standard carrier (USPS/UPS via Shippo) rates are live-quoted and not
-// re-derived here (see KNOWN GAP #2) — bounded sanity band instead.
-const MIN_CARRIER_SHIPPING_CENTS = 300 // $3 — below the cheapest known base rate, leaves slack
-const MAX_CARRIER_SHIPPING_CENTS = 6000 // $60 — comfortably above the priciest known base rate + weight scaling
+// Standard carrier (USPS/UPS via Shippo) rates are live-quoted and verified
+// via a signed quote token (see GAP 2 above) — no bounds band needed.
 
 // ---------------------------------------------------------------------------
 // US state base sales-tax rates (state-level only — no county/city surtax).
@@ -130,6 +154,12 @@ export const US_STATE_BASE_SALES_TAX_RATES: Record<string, number> = {
 // compliance and trust problem. See module docstring re: Stripe Tax follow-up.
 export const DEFAULT_TAX_RATE = 0
 
+// GAP 3 (see module docstring): Stripe Tax is wired but OFF by default. David
+// must configure tax registrations + per-product tax codes in the Stripe
+// dashboard, THEN set STRIPE_TAX_ENABLED=true (backend env) to switch the
+// authoritative source over from US_STATE_BASE_SALES_TAX_RATES.
+const STRIPE_TAX_ENABLED = process.env.STRIPE_TAX_ENABLED === 'true'
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -140,8 +170,17 @@ export interface PricingCartItem {
   selectedSize?: string | null
   selectedAddonIds?: (string | null | undefined)[] | null
   // Only consulted for product lines whose authoritative formula isn't yet
-  // ported server-side (imagination-sheet-*, 3d-print-*). See KNOWN GAP #1.
+  // ported server-side. Currently unused by imagination-sheet-*/3d-print-*
+  // (GAP 1 closed — see fetchCustomItemPrices); kept for any future custom
+  // line-item type that hasn't been ported yet.
   clientUnitPriceDollars?: number | null
+  /** Parcel weight in lb — mirrors src/utils/shipping-calculator.ts's per-item
+   *  weight, used only to verify a signed carrier shipping quote (GAP 2). */
+  weight?: number | null
+  /** Cart item metadata (e.g. 3d-print color_mode/include_paint_kit). These
+   *  are OPTIONS, never trusted dollar amounts — pricing is still derived
+   *  server-side from a formula applied to a DB-fetched base price. */
+  metadata?: Record<string, any> | null
 }
 
 export interface PricingShippingAddress {
@@ -154,6 +193,9 @@ export interface PricingShippingInput {
   type?: string | null // 'pickup' | 'delivery' | 'shipping'
   clientAmountCents: number
   rush?: boolean
+  /** Signed quote from POST /api/shipping/rates — required for type
+   *  'shipping' (standard carrier). See GAP 2 / shipping-quote.ts. */
+  shippingQuoteToken?: string | null
 }
 
 export interface PricingDiscountCodeRow {
@@ -177,6 +219,32 @@ export interface PricingDependencies {
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
   fetchWalletItcBalance: (userId: string) => Promise<number>
+  /**
+   * Returns the caller's wholesale tier ONLY when they have an approved
+   * wholesale account (role === 'wholesale' AND wholesale_status ===
+   * 'approved' in user_profiles) — null otherwise, including "applied but
+   * still pending". Never resolves from a client-supplied tier/role.
+   */
+  fetchWholesaleTier: (userId: string) => Promise<'bronze' | 'silver' | 'gold' | 'platinum' | null>
+  /**
+   * Resolves the AUTHORITATIVE base price (in DOLLARS) for imagination-sheet-*
+   * and 3d-print-* cart items, keyed by the item's full cart id (e.g.
+   * `imagination-sheet-<uuid>`). For 3d-print-* this is the DB's
+   * print_price_usd BEFORE the color4/paint-kit formula (applied in
+   * computeLineItemCents via resolve3dPrintUnitCents) — never a client price.
+   * An id missing from the map means "could not be priced" and becomes a
+   * pricing error, not a fallback. See GAP 1.
+   */
+  fetchCustomItemPrices: (items: PricingCartItem[]) => Promise<Map<string, number>>
+  /**
+   * Tax calculation — swappable so tests never hit Stripe. The default
+   * (calculateTaxDefault) uses Stripe Tax only when STRIPE_TAX_ENABLED=true,
+   * else the state base-rate table. See GAP 3.
+   */
+  calculateTax: (
+    taxableCents: number,
+    address: PricingShippingAddress | null | undefined
+  ) => Promise<{ taxCents: number; rate: number; source: 'stripe_tax' | 'state_table' }>
 }
 
 export interface CalculateOrderPricingInput {
@@ -192,10 +260,16 @@ export interface CalculateOrderPricingInput {
 
 export interface OrderPricingResult {
   productSubtotalCents: number
+  /** Combined coupon + wholesale discount, capped to the subtotal. */
   discountCents: number
+  couponDiscountCents: number
+  wholesaleDiscountCents: number
+  wholesaleTier: 'bronze' | 'silver' | 'gold' | 'platinum' | null
   shippingCents: number
   taxCents: number
   taxRate: number
+  /** Which tax source produced taxCents/taxRate — ops visibility for GAP 3. */
+  taxSource: 'stripe_tax' | 'state_table'
   itcCreditCents: number
   itcCreditApplied: number
   totalCents: number
@@ -210,9 +284,25 @@ export interface OrderPricingResult {
 // Pure helpers (no I/O) — directly unit-testable.
 // ---------------------------------------------------------------------------
 
+// Applies the SAME color4/paint-kit formula backend/routes/3d-models.ts POST
+// /:id/order uses, to the DB-fetched base tier price (never a client price).
+// color_mode/include_paint_kit are OPTIONS read from cart-item metadata —
+// they select which formula branch runs, they don't supply a dollar amount.
+function resolve3dPrintUnitCents(tierPrintPriceDollars: number, item: PricingCartItem): number {
+  const colorMode: 'grey' | 'color4' = item.metadata?.color_mode === 'color4' ? 'color4' : 'grey'
+  const basePriceDollars =
+    colorMode === 'color4'
+      ? Math.ceil(tierPrintPriceDollars * PRINT_3D_COLOR4_PREMIUM_MULTIPLIER) - 0.01
+      : tierPrintPriceDollars
+  const includePaintKit = colorMode === 'grey' && Boolean(item.metadata?.include_paint_kit)
+  const paintKitDollars = includePaintKit ? PRINT_3D_PAINT_KIT_DOLLARS : 0
+  return Math.round((basePriceDollars + paintKitDollars) * 100)
+}
+
 export function computeLineItemCents(
   item: PricingCartItem,
-  productPriceMap: Map<string, number>
+  productPriceMap: Map<string, number>,
+  customItemPriceMap: Map<string, number> = new Map()
 ): { cents: number; errors: string[]; warnings: string[] } {
   const errors: string[] = []
   const warnings: string[] = []
@@ -236,20 +326,23 @@ export function computeLineItemCents(
     } else {
       unitCents = known
     }
-  } else if (id.startsWith('imagination-sheet-') || id.startsWith('3d-print-')) {
-    // KNOWN GAP #1 — see module docstring. Bounded fallback to the
-    // client-declared unit price so these product lines keep working.
-    const clientDollars = Number(item.clientUnitPriceDollars)
-    if (!Number.isFinite(clientDollars) || clientDollars < 0) {
-      errors.push(`Missing/invalid client price for unverified item ${id}`)
+  } else if (id.startsWith('imagination-sheet-')) {
+    // GAP 1 CLOSED: priced from imagination_sheets.{print_type,sheet_height}
+    // via getSheetPrice() — see fetchCustomItemPrices. Never the client price.
+    const sheetPriceDollars = customItemPriceMap.get(id)
+    if (sheetPriceDollars === undefined) {
+      errors.push(`Imagination sheet not found or could not be priced: ${id}`)
     } else {
-      const raw = Math.round(clientDollars * 100)
-      unitCents = Math.min(raw, UNVERIFIED_CUSTOM_ITEM_MAX_CENTS)
-      if (raw > UNVERIFIED_CUSTOM_ITEM_MAX_CENTS) {
-        warnings.push(
-          `Clamped unverified item ${id} price from $${clientDollars.toFixed(2)} to $${(UNVERIFIED_CUSTOM_ITEM_MAX_CENTS / 100).toFixed(2)}`
-        )
-      }
+      unitCents = Math.round(sheetPriceDollars * 100)
+    }
+  } else if (id.startsWith('3d-print-')) {
+    // GAP 1 CLOSED: priced from user_3d_models.print_price_usd via the same
+    // color4/paint-kit formula the order route uses — see fetchCustomItemPrices.
+    const tierPriceDollars = customItemPriceMap.get(id)
+    if (tierPriceDollars === undefined) {
+      errors.push(`3D print model not found, not ready, or could not be priced: ${id}`)
+    } else {
+      unitCents = resolve3dPrintUnitCents(tierPriceDollars, item)
     }
   } else if (UUID_RE.test(id)) {
     errors.push(`Product ${id} not found`)
@@ -282,14 +375,15 @@ export function computeLineItemCents(
 
 export function computeSubtotalCents(
   items: PricingCartItem[],
-  productPriceMap: Map<string, number>
+  productPriceMap: Map<string, number>,
+  customItemPriceMap: Map<string, number> = new Map()
 ): { subtotalCents: number; errors: string[]; warnings: string[] } {
   let subtotalCents = 0
   const errors: string[] = []
   const warnings: string[] = []
 
   for (const item of items) {
-    const result = computeLineItemCents(item, productPriceMap)
+    const result = computeLineItemCents(item, productPriceMap, customItemPriceMap)
     subtotalCents += result.cents
     errors.push(...result.errors)
     warnings.push(...result.warnings)
@@ -306,6 +400,17 @@ export interface ResolveShippingInput {
   productSubtotalCents: number
   /** True when a free_shipping coupon applies (zeroes the base rate). */
   freeShippingOverride?: boolean
+  /** Signed carrier quote from POST /api/shipping/rates. REQUIRED for type
+   *  'shipping' (see GAP 2) — ignored for pickup/delivery, which are already
+   *  fully server-derived without one. */
+  shippingQuoteToken?: string | null
+  /** Current cart's parcel weight, computed the same way POST
+   *  /api/shipping/rates computed it (see computeCartWeightLb) — must match
+   *  the token's embedded weight or the quote is rejected as stale/reused
+   *  against a different cart. */
+  cartWeightLb?: number
+  /** Current checkout's destination zip — must match the token's. */
+  destinationZip?: string | null
 }
 
 export interface ResolveShippingResult {
@@ -343,20 +448,25 @@ export function resolveShipping(input: ResolveShippingInput): ResolveShippingRes
   }
 
   // Standard carrier shipping — free once the order clears the threshold.
-  if (input.productSubtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS && clientCents === 0) {
+  // Decided purely by the server-computed subtotal now (not by whether the
+  // client happened to send 0) — strictly more authoritative than before.
+  if (input.productSubtotalCents >= FREE_SHIPPING_THRESHOLD_CENTS) {
     return { shippingCents: rushFeeCents, rushFeeCents }
   }
 
-  if (!Number.isFinite(clientCents) || clientCents < MIN_CARRIER_SHIPPING_CENTS || clientCents > MAX_CARRIER_SHIPPING_CENTS) {
-    const got = Number.isFinite(clientCents) ? `$${(clientCents / 100).toFixed(2)}` : String(input.clientAmountCents)
-    return {
-      shippingCents: rushFeeCents,
-      rushFeeCents,
-      error: `Shipping cost ${got} is outside the expected carrier-rate range ($${(MIN_CARRIER_SHIPPING_CENTS / 100).toFixed(2)}-$${(MAX_CARRIER_SHIPPING_CENTS / 100).toFixed(2)})`
-    }
+  // GAP 2 CLOSED: verified against a short-lived HMAC-signed quote minted by
+  // POST /api/shipping/rates instead of a $3-$60 bounds check. The amount
+  // charged comes from INSIDE the token, never from clientAmountCents.
+  const verified = verifyShippingQuote({
+    token: input.shippingQuoteToken,
+    destinationZip: input.destinationZip || '',
+    weightLb: input.cartWeightLb ?? 0
+  })
+  if (!verified.ok) {
+    return { shippingCents: rushFeeCents, rushFeeCents, error: verified.error }
   }
 
-  return { shippingCents: clientCents + rushFeeCents, rushFeeCents }
+  return { shippingCents: verified.amountCents! + rushFeeCents, rushFeeCents }
 }
 
 export function computeTaxCents(taxableCents: number, state?: string | null): { taxCents: number; rate: number } {
@@ -364,6 +474,83 @@ export function computeTaxCents(taxableCents: number, state?: string | null): { 
   const rate = code in US_STATE_BASE_SALES_TAX_RATES ? US_STATE_BASE_SALES_TAX_RATES[code] : DEFAULT_TAX_RATE
   const taxCents = Math.round(Math.max(0, taxableCents) * rate)
   return { taxCents, rate }
+}
+
+// ---------------------------------------------------------------------------
+// GAP 3 — Stripe Tax (compliance-grade, county/city/district aware).
+//
+// Lazily-constructed client: order-pricing.test.ts sets only
+// SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY, not STRIPE_SECRET_KEY, and `new
+// Stripe(undefined)` throws immediately — constructing at module scope would
+// break every test. Constructing on first use means tests that never flip
+// STRIPE_TAX_ENABLED never touch this at all.
+// ---------------------------------------------------------------------------
+let stripeTaxClient: Stripe | null | undefined
+function getStripeTaxClient(): Stripe | null {
+  if (stripeTaxClient !== undefined) return stripeTaxClient
+  const key = process.env.STRIPE_SECRET_KEY
+  stripeTaxClient = key ? new Stripe(key, { apiVersion: '2025-02-24.acacia' }) : null
+  return stripeTaxClient
+}
+
+/**
+ * Calls Stripe Tax for a compliance-grade rate (state + county/city/district,
+ * nexus-aware). Returns null on ANY failure — missing key, no address, no
+ * registration for the jurisdiction returning an unusable result, or a
+ * network/API error — so the caller can fall back to the state-rate table.
+ * Tax must never block checkout because the tax provider had a bad day.
+ *
+ * Uses a single generic "tangible personal property" tax code (txcd_99999999)
+ * because per-product tax codes aren't configured yet — see NEEDS-DAVID in
+ * the task handoff. This is a safe generic default per Stripe's own docs,
+ * not an invented rate; the RATE still comes entirely from Stripe Tax.
+ */
+export async function calculateTaxViaStripe(
+  taxableCents: number,
+  address: PricingShippingAddress | null | undefined
+): Promise<{ taxCents: number; rate: number; source: 'stripe_tax' } | null> {
+  if (taxableCents <= 0 || !address?.postalCode || !address?.state) return null
+  const client = getStripeTaxClient()
+  if (!client) return null
+  try {
+    const calculation = await client.tax.calculations.create({
+      currency: 'usd',
+      line_items: [
+        {
+          amount: Math.round(taxableCents),
+          reference: 'order_subtotal',
+          tax_code: 'txcd_99999999'
+        }
+      ],
+      customer_details: {
+        address: {
+          country: (address.country || 'US').toUpperCase(),
+          state: address.state,
+          postal_code: address.postalCode
+        },
+        address_source: 'shipping'
+      }
+    })
+    const taxCents = Math.round(calculation.tax_amount_exclusive ?? 0)
+    return { taxCents, rate: taxableCents > 0 ? taxCents / taxableCents : 0, source: 'stripe_tax' }
+  } catch (err) {
+    console.error('[order-pricing] Stripe Tax calculation failed — falling back to the state-rate table:', err)
+    return null
+  }
+}
+
+/** Default tax resolver — see PricingDependencies.calculateTax. */
+async function calculateTaxDefault(
+  taxableCents: number,
+  address: PricingShippingAddress | null | undefined
+): Promise<{ taxCents: number; rate: number; source: 'stripe_tax' | 'state_table' }> {
+  if (STRIPE_TAX_ENABLED) {
+    const stripeResult = await calculateTaxViaStripe(taxableCents, address)
+    if (stripeResult) return stripeResult
+    // Falls through to the state table on any Stripe Tax failure.
+  }
+  const { taxCents, rate } = computeTaxCents(taxableCents, address?.state)
+  return { taxCents, rate, source: 'state_table' }
 }
 
 export function computeDiscountFromCoupon(
@@ -474,7 +661,65 @@ const defaultDependencies: PricingDependencies = {
     const { data, error } = await supabase.from('user_wallets').select('itc_balance').eq('user_id', userId).single()
     if (error || !data) return 0
     return Number(data.itc_balance) || 0
-  }
+  },
+
+  async fetchWholesaleTier(userId: string) {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('role, wholesale_status, wholesale_tier')
+      .eq('id', userId)
+      .single()
+    if (error || !data) return null
+    if (data.role !== 'wholesale' || data.wholesale_status !== 'approved') return null
+    const tier = String(data.wholesale_tier || 'bronze')
+    return (tier in WHOLESALE_TIER_DISCOUNT_RATES ? tier : 'bronze') as 'bronze' | 'silver' | 'gold' | 'platinum'
+  },
+
+  async fetchCustomItemPrices(items: PricingCartItem[]) {
+    const map = new Map<string, number>()
+    const sheetIds: string[] = []
+    const modelIds: string[] = []
+    for (const item of items) {
+      const id = String(item.productId ?? '')
+      if (id.startsWith('imagination-sheet-')) sheetIds.push(id.slice('imagination-sheet-'.length))
+      else if (id.startsWith('3d-print-')) modelIds.push(id.slice('3d-print-'.length))
+    }
+
+    if (sheetIds.length > 0) {
+      const { data, error } = await supabase
+        .from('imagination_sheets')
+        .select('id, print_type, sheet_height')
+        .in('id', sheetIds)
+      if (error) {
+        console.error('[order-pricing] Failed to load imagination_sheets for pricing:', error.message)
+      } else {
+        for (const row of data || []) {
+          const printType = row.print_type as PrintType
+          if (!(printType in SHEET_PRESETS) || row.sheet_height == null) continue
+          map.set(`imagination-sheet-${row.id}`, getSheetPrice(printType, Number(row.sheet_height)))
+        }
+      }
+    }
+
+    if (modelIds.length > 0) {
+      const { data, error } = await supabase
+        .from('user_3d_models')
+        .select('id, print_price_usd')
+        .in('id', modelIds)
+      if (error) {
+        console.error('[order-pricing] Failed to load user_3d_models for pricing:', error.message)
+      } else {
+        for (const row of data || []) {
+          const tierPrice = row.print_price_usd != null ? Number(row.print_price_usd) : PRINT_3D_BASE_PRICE_DOLLARS
+          map.set(`3d-print-${row.id}`, tierPrice)
+        }
+      }
+    }
+
+    return map
+  },
+
+  calculateTax: calculateTaxDefault
 }
 
 // ---------------------------------------------------------------------------
@@ -493,13 +738,19 @@ export async function calculateOrderPricing(
   )
   const productPriceMap = catalogIds.length > 0 ? await deps.fetchProductPrices(catalogIds) : new Map<string, number>()
 
-  const subtotalResult = computeSubtotalCents(input.items, productPriceMap)
+  const customItems = input.items.filter(i => {
+    const id = String(i.productId ?? '')
+    return id.startsWith('imagination-sheet-') || id.startsWith('3d-print-')
+  })
+  const customItemPriceMap = customItems.length > 0 ? await deps.fetchCustomItemPrices(customItems) : new Map<string, number>()
+
+  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap)
   errors.push(...subtotalResult.errors)
   warnings.push(...subtotalResult.warnings)
   const subtotalCents = subtotalResult.subtotalCents
 
-  // Discount
-  let discountCents = 0
+  // Coupon discount
+  let couponDiscountCents = 0
   let freeShipping = false
   let couponError: string | undefined
   const code = (input.couponCode || '').trim().toUpperCase()
@@ -510,26 +761,49 @@ export async function calculateOrderPricing(
       usageCount = await deps.countCouponUsageForUser(row.id, input.userId)
     }
     const result = computeDiscountFromCoupon(row, subtotalCents, usageCount)
-    discountCents = result.discountCents
+    couponDiscountCents = result.discountCents
     freeShipping = result.freeShipping
     couponError = result.error
   }
 
+  // Wholesale tier discount — resolved from the server-trusted account
+  // record (see fetchWholesaleTier), never a client-supplied tier/role.
+  // Stacks with a coupon (both are discounts off the same subtotal); the
+  // combined total is capped to the subtotal below.
+  let wholesaleTier: 'bronze' | 'silver' | 'gold' | 'platinum' | null = null
+  let wholesaleDiscountCents = 0
+  if (input.userId) {
+    wholesaleTier = await deps.fetchWholesaleTier(input.userId)
+    if (wholesaleTier) {
+      wholesaleDiscountCents = Math.round(subtotalCents * (WHOLESALE_TIER_DISCOUNT_RATES[wholesaleTier] ?? 0))
+    }
+  }
+
+  const discountCents = Math.min(subtotalCents, couponDiscountCents + wholesaleDiscountCents)
+
   // Shipping
+  const cartWeightLb = computeCartWeightLb(input.items.map(i => ({ weight: i.weight, quantity: i.quantity })))
+  const destinationZip = (input.shippingAddress?.postalCode || '').trim()
   const shippingResult = resolveShipping({
     type: input.shipping.type,
     clientAmountCents: input.shipping.clientAmountCents,
     rush: input.shipping.rush,
     productSubtotalCents: subtotalCents,
-    freeShippingOverride: freeShipping
+    freeShippingOverride: freeShipping,
+    shippingQuoteToken: input.shipping.shippingQuoteToken ?? null,
+    cartWeightLb,
+    destinationZip
   })
   if (shippingResult.error) errors.push(shippingResult.error)
 
   // Tax — on the pre-discount product subtotal, matching the existing
   // business rule already in src/pages/Checkout.tsx (discount reduces the
   // total, not the taxable base). Shipping is not taxed, also matching
-  // existing behavior. Not reassessed here for tax-compliance correctness.
-  const { taxCents, rate: taxRate } = computeTaxCents(subtotalCents, input.shippingAddress?.state)
+  // existing behavior. Source (Stripe Tax vs the state table) is decided by
+  // deps.calculateTax — see GAP 3.
+  const taxResult = await deps.calculateTax(subtotalCents, input.shippingAddress ?? null)
+  const taxCents = taxResult.taxCents
+  const taxRate = taxResult.rate
 
   // ITC store credit — authenticated users only, capped to real balance.
   let itcCreditApplied = 0
@@ -551,9 +825,13 @@ export async function calculateOrderPricing(
   return {
     productSubtotalCents: subtotalCents,
     discountCents,
+    couponDiscountCents,
+    wholesaleDiscountCents,
+    wholesaleTier,
     shippingCents: shippingResult.shippingCents,
     taxCents,
     taxRate,
+    taxSource: taxResult.source,
     itcCreditCents,
     itcCreditApplied: itcCreditCents,
     totalCents,

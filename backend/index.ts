@@ -66,6 +66,7 @@ import imageFlowRouter from './routes/image-flow.js'
 import kioskRouter from './routes/kiosk.js'
 import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
 import messagingRouter from './routes/messaging.js'
+import reviewsRouter from './routes/reviews.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -241,6 +242,7 @@ app.use('/api/wholesale', wholesaleRouter)
 app.use('/api/kiosk', kioskRouter) // kiosk terminal device-secret -> session exchange + session-gated ordering
 app.use('/api/admin/kiosks', adminKioskDevicesRouter) // admin: provision/revoke per-device kiosk secrets
 app.use('/api/messaging', messagingRouter) // durable message attachment upload + per-request signed-URL resolution
+app.use('/api/reviews', reviewsRouter) // product reviews; writes gated on a verified purchase
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

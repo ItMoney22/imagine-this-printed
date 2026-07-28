@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -69,9 +69,31 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, or
     if (result?.error) {
       console.error('Express payment failed:', result.error)
       toast.error('Payment failed', result.error.message || 'Please try a different payment method.')
-    } else {
+      return
+    }
+
+    // redirect:'if_required' resolves here (instead of redirecting away) with
+    // the PaymentIntent's REAL status. 'succeeded' is the only one that means
+    // the charge went through — unconditionally clearing the cart here used
+    // to also fire for 'processing' (ACH/bank debits) and 'requires_action',
+    // losing the customer's cart before their payment had actually completed.
+    // See Watchtower task 6079bd09.
+    const status = result?.paymentIntent?.status
+    if (status === 'succeeded') {
       clearCart()
       navigate(`/order-success?order_id=${orderId}`)
+    } else if (status === 'processing') {
+      // Order confirmation page reads the REAL status from the server and
+      // shows a "confirming your payment" state — cart intentionally not
+      // cleared until that status resolves to 'succeeded'.
+      navigate(`/order-success?order_id=${orderId}`)
+    } else {
+      toast.error(
+        'Payment not completed',
+        status === 'requires_action' || status === 'requires_confirmation'
+          ? 'Your bank needs additional confirmation for this payment. Please try again.'
+          : 'Please try a different payment method.'
+      )
     }
   }
 
@@ -120,7 +142,7 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
       return
     }
 
-    const { error } = await stripe.confirmPayment({
+    const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/order-success?order_id=${orderId}`,
@@ -133,10 +155,36 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
       // to retry the same card, change card, or contact their bank. The old
       // inline banner was easy to miss on mobile under the Pay button.
       toast.error('Payment failed', error.message || 'Please try a different payment method.')
-    } else {
-      toast.success('Payment successful', 'Redirecting to order confirmation…')
-      clearCart()
-      navigate(`/order-success?order_id=${orderId}`)
+      setLoading(false)
+      return
+    }
+
+    // redirect:'if_required' resolves here (instead of redirecting away) with
+    // the PaymentIntent's REAL status — 'succeeded' is the only one that
+    // means the charge actually went through. ACH/bank-debit methods land in
+    // 'processing'; some flows can still come back 'requires_action'. The old
+    // code unconditionally showed "Payment successful" and cleared the cart
+    // for ANY non-error result, which meant a customer could see a false
+    // success message and lose their cart for a payment that hadn't
+    // completed. See Watchtower task 6079bd09.
+    switch (paymentIntent?.status) {
+      case 'succeeded':
+        toast.success('Payment successful', 'Redirecting to order confirmation…')
+        clearCart()
+        navigate(`/order-success?order_id=${orderId}`)
+        break
+      case 'processing':
+        toast.info('Payment processing', "We're confirming your payment — this can take a moment for bank transfers.")
+        // Order confirmation page reads the REAL status from the server;
+        // cart is intentionally NOT cleared until it resolves to 'succeeded'.
+        navigate(`/order-success?order_id=${orderId}`)
+        break
+      case 'requires_action':
+      case 'requires_confirmation':
+        toast.error('Additional action required', 'Your bank needs you to confirm this payment. Please try again.')
+        break
+      default:
+        toast.error('Payment not completed', `Payment status: ${paymentIntent?.status || 'unknown'}. Please try again or use a different payment method.`)
     }
     setLoading(false)
   }
@@ -194,6 +242,12 @@ const Checkout: React.FC = () => {
   const [clientSecret, setClientSecret] = useState('')
   const [paymentIntentId, setPaymentIntentId] = useState('')
   const [orderId, setOrderId] = useState('')
+  // Guards against createPaymentIntent firing twice concurrently (e.g. two
+  // dependency changes in quick succession before paymentIntentId/orderId
+  // state commits) — without it, both calls take the "create new" branch and
+  // mint two Stripe PaymentIntents + two draft orders for the same cart.
+  // Idempotency requirement — see task handoff.
+  const creatingPaymentIntentRef = useRef(false)
   const [shippingCalculation, setShippingCalculation] = useState<ShippingCalculation | null>(null)
   const [loadingShipping, setLoadingShipping] = useState(false)
   const [processingITCPayment, setProcessingITCPayment] = useState(false)
@@ -451,6 +505,12 @@ const Checkout: React.FC = () => {
   }
 
   const createPaymentIntent = async () => {
+    // Skip a re-entrant call rather than firing a second request in
+    // parallel — see creatingPaymentIntentRef declaration above. The
+    // effect that calls this re-fires on the next relevant state change
+    // regardless, so a skipped call isn't lost, just deferred.
+    if (creatingPaymentIntentRef.current) return
+    creatingPaymentIntentRef.current = true
     try {
       // totalUSD already has itcCreditUSD deducted
       const discountedTotal = Math.max(0, totalUSD - discount)
@@ -488,6 +548,11 @@ const Checkout: React.FC = () => {
           // fulfillment team sees the next-day promise on the order.
           shippingMethod: `${selectedShipping?.name || 'Standard'}${rushActive ? ' — Rush (Next Business Day)' : ''}`,
           shippingType: selectedShipping?.type || 'shipping',
+          // Signed carrier quote (Watchtower task 188ead33 GAP 2) — only
+          // standard carrier rates carry one; pickup/delivery are already
+          // fully server-derived and don't need it. The server verifies this
+          // instead of trusting `shippingCost` above.
+          shippingQuoteToken: selectedShipping?.type === 'shipping' ? selectedShipping?.token : undefined,
           rush: rushActive,
           rushFee: rushFee,
           // Local pickup appointment info
@@ -530,6 +595,8 @@ const Checkout: React.FC = () => {
       if (serverPricingFromError) {
         setServerPricing(serverPricingFromError)
       }
+    } finally {
+      creatingPaymentIntentRef.current = false
     }
   }
 

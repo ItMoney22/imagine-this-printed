@@ -1,3 +1,28 @@
+-- ============================================================================
+-- SUPERSEDED -- DO NOT APPLY (verified live 2026-07-28, Watchtower campaign
+-- ITP Closeout, task c5335439)
+-- ============================================================================
+-- Every table this file declares already exists live, in a DIFFERENT, already-
+-- corrected shape:
+--   itc_transactions live    = (id, user_id, type, amount, reference,
+--                                balance_after, metadata, created_at)
+--   points_transactions live = (id, user_id, points_change, reason, reference,
+--                                balance_after, metadata, created_at)
+-- Both differ from what this file declares below (type/amount/related_entity_*
+-- for points_transactions; usd_value/reason/related_entity_* for
+-- itc_transactions). order_rewards, referral_codes, referral_transactions,
+-- user_total_spend, award_order_rewards() and process_referral_reward() are
+-- ALL live and correct today, per Watchtower task e9034a97 (commit cbbbc5c,
+-- branch earth/iahhm/fix-award-order-rewards-e9034a97-ms3eu9v5 -- not yet
+-- merged into every branch, but the corrected SQL is already applied to
+-- production).
+-- Running this file now would CREATE TABLE IF NOT EXISTS (no-op, harmless) but
+-- then CREATE OR REPLACE FUNCTION award_order_rewards / process_referral_reward
+-- with the OLD, phantom-column bodies below, silently reintroducing the exact
+-- bug that made every order reward a no-op from 2025-11-10 until it was fixed.
+-- See supabase/migrations/MIGRATION_LEDGER.md for the full audit.
+-- ============================================================================
+
 -- Migration: Reward System Tables
 -- Description: Creates tables for tracking points and ITC transactions, referrals, and order rewards
 -- Date: 2025-11-10

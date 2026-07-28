@@ -586,4 +586,47 @@ router.get('/:orderId/rewards', requireAuth, async (req: Request, res: Response)
   }
 })
 
+// GET /api/orders/:orderId/confirmation — public, minimal order-status lookup
+// for the post-checkout confirmation page (src/pages/OrderSuccess.tsx).
+//
+// WHY THIS EXISTS (Watchtower task 6079bd09): OrderSuccess used to read
+// order_id off the query string (inventing one from Date.now() if absent)
+// and render a full "Order Confirmed!" screen with NO backend call at all —
+// visiting /order-success?order_id=anything showed a fake confirmation for
+// an order that may not exist or may not have been paid.
+//
+// No requireAuth: checkout is guest-friendly (optionalAuth on
+// /checkout-payment-intent), so a guest has no session to prove ownership
+// with. The order UUID itself is the capability, same pattern Stripe's own
+// Checkout success page and most storefronts use — 122 bits of entropy,
+// never enumerable, only ever seen by the person who just placed the order
+// (in the redirect URL) or an admin. Deliberately returns a MINIMAL field
+// set (no street address, no line items, no payment_intent_id) — just
+// enough for the confirmation screen to render real state instead of
+// trusting the URL.
+router.get('/:orderId/confirmation', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRe.test(orderId)) {
+      return res.status(400).json({ error: 'Invalid order id' })
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('id, order_number, status, payment_status, fulfillment_status, total, currency, customer_name, customer_email, created_at')
+      .eq('id', orderId)
+      .single()
+
+    if (error || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    return res.json({ order })
+  } catch (error: any) {
+    console.error('[orders/:orderId/confirmation] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 export default router

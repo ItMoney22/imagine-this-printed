@@ -182,7 +182,7 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken } = req.body
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
@@ -234,7 +234,13 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       quantity: item?.quantity || 1,
       selectedSize: item?.selectedSize ?? null,
       selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
-      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null
+      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null,
+      // weight feeds the signed shipping-quote verification (must match the
+      // parcel weight POST /api/shipping/rates quoted against); metadata
+      // carries 3d-print color_mode/include_paint_kit OPTIONS — never a
+      // trusted dollar amount. See order-pricing.ts GAP 1 / GAP 2.
+      weight: item?.product?.weight != null ? Number(item.product.weight) : null,
+      metadata: item?.product?.metadata ?? null
     }))
 
     let pricing
@@ -245,7 +251,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         shipping: {
           type: shippingType,
           clientAmountCents: Math.round((Number(shippingCost) || 0) * 100),
-          rush: !!rush
+          rush: !!rush,
+          shippingQuoteToken: shippingQuoteToken || null
         },
         couponCode: couponCode || null,
         userId: trustedUserId,
@@ -482,6 +489,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       amount: serverAmountCents / 100,
       shippingCost: serverShippingAmount,
       discount: serverDiscountAmount,
+      taxSource: pricing.taxSource,
       itemCount: items?.length || 0
     }, 'Checkout payment intent and order created')
 

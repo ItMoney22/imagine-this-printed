@@ -24,6 +24,7 @@ const {
   resolveShipping
 } = await import('./order-pricing.js')
 import type { PricingDependencies, PricingDiscountCodeRow } from './order-pricing.js'
+import { signShippingQuote } from './shipping-quote.js'
 
 const PRODUCT_A = '11111111-1111-1111-1111-111111111111'
 const PRODUCT_B = '22222222-2222-2222-2222-222222222222'
@@ -34,6 +35,11 @@ function makeFakeDeps(overrides: Partial<PricingDependencies> = {}): PricingDepe
     fetchDiscountCode: async () => null,
     countCouponUsageForUser: async () => 0,
     fetchWalletItcBalance: async () => 0,
+    fetchWholesaleTier: async () => null,
+    fetchCustomItemPrices: async () => new Map(),
+    // Mirrors calculateTaxDefault with STRIPE_TAX_ENABLED off — the state
+    // table — so every pre-existing tax-dependent assertion keeps working.
+    calculateTax: async (taxableCents, address) => ({ ...computeTaxCents(taxableCents, address?.state), source: 'state_table' as const }),
     ...overrides
   }
 }
@@ -102,14 +108,71 @@ describe('computeLineItemCents', () => {
     expect(cents).toBe(2000 + 250)
   })
 
-  it('clamps unverified custom-item (imagination-sheet / 3d-print) prices to the safety ceiling', () => {
-    const { cents, warnings, errors } = computeLineItemCents(
-      { productId: 'imagination-sheet-abc', quantity: 1, clientUnitPriceDollars: 99999 },
-      new Map()
-    )
-    expect(errors).toEqual([])
-    expect(cents).toBe(30000) // clamped to $300
-    expect(warnings[0]).toMatch(/Clamped/)
+  describe('imagination-sheet / 3d-print pricing (Watchtower task 188ead33 GAP 1)', () => {
+    it('prices an imagination sheet from the resolved server map, ignoring a lowball client price entirely', () => {
+      const customMap = new Map([['imagination-sheet-abc', 12.34]])
+      const { cents, errors } = computeLineItemCents(
+        { productId: 'imagination-sheet-abc', quantity: 1, clientUnitPriceDollars: 0.01 },
+        new Map(),
+        customMap
+      )
+      expect(errors).toEqual([])
+      expect(cents).toBe(1234) // $12.34 from the map, not the client's claimed penny
+    })
+
+    it('rejects an imagination sheet id that could not be resolved server-side instead of falling back to the client price', () => {
+      const { cents, errors } = computeLineItemCents(
+        { productId: 'imagination-sheet-does-not-exist', quantity: 1, clientUnitPriceDollars: 500 },
+        new Map(),
+        new Map() // resolver found nothing for this id
+      )
+      expect(cents).toBe(0)
+      expect(errors[0]).toMatch(/could not be priced/)
+    })
+
+    it('prices a grey 3D print at the DB tier price with no premium/paint-kit', () => {
+      const customMap = new Map([['3d-print-m1', 25]])
+      const { cents, errors } = computeLineItemCents(
+        { productId: '3d-print-m1', quantity: 1, clientUnitPriceDollars: 1 },
+        new Map(),
+        customMap
+      )
+      expect(errors).toEqual([])
+      expect(cents).toBe(2500) // $25.00 from the DB tier price
+    })
+
+    it('applies the paint-kit add-on for grey mode', () => {
+      const customMap = new Map([['3d-print-m1', 25]])
+      const { cents } = computeLineItemCents(
+        { productId: '3d-print-m1', quantity: 1, metadata: { include_paint_kit: true } },
+        new Map(),
+        customMap
+      )
+      expect(cents).toBe(2500 + 1500) // $25 base + $15 paint kit
+    })
+
+    it('applies the color4 30% premium (ceil, minus a cent) and drops the paint kit even if requested', () => {
+      const customMap = new Map([['3d-print-m1', 25]])
+      const { cents } = computeLineItemCents(
+        { productId: '3d-print-m1', quantity: 1, metadata: { color_mode: 'color4', include_paint_kit: true } },
+        new Map(),
+        customMap
+      )
+      // Math.ceil(25 * 1.3) - 0.01 = 33 - 0.01 = $32.99 — mirrors
+      // backend/routes/3d-models.ts POST /:id/order exactly. Paint kit only
+      // applies to grey mode, so it's NOT added here even though requested.
+      expect(cents).toBe(3299)
+    })
+
+    it('rejects a 3d-print id that could not be resolved (model not found / not ready)', () => {
+      const { cents, errors } = computeLineItemCents(
+        { productId: '3d-print-does-not-exist', quantity: 1, clientUnitPriceDollars: 500 },
+        new Map(),
+        new Map()
+      )
+      expect(cents).toBe(0)
+      expect(errors[0]).toMatch(/not found, not ready, or could not be priced/)
+    })
   })
 })
 
@@ -136,12 +199,89 @@ describe('resolveShipping', () => {
     expect(result.shippingCents).toBe(0)
   })
 
-  it('rejects standard shipping outside the plausible carrier-rate band', () => {
-    const tooLow = resolveShipping({ type: 'shipping', clientAmountCents: 0, productSubtotalCents: 1000 })
-    expect(tooLow.error).toMatch(/outside the expected carrier-rate range/)
+  it('allows free shipping regardless of a stale/tampered clientAmountCents once the threshold is met', () => {
+    // Strictly more authoritative than before: the OLD code trusted a
+    // client-sent 0 to grant free shipping and fell through to the bounds
+    // check on anything else. The server-computed subtotal decides now.
+    const result = resolveShipping({ type: 'shipping', clientAmountCents: 12345, productSubtotalCents: 6000 })
+    expect(result.error).toBeUndefined()
+    expect(result.shippingCents).toBe(0)
+  })
 
-    const tooHigh = resolveShipping({ type: 'shipping', clientAmountCents: 99999, productSubtotalCents: 1000 })
-    expect(tooHigh.error).toMatch(/outside the expected carrier-rate range/)
+  describe('signed carrier shipping quotes (Watchtower task 188ead33 GAP 2)', () => {
+    const destinationZip = '30153'
+    const cartWeightLb = 2
+
+    function validToken(amountCents = 1299) {
+      return signShippingQuote({ amountCents, carrier: 'USPS', service: 'Ground Advantage', weightLb: cartWeightLb, destinationZip })
+    }
+
+    it('charges the AMOUNT INSIDE A VALID TOKEN, ignoring whatever the client sent', () => {
+      const result = resolveShipping({
+        type: 'shipping',
+        clientAmountCents: 1, // client lowballs — irrelevant, the token wins
+        productSubtotalCents: 1000,
+        shippingQuoteToken: validToken(1299),
+        cartWeightLb,
+        destinationZip
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.shippingCents).toBe(1299)
+    })
+
+    it('rejects standard shipping with no quote token instead of falling back to a bounds check', () => {
+      const result = resolveShipping({ type: 'shipping', clientAmountCents: 1299, productSubtotalCents: 1000, cartWeightLb, destinationZip })
+      expect(result.error).toMatch(/reselect a shipping option/i)
+      expect(result.shippingCents).toBe(0)
+    })
+
+    it('THE DELIVERABLE: rejects a token whose amount was tampered with after signing', () => {
+      const token = validToken(1299)
+      const [payload, signature] = token.split('.')
+      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+      // Attacker edits the amount down to a penny and re-encodes the payload,
+      // but keeps the OLD signature — it no longer matches.
+      const tamperedPayload = Buffer.from(JSON.stringify({ ...claims, amountCents: 1 }), 'utf8').toString('base64url')
+      const tamperedToken = `${tamperedPayload}.${signature}`
+
+      const result = resolveShipping({
+        type: 'shipping',
+        clientAmountCents: 1,
+        productSubtotalCents: 1000,
+        shippingQuoteToken: tamperedToken,
+        cartWeightLb,
+        destinationZip
+      })
+      expect(result.error).toMatch(/signature invalid/i)
+      expect(result.shippingCents).toBe(0) // rejected quote charges nothing — checkout must 400, never undercharge
+    })
+
+    it('rejects a quote reused against a materially heavier cart than it was minted for', () => {
+      const token = signShippingQuote({ amountCents: 500, carrier: 'USPS', service: 'Ground', weightLb: 0.5, destinationZip })
+      const result = resolveShipping({
+        type: 'shipping', clientAmountCents: 500, productSubtotalCents: 1000,
+        shippingQuoteToken: token, cartWeightLb: 20, destinationZip
+      })
+      expect(result.error).toMatch(/does not match the current cart/i)
+    })
+
+    it('rejects an expired quote', () => {
+      const token = signShippingQuote({ amountCents: 500, carrier: 'USPS', service: 'Ground', weightLb: cartWeightLb, destinationZip }, -1)
+      const result = resolveShipping({
+        type: 'shipping', clientAmountCents: 500, productSubtotalCents: 1000,
+        shippingQuoteToken: token, cartWeightLb, destinationZip
+      })
+      expect(result.error).toMatch(/expired/i)
+    })
+
+    it('no longer caps a legitimate high shipping quote at $60 — the old sanity band is gone', () => {
+      const result = resolveShipping({
+        type: 'shipping', clientAmountCents: 8500, productSubtotalCents: 1000,
+        shippingQuoteToken: validToken(8500), cartWeightLb, destinationZip
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.shippingCents).toBe(8500) // $85 — would have hard-failed under the old $60 cap
+    })
   })
 
   it('adds the fixed rush fee for pickup/delivery and ignores a client rush claim on standard shipping', () => {
@@ -383,5 +523,202 @@ describe('calculateOrderPricing (end-to-end, injected deps)', () => {
 
     expect(result.errors.length).toBeGreaterThan(0)
     expect(result.errors[0]).toMatch(/Unrecognized product id/)
+  })
+})
+
+// Watchtower task 0af32316 — wholesale tiered pricing must be server-
+// authoritative, same precedent as the checkout hardening above: the tier is
+// resolved from fetchWholesaleTier (a stand-in for the real user_profiles
+// lookup), never a client-supplied tier or role.
+describe('wholesale tier discount', () => {
+  it('applies the tier discount rate to the product subtotal for an approved wholesale account', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 100]]), // $100
+      fetchWholesaleTier: async () => 'gold' // 35% off, see WHOLESALE_TIER_DISCOUNT_RATES
+    })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'OR' }, // 0% tax
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: 'wholesale-user-1'
+      },
+      deps
+    )
+
+    expect(result.wholesaleTier).toBe('gold')
+    expect(result.wholesaleDiscountCents).toBe(3500) // 35% of $100.00
+    expect(result.discountCents).toBe(3500)
+    expect(result.totalCents).toBe(6500) // $65.00
+  })
+
+  it('never resolves a wholesale tier for a guest, no matter what the client claims', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 100]]),
+      // If this were ever called for a guest, the test should fail loudly —
+      // fetchWholesaleTier must only be reachable via a real userId.
+      fetchWholesaleTier: async () => 'platinum'
+    })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null // guest
+      },
+      deps
+    )
+
+    expect(result.wholesaleTier).toBeNull()
+    expect(result.wholesaleDiscountCents).toBe(0)
+    expect(result.totalCents).toBe(10000) // full $100, no discount
+  })
+
+  it('stacks a coupon and a wholesale discount but caps the combined total at the subtotal', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 100]]),
+      fetchWholesaleTier: async () => 'platinum', // 45% off = $45
+      fetchDiscountCode: async () => ({
+        id: 'coupon-1',
+        code: 'HUGE',
+        type: 'percentage',
+        value: 90, // 90% off = $90 — combined with wholesale this would exceed the subtotal
+        is_active: true,
+        expires_at: null,
+        max_uses: null,
+        current_uses: null,
+        min_order_amount: null,
+        max_discount_amount: null,
+        per_user_limit: null
+      } as PricingDiscountCodeRow)
+    })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        couponCode: 'HUGE',
+        userId: 'wholesale-user-1'
+      },
+      deps
+    )
+
+    expect(result.couponDiscountCents).toBe(9000)
+    expect(result.wholesaleDiscountCents).toBe(4500)
+    expect(result.discountCents).toBe(10000) // capped to the $100 subtotal, not $135
+    expect(result.totalCents).toBe(0)
+  })
+
+  it('does not discount a wholesale-role user whose application is still pending', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 100]]),
+      // fetchWholesaleTier's real implementation returns null unless
+      // wholesale_status === 'approved' — a pending applicant gets no
+      // discount, which this fake stands in for.
+      fetchWholesaleTier: async () => null
+    })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: 'pending-applicant-1'
+      },
+      deps
+    )
+
+    expect(result.wholesaleTier).toBeNull()
+    expect(result.totalCents).toBe(10000)
+  })
+})
+
+// Watchtower task 188ead33 — end-to-end proof that the checkout orchestrator
+// actually wires the signed shipping quote and the custom-item price
+// resolver through, not just the unit-level pure functions above.
+describe('calculateOrderPricing — GAP 1 + GAP 2 end-to-end', () => {
+  it('prices a cart with a real product AND an imagination sheet, and charges the signed shipping quote — never any client-declared number', async () => {
+    const zip = '30153'
+    const token = signShippingQuote({ amountCents: 999, carrier: 'USPS', service: 'Ground Advantage', weightLb: 1, destinationZip: zip })
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 20]]), // $20
+      fetchCustomItemPrices: async () => new Map([['imagination-sheet-s1', 9.5]]) // $9.50
+    })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [
+          { productId: PRODUCT_A, quantity: 1, clientUnitPriceDollars: 20, weight: 0.5 },
+          { productId: 'imagination-sheet-s1', quantity: 1, clientUnitPriceDollars: 0.01, weight: 0.5 } // client lowballs its own custom item
+        ],
+        shippingAddress: { state: 'OR', postalCode: zip }, // 0% tax, keeps the math simple
+        shipping: { type: 'shipping', clientAmountCents: 1, shippingQuoteToken: token }, // client also lowballs shipping
+        userId: null
+      },
+      deps
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(2000 + 950) // real DB price + real sheet price, not the client's pennies
+    expect(result.shippingCents).toBe(999) // from the signed token, not clientAmountCents: 1
+    expect(result.totalCents).toBe(2000 + 950 + 999)
+  })
+
+  it('400s (via a non-empty errors array) when the shipping quote token is missing for standard carrier shipping', async () => {
+    const deps = makeFakeDeps({ fetchProductPrices: async () => new Map([[PRODUCT_A, 20]]) })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'OR', postalCode: '30153' },
+        shipping: { type: 'shipping', clientAmountCents: 999 }, // no shippingQuoteToken
+        userId: null
+      },
+      deps
+    )
+
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(result.errors[0]).toMatch(/reselect a shipping option/i)
+  })
+
+  it('honors whatever deps.calculateTax returns (proves the Stripe Tax seam is wired, without calling Stripe)', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 100]]),
+      calculateTax: async () => ({ taxCents: 777, rate: 0.0777, source: 'stripe_tax' as const })
+    })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'CA' }, // would be 725 via the state table — proves the override, not the table, won
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+
+    expect(result.taxCents).toBe(777)
+    expect(result.taxSource).toBe('stripe_tax')
+    expect(result.totalCents).toBe(10000 + 777)
+  })
+
+  it('defaults to the state-rate table (taxSource state_table) when Stripe Tax is not enabled', async () => {
+    const deps = makeFakeDeps({ fetchProductPrices: async () => new Map([[PRODUCT_A, 100]]) })
+
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
+        shippingAddress: { state: 'CA' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+
+    expect(result.taxSource).toBe('state_table')
+    expect(result.taxCents).toBe(725)
   })
 })

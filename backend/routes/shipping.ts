@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
+import { signShippingQuote } from '../services/shipping-quote.js'
 
 const router = Router()
 
@@ -49,10 +50,33 @@ interface CarrierRate {
   currency: string
   estimatedDays: number
   type: 'shipping'
+  /** Signed quote (Watchtower task 188ead33 GAP 2) — set by attachQuoteTokens below. */
+  token?: string
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 const withMarkup = (base: number) => round2(base * (1 + SHIPPING_MARKUP))
+
+/**
+ * Signs each rate with an HMAC quote token binding the amount to this
+ * carrier/service/parcel-weight/destination and a short expiry. Checkout
+ * submits the token back unchanged; order-pricing.ts verifies it instead of
+ * trusting a client-declared shipping number (see backend/services/shipping-quote.ts).
+ */
+function attachQuoteTokens(rates: CarrierRate[], weightLb: number, destinationZip: string): CarrierRate[] {
+  const roundedWeight = Math.round(Math.max(0.1, weightLb) * 100) / 100
+  const zip = destinationZip || ''
+  return rates.map(rate => ({
+    ...rate,
+    token: signShippingQuote({
+      amountCents: Math.round(rate.amount * 100),
+      carrier: rate.provider,
+      service: rate.name,
+      weightLb: roundedWeight,
+      destinationZip: zip
+    })
+  }))
+}
 
 /**
  * Weight-aware USPS + UPS estimates, used when SHIPPO_API_TOKEN is not set or
@@ -80,6 +104,11 @@ function estimateCarrierRates(weightLb: number): CarrierRate[] {
  * Uses SHIPPO_API_TOKEN (server-side) to fetch live USPS + UPS rates with a
  * parcel weight computed from the actual cart. Falls back to weight-aware
  * USPS/UPS estimates when the token is missing or Shippo returns nothing.
+ *
+ * Every rate returned here carries a signed `token` (see attachQuoteTokens /
+ * backend/services/shipping-quote.ts) that checkout must submit back
+ * unchanged as `shippingQuoteToken` — order-pricing.ts verifies it instead of
+ * trusting a client-declared shipping cost.
  */
 router.post('/rates', async (req: Request, res: Response) => {
   try {
@@ -146,7 +175,7 @@ router.post('/rates', async (req: Request, res: Response) => {
             }))
 
           if (rates.length > 0) {
-            return res.json({ rates, source: 'shippo', weightLb: round2(weightLb) })
+            return res.json({ rates: attachQuoteTokens(rates, weightLb, destZip), source: 'shippo', weightLb: round2(weightLb) })
           }
           console.warn('[shipping] Shippo returned no USPS/UPS rates, using estimates')
         } else {
@@ -160,7 +189,7 @@ router.post('/rates', async (req: Request, res: Response) => {
     }
 
     // Fallback: weight-aware USPS + UPS estimates
-    return res.json({ rates: estimateCarrierRates(weightLb), source: 'estimate', weightLb: round2(weightLb) })
+    return res.json({ rates: attachQuoteTokens(estimateCarrierRates(weightLb), weightLb, destZip), source: 'estimate', weightLb: round2(weightLb) })
   } catch (error: any) {
     console.error('[shipping] /rates error:', error)
     return res.status(500).json({ rates: estimateCarrierRates(1), source: 'error', error: 'Failed to calculate rates' })
