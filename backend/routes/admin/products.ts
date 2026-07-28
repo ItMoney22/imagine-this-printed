@@ -45,6 +45,15 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
+// gpt-4o is retired from OpenAI's current model + pricing pages (gpt-4
+// family hard shutdown 2026-10-23). This route sends an image_url, so it
+// reads the shared OPENAI_VISION_MODEL var used by services/ai-product.ts
+// and routes/ai/mr-imagine-chat.ts — a future migration is a one-var change.
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+// gpt-5.x/o-series reasoning models reject a non-default `temperature` and
+// the legacy `max_tokens` param; they want `max_completion_tokens` instead.
+const isReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
+
 /**
  * POST /api/admin/upload-product-image
  * Upload a product image to GCS
@@ -142,7 +151,7 @@ router.post('/ai-suggest', requireAuth, async (req, res) => {
     const categoryName = categoryNames[category] || category
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: OPENAI_VISION_MODEL,
       messages: [
         {
           role: 'system',
@@ -178,8 +187,11 @@ Respond in JSON format:
           ]
         }
       ],
-      max_tokens: 300,
-      temperature: 0.7,
+      ...(isReasoningModel(OPENAI_VISION_MODEL)
+        // Reasoning models bill hidden reasoning tokens against the same
+        // allowance, so a 300-token budget can truncate the JSON. Triple it.
+        ? { max_completion_tokens: 900 }
+        : { max_tokens: 300, temperature: 0.7 }),
       response_format: { type: 'json_object' }
     })
 

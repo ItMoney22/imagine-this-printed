@@ -378,14 +378,19 @@ export function buildDTFPrompt(
     styleInstruction = 'STYLE: Create in HYPER-REALISTIC style with photorealistic details, dramatic lighting, and professional quality. Make it look like a real photograph or 3D render.'
   }
 
-  // CRITICAL: Strong instructions against generating clothing - this MUST come first
+  // Positive-only steering — this MUST come first.
+  // Reworded 2026-07-28 (Watchtower 335a3416). services/replicate.ts now
+  // generates on flux-2-pro, which has NO negative_prompt, and BFL document
+  // that naming a thing in order to exclude it tends to summon it instead.
+  // The old block said "DO NOT generate any clothing / t-shirts / hoodies /
+  // mockups" — on flux-2-pro that reads as a shopping list for exactly the
+  // garment mockups this step must not produce. Describe the wanted result
+  // instead. Same approach already proven in the frontend builder
+  // (src/components/imagination/MrImagineModal.tsx:156-164).
   const criticalInstruction = `⚠️ CRITICAL REQUIREMENT - READ FIRST:
-You are creating a GRAPHIC DESIGN / ARTWORK ONLY.
-DO NOT generate any clothing, t-shirts, hoodies, tanks, garments, or apparel.
-DO NOT show the design "on" anything - just the design itself.
-DO NOT create a mockup or product image.
-Generate ONLY the artwork/illustration/design as an isolated graphic.
-The design will be printed onto clothing LATER - that is NOT your job.`
+Create a GRAPHIC DESIGN / ARTWORK ONLY — one standalone illustration.
+Present the design by itself, isolated, as flat 2D art in a design file.
+The whole frame is the artwork.`
 
   // Main prompt - user's request + style
   const mainPrompt = `DESIGN TO CREATE: ${userPrompt}
@@ -394,20 +399,19 @@ ${styleInstruction}
 
 Generate EXACTLY what the user described above as an isolated design/artwork.`
 
-  // Output format - explicit about no clothing
+  // Output format — positive phrasing only (see criticalInstruction above)
   const outputFormat = `OUTPUT REQUIREMENTS:
-- Isolated artwork on TRANSPARENT/CLEAN background
-- NO t-shirts, NO hoodies, NO clothing, NO garments, NO fabric
-- NO mockups, NO product images
-- Just the pure design/artwork/graphic centered in frame
+- Isolated artwork on a TRANSPARENT/CLEAN background
+- Flat 2D artwork exactly as it would appear in a design file
+- Just the pure design/artwork/graphic centered in frame, filling it
 - High resolution, print-ready quality`
 
   // Color rules based on shirt
   let colorRules = ''
   if (shirtColor === 'black') {
-    colorRules = `COLOR GUIDANCE: Avoid pure black in the design (it won't show on black fabric). Use bright, vibrant, saturated colors that pop.`
+    colorRules = `COLOR GUIDANCE: Use bright, vivid, glowing saturated colors that pop against a dark background (keep near-black tones out of the art).`
   } else if (shirtColor === 'white') {
-    colorRules = `COLOR GUIDANCE: Avoid pure white in the design. Use colors with good contrast against white fabric.`
+    colorRules = `COLOR GUIDANCE: Use rich saturated colors with clean defining outlines and strong contrast against a light background (keep large pure-white areas out of the art).`
   }
 
   const parts = [criticalInstruction, mainPrompt, outputFormat]

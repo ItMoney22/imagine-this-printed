@@ -85,10 +85,12 @@ export async function processQueuedJobs() {
     }
 
     // Hard 30-min ceiling for 3D Tripo jobs. The 12-min sweep above intentionally
-    // skips these because Tripo legitimately runs 2-10 min, but a hung fal.ai
-    // task can squat in 'running' indefinitely. Past 30 min, mark FAILED (not
-    // requeued) so we don't trigger the fal.ai cost spiral that the auto-retry
-    // sweep used to cause. User can manually retry from the UI.
+    // skips these because Tripo legitimately runs 2-10 min, but a task that dies
+    // mid-flight can squat in 'running' indefinitely. Past 30 min, mark FAILED
+    // (not requeued) so we don't re-pay for a generation that may still land.
+    // User can manually retry from the UI.
+    // (The fal.ai provider fallback this used to guard against was removed
+    //  2026-07-28, Watchtower 5aeeab4f — Tripo is now the only 3D provider.)
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
     const { data: hung3d } = await supabase
       .from('ai_jobs')
@@ -111,8 +113,9 @@ export async function processQueuedJobs() {
       }
     }
 
-    // (Auto-retry sweep removed — was looping due to fal.ai Tripo3D being slow.
-    //  User can manually retry from the UI if needed.)
+    // (Auto-retry sweep removed — was looping on slow 3D generations and
+    //  re-paying for each loop. tripo3d.ts now does one bounded, pre-submit-only
+    //  retry internally. User can manually retry from the UI if needed.)
 
     // Fetch queued jobs (not started yet)
     const { data: queuedJobs, error: queuedError } = await supabase
