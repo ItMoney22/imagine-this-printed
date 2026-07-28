@@ -1,190 +1,167 @@
+import { supabase } from '../lib/supabase'
+import { API_BASE } from '../lib/api'
 import type {
   Kiosk,
   KioskSettings,
   KioskOrder,
   KioskAnalytics,
   StripeTerminalPayment,
-  Product
+  Product,
+  CartItem
 } from '../types'
 
+function mapKioskRow(row: any): Kiosk {
+  return {
+    id: row.id,
+    name: row.name,
+    vendorId: row.vendor_id,
+    kioskUserId: row.kiosk_user_id,
+    location: row.location,
+    isActive: row.is_active,
+    commissionRate: row.commission_rate,
+    partnerCommissionRate: row.partner_commission_rate,
+    accessUrl: row.access_url,
+    createdAt: row.created_at,
+    lastActivity: row.last_activity,
+    totalSales: row.total_sales,
+    totalOrders: row.total_orders,
+    settings: row.settings as KioskSettings
+  }
+}
+
+function mapProductRow(row: any): Product {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    price: row.price,
+    images: row.images || [],
+    category: row.category,
+    inStock: row.in_stock,
+    vendorId: row.vendor_id,
+    approved: row.approved,
+    createdAt: row.created_at
+  }
+}
+
+async function parseJsonError(res: Response, fallback: string): Promise<never> {
+  const body = await res.json().catch(() => ({}))
+  throw new Error(body.error || fallback)
+}
+
 export class KioskService {
-  // Get kiosk by ID
+  // Direct Supabase lookup by kiosk ID, RLS-gated: vendors see their own
+  // kiosks ("Vendors can manage their own kiosks" — auth.uid() = vendor_id),
+  // everyone else gets nothing. The public "any active kiosk is readable"
+  // policy this used to rely on was dropped in
+  // supabase/migrations/20260728_kiosk_device_sessions.sql — it let the
+  // public anon key read every kiosk's commission rates and settings.
+  //
+  // The kiosk TERMINAL flow does not call this anymore — KioskAuthContext
+  // gets kiosk data back from POST /api/kiosk/session instead, gated by a
+  // per-device secret rather than a guessable URL id. This stays for
+  // admin/vendor tooling (e.g. a future KioskManagement detail view).
   async getKiosk(kioskId: string): Promise<Kiosk | null> {
     try {
-      // Mock data - in real app, this would fetch from database
-      const mockKiosk: Kiosk = {
-        id: kioskId,
-        name: 'Downtown Print Shop Kiosk',
-        vendorId: 'vendor_123',
-        kioskUserId: 'kiosk_user_123',
-        location: 'Downtown Print Shop - Main Counter',
-        isActive: true,
-        commissionRate: 0.25, // 25% vendor commission
-        partnerCommissionRate: 0.05, // 5% location partner commission
-        accessUrl: `${window.location.origin}/kiosk/${kioskId}`,
-        createdAt: '2025-01-01T00:00:00Z',
-        lastActivity: new Date().toISOString(),
-        totalSales: 15420.50,
-        totalOrders: 234,
-        settings: {
-          allowCash: true,
-          allowStripeTerminal: true,
-          allowITCWallet: true,
-          requireCustomerInfo: false,
-          touchOptimized: true,
-          kioskMode: true,
-          autoLoginEnabled: true,
-          sessionTimeout: 30,
-          primaryColor: '#6B46C1',
-          logoUrl: '/logo-kiosk.png',
-          welcomeMessage: 'Welcome! Browse and order custom prints'
-        }
-      }
-
-      return mockKiosk
+      const { data, error } = await supabase.from('kiosks').select('*').eq('id', kioskId).maybeSingle()
+      if (error || !data) return null
+      return mapKioskRow(data)
     } catch (error) {
       console.error('Error fetching kiosk:', error)
       return null
     }
   }
 
-  // Get vendor products for kiosk
+  // Vendor's sellable catalog, for admin/preview contexts. Safe as a direct
+  // client query: `products` already grants public SELECT for
+  // approved+active rows (same policy the main storefront uses), so this
+  // exposes nothing a shopper couldn't already see in the catalog.
+  //
+  // The real kiosk terminal flow uses getSessionProducts() below instead,
+  // which resolves the vendor from the authenticated session server-side —
+  // never from a client-supplied vendorId.
   async getVendorProducts(vendorId: string): Promise<Product[]> {
     try {
-      // Mock vendor products - in real app, filter by vendorId
-      const mockProducts: Product[] = [
-        {
-          id: 'product_1',
-          name: 'Custom T-Shirt',
-          description: 'High-quality custom printed t-shirt',
-          price: 24.99,
-          images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&h=600&fit=crop'],
-          category: 'shirts',
-          inStock: true,
-          vendorId,
-          approved: true,
-          createdAt: '2025-01-01T00:00:00Z'
-        },
-        {
-          id: 'product_2',
-          name: 'DTF Transfer',
-          description: 'Premium direct-to-film transfer',
-          price: 15.99,
-          images: ['https://images.unsplash.com/photo-1503341504253-dff4815485f1?w=600&h=600&fit=crop'],
-          category: 'dtf-transfers',
-          inStock: true,
-          vendorId,
-          approved: true,
-          createdAt: '2025-01-02T00:00:00Z'
-        },
-        {
-          id: 'product_3',
-          name: 'Custom Tumbler',
-          description: '20oz insulated tumbler with custom design',
-          price: 32.99,
-          images: ['https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&h=600&fit=crop'],
-          category: 'tumblers',
-          inStock: true,
-          vendorId,
-          approved: true,
-          createdAt: '2025-01-03T00:00:00Z'
-        },
-        {
-          id: 'product_4',
-          name: 'Premium Hoodie',
-          description: 'Soft fleece hoodie perfect for custom printing',
-          price: 45.99,
-          images: ['https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=600&h=600&fit=crop'],
-          category: 'hoodies',
-          inStock: true,
-          vendorId,
-          approved: true,
-          createdAt: '2025-01-04T00:00:00Z'
-        }
-      ]
-
-      return mockProducts
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, description, price, images, category, in_stock, vendor_id, approved, created_at')
+        .eq('vendor_id', vendorId)
+        .eq('approved', true)
+        .eq('status', 'active')
+        .eq('in_stock', true)
+      if (error || !data) return []
+      return data.map(mapProductRow)
     } catch (error) {
       console.error('Error fetching vendor products:', error)
       return []
     }
   }
 
-  // Create kiosk order
-  async createKioskOrder(order: Partial<KioskOrder>): Promise<KioskOrder> {
+  // ---------------------------------------------------------------------
+  // Authenticated kiosk-terminal operations. Each requires the session
+  // token issued by POST /api/kiosk/session (see KioskAuthContext.tsx). The
+  // backend (backend/routes/kiosk.ts) resolves kioskId/vendorId from that
+  // session, never from anything the client sends — a compromised kiosk
+  // can only ever act as itself.
+
+  async getSessionProducts(sessionToken: string): Promise<Product[]> {
     try {
-      // Fetch kiosk to get current commission rates
-      const kiosk = await this.getKiosk(order.kioskId || '')
-
-      // Default to standard rates if kiosk not found or rates not set
-      const platformFeeRate = 0.07 // 7% base platform fee
-      // Use kiosk specific commission rate if available (this is the vendor's cut)
-      const vendorCommissionRate = kiosk?.commissionRate || 0.25
-
-      const total = order.total || 0
-
-      // Calculate commissions
-      // Vendor gets 25% commission
-      const vendorCommission = total * vendorCommissionRate
-
-      // Platform gets the fee
-      const platformFee = total * platformFeeRate
-
-      // Partner gets their configured rate (optional location partner)
-      const partnerCommissionRate = kiosk?.partnerCommissionRate || 0.05
-      const partnerCommission = total * partnerCommissionRate
-
-      // Vendor amount is their commission
-      const vendorAmount = vendorCommission
-
-      // Generate Customer Identifier
-      // Format: First Name (or Guest) + Last 4 of ID
-      const namePart = (order.customerName || 'Guest').split(' ')[0].toUpperCase()
-      const idPart = Math.floor(1000 + Math.random() * 9000) // 4 digit random number
-      const customerIdentifier = `${namePart}-${idPart}`
-
-      const kioskOrder: KioskOrder = {
-        id: `kiosk_order_${Date.now()}`,
-        kioskId: order.kioskId || '',
-        vendorId: order.vendorId || '',
-        customerId: order.customerId,
-        items: order.items || [],
-        total,
-        paymentMethod: order.paymentMethod || 'card',
-        paymentStatus: 'pending',
-        stripeTerminalPaymentId: order.stripeTerminalPaymentId,
-        customerName: order.customerName,
-        customerEmail: order.customerEmail,
-        customerPhone: order.customerPhone,
-        receiptEmail: order.receiptEmail,
-        notes: order.notes,
-        customerIdentifier, // Store the identifier
-        commission: {
-          vendorAmount,
-          platformFee,
-          partnerCommission
-        },
-        createdAt: new Date().toISOString()
-      }
-
-      // In real app, save to database
-      console.log('Creating kiosk order:', kioskOrder)
-
-      return kioskOrder
+      const res = await fetch(`${API_BASE}/api/kiosk/products`, {
+        headers: { Authorization: `Bearer ${sessionToken}` }
+      })
+      if (!res.ok) return []
+      return await res.json()
     } catch (error) {
-      console.error('Error creating kiosk order:', error)
-      throw new Error('Failed to create kiosk order')
+      console.error('Error fetching session products:', error)
+      return []
     }
   }
 
-  // Process Stripe Terminal payment
+  // Creates a REAL order + order_items row in Supabase. This replaces the
+  // old mock that only console.logged — the actual bug this task fixes is
+  // that a customer paying cash at a kiosk left zero record anywhere.
+  async createKioskOrder(sessionToken: string, order: {
+    items: CartItem[]
+    paymentMethod: 'card' | 'cash' | 'itc_wallet'
+    customerName?: string
+    customerEmail?: string
+    customerPhone?: string
+  }): Promise<KioskOrder> {
+    const res = await fetch(`${API_BASE}/api/kiosk/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify(order)
+    })
+    if (!res.ok) return parseJsonError(res, 'Failed to create kiosk order')
+    return res.json()
+  }
+
+  async completeKioskOrder(sessionToken: string, orderId: string, paymentData: { paymentIntentId?: string }): Promise<KioskOrder> {
+    const res = await fetch(`${API_BASE}/api/kiosk/orders/${orderId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify(paymentData)
+    })
+    if (!res.ok) return parseJsonError(res, 'Failed to complete kiosk order')
+    return res.json()
+  }
+
+  // ---------------------------------------------------------------------
+  // Payment processing. Cash and ITC wallet are local calculations (kept
+  // as-is from before this task). Card payment is still SIMULATED — wiring
+  // real Stripe Terminal hardware (physical reader registration, the
+  // Terminal SDK, a connection token endpoint) is a separate follow-up; see
+  // the campaign handoff REMAINING section. What changed in THIS task is
+  // that createKioskOrder/completeKioskOrder now persist a real row
+  // regardless of which of these ran, instead of only console.logging.
+
   async processStripeTerminalPayment(
     amount: number,
     terminalId: string,
     metadata?: Record<string, any>
   ): Promise<StripeTerminalPayment> {
     try {
-      // Mock Stripe Terminal payment - in real app, use Stripe Terminal SDK
+      // SIMULATED — see comment above. Not a real Stripe Terminal call.
       const payment: StripeTerminalPayment = {
         id: `pi_${Math.random().toString(36).substr(2, 9)}`,
         amount,
@@ -196,10 +173,8 @@ export class KioskService {
         metadata
       }
 
-      // Simulate processing delay
       await new Promise(resolve => setTimeout(resolve, 2000))
 
-      console.log('Stripe Terminal payment processed:', payment)
       return payment
     } catch (error) {
       console.error('Error processing Stripe Terminal payment:', error)
@@ -207,7 +182,6 @@ export class KioskService {
     }
   }
 
-  // Process cash payment
   async processCashPayment(
     amount: number,
     receivedAmount: number,
@@ -221,8 +195,6 @@ export class KioskService {
       const change = receivedAmount - amount
       const receiptId = `cash_${kioskId}_${Date.now()}`
 
-      console.log('Cash payment processed:', { amount, receivedAmount, change, receiptId })
-
       return {
         success: true,
         change,
@@ -234,16 +206,17 @@ export class KioskService {
     }
   }
 
-  // Process ITC wallet payment
   async processITCWalletPayment(
     amount: number,
     customerEmail: string,
     kioskId: string
   ): Promise<{ success: boolean; transactionId: string; newBalance: number }> {
     try {
-      // Mock ITC wallet processing - in real app, integrate with blockchain/wallet service
+      // Still a placeholder balance check — real ITC wallet debit is out of
+      // scope for this task (kiosk session security + real order
+      // persistence). Flagged under REMAINING in the campaign handoff.
       const itcAmount = amount * 10 // $1 = 10 ITC tokens
-      const mockCurrentBalance = 1000 // User's current ITC balance
+      const mockCurrentBalance = 1000
 
       if (mockCurrentBalance < itcAmount) {
         throw new Error('Insufficient ITC balance')
@@ -251,14 +224,6 @@ export class KioskService {
 
       const newBalance = mockCurrentBalance - itcAmount
       const transactionId = `itc_${kioskId}_${Date.now()}`
-
-      console.log('ITC wallet payment processed:', {
-        amount,
-        itcAmount,
-        customerEmail,
-        transactionId,
-        newBalance
-      })
 
       return {
         success: true,
@@ -271,42 +236,14 @@ export class KioskService {
     }
   }
 
-  // Complete kiosk order
-  async completeKioskOrder(orderId: string, paymentData: any): Promise<KioskOrder> {
-    try {
-      // In real app, update order in database
-      const updatedOrder: KioskOrder = {
-        id: orderId,
-        kioskId: 'kiosk_123',
-        vendorId: 'vendor_123',
-        items: [],
-        total: paymentData.amount || 0,
-        paymentMethod: paymentData.method || 'card',
-        paymentStatus: 'completed',
-        stripeTerminalPaymentId: paymentData.stripeTerminalPaymentId,
-        customerName: paymentData.customerName,
-        customerEmail: paymentData.customerEmail,
-        commission: {
-          vendorAmount: 0,
-          platformFee: 0,
-          partnerCommission: 0
-        },
-        createdAt: new Date().toISOString(),
-        completedAt: new Date().toISOString()
-      }
+  // ---------------------------------------------------------------------
+  // Admin kiosk-management (KioskManagement.tsx). NOT part of this task's
+  // deliverables (getKiosk / getVendorProducts / createKioskOrder /
+  // completeKioskOrder only) — still mock. Flagged under REMAINING in the
+  // campaign handoff rather than silently left as-is.
 
-      console.log('Kiosk order completed:', updatedOrder)
-      return updatedOrder
-    } catch (error) {
-      console.error('Error completing kiosk order:', error)
-      throw new Error('Failed to complete order')
-    }
-  }
-
-  // Get kiosk analytics
   async getKioskAnalytics(kioskId: string, period: string = 'week'): Promise<KioskAnalytics> {
     try {
-      // Mock analytics data
       const analytics: KioskAnalytics = {
         kioskId,
         period: `Last ${period}`,
@@ -348,7 +285,7 @@ export class KioskService {
     }
   }
 
-  // Create new kiosk (admin function)
+  // Create new kiosk (admin function) — still mock, see note above.
   async createKiosk(kioskData: Partial<Kiosk>): Promise<Kiosk> {
     try {
       const kioskId = `kiosk_${Date.now()}`
@@ -381,7 +318,6 @@ export class KioskService {
         }
       }
 
-      // In real app, save to database and create kiosk user account
       console.log('Created new kiosk:', newKiosk)
 
       return newKiosk
@@ -391,10 +327,9 @@ export class KioskService {
     }
   }
 
-  // Get all kiosks (admin function)
+  // Get all kiosks (admin function) — still mock, see note above.
   async getAllKiosks(): Promise<Kiosk[]> {
     try {
-      // Mock data - in real app, fetch from database
       const mockKiosks: Kiosk[] = [
         {
           id: 'kiosk_1',
@@ -459,10 +394,9 @@ export class KioskService {
     }
   }
 
-  // Update kiosk settings
+  // Update kiosk settings (admin function) — still mock, see note above.
   async updateKioskSettings(kioskId: string, settings: Partial<KioskSettings>): Promise<Kiosk> {
     try {
-      // In real app, update in database
       const updatedKiosk = await this.getKiosk(kioskId)
       if (!updatedKiosk) {
         throw new Error('Kiosk not found')
@@ -505,7 +439,6 @@ export class KioskService {
       ]
     }
 
-    // In real app, generate QR code
     const qrCode = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='50' text-anchor='middle' font-size='8'>QR Code for ${url}</text></svg>`
 
     return { url, pwaManifest, qrCode }

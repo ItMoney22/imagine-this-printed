@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { kioskService } from '../utils/kiosk-service'
+import { useKioskAuth } from '../context/KioskAuthContext'
 import type { Kiosk, Product, CartItem, KioskOrder } from '../types'
 
 interface KioskInterfaceProps {
@@ -9,6 +10,11 @@ interface KioskInterfaceProps {
 
 const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
   const { kioskId } = useParams<{ kioskId: string }>()
+  // Real (non-preview) kiosk data comes from the authenticated session
+  // (KioskAuthContext / POST /api/kiosk/session) — this component no longer
+  // fetches kiosk data itself, so there is only ever one path that can
+  // populate it, and that path is gated by the per-device secret exchange.
+  const { kiosk: sessionKiosk, sessionToken } = useKioskAuth()
   const [kiosk, setKiosk] = useState<Kiosk | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
@@ -31,14 +37,21 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
 
   useEffect(() => {
     if (previewData) {
+      // Admin config preview (KioskManagement) — no real session, so it
+      // shows whatever real, approved products exist for the draft's
+      // vendorId rather than fabricated stock photos.
       setKiosk(previewData)
-      // Load mock products for preview
-      kioskService.getVendorProducts('preview_vendor').then(setProducts)
+      kioskService.getVendorProducts(previewData.vendorId).then(setProducts)
       setIsLoading(false)
-    } else if (kioskId) {
+    } else if (kioskId && sessionKiosk && sessionToken) {
       loadKioskData()
+    } else if (kioskId && !sessionKiosk) {
+      // KioskRoute only renders this component once KioskAuthContext has a
+      // live session (isKioskMode), so this is just the brief window while
+      // that context is still resolving.
+      setIsLoading(true)
     }
-  }, [kioskId, previewData])
+  }, [kioskId, previewData, sessionKiosk, sessionToken])
 
   // Session timeout handler
   useEffect(() => {
@@ -74,18 +87,14 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
     try {
       setIsLoading(true)
 
-      if (!kioskId) return
+      if (!kioskId || !sessionKiosk || !sessionToken) return
 
-      const [kioskData, productsData] = await Promise.all([
-        kioskService.getKiosk(kioskId),
-        kioskService.getVendorProducts('vendor_123') // In real app, get from kiosk.vendorId
-      ])
+      // kiosk data comes from the authenticated session (KioskAuthContext),
+      // never re-fetched here — this endpoint requires the session token,
+      // so a mis-authenticated request simply gets an empty catalog.
+      const productsData = await kioskService.getSessionProducts(sessionToken)
 
-      if (!kioskData || !kioskData.isActive) {
-        return // Will show error state
-      }
-
-      setKiosk(kioskData)
+      setKiosk(sessionKiosk)
       setProducts(productsData)
     } catch (error) {
       console.error('Error loading kiosk data:', error)
@@ -178,19 +187,41 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
       setPaymentProcessing(true)
       const total = getCartTotal()
 
-      // Create the order first
-      const orderData: Partial<KioskOrder> = {
-        kioskId: kiosk.id,
-        vendorId: kiosk.vendorId,
+      // previewData (admin config preview, KioskManagement.tsx) has no real
+      // session — it's a cosmetic settings preview, never a real checkout,
+      // so it stays a local simulation instead of hitting the
+      // session-gated backend with no token.
+      if (previewData || !sessionToken) {
+        await new Promise(resolve => setTimeout(resolve, 1200))
+        setCurrentOrder({
+          id: `preview_${Date.now()}`,
+          kioskId: kiosk.id,
+          vendorId: kiosk.vendorId,
+          items: cart,
+          total,
+          paymentMethod,
+          paymentStatus: 'completed',
+          customerName: customerInfo.name,
+          customerEmail: customerInfo.email,
+          commission: { vendorAmount: 0, platformFee: 0, partnerCommission: 0 },
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString()
+        })
+        setCurrentView('receipt')
+        setTimeout(() => resetSession(), 30000)
+        return
+      }
+
+      // Create the real order first — server re-validates prices/vendor
+      // from the authenticated session (backend/routes/kiosk.ts), not from
+      // anything sent here.
+      const order = await kioskService.createKioskOrder(sessionToken, {
         items: cart,
-        total,
         paymentMethod,
         customerName: customerInfo.name || undefined,
         customerEmail: customerInfo.email || undefined,
         customerPhone: customerInfo.phone || undefined
-      }
-
-      const order = await kioskService.createKioskOrder(orderData)
+      })
 
       // Process payment based on method
       let paymentResult: any
@@ -233,12 +264,8 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
       }
 
       // Complete the order
-      const completedOrder = await kioskService.completeKioskOrder(order.id, {
-        amount: total,
-        method: paymentMethod,
-        ...paymentResult,
-        customerName: customerInfo.name,
-        customerEmail: customerInfo.email
+      const completedOrder = await kioskService.completeKioskOrder(sessionToken, order.id, {
+        paymentIntentId: paymentResult?.id
       })
 
       setCurrentOrder(completedOrder)
