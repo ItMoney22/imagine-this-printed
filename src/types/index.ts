@@ -1138,7 +1138,7 @@ export interface AIProductCreationRequest {
   background?: 'transparent' | 'studio' | 'lifestyle' | 'urban'
   tone?: string
   imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'
-  category?: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+  category?: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers' | 'metal-art'
   numImages?: number
   useSearch?: boolean
   // DTF Print Settings

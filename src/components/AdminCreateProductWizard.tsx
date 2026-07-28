@@ -238,7 +238,7 @@ function PrintLocationsDropdown({
 }
 
 type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'enhance-image' | 'success'
-type ProductCategoryOption = 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+type ProductCategoryOption = 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers' | 'metal-art'
 
 // Draft autosave — losing a half-finished generation (paid AI output) to a
 // refresh or crash was the top admin complaint. Versioned key so a future
