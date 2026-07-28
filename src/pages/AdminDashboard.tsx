@@ -97,6 +97,8 @@ const AdminDashboard: React.FC = () => {
     pointsDistributed: 0,
     activeSessions: 0
   })
+  // Live open-order counts, filled by loadMetrics() from the orders table.
+  const [openOrders, setOpenOrders] = useState({ pending: 0, processing: 0, onHold: 0 })
   const [showProductModal, setShowProductModal] = useState(false)
   // ITC Pricing state
   const [itcPricing, setItcPricing] = useState<Array<{
@@ -457,10 +459,18 @@ const AdminDashboard: React.FC = () => {
       // `total_amount` name doesn't exist, which made revenue read $0)
       const { data: orders } = await supabase
         .from('orders')
-        .select('total')
+        .select('total, status')
 
       const totalRevenue = orders?.reduce((sum, order) => sum + (Number(order.total) || 0), 0) || 0
       const totalOrders = orders?.length || 0
+
+      // Open-order counts for the Quick Actions card — same rows, no extra query.
+      const countByStatus = (status: string) => (orders || []).filter(o => o.status === status).length
+      setOpenOrders({
+        pending: countByStatus('pending'),
+        processing: countByStatus('processing'),
+        onHold: countByStatus('on_hold')
+      })
 
       // Get active vendors (users with role = 'vendor')
       const { count: activeVendors } = await supabase
@@ -770,7 +780,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'Product',
         entityId: editingProduct?.id || 'new',
         changes: productData,
-        ipAddress: '192.168.1.100',
         userAgent: navigator.userAgent,
         createdAt: new Date().toISOString()
       }
@@ -802,7 +811,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'Product',
         entityId: productId,
         changes: { deleted: true },
-        ipAddress: '192.168.1.100',
         userAgent: navigator.userAgent,
         createdAt: new Date().toISOString()
       }
@@ -1555,7 +1563,6 @@ const AdminDashboard: React.FC = () => {
           entity: 'User',
           entity_id: userId,
           changes: { role: newRole },
-          ip_address: '192.168.1.100',
           user_agent: navigator.userAgent
         })
 
@@ -1603,7 +1610,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'UserWallet',
         entity_id: itcUser.id,
         changes: { amount: itcAmount, previous_balance: wallet.itc_balance, new_balance: newBalance },
-        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1636,7 +1642,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'VendorProduct',
         entity_id: productId,
         changes: { approved: true },
-        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1668,7 +1673,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'VendorProduct',
         entity_id: productId,
         changes: { rejected: true },
-        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1700,7 +1704,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'ThreeDModel',
         entity_id: modelId,
         changes: { approved: true },
-        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1732,7 +1735,6 @@ const AdminDashboard: React.FC = () => {
         entity: 'ThreeDModel',
         entity_id: modelId,
         changes: { rejected: true },
-        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1852,16 +1854,19 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* Was "Active Sessions", permanently hardcoded to 0 in loadMetrics()
+              — there is no session tracking to read. Replaced with a number
+              that is actually queried. */}
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
             <div className="flex items-center">
               <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg shadow-purple-500/25">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-slate-500">Active Sessions</p>
-                <p className="text-2xl font-bold text-slate-900">{systemMetrics.activeSessions}</p>
+                <p className="text-sm font-medium text-slate-500">Open Orders</p>
+                <p className="text-2xl font-bold text-slate-900">{openOrders.pending + openOrders.processing + openOrders.onHold}</p>
               </div>
             </div>
           </div>
@@ -1897,6 +1902,22 @@ const AdminDashboard: React.FC = () => {
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
                 <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Quick Actions</h3>
                 <div className="space-y-3">
+                  <Link
+                    to="/admin/orders"
+                    className="block text-left p-4 bg-orange-50 hover:bg-orange-100 rounded-xl transition-colors border border-orange-100"
+                  >
+                    <div className="font-semibold text-orange-900">Open Orders</div>
+                    <div className="text-sm text-orange-600">
+                      {openOrders.pending} pending · {openOrders.processing} processing · {openOrders.onHold} on hold
+                    </div>
+                  </Link>
+                  <Link
+                    to="/admin/crm"
+                    className="block text-left p-4 bg-sky-50 hover:bg-sky-100 rounded-xl transition-colors border border-sky-100"
+                  >
+                    <div className="font-semibold text-sky-900">CRM</div>
+                    <div className="text-sm text-sky-600">{systemMetrics.totalUsers} contacts · orders &amp; custom job requests</div>
+                  </Link>
                   <button
                     onClick={() => setSelectedTab('creator-products')}
                     className="w-full text-left p-4 bg-pink-50 hover:bg-pink-100 rounded-xl transition-colors border border-pink-100"
@@ -1966,23 +1987,29 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">System Health</h3>
+                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">At a Glance</h3>
+                {/* The "System Health" card that used to be here reported
+                    Database Status "Healthy", API Response Time "45ms" and
+                    Storage Usage "68% of 100GB" — all three were string
+                    literals, measured by nothing. AdminOpsMonitor at the top of
+                    this tab reports the real thing. Only the one figure that was
+                    actually queried (Active Vendors) survives here. */}
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Database Status</span>
-                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">Healthy</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">API Response Time</span>
-                    <span className="text-sm font-semibold text-slate-900">45ms</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Storage Usage</span>
-                    <span className="text-sm font-semibold text-slate-900">68% of 100GB</span>
-                  </div>
                   <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
                     <span className="text-sm font-medium text-slate-700">Active Vendors</span>
                     <span className="text-sm font-semibold text-slate-900">{systemMetrics.activeVendors}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Total Orders</span>
+                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.totalOrders}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">3D Models Uploaded</span>
+                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.modelsUploaded}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Points Distributed</span>
+                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.pointsDistributed.toLocaleString()}</span>
                   </div>
                 </div>
               </div>

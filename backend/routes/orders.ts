@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
+import { checkOrderTransition } from '../lib/order-status.js'
 import { processOrderCompletion, retryFailedRewards, scheduleRewardProcessing } from '../services/order-reward-service.js'
 import { processReferralFirstPurchase } from '../services/referral-service.js'
 
@@ -284,6 +285,96 @@ router.get('/:orderId', requireAuth, async (req: Request, res: Response): Promis
   }
 })
 
+// PATCH /api/orders/:orderId - Update order status and/or notes (admin/manager)
+//
+// Replaces the direct-from-browser supabase writes that OrderManagement.tsx
+// used to do. Those ran as the signed-in user under RLS, so they failed
+// silently on any policy mismatch while the UI cheerfully showed the new
+// value, and nothing validated the status at all.
+router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const { status, internal_notes, notes } = req.body ?? {}
+
+    const wantsStatus = status !== undefined
+    const wantsInternalNotes = internal_notes !== undefined
+    const wantsNotes = notes !== undefined
+
+    if (!wantsStatus && !wantsInternalNotes && !wantsNotes) {
+      return res.status(400).json({ error: 'Nothing to update — provide status, internal_notes or notes' })
+    }
+    if (wantsStatus && typeof status !== 'string') {
+      return res.status(400).json({ error: 'status must be a string' })
+    }
+    if (wantsInternalNotes && typeof internal_notes !== 'string') {
+      return res.status(400).json({ error: 'internal_notes must be a string' })
+    }
+    if (wantsNotes && typeof notes !== 'string') {
+      return res.status(400).json({ error: 'notes must be a string' })
+    }
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('id, status')
+      .eq('id', orderId)
+      .single()
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    const updateData: Record<string, any> = { updated_at: new Date().toISOString() }
+
+    if (wantsStatus) {
+      const transition = checkOrderTransition(order.status, status)
+      if (!transition.ok) {
+        return res.status(409).json({ error: transition.reason })
+      }
+      if (transition.unknownFrom) {
+        console.warn(`[orders] Order ${orderId} had unrecognised status "${order.status}" — allowing move to "${status}"`)
+      }
+      // A no-op re-send of the current status writes nothing, so repeated
+      // clicks stay idempotent.
+      if (transition.kind === 'move') {
+        updateData.status = status
+        if (status === 'shipped') updateData.fulfillment_status = 'fulfilled'
+        if (status === 'delivered') updateData.fulfillment_status = 'delivered'
+      }
+    }
+
+    if (wantsInternalNotes) updateData.internal_notes = internal_notes
+    if (wantsNotes) updateData.notes = notes
+
+    const { data: updated, error: updateError } = await supabase
+      .from('orders')
+      .update(updateData)
+      .eq('id', orderId)
+      .select('id, status, internal_notes, notes, updated_at')
+      .single()
+
+    if (updateError || !updated) {
+      console.error('[orders] Error updating order:', updateError)
+      return res.status(500).json({ error: updateError?.message || 'Failed to update order' })
+    }
+
+    if (updateData.status) {
+      await supabase.from('audit_logs').insert({
+        user_id: req.user?.sub,
+        action: 'order_status_updated',
+        entity: 'order',
+        entity_id: orderId,
+        changes: { previous_status: order.status, new_status: updateData.status },
+        created_at: new Date().toISOString()
+      })
+    }
+
+    return res.json({ ok: true, order: updated })
+  } catch (error: any) {
+    console.error('[orders] PATCH error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 // POST /api/orders/:orderId/complete - Mark order as completed and award rewards
 router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
   try {
@@ -305,18 +396,51 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
       return res.status(404).json({ error: 'Order not found' })
     }
 
-    // Update order status to completed
-    const { error: updateError } = await supabase
+    // Reject illegal jumps into 'completed' (notably pending -> completed,
+    // which awarded rewards for an order nobody had paid for) and reject
+    // dragging a cancelled/refunded order back out of its terminal state.
+    const transition = checkOrderTransition(order.status, 'completed')
+    if (!transition.ok) {
+      return res.status(409).json({ error: transition.reason })
+    }
+
+    // Already completed: return the same success shape without re-running any
+    // side effects. processOrderCompletion self-guards via order_rewards, but
+    // the referral bonus and the audit log did not, so a second call used to
+    // write a second audit row and re-enter the referral path.
+    if (transition.kind === 'noop') {
+      return res.json({
+        ok: true,
+        message: 'Order was already completed',
+        order: { id: orderId, status: 'completed' },
+        rewards: { success: true, alreadyProcessed: true }
+      })
+    }
+
+    // Claim the transition atomically — .neq('status', 'completed') means a
+    // second concurrent call updates zero rows and bails before the rewards.
+    const { data: claimed, error: updateError } = await supabase
       .from('orders')
       .update({
         status: 'completed',
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId)
+      .neq('status', 'completed')
+      .select('id')
 
     if (updateError) {
       console.error('[orders/complete] Error updating order:', updateError)
       return res.status(500).json({ error: 'Failed to update order status' })
+    }
+
+    if (!claimed || claimed.length === 0) {
+      return res.json({
+        ok: true,
+        message: 'Order was already completed',
+        order: { id: orderId, status: 'completed' },
+        rewards: { success: true, alreadyProcessed: true }
+      })
     }
 
     // Process rewards
@@ -327,15 +451,21 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
       orderNumber: orderId.slice(0, 8)
     })
 
-    // Check if this is user's first purchase and process referral bonus
-    const { data: orderCount } = await supabase
+    // Check if this is the user's first finished order and process the referral
+    // bonus. `select('id', { count: 'exact' })` returns the rows AND a separate
+    // `count` — the old code destructured only `data` and read `.length`, which
+    // silently depends on no range/limit ever being applied. `head: true` asks
+    // Postgrest for the count only.
+    const { count: finishedOrderCount } = await supabase
       .from('orders')
-      .select('id', { count: 'exact' })
+      .select('id', { count: 'exact', head: true })
       .eq('user_id', order.user_id)
       .in('status', ['completed', 'delivered'])
 
-    if (orderCount && orderCount.length === 1) {
-      // This is the first completed order, check for referral bonus
+    if (finishedOrderCount === 1) {
+      // This is the first completed order, check for referral bonus.
+      // processReferralFirstPurchase additionally self-guards on an existing
+      // referral_transactions row (referral-service.ts:230).
       await processReferralFirstPurchase(order.user_id, order.total)
     }
 

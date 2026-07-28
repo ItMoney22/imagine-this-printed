@@ -69,7 +69,9 @@ import {
   Expand,
   X,
   Download,
-  ChevronLeft
+  ChevronLeft,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 // Sheet preset configurations
@@ -102,7 +104,11 @@ const PRESET_UI_CONFIG: Record<string, any> = {
 // Canvas constants
 const PIXELS_PER_INCH = 96;
 const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 3;
+// Reconciled with SheetCanvas.tsx's ctrl+scroll/pinch zoom bound — this used
+// to be 3 here while the canvas's own wheel handler hardcoded 4, so which
+// max applied depended on whether you used the +button or ctrl+scroll
+// (Watchtower task 6890cf54).
+const MAX_ZOOM = 4;
 
 const DTF_PRINT_SIZE_OPTIONS = [
   { label: 'Pocket 4"', width: 4 },
@@ -196,6 +202,35 @@ const ImaginationStation: React.FC = () => {
   const [showCutLines, setShowCutLines] = useState(false);
   const [mirrorForSublimation, setMirrorForSublimation] = useState(false);
   const [showSafeMargin, setShowSafeMargin] = useState(false);
+
+  // Full-screen canvas (Watchtower task 6890cf54) — mainly for mobile/tablet,
+  // where the sheet otherwise renders inside a ~288-384px drawer. Fullscreens
+  // canvasRef (the wrapper around SheetCanvas + the zoom controls), so the
+  // controls go fullscreen along with the canvas rather than being left
+  // behind in the collapsed drawer. Must be triggered by a user gesture (the
+  // button below) — the Fullscreen API rejects a programmatic call outside
+  // one, so there's no "auto-enter on mobile" option here.
+  const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsCanvasFullscreen(document.fullscreenElement === canvasRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleCanvasFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      canvasRef.current?.requestFullscreen?.().catch(() => {
+        // Fullscreen API unsupported/blocked (e.g. iOS Safari on some
+        // versions) — silently no-op rather than surfacing an error for a
+        // purely cosmetic convenience feature.
+      });
+    } else {
+      document.exitFullscreen?.();
+    }
+  }, []);
 
   // Loading states
   const [isLoading, setIsLoading] = useState(true);
@@ -2766,6 +2801,8 @@ const ImaginationStation: React.FC = () => {
                   mirrorForSublimation={mirrorForSublimation}
                   showSafeMargin={showSafeMargin}
                   minDPI={getSheetMinDpi(sheet.print_type)}
+                  minZoom={MIN_ZOOM}
+                  maxZoom={MAX_ZOOM}
                 />
 
                 {layers.length === 0 && !isProcessing && (
@@ -2802,6 +2839,10 @@ const ImaginationStation: React.FC = () => {
                   </button>
                   <button onClick={resetCanvas} disabled={layers.length === 0} className="px-1.5 py-0.5 text-xs rounded-full text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50" title="Reset">
                     <RefreshCw className="w-3 h-3" />
+                  </button>
+                  <div className="w-px h-4 bg-text/10 mx-0.5" />
+                  <button onClick={toggleCanvasFullscreen} className="w-6 h-6 flex items-center justify-center text-muted hover:text-primary rounded-full transition-colors" title={isCanvasFullscreen ? 'Exit full screen' : 'Full screen — more room to work on touch'}>
+                    {isCanvasFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>

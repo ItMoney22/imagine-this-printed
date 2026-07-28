@@ -709,8 +709,10 @@ const UserProfilePage = () => {
             </div>
             <h3 className="text-lg font-display font-bold text-slate-900 mb-2">View Your Orders</h3>
             <p className="text-slate-500 mb-6">Track all your orders, view order history, and manage draft orders in one place.</p>
+            {/* /my-orders is not a registered route in App.tsx — this 404'd.
+                The MyOrders page is mounted at /account/orders. */}
             <Link
-              to="/my-orders"
+              to="/account/orders"
               className="btn-primary inline-flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

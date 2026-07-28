@@ -449,7 +449,10 @@ model Kiosk {
 
 model CostVariable {
   id                       String    @id @default(uuid())
-  managerId                String    @map("manager_id")
+  // One row per manager — mirrors the live cost_variables_manager_id_key unique
+  // index, which is what makes upsert(onConflict: 'manager_id') resolve to an
+  // UPDATE instead of piling up a new row on every save.
+  managerId                String    @unique @map("manager_id")
   locationId               String?   @map("location_id")
   locationName             String?   @map("location_name")
   filamentPricePerGram     Decimal   @map("filament_price_per_gram")

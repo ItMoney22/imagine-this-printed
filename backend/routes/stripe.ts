@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import Stripe from 'stripe'
 import { requireAuth, requireRole, optionalAuth } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
+import { checkOrderTransition } from '../lib/order-status.js'
 import {
   ITC_PACKAGES,
   findPackageByUSD,
@@ -1795,11 +1796,6 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
       return res.status(400).json({ error: 'Status is required' })
     }
 
-    const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'completed', 'cancelled', 'refunded']
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` })
-    }
-
     // Get order details first
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -1810,6 +1806,16 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
     if (orderError || !order) {
       return res.status(404).json({ error: 'Order not found' })
     }
+
+    // Guard the lifecycle. checkOrderTransition also rejects unknown targets,
+    // so it replaces the old validStatuses allow-list. Re-PATCHing the status
+    // an order already has is a NOOP, not an error — an admin double-click
+    // should be harmless, not a 409.
+    const transition = checkOrderTransition(order.status, status)
+    if (!transition.ok) {
+      return res.status(409).json({ error: transition.reason })
+    }
+    const isRealTransition = transition.kind === 'move'
 
     // Prepare update object
     const updateData: any = {
@@ -1846,15 +1852,18 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
     // Notify Darrell V2's merch sales ledger — only on an ACTUAL transition
     // into refunded/cancelled, never on a no-op re-PATCH to the status it
     // already had. Fail-soft: never blocks the admin's status update.
-    if (status !== order.status && (status === 'refunded' || status === 'cancelled')) {
+    if (isRealTransition && (status === 'refunded' || status === 'cancelled')) {
       const merchEventType = status === 'refunded' ? 'order.refunded' : 'order.canceled'
       await sendMerchOrderEvent({ orderId, type: merchEventType, log: req.log }).catch((err) => {
         req.log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
       })
     }
 
-    // Send appropriate email based on status change
-    if (order.customer_email) {
+    // Send appropriate email based on status change — only on an ACTUAL
+    // transition. Without this guard, re-PATCHing 'shipped' on an
+    // already-shipped order re-mailed the customer "your order has shipped"
+    // every single time.
+    if (isRealTransition && order.customer_email) {
       try {
         if (status === 'shipped') {
           await sendOrderShippedEmail(order.customer_email, orderId, trackingNumber, carrier)

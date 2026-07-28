@@ -25,12 +25,60 @@ interface SheetCanvasProps {
   showSafeMargin?: boolean;
   /** Print-type minDPI used to grade layer quality (see imagination-presets.ts rules.minDPI) */
   minDPI?: number;
+  /**
+   * Zoom bounds — default to the same values as src/pages/ImaginationStation.tsx's
+   * MIN_ZOOM/MAX_ZOOM (the +/- buttons and fit-to-view). Previously this
+   * component hardcoded its own 0.25–4 bounds for wheel/pinch zoom while the
+   * page used 0.1–3, so which bound applied depended on which input method
+   * you used (Watchtower task 6890cf54). Always pass the page's constants
+   * explicitly; the defaults here exist only for other/future callers.
+   */
+  minZoom?: number;
+  maxZoom?: number;
 }
 
 // DPI for print = 300, screen DPI ~ 96
 const PRINT_DPI = 300;
 const SCREEN_DPI = 96;
 const PIXELS_PER_INCH = SCREEN_DPI; // Use screen DPI for canvas
+
+// Reconciled with ImaginationStation.tsx's MIN_ZOOM/MAX_ZOOM.
+const DEFAULT_MIN_ZOOM = 0.1;
+const DEFAULT_MAX_ZOOM = 4;
+
+/**
+ * True when the primary pointer is coarse (touch/stylus) rather than fine
+ * (mouse/trackpad) — per the CSS Media Queries spec's `pointer` feature.
+ * Re-evaluated live via matchMedia's change event so a tablet that gains/
+ * loses a mouse (e.g. Bluetooth) doesn't get stuck with the wrong anchor
+ * size. Used to enlarge Konva Transformer anchors to a tappable size on
+ * touch (Watchtower task 6890cf54) — desktop mouse users keep the compact
+ * default anchors.
+ */
+function useCoarsePointer(): boolean {
+  const [isCoarse, setIsCoarse] = React.useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(pointer: coarse)').matches
+      : false
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(pointer: coarse)');
+    const handler = () => setIsCoarse(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  return isCoarse;
+}
+
+// Konva keeps anchor squares a constant on-screen pixel size regardless of
+// stage/node scale, so this is a real ~44px touch target on screen — not
+// something that shrinks as the sheet zooms out. 10 matches Konva's own
+// default (unchanged for mouse users).
+const TOUCH_ANCHOR_SIZE = 44;
+const MOUSE_ANCHOR_SIZE = 10;
 
 // Konva Image element
 const CanvasImage: React.FC<{
@@ -40,7 +88,8 @@ const CanvasImage: React.FC<{
   onChange: (attrs: Partial<ImaginationLayer>) => void;
   showCutLines?: boolean;
   minDPI?: number;
-}> = ({ layer, isSelected, onSelect, onChange, showCutLines, minDPI = DEFAULT_MIN_DPI }) => {
+  isTouch?: boolean;
+}> = ({ layer, isSelected, onSelect, onChange, showCutLines, minDPI = DEFAULT_MIN_DPI, isTouch = false }) => {
   const imageUrl = layer.processed_url || layer.source_url;
   const [image] = useImage(imageUrl || '', 'anonymous');
   const shapeRef = useRef<Konva.Image>(null);
@@ -235,6 +284,7 @@ const CanvasImage: React.FC<{
           }}
           rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           rotationSnapTolerance={5}
+          anchorSize={isTouch ? TOUCH_ANCHOR_SIZE : MOUSE_ANCHOR_SIZE}
         />
       )}
     </>
@@ -247,7 +297,8 @@ const CanvasText: React.FC<{
   isSelected: boolean;
   onSelect: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onChange: (attrs: Partial<ImaginationLayer>) => void;
-}> = ({ layer, isSelected, onSelect, onChange }) => {
+  isTouch?: boolean;
+}> = ({ layer, isSelected, onSelect, onChange, isTouch = false }) => {
   const shapeRef = useRef<Konva.Text>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -316,6 +367,7 @@ const CanvasText: React.FC<{
           rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           rotationSnapTolerance={5}
           enabledAnchors={['middle-left', 'middle-right']}
+          anchorSize={isTouch ? TOUCH_ANCHOR_SIZE : MOUSE_ANCHOR_SIZE}
         />
       )}
     </>
@@ -328,7 +380,8 @@ const CanvasShape: React.FC<{
   isSelected: boolean;
   onSelect: (e: Konva.KonvaEventObject<MouseEvent>) => void;
   onChange: (attrs: Partial<ImaginationLayer>) => void;
-}> = ({ layer, isSelected, onSelect, onChange }) => {
+  isTouch?: boolean;
+}> = ({ layer, isSelected, onSelect, onChange, isTouch = false }) => {
   const shapeRef = useRef<any>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -488,6 +541,7 @@ const CanvasShape: React.FC<{
             }
             return newBox;
           }}
+          anchorSize={isTouch ? TOUCH_ANCHOR_SIZE : MOUSE_ANCHOR_SIZE}
         />
       )}
     </>
@@ -511,22 +565,37 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
   mirrorForSublimation = false,
   showSafeMargin = false,
   minDPI = DEFAULT_MIN_DPI,
+  minZoom = DEFAULT_MIN_ZOOM,
+  maxZoom = DEFAULT_MAX_ZOOM,
 }) => {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = React.useState({ width: 800, height: 600 });
+  const isTouch = useCoarsePointer();
 
   // Pan state for large sheet navigation
   const [panOffset, setPanOffset] = React.useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = React.useState(false);
   const [lastPointerPosition, setLastPointerPosition] = React.useState({ x: 0, y: 0 });
+  // Two-finger pinch state — the finger spread and zoom level at gesture
+  // start, so touchmove computes a scale factor relative to THIS gesture
+  // rather than an absolute distance. Refs (not state) since they're read
+  // synchronously inside the touchmove handler and must never trigger a
+  // re-render on their own.
+  const pinchStartDistRef = useRef<number | null>(null);
+  const pinchStartZoomRef = useRef(zoom);
 
   // Sheet dimensions in pixels
   const sheetWidth = sheet.sheet_width * PIXELS_PER_INCH;
   const sheetHeight = sheet.sheet_height * PIXELS_PER_INCH;
 
-  // Resize handler
+  // Resize handler — a ResizeObserver on the container itself (rather than a
+  // window 'resize' listener) catches every reason this element's own box
+  // can change size: the drawer width/breakpoint, a sidebar toggling, AND
+  // entering/exiting the browser Fullscreen API (which some browsers don't
+  // fire a window resize event for at all).
   useEffect(() => {
+    if (!containerRef.current) return;
     const updateSize = () => {
       if (containerRef.current) {
         setStageSize({
@@ -537,8 +606,9 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
     };
 
     updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
   }, []);
 
   // Center sheet in view (with pan offset for navigation)
@@ -596,8 +666,8 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
       const scaleBy = 1.1;
       const oldScale = zoom;
       const newScale = e.evt.deltaY < 0
-        ? Math.min(oldScale * scaleBy, 4)
-        : Math.max(oldScale / scaleBy, 0.25);
+        ? Math.min(oldScale * scaleBy, maxZoom)
+        : Math.max(oldScale / scaleBy, minZoom);
 
       setZoom(newScale);
     } else {
@@ -615,7 +685,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
       const newPan = constrainPan(panOffset.x - deltaX, panOffset.y - deltaY);
       setPanOffset(newPan);
     }
-  }, [zoom, setZoom, panOffset, constrainPan]);
+  }, [zoom, setZoom, panOffset, constrainPan, minZoom, maxZoom]);
 
   // Panning: Left click on empty space, middle mouse button, or Alt+drag
   const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -654,17 +724,27 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
     setIsPanning(false);
   }, []);
 
-  // Touch support for mobile panning
+  // Touch support: one finger pans, two fingers pinch-to-zoom AND pan
+  // together (the standard combined mobile gesture — e.g. Google Maps).
+  // Previously two-finger touch only panned; there was no touch zoom at all
+  // (Watchtower task 6890cf54).
+  const touchDistance = (t1: Touch, t2: Touch) =>
+    Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
   const handleTouchStart = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
     if (e.evt.touches.length === 2) {
-      // Two-finger touch for panning (anywhere)
       const touch1 = e.evt.touches[0];
       const touch2 = e.evt.touches[1];
       const centerX = (touch1.clientX + touch2.clientX) / 2;
       const centerY = (touch1.clientY + touch2.clientY) / 2;
       setLastPointerPosition({ x: centerX, y: centerY });
       setIsPanning(true);
+      // Baseline for this pinch gesture — touchmove scales relative to the
+      // spread/zoom captured right here, not an absolute finger distance.
+      pinchStartDistRef.current = touchDistance(touch1, touch2);
+      pinchStartZoomRef.current = zoom;
     } else if (e.evt.touches.length === 1) {
+      pinchStartDistRef.current = null;
       // Single finger on background - pan (grab tool behavior)
       const target = e.target;
       const isBackground = target === e.target.getStage() || target.name() === 'sheet-background';
@@ -674,7 +754,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
         setIsPanning(true);
       }
     }
-  }, []);
+  }, [zoom]);
 
   const handleTouchMove = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
     if (!isPanning) return;
@@ -686,6 +766,14 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
       const touch2 = e.evt.touches[1];
       centerX = (touch1.clientX + touch2.clientX) / 2;
       centerY = (touch1.clientY + touch2.clientY) / 2;
+
+      // Pinch-to-zoom, independent of (but combined with) the midpoint pan
+      // below.
+      if (pinchStartDistRef.current) {
+        const dist = touchDistance(touch1, touch2);
+        const scale = pinchStartZoomRef.current * (dist / pinchStartDistRef.current);
+        setZoom(Math.min(maxZoom, Math.max(minZoom, scale)));
+      }
     } else if (e.evt.touches.length === 1) {
       centerX = e.evt.touches[0].clientX;
       centerY = e.evt.touches[0].clientY;
@@ -699,11 +787,24 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
     const newPan = constrainPan(panOffset.x + dx, panOffset.y + dy);
     setPanOffset(newPan);
     setLastPointerPosition({ x: centerX, y: centerY });
-  }, [isPanning, lastPointerPosition, panOffset, constrainPan]);
+  }, [isPanning, lastPointerPosition, panOffset, constrainPan, minZoom, maxZoom, setZoom]);
 
-  const handleTouchEnd = useCallback(() => {
-    setIsPanning(false);
-  }, []);
+  const handleTouchEnd = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
+    const remaining = e.evt.touches.length;
+    pinchStartDistRef.current = null;
+
+    if (remaining === 1) {
+      // Lifted one finger out of a pinch — re-anchor to the surviving
+      // finger so the next touchmove doesn't jump from the old two-finger
+      // midpoint to the single finger's position.
+      const touch = e.evt.touches[0];
+      setLastPointerPosition({ x: touch.clientX, y: touch.clientY });
+      pinchStartZoomRef.current = zoom;
+      setIsPanning(true);
+    } else if (remaining === 0) {
+      setIsPanning(false);
+    }
+  }, [zoom]);
 
   // Reset pan to center
   const resetPan = useCallback(() => {
@@ -776,9 +877,9 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
       {/* Pan navigation hint - shows when sheet is larger than viewport */}
       {needsPan && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 bg-black/70 text-white text-xs rounded-full pointer-events-none flex items-center gap-2">
-          <span>Click & drag to pan</span>
+          <span>{isTouch ? 'Drag to pan' : 'Click & drag to pan'}</span>
           <span className="text-white/60">|</span>
-          <span>Ctrl+Scroll to zoom</span>
+          <span>{isTouch ? 'Pinch to zoom' : 'Ctrl+Scroll to zoom'}</span>
         </div>
       )}
 
@@ -810,7 +911,11 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
+        // touch-action: none stops the browser's own pan/zoom/scroll gesture
+        // from fighting Konva's touch handlers — without it, a single-finger
+        // drag on the stage could scroll the page underneath the canvas
+        // instead of (or as well as) panning it (Watchtower task 6890cf54).
+        style={{ cursor: isPanning ? 'grabbing' : 'grab', touchAction: 'none' }}
       >
         {/* Background Layer */}
         <Layer>
@@ -868,6 +973,7 @@ const SheetCanvas: React.FC<SheetCanvasProps> = ({
                   selectLayer(layer.id, e.evt.shiftKey);
                 },
                 onChange: (attrs: Partial<ImaginationLayer>) => handleLayerChange(layer.id, attrs),
+                isTouch,
               };
 
               // Render based on layer type
