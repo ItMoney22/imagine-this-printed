@@ -15,6 +15,7 @@ import {
 } from '../utils/email.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
+import { accrueVendorPayoutsForOrder, handleVendorPayoutFailed, handleVendorTransferReversed } from '../services/vendor-payouts.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 import { processOrderCompletion } from '../services/order-reward-service.js'
@@ -673,7 +674,26 @@ router.post('/webhook', async (req: Request, res: Response): Promise<any> => {
           req.log?.info({ payoutId: payout.id, account: event.account }, '[Stripe Connect Webhook] Payout failed')
           const { handlePayoutFailed } = await import('../services/stripe-connect.js')
           await handlePayoutFailed(payout, event.account)
+
+          // Vendor marketplace payouts (processVendorPayout, services/vendor-payouts.ts)
+          // key off metadata.payout_batch_id instead of cashout_request_id, so
+          // the ITC branch above never touches them — this is the real handling
+          // for that batch. Left unguarded like handlePayoutFailed above: a
+          // genuine failure here should surface as a 500 so Stripe retries,
+          // rather than silently leaving the ledger stuck on a stale `paid` row.
+          await handleVendorPayoutFailed(payout)
         }
+        break
+      }
+
+      // Transfers move platform balance -> a vendor's connected account
+      // (processVendorPayout, services/vendor-payouts.ts). They are platform-
+      // owned objects, not Connect account events, so — unlike payout.paid/
+      // payout.failed above — this does not gate on event.account.
+      case 'transfer.reversed': {
+        const transfer = event.data.object as Stripe.Transfer
+        req.log?.info({ transferId: transfer.id }, '[Stripe Connect Webhook] Transfer reversed')
+        await handleVendorTransferReversed(transfer)
         break
       }
 
@@ -950,6 +970,14 @@ async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, r
   // for storefront checkouts (no productId in payment metadata), so external
   // storefront sales never paid creators.
   await accrueCreatorMarginsForOrder(orderId, req.log)
+
+  // Pay the vendors: for each marketplace product on the order, accrue this
+  // vendor's share to the payout ledger immediately instead of waiting for
+  // them to next open /vendor/payouts (which only accrued lazily until now).
+  // accrueVendorPayouts() itself is untouched and stays idempotent, so the
+  // lazy sweep on GET /api/vendor/payouts remains a correct backstop for
+  // historical orders or if this call is ever skipped.
+  await accrueVendorPayoutsForOrder(orderId, req.log)
 
   // Notify Darrell V2's merch sales ledger (docs/merch-orders-webhook.md
   // there). Emitted AFTER margins accrue so creatorMarginCents can be read

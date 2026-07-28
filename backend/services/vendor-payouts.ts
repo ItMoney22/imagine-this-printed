@@ -24,6 +24,7 @@
 
 import Stripe from 'stripe'
 import { supabase } from '../lib/supabase.js'
+import { claimOnce } from '../lib/webhook-helpers.js'
 
 export type PayoutDb = { from: (table: string) => any }
 
@@ -229,6 +230,66 @@ export async function accrueVendorPayouts(
   }
 
   return created
+}
+
+type Logger = { info?: Function; warn?: Function; error?: Function } | undefined
+
+/**
+ * Real-time counterpart to the lazy sweep above. Resolves which vendors are
+ * owed money from a single just-paid order (order_items -> products.vendor_id)
+ * and accrues each of them immediately, instead of waiting for that vendor to
+ * next open a payouts page. accrueVendorPayouts() itself is unchanged and
+ * still sweeps that vendor's whole paid-order history (the unique index makes
+ * re-sweeping already-seen rows a no-op), so this is "trigger the sweep now
+ * instead of on next read" rather than a second accrual code path — the lazy
+ * sweep on GET /payouts remains a correct backstop (historical orders, or if
+ * this call is ever skipped).
+ *
+ * Never throws — a ledger hiccup must not fail the payment webhook that pays
+ * the customer. Every failure is logged and swallowed, same discipline as
+ * creator-margins.ts's accrueCreatorMarginsForOrder.
+ */
+export async function accrueVendorPayoutsForOrder(
+  orderId: string,
+  log?: Logger,
+  db: PayoutDb = supabase
+): Promise<void> {
+  try {
+    const { data: items, error: itemsErr } = await db
+      .from('order_items')
+      .select('product_id')
+      .eq('order_id', orderId)
+    if (itemsErr) {
+      log?.error?.({ err: itemsErr, orderId }, '[vendor-payouts] failed to load order items for real-time accrual')
+      return
+    }
+
+    const productIds = [...new Set((items || []).map((i: any) => i.product_id).filter(Boolean))]
+    if (productIds.length === 0) return
+
+    const { data: products, error: productsErr } = await db
+      .from('products')
+      .select('id, vendor_id')
+      .in('id', productIds)
+    if (productsErr) {
+      log?.error?.({ err: productsErr, orderId }, '[vendor-payouts] failed to load products for real-time accrual')
+      return
+    }
+
+    const vendorIds = [...new Set<string>((products || []).map((p: any) => p.vendor_id as string).filter(Boolean))]
+    for (const vendorId of vendorIds) {
+      try {
+        const created = await accrueVendorPayouts(vendorId, db)
+        if (created > 0) {
+          log?.info?.({ orderId, vendorId, created }, '[vendor-payouts] accrued ledger rows from paid-order webhook')
+        }
+      } catch (err: any) {
+        log?.error?.({ err, orderId, vendorId }, '[vendor-payouts] real-time accrual failed for vendor — lazy sweep remains the backstop')
+      }
+    }
+  } catch (err: any) {
+    log?.error?.({ err, orderId }, '[vendor-payouts] accrueVendorPayoutsForOrder failed (non-fatal)')
+  }
 }
 
 // =============================================================================
@@ -628,4 +689,108 @@ export async function processVendorPayout(
       ? 'Funds were transferred to your Stripe account, but the bank payout could not be started automatically. Stripe support or an admin will complete it.'
       : undefined
   }
+}
+
+// =============================================================================
+// Webhook reconciliation — payout.failed / transfer.reversed
+// =============================================================================
+//
+// processVendorPayout() above marks ledger rows `paid` as soon as the Stripe
+// transfer + payout calls both succeed. That's optimistic: Stripe delivers the
+// definitive outcome asynchronously, and a vendor's bank can reject a payout
+// days later — with nothing listening for that, the row stays `paid` forever
+// while the vendor's money sits nowhere anyone can see.
+//
+// The trap (already called out on processVendorPayout's `release()` above):
+// once transfers.create() succeeds, the earnings have LEFT the platform
+// balance and are sitting in the vendor's *connected* Stripe account. A failed
+// bank payout does NOT return that money to the platform, so flipping the row
+// back to `pending` on payout.failed alone would let a future payout transfer
+// the same earnings a second time — the vendor gets paid twice. Only a
+// transfer.reversed event (Stripe pulling the money back out of the connected
+// account) makes reclaiming safe, so ONLY that event returns rows to `pending`.
+//
+// Both handlers match Stripe objects to ledger rows via metadata.payout_batch_id
+// (set on both the transfer and the payout inside processVendorPayout above)
+// and use the same claim-once idempotency discipline as the rest of the
+// checkout path (lib/webhook-helpers.ts claimOnce): the UPDATE's WHERE on
+// `status` only matches on the first delivery of a given event, so Stripe's
+// at-least-once redelivery can never double-process a batch.
+
+export interface StripePayoutLike {
+  id: string
+  metadata?: Record<string, string> | null
+  failure_message?: string | null
+  failure_code?: string | null
+}
+
+export interface StripeTransferLike {
+  id: string
+  metadata?: Record<string, string> | null
+}
+
+/**
+ * Stripe `payout.failed` — the bank rejected a payout whose transfer already
+ * succeeded. Flags the batch's ledger rows `failed` with a reason. Does NOT
+ * touch payout_batch_id — the rows stay tied to this batch until a
+ * transfer.reversed confirms the money actually came back (see above).
+ * A no-op (not an error) if the batch id is missing or matches nothing: most
+ * payout.failed events are the unrelated ITC-cashout flow, keyed on
+ * metadata.cashout_request_id instead (services/stripe-connect.ts).
+ */
+export async function handleVendorPayoutFailed(
+  payout: StripePayoutLike,
+  db: PayoutDb = supabase
+): Promise<{ matched: boolean }> {
+  const batchId = payout.metadata?.payout_batch_id
+  if (!batchId) return { matched: false }
+
+  const reason = payout.failure_message || payout.failure_code || 'Stripe payout failed'
+  const claim = await claimOnce(
+    db
+      .from('vendor_payouts')
+      .update({ status: 'failed', failure_reason: reason, updated_at: new Date().toISOString() })
+      .eq('payout_batch_id', batchId)
+      .eq('status', 'paid')
+      .select('id')
+  )
+  if (claim.error) {
+    throw new Error(`Failed to record payout.failed for batch ${batchId}: ${(claim.error as any).message}`)
+  }
+  return { matched: claim.claimed }
+}
+
+/**
+ * Stripe `transfer.reversed` — Stripe pulled the transferred amount back out
+ * of the vendor's connected account, so the platform has the earnings again.
+ * That's the one signal that makes reclaiming safe: matched rows — whether
+ * still `paid` (the reversal arrived before payout.failed) or already
+ * `failed` — go back to `pending` so a future payout run can pay them for
+ * real. A no-op if the batch id is missing, matches nothing, or every
+ * matched row is already `pending` (redelivery of an event already applied).
+ */
+export async function handleVendorTransferReversed(
+  transfer: StripeTransferLike,
+  db: PayoutDb = supabase
+): Promise<{ matched: boolean }> {
+  const batchId = transfer.metadata?.payout_batch_id
+  if (!batchId) return { matched: false }
+
+  const claim = await claimOnce(
+    db
+      .from('vendor_payouts')
+      .update({
+        status: CLAIMABLE,
+        payout_batch_id: null,
+        failure_reason: 'Stripe transfer reversed — earnings returned to the payable queue',
+        updated_at: new Date().toISOString()
+      })
+      .eq('payout_batch_id', batchId)
+      .in('status', ['paid', 'failed'])
+      .select('id')
+  )
+  if (claim.error) {
+    throw new Error(`Failed to record transfer.reversed for batch ${batchId}: ${(claim.error as any).message}`)
+  }
+  return { matched: claim.claimed }
 }

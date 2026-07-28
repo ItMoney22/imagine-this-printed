@@ -11,8 +11,11 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 const {
   calculateVendorPayout,
   accrueVendorPayouts,
+  accrueVendorPayoutsForOrder,
   summarizeVendorPayouts,
-  processVendorPayout
+  processVendorPayout,
+  handleVendorPayoutFailed,
+  handleVendorTransferReversed
 } = await import('./vendor-payouts.js')
 
 type Row = Record<string, any>
@@ -427,5 +430,222 @@ describe('processVendorPayout — real Stripe Connect money movement', () => {
     expect(result.success).toBe(false)
     expect(result.error).toContain('No earnings')
     expect(stripe.calls.transfers).toHaveLength(0)
+  })
+})
+
+describe('accrueVendorPayoutsForOrder — real-time accrual fired from the paid-order webhook', () => {
+  it('resolves the vendor from order line items (products.vendor_id) and accrues the ledger', async () => {
+    const db = seed()
+    await accrueVendorPayoutsForOrder('order-1', undefined, db as any)
+
+    expect(db._tables.vendor_payouts).toHaveLength(1)
+    expect(db._tables.vendor_payouts[0]).toMatchObject({ vendor_id: VENDOR, order_id: 'order-1', product_id: 'prod-1' })
+  })
+
+  it('accrues every distinct vendor represented on a multi-vendor order', async () => {
+    const db = seed({
+      products: [
+        { id: 'prod-1', name: 'Vendor Tee', vendor_id: VENDOR },
+        { id: 'prod-2', name: 'Other Vendor Mug', vendor_id: 'vendor-2' }
+      ],
+      order_items: [
+        { id: 'oi-1', order_id: 'order-1', product_id: 'prod-1', quantity: 2, unit_price: 50, subtotal: 100 },
+        { id: 'oi-2', order_id: 'order-1', product_id: 'prod-2', quantity: 1, unit_price: 20, subtotal: 20 }
+      ]
+    })
+
+    await accrueVendorPayoutsForOrder('order-1', undefined, db as any)
+
+    const vendorIds = db._tables.vendor_payouts.map((r: any) => r.vendor_id).sort()
+    expect(vendorIds).toEqual(['vendor-1', 'vendor-2'])
+  })
+
+  it('is idempotent — calling it twice for the same order accrues the ledger row once', async () => {
+    const db = seed()
+    await accrueVendorPayoutsForOrder('order-1', undefined, db as any)
+    await accrueVendorPayoutsForOrder('order-1', undefined, db as any)
+
+    expect(db._tables.vendor_payouts).toHaveLength(1)
+  })
+
+  it('is a safe no-op for an order with no line items', async () => {
+    const db = seed({ order_items: [] })
+    await expect(accrueVendorPayoutsForOrder('order-1', undefined, db as any)).resolves.toBeUndefined()
+    expect(db._tables.vendor_payouts).toHaveLength(0)
+  })
+
+  it('never throws — logs and swallows a lookup failure instead of failing the webhook', async () => {
+    const brokenDb = {
+      from: () => ({
+        select: () => ({ eq: () => Promise.resolve({ data: null, error: { message: 'db down' } }) })
+      })
+    }
+    const logs: any[] = []
+    const log = { error: (...args: any[]) => logs.push(args) }
+
+    await expect(accrueVendorPayoutsForOrder('order-1', log as any, brokenDb as any)).resolves.toBeUndefined()
+    expect(logs.length).toBeGreaterThan(0)
+  })
+
+  it('never throws — logs and swallows a synchronous db failure the field-level check would miss', async () => {
+    const throwingDb = { from: () => { throw new Error('connection reset') } }
+    const logs: any[] = []
+    const log = { error: (...args: any[]) => logs.push(args) }
+
+    await expect(accrueVendorPayoutsForOrder('order-1', log as any, throwingDb as any)).resolves.toBeUndefined()
+    expect(logs.length).toBe(1)
+  })
+})
+
+describe('handleVendorPayoutFailed — Stripe payout.failed reconciliation', () => {
+  const BATCH = 'vpo_test_1'
+  const paidLedger = () => [
+    { id: 'vp-1', vendor_id: VENDOR, payout_amount: 60, status: 'paid', payout_batch_id: BATCH, stripe_transfer_id: 'tr_1', stripe_payout_id: 'po_1' },
+    { id: 'vp-2', vendor_id: VENDOR, payout_amount: 40, status: 'paid', payout_batch_id: BATCH, stripe_transfer_id: 'tr_1', stripe_payout_id: 'po_1' }
+  ]
+
+  it('flags every paid row in the batch failed, with the failure reason recorded', async () => {
+    const db = seed({ vendor_payouts: paidLedger(), order_items: [], products: [] })
+
+    const result = await handleVendorPayoutFailed(
+      { id: 'po_1', metadata: { payout_batch_id: BATCH }, failure_message: 'Bank account closed' },
+      db as any
+    )
+
+    expect(result.matched).toBe(true)
+    for (const row of db._tables.vendor_payouts) {
+      expect(row.status).toBe('failed')
+      expect(row.failure_reason).toBe('Bank account closed')
+      // Still tied to the batch — only a matching transfer.reversed is allowed
+      // to release it back to pending (see handleVendorTransferReversed below).
+      expect(row.payout_batch_id).toBe(BATCH)
+    }
+  })
+
+  it('falls back to the failure code when Stripe gives no failure message', async () => {
+    const db = seed({ vendor_payouts: paidLedger(), order_items: [], products: [] })
+    await handleVendorPayoutFailed({ id: 'po_1', metadata: { payout_batch_id: BATCH }, failure_code: 'account_closed' }, db as any)
+    expect(db._tables.vendor_payouts[0].failure_reason).toBe('account_closed')
+  })
+
+  it('is idempotent — a redelivered payout.failed does not reprocess an already-failed batch', async () => {
+    const db = seed({ vendor_payouts: paidLedger(), order_items: [], products: [] })
+    const payout = { id: 'po_1', metadata: { payout_batch_id: BATCH }, failure_message: 'Bank account closed' }
+
+    await handleVendorPayoutFailed(payout, db as any)
+    const second = await handleVendorPayoutFailed(payout, db as any)
+
+    expect(second.matched).toBe(false)
+  })
+
+  it('is a no-op for payouts outside the vendor ledger (e.g. the ITC cashout flow)', async () => {
+    const db = seed({ vendor_payouts: [], order_items: [], products: [] })
+    const result = await handleVendorPayoutFailed({ id: 'po_1', metadata: { cashout_request_id: 'req-1' } }, db as any)
+    expect(result.matched).toBe(false)
+  })
+})
+
+describe('handleVendorTransferReversed — Stripe transfer.reversed reconciliation', () => {
+  const BATCH = 'vpo_test_1'
+
+  it('returns a failed batch to pending and clears the batch id so it can be re-claimed', async () => {
+    const db = seed({
+      vendor_payouts: [
+        { id: 'vp-1', vendor_id: VENDOR, payout_amount: 60, status: 'failed', payout_batch_id: BATCH, failure_reason: 'Bank account closed' }
+      ],
+      order_items: [],
+      products: []
+    })
+
+    const result = await handleVendorTransferReversed({ id: 'tr_1', metadata: { payout_batch_id: BATCH } }, db as any)
+
+    expect(result.matched).toBe(true)
+    expect(db._tables.vendor_payouts[0].status).toBe('pending')
+    expect(db._tables.vendor_payouts[0].payout_batch_id).toBeNull()
+  })
+
+  it('also reclaims a still-paid batch when the reversal arrives before payout.failed', async () => {
+    const db = seed({
+      vendor_payouts: [{ id: 'vp-1', vendor_id: VENDOR, payout_amount: 60, status: 'paid', payout_batch_id: BATCH }],
+      order_items: [],
+      products: []
+    })
+
+    const result = await handleVendorTransferReversed({ id: 'tr_1', metadata: { payout_batch_id: BATCH } }, db as any)
+
+    expect(result.matched).toBe(true)
+    expect(db._tables.vendor_payouts[0].status).toBe('pending')
+  })
+
+  it('is idempotent — a redelivered transfer.reversed does not touch an already-pending row', async () => {
+    const db = seed({
+      vendor_payouts: [{ id: 'vp-1', vendor_id: VENDOR, payout_amount: 60, status: 'failed', payout_batch_id: BATCH }],
+      order_items: [],
+      products: []
+    })
+    const transfer = { id: 'tr_1', metadata: { payout_batch_id: BATCH } }
+
+    await handleVendorTransferReversed(transfer, db as any)
+    const second = await handleVendorTransferReversed(transfer, db as any)
+
+    expect(second.matched).toBe(false)
+  })
+
+  it('never reclaims rows from a different batch — the double-pay trap this task exists to close', async () => {
+    // A payout.failed alone must never be enough to make a row claimable
+    // again; only a transfer.reversed for THIS row's own batch can.
+    const db = seed({
+      vendor_payouts: [{ id: 'vp-1', vendor_id: VENDOR, payout_amount: 60, status: 'failed', payout_batch_id: 'some-other-batch' }],
+      order_items: [],
+      products: []
+    })
+
+    const result = await handleVendorTransferReversed({ id: 'tr_1', metadata: { payout_batch_id: BATCH } }, db as any)
+
+    expect(result.matched).toBe(false)
+    expect(db._tables.vendor_payouts[0].status).toBe('failed')
+  })
+})
+
+describe('full reconciliation lifecycle — paid, failed, reversed, payable again', () => {
+  it('never lets the same earnings be transferred to a vendor twice across a failed payout', async () => {
+    const db = seed({ vendor_payouts: [], order_items: [], products: [] })
+    db._tables.vendor_payouts.push({
+      id: 'vp-1',
+      vendor_id: VENDOR,
+      payout_amount: 30,
+      status: 'pending',
+      created_at: '2026-07-01T00:00:00Z'
+    })
+    const stripe = makeStripe()
+
+    // 1. First payout attempt succeeds — Stripe reports both calls fine.
+    const first = await processVendorPayout(VENDOR, undefined, db as any, stripe as any)
+    expect(first.success).toBe(true)
+    const batchId = first.batchId!
+    expect(db._tables.vendor_payouts[0].status).toBe('paid')
+
+    // 2. Days later, the vendor's bank rejects the payout.
+    await handleVendorPayoutFailed({ id: 'po_test_1', metadata: { payout_batch_id: batchId }, failure_message: 'Account closed' }, db as any)
+    expect(db._tables.vendor_payouts[0].status).toBe('failed')
+
+    // 3. A new payout run must NOT see this row — it is not `pending`, so the
+    //    (still platform-side-debited) earnings cannot be transferred again.
+    const secondAttempt = await processVendorPayout(VENDOR, undefined, db as any, stripe as any)
+    expect(secondAttempt.success).toBe(false)
+    expect(secondAttempt.error).toContain('No earnings')
+    expect(stripe.calls.transfers).toHaveLength(1)
+
+    // 4. Stripe reverses the original transfer — the money is back on the platform.
+    await handleVendorTransferReversed({ id: 'tr_test_1', metadata: { payout_batch_id: batchId } }, db as any)
+    expect(db._tables.vendor_payouts[0].status).toBe('pending')
+
+    // 5. Only now is it safe to pay again — a second, real transfer moves the
+    //    money for the first time (the first transfer was undone in step 4).
+    const thirdAttempt = await processVendorPayout(VENDOR, undefined, db as any, stripe as any)
+    expect(thirdAttempt.success).toBe(true)
+    expect(thirdAttempt.amount).toBe(30)
+    expect(stripe.calls.transfers).toHaveLength(2)
+    expect(db._tables.vendor_payouts[0].status).toBe('paid')
   })
 })
