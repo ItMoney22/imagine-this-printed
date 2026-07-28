@@ -24,7 +24,11 @@ const ETSY_TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token'
 // return policy and the shop profile itself are all writes. The consent round on
 // 2026-07-25 already granted it, and reconnecting without it would silently strip
 // abilities the shop now depends on.
-const OAUTH_SCOPES = 'listings_r listings_w shops_r shops_w'
+// transactions_r added 2026-07-28 for the receipt-ingest poller (GetShopReceipts).
+// A connection made before this change was authorized WITHOUT this scope — the
+// admin has to re-run the connect flow (GET /api/admin/etsy/connect) once for
+// receipt polling to stop 403ing. See etsy-integration.md handoff NEEDS DAVID.
+const OAUTH_SCOPES = 'listings_r listings_w shops_r shops_w transactions_r'
 
 // Etsy hard limits (see research doc §4–5). Title/tag limits live in
 // etsy-listing-fields.ts alongside the mapping rules that enforce them.
@@ -631,4 +635,85 @@ export async function listEtsyListings(limit = 100) {
     .limit(limit)
   if (error) throw new Error(error.message)
   return data ?? []
+}
+
+// ---------------------------------------------------------------------------
+// Receipts (Etsy sales) — read side for worker/etsy-receipt-ingest.ts.
+// Requires the transactions_r scope (see OAUTH_SCOPES above).
+// ---------------------------------------------------------------------------
+
+export interface EtsyMoney { amount: number; divisor: number; currency_code: string }
+
+export interface EtsyReceiptTransaction {
+  transaction_id: number
+  listing_id: number
+  title: string
+  quantity: number
+  price: EtsyMoney
+  variations?: Array<{ property_id?: number; formatted_name: string; formatted_value: string }>
+}
+
+export interface EtsyReceipt {
+  receipt_id: number
+  name: string | null
+  first_line: string | null
+  second_line: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  country_iso: string | null
+  was_paid: boolean
+  message_from_buyer: string | null
+  subtotal: EtsyMoney
+  total_price: EtsyMoney
+  total_shipping_cost: EtsyMoney
+  total_tax_cost: EtsyMoney
+  discount_amt: EtsyMoney
+  created_timestamp: number
+  updated_timestamp: number
+  transactions: EtsyReceiptTransaction[]
+}
+
+/** Converts an Etsy Money object ({amount, divisor}) to a dollar float. Never throws. */
+export function etsyMoneyToDollars(m?: EtsyMoney | null): number {
+  if (!m || !m.divisor) return 0
+  return m.amount / m.divisor
+}
+
+// Fetch a page of shop receipts sorted oldest-changed-first, for the
+// receipt-ingest poller. Sorts/filters on `updated`, not `created`, so a
+// receipt that flips was_paid=true (or any other field) after its initial
+// creation re-surfaces instead of being permanently missed by a
+// created-timestamp watermark — see worker/etsy-receipt-ingest.ts.
+export async function getShopReceipts(opts: { minLastModified?: number; limit?: number } = {}): Promise<EtsyReceipt[]> {
+  const { token, shopId } = await getAccessToken()
+  if (!shopId) throw new Error('No Etsy shop on the connected account yet')
+  const params = new URLSearchParams({
+    sort_on: 'updated',
+    sort_order: 'asc',
+    limit: String(opts.limit ?? 25)
+  })
+  if (opts.minLastModified !== undefined) params.set('min_last_modified', String(opts.minLastModified))
+  const res = await etsyFetch(`/application/shops/${shopId}/receipts?${params.toString()}`, { token })
+  return (res?.results ?? []) as EtsyReceipt[]
+}
+
+// ---------------------------------------------------------------------------
+// Inventory round-trip — used by services/etsy-inventory-sync.ts to mirror
+// blank_inventory quantity changes onto Etsy. Etsy's inventory endpoint is a
+// full-replace PUT (see applyListingVariations above); GET returns price as a
+// Money object, PUT expects a plain number — callers must convert.
+// ---------------------------------------------------------------------------
+
+export async function getListingInventory(listingId: number): Promise<any> {
+  const { token } = await getAccessToken()
+  return etsyFetch(`/application/listings/${listingId}/inventory`, { token })
+}
+
+export async function putListingInventory(
+  listingId: number,
+  payload: { products: any[]; price_on_property: number[]; quantity_on_property: number[]; sku_on_property: number[] }
+): Promise<void> {
+  const { token } = await getAccessToken()
+  await etsyFetch(`/application/listings/${listingId}/inventory`, { method: 'PUT', token, json: payload })
 }
