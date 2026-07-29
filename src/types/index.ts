@@ -42,6 +42,10 @@ export interface Product {
   colors?: string[]
   // T-shirt print placements this product is offered with (front/back/pocket).
   print_locations?: TshirtPrintLocation[]
+  // products.status. Storefront visibility gate: ProductCatalog requires
+  // status='active' AND is_active=true. The DB default is 'draft'; live data
+  // holds only these two values.
+  status?: 'draft' | 'active'
 }
 
 export interface CartAddon {

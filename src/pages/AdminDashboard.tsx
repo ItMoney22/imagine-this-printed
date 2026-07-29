@@ -138,7 +138,14 @@ const AdminDashboard: React.FC = () => {
     // products.print_locations TEXT[]. The DB CHECK products_print_locations_valid
     // (migration 20260629_tshirt_print_locations.sql) rejects any `shirts` row with
     // zero placements, so this defaults to front print rather than an empty list.
-    printLocations: ['front_image'] as TshirtPrintLocation[]
+    printLocations: ['front_image'] as TshirtPrintLocation[],
+    // products.status. Defaults to 'draft' in the DB, but ProductCatalog gates
+    // the storefront on status='active' AND is_active=true — so a product saved
+    // from this modal was invisible until this became settable. Creating one
+    // here means "put this up for sale", hence the 'active' default; editing an
+    // existing product preserves whatever status it already had (the design
+    // library holds ~2.4k intentional drafts that must not auto-publish).
+    status: 'active' as string
   })
 
   // Image upload state
@@ -666,7 +673,8 @@ const AdminDashboard: React.FC = () => {
       isFeatured: false,
       sizes: [],
       colors: [],
-      printLocations: ['front_image']
+      printLocations: ['front_image'],
+      status: 'active'
     })
     // Reset upload state
     setUploadedImages([])
@@ -693,7 +701,9 @@ const AdminDashboard: React.FC = () => {
       colors: (product as any).colors || [],
       // Legacy shirts created before the print_locations rollout have an empty
       // list; fall back to front print so re-saving them can't trip the CHECK.
-      printLocations: product.print_locations?.length ? product.print_locations : ['front_image']
+      printLocations: product.print_locations?.length ? product.print_locations : ['front_image'],
+      // Preserve the existing status — never silently publish a draft on edit.
+      status: product.status || 'active'
     })
     // Pre-populate uploaded images from existing product
     setUploadedImages(product.images.map(url => ({ url })))
@@ -758,7 +768,10 @@ const AdminDashboard: React.FC = () => {
         print_locations:
           productForm.category === 'shirts'
             ? (productForm.printLocations.length ? productForm.printLocations : ['front_image'])
-            : []
+            : [],
+        // Without this the DB default 'draft' hid every product the modal
+        // created — ProductCatalog requires status='active' AND is_active=true.
+        status: productForm.status
       }
 
       if (editingProduct) {
@@ -3125,6 +3138,26 @@ const AdminDashboard: React.FC = () => {
                         <option value="both">Both</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Storefront status → products.status. The catalog shows only
+                      status='active' AND is_active=true, so leaving this at the
+                      DB default of 'draft' makes the product invisible. */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Storefront Status
+                    </label>
+                    <select
+                      value={productForm.status}
+                      onChange={(e) => setProductForm({ ...productForm, status: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                    >
+                      <option value="active">Active — visible in the catalog</option>
+                      <option value="draft">Draft — hidden from the catalog</option>
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      The catalog shows a product only when it is Active and In Stock.
+                    </p>
                   </div>
 
                   {/* Size Variants - Category Specific */}
