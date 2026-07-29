@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
+import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch } from '../lib/api'
@@ -383,7 +384,19 @@ const ProductPage: React.FC = () => {
 
         <div className="space-y-6">
           <div>
-            <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-primary via-purple-500 to-secondary bg-clip-text text-transparent animate-gradient-text drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">{product.name}</h1>
+            <div className="flex items-start justify-between gap-4 mb-2">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-500 to-secondary bg-clip-text text-transparent animate-gradient-text drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">{product.name}</h1>
+              {/* Quick share. Prefers the SEO slug so the shared link matches the
+                  canonical URL rather than exposing a UUID. */}
+              <div className="shrink-0">
+                <SocialShareButtons
+                  productId={product.slug || product.id}
+                  productName={product.name}
+                  productImage={galleryImages[0]}
+                  menuPlacement="bottom-right"
+                />
+              </div>
+            </div>
             <div className="flex items-baseline gap-3 flex-wrap">
               <p className="text-3xl font-bold text-text">${product.price}</p>
               {(() => {
