@@ -6,6 +6,7 @@
 import express, { Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from '../services/gcs-storage.js'
+import { sniffImageContentType, extForImageContentType } from '../services/google-cloud-storage.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import Replicate from 'replicate'
 
@@ -470,8 +471,12 @@ async function generateMockupAsync(
 
     console.log(`[Mockup ${generationId}] Garment description:`, garmentDescription)
 
-    // Call Replicate ITP Enhance Engine API (Google image editing model) for virtual try-on
-    const itpEnhanceModel = "google/nano-banana:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be" // ITP Enhance Engine
+    // Call Replicate ITP Enhance Engine API (Google image editing model) for virtual try-on.
+    // 2026-07-26: unpinned from `google/nano-banana:858e567…` and moved to
+    // nano-banana-2-lite — same [stock_model, design] composite shape, 12.8%
+    // cheaper and ~2x faster on the A/B. Track the model, not a version hash.
+    // Lite ignores output_format and returns JPEG; the upload below sniffs bytes.
+    const itpEnhanceModel = "google/nano-banana-2-lite" // ITP Enhance Engine
     console.log(`[Mockup ${generationId}] Using ITP Enhance Engine model:`, itpEnhanceModel)
 
     // Build prompt for ITP Enhance Engine to perform virtual try-on
@@ -561,11 +566,13 @@ async function generateMockupAsync(
       console.log(`[Mockup ${generationId}] 📦 Buffer size:`, buffer.length, 'bytes')
     }
 
+    // Sniff the real bytes — lite returns JPEG from a .png URL (see helper docs).
+    const mockupContentType = sniffImageContentType(buffer) || 'image/png'
     const uploadResult = await gcsStorage.uploadFile(buffer, {
       userId,
       folder: 'temp',
-      filename: `mockup_${generationId}.png`,
-      contentType: 'image/png',
+      filename: `mockup_${generationId}.${extForImageContentType(mockupContentType)}`,
+      contentType: mockupContentType,
       metadata: {
         generationId
       }

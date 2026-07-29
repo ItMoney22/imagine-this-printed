@@ -798,13 +798,15 @@ async function startJob(job: any) {
     console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
 
     let mockupImageUrl: string
-    let mockupModelId: string = 'google/nano-banana'
+    // Placeholder only — overwritten below by the model the pipeline actually
+    // used (mockupResult.modelId). Kept in sync with image-flow's mockup default.
+    let mockupModelId: string = 'google/nano-banana-2-lite'
 
     try {
       // Template routing (see worker-helpers.runImageFlowMockup):
-      //   - mr_imagine        → single call to google/nano-banana with [character, design]
-      //   - flat_lay          → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana (composite)
-      //   - ghost_mannequin   → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana (composite)
+      //   - mr_imagine        → single call to google/nano-banana-2-lite with [character, design]
+      //   - flat_lay          → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana-2-lite (composite)
+      //   - ghost_mannequin   → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana-2-lite (composite)
       // The 2-step path exists specifically to defeat Money's recurring
       // "all three mockups come back as Mr. Imagine" bug — gpt-image-2 used
       // to handle both halves and kept hallucinating the mascot.
@@ -819,7 +821,7 @@ async function startJob(job: any) {
         console.log('[worker] 🎭 mr_imagine character asset (colorKey=' + colorKey + '):', characterImageUrl)
       }
 
-      console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana for flat_lay/ghost_mannequin, Nano Banana for mr_imagine)')
+      console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana 2 Lite for flat_lay/ghost_mannequin, Nano Banana 2 Lite for mr_imagine)')
       await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
       const mockupResult = await runImageFlowMockup({
@@ -895,8 +897,8 @@ async function startJob(job: any) {
 
     // Save to product_assets — record the model that actually produced the
     // final image (mockupResult.modelId), not a hardcoded value. The
-    // 2-step pipeline returns the composite model (google/nano-banana) for
-    // flat_lay/ghost_mannequin; mr_imagine also returns google/nano-banana.
+    // 2-step pipeline returns the composite model (google/nano-banana-2-lite)
+    // for flat_lay/ghost_mannequin; mr_imagine also returns it.
     const { error: assetError } = await supabase
       .from('product_assets')
       .insert({

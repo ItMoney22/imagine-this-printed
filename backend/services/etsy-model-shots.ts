@@ -20,10 +20,31 @@
 import Replicate from 'replicate'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from './gcs-storage.js'
+import { sniffImageContentType, extForImageContentType } from './google-cloud-storage.js'
 import { editOpenAIImage } from './image-flow/providers/openai-image.js'
 
-const NANO_BANANA = 'google/nano-banana:858e56734846d24469ed35a07ca2161aaf4f83588d7060e32964926e1b73b7be'
+// Unpinned on purpose: the old `google/nano-banana:858e567…` pin froze this
+// service on a single v1 build and made model upgrades invisible here. Track
+// the model, not a version hash — Replicate resolves the latest build.
+//
+// 2026-07-26: swapped v1 → nano-banana-2-lite. 12.8% cheaper ($0.034 vs
+// $0.039/image), ~2x faster, and on the A/B it reproduced the design's outline
+// strokes more faithfully than v1 did. See image-flow/models.ts for the data.
+// NOTE: lite ignores `output_format` and always returns JPEG, so uploads below
+// sniff the real bytes instead of assuming PNG.
+const NANO_BANANA = 'google/nano-banana-2-lite'
 const STOCK_MODEL_BASE = 'https://storage.googleapis.com/imagine-this-printed-media/stock-models'
+
+/**
+ * Replicate serves lite's JPEG bytes from a `.png` delivery URL with an
+ * `image/png` content-type header, so neither the extension nor the header can
+ * be trusted. Sniff the magic bytes — Etsy validates uploaded image types, and
+ * a JPEG mislabeled as PNG in GCS is exactly the kind of thing it rejects.
+ */
+function sniffImageType(buffer: Buffer): { contentType: string; ext: string } {
+  const contentType = sniffImageContentType(buffer) || 'image/png'
+  return { contentType, ext: extForImageContentType(contentType) }
+}
 
 // Engine: gpt-image (OpenAI-direct, the codebase's premium compositor — best
 // design/text fidelity, and its known empty-garment wearer-drift bug doesn't
@@ -212,11 +233,12 @@ async function generateOneShot(
       }
     })
     const buffer = await outputToBuffer(output)
+    const { contentType, ext } = sniffImageType(buffer)
     const upload = await gcsStorage.uploadFile(buffer, {
       userId,
       folder: 'mockups',
-      filename: `etsy_shot_${productId}_${plan.key}_${Date.now()}.png`,
-      contentType: 'image/png',
+      filename: `etsy_shot_${productId}_${plan.key}_${Date.now()}.${ext}`,
+      contentType,
       metadata: { productId, shot: plan.key, persona: plan.label, purpose: 'etsy-listing' }
     })
     console.log(`[etsy-shots] ${productId} ${plan.key} (${plan.label}) via nano-banana → ${upload.publicUrl}`)
