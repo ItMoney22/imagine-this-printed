@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase'
 import { aiProducts, adminApi, API_BASE, etsy } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
-import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product } from '../types'
+import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
 import AdminSupport from '../components/AdminSupport'
@@ -26,6 +26,15 @@ import { PromoPricingModal } from '../components/PromoPricingModal'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 import AdminTrendScout from '../components/AdminTrendScout'
+
+// T-shirt print placements offered on a product → products.print_locations.
+// Mirrors the same list in the AI wizard (AdminCreateProductWizard.tsx) and the
+// values allowed by the DB CHECK products_print_locations_valid.
+const PRINT_LOCATION_OPTIONS: { value: TshirtPrintLocation; label: string; hint: string }[] = [
+  { value: 'front_image', label: 'Front Image', hint: 'Design on the chest / full front' },
+  { value: 'back_image', label: 'Back Image', hint: 'Design on the back' },
+  { value: 'pocket', label: 'Pocket', hint: 'Small left-chest pocket print' },
+]
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
@@ -128,7 +137,11 @@ const AdminDashboard: React.FC = () => {
     shippingCost: 0,
     isFeatured: false,
     sizes: [] as string[],
-    colors: [] as string[]
+    colors: [] as string[],
+    // products.print_locations TEXT[]. The DB CHECK products_print_locations_valid
+    // (migration 20260629_tshirt_print_locations.sql) rejects any `shirts` row with
+    // zero placements, so this defaults to front print rather than an empty list.
+    printLocations: ['front_image'] as TshirtPrintLocation[]
   })
 
   // Image upload state
@@ -664,7 +677,8 @@ const AdminDashboard: React.FC = () => {
       shippingCost: 0,
       isFeatured: false,
       sizes: [],
-      colors: []
+      colors: [],
+      printLocations: ['front_image']
     })
     // Reset upload state
     setUploadedImages([])
@@ -688,7 +702,10 @@ const AdminDashboard: React.FC = () => {
       shippingCost: product.shipping_cost || 0,
       isFeatured: product.is_featured || false,
       sizes: (product as any).sizes || [],
-      colors: (product as any).colors || []
+      colors: (product as any).colors || [],
+      // Legacy shirts created before the print_locations rollout have an empty
+      // list; fall back to front print so re-saving them can't trip the CHECK.
+      printLocations: product.print_locations?.length ? product.print_locations : ['front_image']
     })
     // Pre-populate uploaded images from existing product
     setUploadedImages(product.images.map(url => ({ url })))
@@ -746,7 +763,14 @@ const AdminDashboard: React.FC = () => {
         shipping_cost: productForm.shippingCost,
         is_featured: productForm.isFeatured,
         sizes: productForm.sizes,
-        colors: productForm.colors
+        colors: productForm.colors,
+        // Shirts MUST carry >= 1 placement or the DB CHECK
+        // products_print_locations_valid rejects the whole row. Non-shirt
+        // categories store an empty list — the CHECK only constrains 'shirts'.
+        print_locations:
+          productForm.category === 'shirts'
+            ? (productForm.printLocations.length ? productForm.printLocations : ['front_image'])
+            : []
       }
 
       if (editingProduct) {
@@ -3166,6 +3190,51 @@ const AdminDashboard: React.FC = () => {
                           Selected: {productForm.sizes.join(', ')}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* Print Placements — shirts only. Persisted to
+                      products.print_locations, which the DB CHECK
+                      products_print_locations_valid requires to be non-empty
+                      for the 'shirts' category. */}
+                  {productForm.category === 'shirts' && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                      <label className="block text-sm font-medium text-slate-700 mb-3">
+                        Print Placements *
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {PRINT_LOCATION_OPTIONS.map((opt) => {
+                          const checked = productForm.printLocations.includes(opt.value)
+                          // At least one placement must stay selected.
+                          const lockLast = checked && productForm.printLocations.length === 1
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              title={lockLast ? 'A shirt needs at least one placement' : opt.hint}
+                              onClick={() => {
+                                if (lockLast) return
+                                setProductForm({
+                                  ...productForm,
+                                  printLocations: checked
+                                    ? productForm.printLocations.filter((v) => v !== opt.value)
+                                    : [...productForm.printLocations, opt.value]
+                                })
+                              }}
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                checked
+                                  ? 'bg-purple-600 text-white shadow-md'
+                                  : 'bg-white text-slate-700 border border-slate-300 hover:border-purple-400'
+                              } ${lockLast ? 'cursor-not-allowed opacity-90' : ''}`}
+                            >
+                              {opt.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">
+                        Selected: {productForm.printLocations.join(', ')}
+                      </p>
                     </div>
                   )}
 
