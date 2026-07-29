@@ -67,7 +67,7 @@ export function DesignGrid({ designs, isOwnProfile, showFilters = true }: Design
     if (design.type === 'imagination_sheet') {
       return `/imagination-station/${design.id}`
     }
-    return isOwnProfile ? `/my-designs` : `/products/${design.id}`
+    return isOwnProfile ? `/my-designs` : `/product/${design.id}`
   }
 
   const getDesignTypeBadge = (design: Design) => {
