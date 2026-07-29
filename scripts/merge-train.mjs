@@ -149,12 +149,13 @@ try {
     const res = await fetch('https://davidtrinidad.com/api/tasks/internal', {
       method: 'POST',
       headers: { 'x-internal-secret': secret.trim(), 'Content-Type': 'application/json' },
+      // No `project` field: the 2026-07-29 dry run 500'd with it set to
+      // 'imagine-this-printed' — the board defaults the project when omitted.
       body: JSON.stringify({
         title: `Merge train${DRY ? ' (dry run)' : ''}: ${merged.length} merged, ${flagged.length} flagged`,
         description: summary.slice(0, 3500),
         priority: flagged.some(f => f.reason === 'push-rejected') ? 'high' : 'medium',
         assigned_agent: 'zero',
-        project: 'imagine-this-printed',
         source: 'jimmy-mcp',
         status: 'pending'
       })
