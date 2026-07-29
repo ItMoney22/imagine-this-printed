@@ -176,7 +176,9 @@ try {
         description: summary.slice(0, 3500),
         priority: flagged.some(f => f.reason === 'push-rejected') ? 'high' : 'medium',
         assigned_agent: 'zero',
-        source: 'jimmy-mcp',
+        // 'direct' passes tasks_source_check ('jimmy-mcp' 500'd on the first
+        // real run; the streamdeck handoff hit + fixed the same constraint).
+        source: 'direct',
         status: 'pending'
       })
     })
