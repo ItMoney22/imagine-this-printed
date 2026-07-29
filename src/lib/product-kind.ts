@@ -58,13 +58,34 @@ export function productKindOf(product: Pick<Product, 'category' | 'metadata'>): 
 
 // Canonical catalog category id used by the storefront filter/sidebar. Falls
 // back to the column when it's already a real apparel category.
+// Category values that exist in the products table but are NOT the ids the
+// catalog sidebar filters on, so a product carrying one is counted under "All
+// Products" yet unreachable from every category pill. Live data holds a
+// `t-shirts` row today (verified 2026-07-29); `3d-models` is in the Product
+// category union while the sidebar only offers `3d-prints`.
+const CATEGORY_ALIASES: Record<string, string> = {
+  't-shirts': 'shirts',
+  tshirts: 'shirts',
+  shirt: 'shirts',
+  tee: 'shirts',
+  tees: 'shirts',
+  hoodie: 'hoodies',
+  tumbler: 'tumblers',
+  'dtf-transfer': 'dtf-transfers',
+  '3d-models': '3d-prints',
+  '3d-print': '3d-prints',
+  'metal-arts': 'metal-art',
+  metal: 'metal-art',
+}
+
 export function canonicalCategoryOf(product: Pick<Product, 'category' | 'metadata'>): string {
   const kind = productKindOf(product)
   if (kind === 'metal') return 'metal-art'
   if (kind === '3d') return '3d-prints'
   // apparel: keep an explicit existing category, else default to shirts
-  const c = String(product?.category || '').toLowerCase()
-  return c || 'shirts'
+  const c = String(product?.category || '').toLowerCase().trim()
+  if (!c) return 'shirts'
+  return CATEGORY_ALIASES[c] || c
 }
 
 // Default size options when a product has none set on its column. Type-aware so
