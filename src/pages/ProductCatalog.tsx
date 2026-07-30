@@ -72,9 +72,16 @@ function applyCategoryFilter(query: any, categoryId: string) {
 
 // "Popular" used to sort by metadata.viewCount — a JSONB field that's rarely
 // populated and can't be ordered server-side with a syntax this pass could
-// verify against a live Supabase instance. `featured` is a real, indexed
-// boolean column, so it's used as the server-safe stand-in: featured items
-// first, then newest. Documented simplification, not a silent behavior swap.
+// verify against a live Supabase instance. `is_featured` is a real, indexed
+// boolean column (idx_products_is_featured), so it's used as the server-safe
+// stand-in: featured items first, then newest. Documented simplification, not
+// a silent behavior swap.
+//
+// NOTE: this was written as `featured`, which does not exist on the live table
+// — Postgres answers `42703 column products.featured does not exist / Perhaps
+// you meant "products.is_featured"`. The 001_initial_schema.sql baseline
+// declares `featured`, but live drifted to `is_featured`, so the file was never
+// the truth here. Verified against live 2026-07-29.
 function applySort(query: any, sortBy: string) {
   switch (sortBy) {
     case 'price-low':
@@ -82,7 +89,7 @@ function applySort(query: any, sortBy: string) {
     case 'price-high':
       return query.order('price', { ascending: false })
     case 'popular':
-      return query.order('featured', { ascending: false }).order('created_at', { ascending: false })
+      return query.order('is_featured', { ascending: false }).order('created_at', { ascending: false })
     case 'newest':
     default:
       return query.order('created_at', { ascending: false })
@@ -143,7 +150,11 @@ const ProductCatalog: React.FC = () => {
       let query = supabase
         .from('products')
         .select(
-          'id, name, description, price, images, category, is_active, created_at, updated_at, metadata, sizes, colors, featured',
+          // `is_featured`, NOT `featured` — the latter does not exist on the live
+          // table, and selecting it made this whole query 400, which the catch
+          // below turned into an empty catalog while the sidebar counts (which
+          // select only `id`) kept reporting the real totals.
+          'id, name, description, price, images, category, is_active, created_at, updated_at, metadata, sizes, colors, is_featured',
           { count: 'exact' }
         )
         .eq('status', 'active')
