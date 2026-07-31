@@ -850,6 +850,25 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  // Save the spin video locally — David checks it before hand-uploading to
+  // EXISTING Etsy listings (new listings get it attached automatically).
+  const downloadSpinVideo = async (product: Product) => {
+    const url = (product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url
+    if (typeof url !== 'string') return
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${product.slug || product.id}-spin.mp4`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (error: any) {
+      toast.error('Download failed', error?.message || 'Open the product page and save the video from there.')
+    }
+  }
+
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm('Are you sure you want to delete this product?')) return
 
@@ -2492,6 +2511,17 @@ const AdminDashboard: React.FC = () => {
                                     </svg>
                                   )}
                                 </button>
+                                {!!(product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url && (
+                                  <button
+                                    onClick={() => { void downloadSpinVideo(product) }}
+                                    className="text-fuchsia-600 hover:text-fuchsia-700 hover:bg-fuchsia-50 p-1.5 rounded-lg transition-colors"
+                                    title="Download the spin video (mp4) — check it, then upload to existing Etsy listings"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4" />
+                                    </svg>
+                                  </button>
+                                )}
                                 <button
                                   onClick={async () => {
                                     if (confirm('Are you sure you want to delete this product?')) {

@@ -579,6 +579,28 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     }
     await upsertSync({ uploaded_image_count: result.uploadedImages })
 
+    // Spin hero video (metadata.hero_video_url, the Imagine Studio signature) —
+    // Etsy allows ONE video per listing (≤100MB, plays muted in the gallery).
+    // Non-fatal: a failed video upload never blocks the listing.
+    const heroVideoUrl: string = typeof (product as any).metadata?.hero_video_url === 'string'
+      ? (product as any).metadata.hero_video_url
+      : ''
+    if (heroVideoUrl) {
+      try {
+        const vidRes = await fetch(heroVideoUrl)
+        if (!vidRes.ok) throw new Error(`video fetch ${vidRes.status}`)
+        const vbuf = await vidRes.arrayBuffer()
+        if (vbuf.byteLength > 100 * 1024 * 1024) throw new Error('video exceeds Etsy 100MB limit')
+        const vfd = new FormData()
+        vfd.append('video', new Blob([vbuf], { type: 'video/mp4' }), 'spin-hero.mp4')
+        vfd.append('name', 'spin-hero.mp4')
+        await etsyFetch(`/application/shops/${shopId}/listings/${listingId}/videos`, { method: 'POST', token, multipart: vfd })
+        console.log(`[etsy] ${productId} spin hero video attached to listing ${listingId}`)
+      } catch (vidErr: any) {
+        console.warn(`[etsy] video upload failed for product ${productId}:`, vidErr.message)
+      }
+    }
+
     // Variations — buyers pick from dropdowns. Apparel: Size S-3XL × pack
     // colors at uniform price. Metal art: Size 4x6/8x10 with per-size pricing.
     // Best-effort: a failed inventory write leaves a valid no-variation draft
