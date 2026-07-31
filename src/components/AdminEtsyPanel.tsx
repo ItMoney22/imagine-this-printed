@@ -41,7 +41,22 @@ interface EtsyShots {
   images: string[]
   total?: number
   stage?: string
+  cast?: string[]
   error?: string
+}
+
+// Casting catalog from the backend (backend/services/etsy-model-shots.ts).
+interface ShotSubject {
+  id: string
+  label: string
+  persona: string
+  keywords: string[]
+}
+
+/** What the admin picked for one product's shoot before hitting Shoot. */
+interface CastDraft {
+  ids: string[]
+  custom: string
 }
 
 interface EtsyCandidate {
@@ -79,6 +94,32 @@ const STATE_STYLES: Record<string, string> = {
   error: 'bg-red-100 text-red-700'
 }
 
+// Metal art is staged in room scenes at a fixed pair of panel sizes — there is
+// no human subject to cast, so those rows skip the picker entirely.
+const HAS_MODEL = (category: string | null) => category !== 'metal-art'
+
+// A shoot casts at most two subjects (one per shot).
+const MAX_CAST = 2
+
+/**
+ * Pre-select the subjects whose keywords the listing actually mentions, ranked
+ * by how many hit. Word-boundary matching on purpose: substring matching made
+ * "art" fire on "cartoon" and "party". Nothing matched → empty, which the
+ * backend reads as "cast randomly", i.e. the original behavior.
+ */
+const suggestCast = (candidate: EtsyCandidate, subjects: ShotSubject[]): string[] => {
+  const haystack = [candidate.name, ...(candidate.etsy_pack?.tags ?? [])].join(' ').toLowerCase()
+  return subjects
+    .map(s => ({
+      id: s.id,
+      hits: s.keywords.filter(k => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(haystack)).length
+    }))
+    .filter(s => s.hits > 0)
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, MAX_CAST)
+    .map(s => s.id)
+}
+
 const packToDraft = (pack: EtsyPack): PackDraft => ({
   title: pack.title,
   tags: pack.tags.join(', '),
@@ -97,6 +138,9 @@ export default function AdminEtsyPanel() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, PackDraft>>({})
   const [busy, setBusy] = useState<Record<string, string>>({})
+  const [subjects, setSubjects] = useState<ShotSubject[]>([])
+  const [castOpen, setCastOpen] = useState<string | null>(null)
+  const [casts, setCasts] = useState<Record<string, CastDraft>>({})
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const refreshCandidates = async () => {
@@ -143,6 +187,13 @@ export default function AdminEtsyPanel() {
         setCandidates(candidateRes.data?.results ?? [])
       } catch {
         setCandidates([])
+      }
+      try {
+        const subjectRes = await api.get('/api/admin/etsy/shot-subjects')
+        setSubjects(subjectRes.data?.subjects ?? [])
+      } catch {
+        // Picker degrades to "custom subject + surprise me" without the catalog.
+        setSubjects([])
       }
     } catch (err: any) {
       console.error('Error fetching Etsy status:', err)
@@ -231,24 +282,65 @@ export default function AdminEtsyPanel() {
     }
   }
 
-  const handleGenerateShots = async (id: string) => {
+  // Opening the row + expanding it are the same two moves everywhere the shot
+  // flow touches a candidate, so they live here.
+  const expandCandidate = (id: string) => {
+    const candidate = candidates.find(c => c.id === id)
+    if (candidate?.etsy_pack && !drafts[id]) {
+      setDrafts(prev => ({ ...prev, [id]: packToDraft(candidate.etsy_pack!) }))
+    }
+    setExpanded(id)
+  }
+
+  const handleGenerateShots = async (id: string, cast?: CastDraft) => {
     try {
       setBusyFor(id, 'shooting')
       setError(null)
-      const res = await api.post(`/api/admin/etsy/model-shots/${id}`)
+      const res = await api.post(`/api/admin/etsy/model-shots/${id}`, {
+        subjects: cast?.ids ?? [],
+        custom: cast?.custom.trim() || undefined
+      })
       setCandidates(prev => prev.map(c => (c.id === id ? { ...c, etsy_shots: res.data.shots } : c)))
       // Open the row so the progress skeletons are visible immediately.
-      const candidate = candidates.find(c => c.id === id)
-      if (candidate?.etsy_pack && !drafts[id]) {
-        setDrafts(prev => ({ ...prev, [id]: packToDraft(candidate.etsy_pack!) }))
-      }
-      setExpanded(id)
+      expandCandidate(id)
+      setCastOpen(null)
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Model shot generation failed to start')
     } finally {
       setBusyFor(id, null)
     }
   }
+
+  // The Model shots button no longer fires straight into a shoot — it opens the
+  // cast picker so the subject is chosen BEFORE any image is paid for (David
+  // 2026-07-30: a kids' back-to-school tee came back modeled by a grandma).
+  // Metal art has no human subject, so it still shoots immediately.
+  const handleShotsButton = (candidate: EtsyCandidate) => {
+    if (!HAS_MODEL(candidate.category)) {
+      void handleGenerateShots(candidate.id)
+      return
+    }
+    if (castOpen === candidate.id) {
+      setCastOpen(null)
+      return
+    }
+    setCasts(prev =>
+      prev[candidate.id] ? prev : { ...prev, [candidate.id]: { ids: suggestCast(candidate, subjects), custom: '' } }
+    )
+    expandCandidate(candidate.id)
+    setCastOpen(candidate.id)
+  }
+
+  const toggleCastSubject = (id: string, subjectId: string) =>
+    setCasts(prev => {
+      const current = prev[id] ?? { ids: [], custom: '' }
+      const ids = current.ids.includes(subjectId)
+        ? current.ids.filter(s => s !== subjectId)
+        // At the cap, drop the oldest pick rather than ignoring the click —
+        // silently doing nothing reads as a broken chip.
+        : [...current.ids, subjectId].slice(-MAX_CAST)
+      return { ...prev, [id]: { ...current, ids } }
+    })
 
   const handleRemoveShot = async (id: string, url: string) => {
     const candidate = candidates.find(c => c.id === id)
@@ -484,9 +576,13 @@ export default function AdminEtsyPanel() {
                             {action === 'composing' ? 'Composing…' : c.etsy_pack ? (isOpen ? 'Close' : 'Review') : 'Compose'}
                           </button>
                           <button
-                            onClick={() => handleGenerateShots(c.id)}
+                            onClick={() => handleShotsButton(c)}
                             disabled={!!action || c.etsy_shots?.status === 'generating'}
-                            title="Generate AI on-model photos with this design composited — they lead the listing images"
+                            title={
+                              HAS_MODEL(c.category)
+                                ? 'Pick who models this design, then shoot — these photos lead the listing images'
+                                : 'Stage this design as a metal print in two room scenes — these lead the listing images'
+                            }
                             className="inline-flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700"
                           >
                             <Camera className="w-3.5 h-3.5" />
@@ -506,10 +602,79 @@ export default function AdminEtsyPanel() {
 
                       {isOpen && (
                         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                          {castOpen === c.id && c.etsy_shots?.status !== 'generating' && (() => {
+                            const cast = casts[c.id] ?? { ids: [], custom: '' }
+                            const custom = cast.custom.trim()
+                            const picked = cast.ids.length + (custom ? 1 : 0)
+                            return (
+                              <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <label className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold">
+                                    Who models this design?
+                                  </label>
+                                  <span className="text-[10px] text-blue-600">
+                                    {picked === 0
+                                      ? 'nobody picked — two random looks'
+                                      : picked === 1
+                                        ? 'one subject — both photos, different scenes'
+                                        : 'two subjects — one photo each'}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  {subjects.map(s => {
+                                    const on = cast.ids.includes(s.id)
+                                    return (
+                                      <button
+                                        key={s.id}
+                                        onClick={() => toggleCastSubject(c.id, s.id)}
+                                        title={s.persona}
+                                        className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                                          on
+                                            ? 'bg-[#f1641e] border-[#f1641e] text-white'
+                                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        {s.label}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                                <input
+                                  value={cast.custom}
+                                  onChange={e =>
+                                    setCasts(prev => ({ ...prev, [c.id]: { ...cast, custom: e.target.value } }))
+                                  }
+                                  maxLength={220}
+                                  placeholder="…or describe someone else (adults only): “a college student with a backpack”"
+                                  className="w-full mt-2 text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 bg-white"
+                                />
+                                <div className="flex items-center gap-2 mt-2">
+                                  <button
+                                    onClick={() => handleGenerateShots(c.id, cast)}
+                                    disabled={!!action}
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg bg-[#f1641e] hover:bg-[#d9531a] disabled:opacity-50 text-white"
+                                  >
+                                    <Camera className="w-3.5 h-3.5" />
+                                    {action === 'shooting' ? 'Starting…' : 'Shoot 2 photos'}
+                                  </button>
+                                  <button
+                                    onClick={() => setCasts(prev => ({ ...prev, [c.id]: { ids: [], custom: '' } }))}
+                                    className="text-xs text-slate-500 hover:text-slate-700 underline"
+                                  >
+                                    Surprise me
+                                  </button>
+                                  <span className="text-[10px] text-slate-500 ml-auto">
+                                    Models are always adults — kids' designs get a student, teacher or parent.
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          })()}
                           {c.etsy_shots && (c.etsy_shots.images.length > 0 || c.etsy_shots.status === 'generating') && (
                             <div>
                               <label className="text-[10px] uppercase tracking-wide text-slate-400">
                                 Model shots — these lead the listing images
+                                {c.etsy_shots.cast?.length ? ` · cast: ${c.etsy_shots.cast.join(', ')}` : ''}
                               </label>
                               <div className="flex flex-wrap gap-2 mt-1">
                                 {c.etsy_shots.images.map(url => (

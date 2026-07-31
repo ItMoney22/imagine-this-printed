@@ -41,6 +41,8 @@ export interface EtsyShots {
   total?: number
   /** Human-readable progress stage shown in the admin panel while generating. */
   stage?: string
+  /** Who actually got cast, in shot order — shown in the panel after the shoot. */
+  cast?: string[]
   started_at?: string
   generated_at?: string
   error?: string
@@ -49,28 +51,101 @@ export interface EtsyShots {
 // ---------------------------------------------------------------------------
 // Casting — David 2026-07-26: "I want the models to change all the time …
 // diff people, diff backgrounds, so we are inclusive, like have a goth teen
-// wearing our clothes". Every shoot randomly casts two DIFFERENT personas in
-// two DIFFERENT scenes, so no two listings look like the same photoshoot and
-// the shop reads as for-everyone. Reshoot = a fresh cast.
+// wearing our clothes". With no cast specified a shoot randomly picks two
+// DIFFERENT personas in two DIFFERENT scenes, so no two listings look like the
+// same photoshoot and the shop reads as for-everyone.
+//
+// David 2026-07-30: random casting put a GRANDMA in a kids' back-to-school
+// listing. The admin can now pick the subject(s) up front (see ShotCast below);
+// random stays the default for the many listings where any face works.
+//
+// `keywords` drives the panel's suggested cast — it matches the product name
+// and the composed Etsy tags so an obvious audience is pre-selected instead of
+// left to chance.
 //
 // All personas are written adult-presenting on purpose: image-model and
 // marketplace policies are strict about generating minors, and the aesthetics
-// (goth, skater, etc.) read fine on a twenty-something.
+// (goth, skater, etc.) read fine on a twenty-something. A youth listing gets a
+// student/teacher/parent subject — never an actual child.
 // ---------------------------------------------------------------------------
-const PERSONAS = [
-  { label: 'goth look', persona: 'a goth young woman in her early twenties with dark eyeliner, dyed black hair, silver rings and a leather choker' },
-  { label: 'streetwear look', persona: 'a young Black man with short locs and a relaxed confident streetwear style' },
-  { label: 'skater look', persona: 'a young woman with a skater style, beanie, and a laid-back grin' },
-  { label: 'classic look', persona: 'a Latina woman in her thirties with wavy hair and a warm easy smile' },
-  { label: 'dad look', persona: 'a middle-aged man with a gray-flecked beard and a friendly dad-energy smile' },
-  { label: 'curvy fashion look', persona: 'a plus-size Black woman with natural curls and confident model posture' },
-  { label: 'studious look', persona: 'a South Asian man in his twenties with glasses and a thoughtful look' },
-  { label: 'artsy look', persona: 'an East Asian woman with a short modern haircut and minimalist artsy style' },
-  { label: 'gym look', persona: 'an athletic Latino man in his twenties with an energetic posture' },
-  { label: 'grandma look', persona: 'a silver-haired grandmother with bright eyes and a proud playful smile' },
-  { label: 'tattooed look', persona: 'a tattooed young woman with a septum piercing and an edgy alternative style' },
-  { label: 'country look', persona: 'a young white man with a trucker cap and an easygoing country style' }
+export interface ShotSubject {
+  id: string
+  /** Short display name; also the progress text ("Shooting the grandma look…"). */
+  label: string
+  persona: string
+  keywords: readonly string[]
+}
+
+const PERSONAS: readonly ShotSubject[] = [
+  { id: 'goth', label: 'goth', persona: 'a goth young woman in her early twenties with dark eyeliner, dyed black hair, silver rings and a leather choker', keywords: ['goth', 'spooky', 'horror', 'halloween', 'skull', 'dark', 'emo', 'witch'] },
+  { id: 'streetwear', label: 'streetwear', persona: 'a young Black man with short locs and a relaxed confident streetwear style', keywords: ['street', 'streetwear', 'hype', 'urban', 'sneaker', 'hip hop', 'rap', 'graffiti'] },
+  { id: 'skater', label: 'skater', persona: 'a young woman with a skater style, beanie, and a laid-back grin', keywords: ['skate', 'skater', 'skateboard', 'punk', 'board'] },
+  { id: 'classic', label: 'classic', persona: 'a Latina woman in her thirties with wavy hair and a warm easy smile', keywords: [] },
+  { id: 'dad', label: 'dad', persona: 'a middle-aged man with a gray-flecked beard and a friendly dad-energy smile', keywords: ['dad', 'father', 'papa', 'grill', 'bbq', 'fishing', 'golf', 'lawn'] },
+  { id: 'mom', label: 'mom', persona: 'a young mom in her late twenties with a relaxed ponytail and a warm everyday smile', keywords: ['mom', 'mama', 'mother', 'mommy', 'momlife', 'nurse'] },
+  { id: 'curvy', label: 'curvy fashion', persona: 'a plus-size Black woman with natural curls and confident model posture', keywords: ['curvy', 'plus size', 'body positive', 'confidence'] },
+  { id: 'student', label: 'student', persona: 'a college student in her early twenties with a backpack over one shoulder and bright campus-morning energy', keywords: ['school', 'student', 'back to school', 'class', 'grade', 'campus', 'college', 'university', 'academy', 'homework', 'kid', 'kids', 'youth', 'teen', 'junior', 'graduate', 'senior'] },
+  { id: 'teacher', label: 'teacher', persona: 'a friendly schoolteacher in her thirties with glasses and a warm welcoming smile', keywords: ['teacher', 'teach', 'classroom', 'educator', 'professor', 'principal', 'apple'] },
+  { id: 'studious', label: 'studious', persona: 'a South Asian man in his twenties with glasses and a thoughtful look', keywords: ['nerd', 'geek', 'gamer', 'gaming', 'math', 'science', 'book', 'read', 'library', 'chess', 'coder', 'code'] },
+  { id: 'artsy', label: 'artsy', persona: 'an East Asian woman with a short modern haircut and minimalist artsy style', keywords: ['art', 'artist', 'paint', 'creative', 'aesthetic', 'design', 'craft'] },
+  { id: 'gym', label: 'gym', persona: 'an athletic Latino man in his twenties with an energetic posture', keywords: ['gym', 'lift', 'workout', 'fitness', 'run', 'muscle', 'protein', 'athlete', 'sport', 'coach'] },
+  { id: 'grandma', label: 'grandma', persona: 'a silver-haired grandmother with bright eyes and a proud playful smile', keywords: ['grandma', 'grandmother', 'nana', 'mimi', 'granny', 'grandparent', 'retired', 'retirement'] },
+  { id: 'tattooed', label: 'tattooed', persona: 'a tattooed young woman with a septum piercing and an edgy alternative style', keywords: ['tattoo', 'ink', 'alt', 'rock', 'metal', 'biker', 'motorcycle'] },
+  { id: 'country', label: 'country', persona: 'a young white man with a trucker cap and an easygoing country style', keywords: ['country', 'farm', 'ranch', 'truck', 'cowboy', 'hunting', 'southern', 'rodeo', 'horse'] }
 ] as const
+
+/** Catalog for the admin picker — the persona text doubles as the chip tooltip. */
+export function listShotSubjects(): ShotSubject[] {
+  return PERSONAS.map(p => ({ ...p, keywords: [...p.keywords] }))
+}
+
+/**
+ * What the admin picked before hitting "Shoot". Empty/absent = random cast
+ * (the original behavior). One subject = both shots use it in different scenes;
+ * two = one each. `custom` is free text appended to that list.
+ */
+export interface ShotCast {
+  subjects?: string[]
+  custom?: string
+}
+
+type CastMember = { label: string; persona: string }
+
+/** A rejected cast is the admin's input problem, not a server fault — routes map this to 400. */
+export class ShotCastError extends Error {}
+
+// Image models and Etsy both prohibit depicting minors, and PROMPT_TAIL already
+// pins "the model is clearly an adult" — so a custom subject that asks for a
+// child is rejected loudly at kickoff instead of quietly producing an adult and
+// confusing the admin about why.
+const MINOR_TERMS =
+  /\b(child|children|kid|kids|toddler|baby|babies|infant|newborn|pre-?teen|tween|minor|underage|schoolboy|schoolgirl|elementary|kindergarten|preschool|middle school|junior high|boy|boys|girl|girls|son|daughter|grandchild|youngster|juvenile|little one)\b/i
+const MINOR_AGE = /\b(?:[1-9]|1[0-7])\s*(?:-|–|\s)?\s*(?:year|yr)s?[\s-]*old\b/i
+
+function sanitizeCustomSubject(raw?: string): string | null {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 220)
+  if (!text) return null
+  if (MINOR_TERMS.test(text) || MINOR_AGE.test(text)) {
+    throw new ShotCastError(
+      'Model shots can only depict adults — image-model and Etsy policy both forbid generating minors. ' +
+      'Describe an adult subject instead (e.g. "a college student in her early twenties with a backpack").'
+    )
+  }
+  return text
+}
+
+/** Resolve the admin's picks into at most two cast members. Throws on a bad custom subject. */
+export function resolveCast(cast?: ShotCast): CastMember[] {
+  const members: CastMember[] = []
+  for (const id of cast?.subjects ?? []) {
+    const match = PERSONAS.find(p => p.id === id)
+    if (!match) throw new ShotCastError(`Unknown model subject "${id}"`)
+    members.push({ label: match.label, persona: match.persona })
+  }
+  const custom = sanitizeCustomSubject(cast?.custom)
+  if (custom) members.push({ label: 'custom', persona: custom })
+  return members.slice(0, 2)
+}
 
 const SCENES = [
   'in a clean bright studio with soft even daylight, front-facing, relaxed confident pose',
@@ -119,9 +194,11 @@ const pickTwo = <T,>(pool: readonly T[]): [T, T] => {
   return [pool[a], pool[b]]
 }
 
-// Randomly cast two distinct looks: personas+scenes for apparel, room scenes
-// for metal art (one shot per buyable size, scale-anchored).
-function buildShotPlan(category: string): ShotPlan[] {
+// Build the two-shot plan: the admin's chosen cast (or a random pair of distinct
+// looks) in two distinct scenes for apparel, and room scenes for metal art (one
+// shot per buyable size, scale-anchored — metal art has no human subject, so the
+// panel never offers a cast picker for it).
+function buildShotPlan(category: string, cast: CastMember[] = []): ShotPlan[] {
   if (category === 'metal-art') {
     const small = METAL_SCENES_SMALL[Math.floor(Math.random() * METAL_SCENES_SMALL.length)]
     const medium = METAL_SCENES_MEDIUM[Math.floor(Math.random() * METAL_SCENES_MEDIUM.length)]
@@ -132,10 +209,15 @@ function buildShotPlan(category: string): ShotPlan[] {
     ]
   }
   const [p1, p2] = pickTwo(PERSONAS)
+  // Chosen subjects win; unfilled slots fall back to the random pair. One pick
+  // means the admin wants that person — reuse them for both shots (the scenes
+  // still differ), rather than pairing them with a random stranger.
+  const c1 = cast[0] ?? p1
+  const c2 = cast[1] ?? cast[0] ?? p2
   const [s1, s2] = pickTwo(SCENES)
   return [
-    { key: 'shot1', label: p1.label, persona: p1.persona, scene: s1 },
-    { key: 'shot2', label: p2.label, persona: p2.persona, scene: s2 }
+    { key: 'shot1', label: c1.label, persona: c1.persona, scene: s1 },
+    { key: 'shot2', label: c2.label, persona: c2.persona, scene: s2 }
   ]
 }
 
@@ -322,7 +404,7 @@ async function saveShotsState(productId: string, patch: Partial<EtsyShots>): Pro
     .eq('id', productId)
 }
 
-async function generateShots(productId: string, userId: string): Promise<void> {
+async function generateShots(productId: string, userId: string, cast: CastMember[] = []): Promise<void> {
   try {
     const { data: product, error } = await supabase
       .from('products')
@@ -344,11 +426,15 @@ async function generateShots(productId: string, userId: string): Promise<void> {
       : []
     const colorFor = (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase()
 
-    const plan = buildShotPlan(String((product as any).category || ''))
+    const plan = buildShotPlan(String((product as any).category || ''), cast)
+    // Record the cast up front so the panel can show who is being shot even
+    // while the first image is still rendering.
+    await saveShotsState(productId, { cast: plan.map(p => p.label) })
+
     const images: string[] = []
     for (const [i, shot] of plan.entries()) {
       const stage = shot.persona
-        ? `Shooting the ${shot.label} in ${colorFor(i)} (${i + 1} of ${plan.length})…`
+        ? `Shooting the ${shot.label} look in ${colorFor(i)} (${i + 1} of ${plan.length})…`
         : `Staging the ${shot.label} (${i + 1} of ${plan.length})…`
       await saveShotsState(productId, { stage })
       const url = await generateOneShot(shot, designUrl, colorFor(i), productId, userId)
@@ -367,10 +453,14 @@ async function generateShots(productId: string, userId: string): Promise<void> {
 
 // Kick off generation in the background. Returns immediately; the panel polls
 // candidates until metadata.etsy_shots.status is done/failed.
-export async function startModelShots(productId: string, userId: string): Promise<EtsyShots> {
+export async function startModelShots(productId: string, userId: string, cast?: ShotCast): Promise<EtsyShots> {
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
   }
+
+  // Resolve BEFORE the 202 so a bad subject id or a disallowed custom subject
+  // surfaces as an immediate error instead of a silent async failure.
+  const resolved = resolveCast(cast)
 
   const { data: product, error } = await supabase
     .from('products')
@@ -391,7 +481,8 @@ export async function startModelShots(productId: string, userId: string): Promis
     status: 'generating',
     images: [],
     total: 2, // buildShotPlan always casts two shots
-    stage: 'Casting the models…',
+    stage: resolved.length ? `Casting ${resolved.map(c => c.label).join(' + ')}…` : 'Casting the models…',
+    cast: resolved.length ? resolved.map(c => c.label) : undefined,
     started_at: new Date().toISOString()
   }
   await supabase
@@ -399,7 +490,7 @@ export async function startModelShots(productId: string, userId: string): Promis
     .update({ metadata: { ...((product as any).metadata || {}), etsy_shots: state } })
     .eq('id', productId)
 
-  void generateShots(productId, userId).catch(err =>
+  void generateShots(productId, userId, resolved).catch(err =>
     console.error(`[etsy-shots] unhandled generation error for ${productId}:`, err)
   )
   return state

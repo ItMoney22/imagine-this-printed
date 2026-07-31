@@ -1,31 +1,32 @@
 # TASK_NOTES
 ## Current request
-- Audit the live Etsy shop at `https://imaginethisprinted1.etsy.com` and identify the highest-impact improvements to trust, policy safety, discoverability, and conversion.
+- Create a dedicated inbox in the Imagine This Printed email system for Mr. Imagine, send the current Etsy research report to the team from that identity, and use it for every future weekly report.
 
 ## Current status
-- Combined UX/accessibility audit completed on 2026-07-26 across the shop home, the only active listing, listing details, and About/policies.
-- Public state: one active $25 listing, no sales/reviews, no visible banner, a small text-heavy icon, a one-line About section, and no owner photo.
-- Urgent listing issues: the hero is a generated mascot scene rather than a real finished-product photo, and no size or color selector was visible before `Add to cart`.
-- Strong foundations: specific DTF/Georgia/processing copy, clear arrival estimate, accepted returns, $5 shipping, care instructions, custom-work invitation, and AI disclosure.
-- Recommended next pass is shop/listing content work only; no live edits, paid activations, ad spend, or repo implementation changes are approved yet.
+- Created active shared inbox `mrimagine@imaginethisprinted.com` with display name `Mr. Imagine` and signature title `Etsy Shop Research & Strategy`.
+- Sent the 2026-07-30 Etsy shop report from Mr. Imagine to `wecare@imaginethisprinted.com`.
+- Verified the message is logged in Mr. Imagine's Sent folder and received in the `wecare` inbox.
+- Updated heartbeat `weekly-etsy-shop-review` to send every Thursday report from Mr. Imagine after completing the live-shop review.
+- No live Etsy changes or repo implementation-code changes were made.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
-- `CLAUDE.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/services/etsy-seo-composer.ts`
-- `backend/services/etsy-model-shots.ts`
-- `backend/services/etsy.ts`
-- `src/components/AdminEtsyPanel.tsx`
+- `backend/routes/email.ts`
+- `backend/services/email-resend.ts`
+- `src/lib/email-api.ts`
+- `src/pages/AdminEmail.tsx`
+- `supabase/migrations/20260612000001_email_system.sql`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
-- `TASK_NOTES.md` (one concise milestone/work-log bullet after a separately approved implementation pass)
-- No repo code files.
-- No live Etsy edits or paid listing activations without David's explicit approval.
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
+- No repo implementation files.
+- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
 
 ### Scope expansion — UI dropdown (added 2026-06-29 by Zero Nine, per direct owner request)
 - Rationale: the original brief was scoped "No UI changes" (schema/backend only). The owner (David) then directly
@@ -249,6 +250,8 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-07-30 (Codex Mr. Imagine inbox + report delivery): Created active shared inbox `mrimagine@imaginethisprinted.com` with the Mr. Imagine research identity, sent the Etsy shop report to `wecare@imaginethisprinted.com`, verified it in both Sent and the recipient inbox, and updated `weekly-etsy-shop-review` so future Thursday reports use the same sender. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no repo implementation files or live Etsy settings were changed.
+- 2026-07-30 (Codex Etsy re-review + weekly heartbeat): Captured the current shop home, Y2K featured listing, HIM WAS BAD listing, and expanded About story. Verified growth from one to six active listings, cleaner titles, working size/color choices on the strongest listing, and better shop storytelling; remaining gaps are verified real-product heroes, size charts, consistent gallery depth, banner/icon branding, and assortment organization. Created active heartbeat `Weekly Etsy Shop Review` for Thursdays at 9:00 AM ET. Updated only `CLAUDE_TASK.md` and `TASK_NOTES.md`; made no live Etsy or repo code changes.
 - 2026-07-26 (Codex Etsy storefront audit): Captured and inspected the live shop home, active listing, listing details, and About/policies; prioritized a real finished-product hero, visible size/color variations, concise title, fuller product facts, banner/icon/owner story, and a 6–12-listing QA-gated launch before ads. Updated only `CLAUDE_TASK.md` and `TASK_NOTES.md`; made no live Etsy or repo code changes.
 - 2026-07-24 (Rico Fernandez, task 0a675d4c) Built the Etsy product-posting integration end-to-end at code level: research report (docs/ETSY_API_RESEARCH.md — OAuth 2.0 PKCE, no client secret in v3, 1h/90d token lifetimes with refresh-token ROTATION, draft-first listing flow since Etsy has no sandbox, ~10k/day rate budget); additive migration 20260724_etsy_integration.sql (etsy_oauth_states/etsy_connection/etsy_listings, RLS deny-all = service-role only, NOT applied to live DB yet); backend/services/etsy.ts (PKCE connect, atomic token refresh, form-encoded createDraftListing + multipart image uploads + optional activate, per-product dedupe via unique product_id, 429 retry-after honor, sync ledger writes on every path incl. errors); backend/routes/admin/etsy.ts mounted at /api/admin/etsy (public /callback above the auth gate — Etsy's browser redirect carries no JWT, state row is the CSRF check; admin connect/status/taxonomy/shipping-profiles/return-policies/publish/listings); standalone PoC backend/scripts/etsy-poc.mjs (auth/whoami/taxonomy/create-listing, vault-aware); ETSY_* env block in .env.example. Verified: backend tsc exit 0, node --check on PoC exit 0. NOT verified live — no Etsy shop/app/keystring exists yet (blocker is David's ~$15 shop setup + app creation; approval filed). Ships dark behind ETSY_ENABLED=false.
 - 2026-07-10 (Zero Nine, task 0af8aa7e) Shipped Merch Studio Phase 1 storefront API upgrades: multi-key storefront auth with key→creator mapping (STOREFRONT_CREATOR_KEYS); NEW POST /api/storefront/products (multipart print files + mockups → GCS, product created AS the mapped creator with status=pending_approval + cost_price=$10 base/+$5 back, lands in the existing approval queue); creator scoping on GET /catalog (legacy earth019 key stays unscoped); liveness-gate reconciliation (catalog+checkout now require status='active' AND is_active=true — is_active defaults TRUE live, so 2,384 drafts were leaking; approve sets both flags, reject clears is_active); creator payout dead-branch fix (services/creator-margins.ts — D1 margin retail−cost−fee to ITC wallet, legacy designs keep 15%, idempotent per (order,product) via existence check + new unique index, wired into BOTH paid paths). Live DB verified via Management API BEFORE edits (no cost_price column → additive migration 20260710_merch_studio_storefront.sql, applied + verified live; no `approved` column, RLS read is USING(true) so no third gate). Verified: backend tsc exit 0, backend build exit 0, frontend build exit 0, PLUS live runtime smoke on :4999 — scoped catalog (6 items, vendor echo), unscoped (34), 401 bad key, 403 publish on unscoped key, 201 publish (row shape verified in DB: cost_price 15, print_locations front+back, queue-visible), pending product hidden from catalog, 400 below-cost; test product deleted after.
@@ -688,3 +691,14 @@ Request: "i need a quick share button so i can easily share" (with a ProductPage
 
 ## Work log (append-only)
 - 2026-07-29 (`4cf0c65` + `b89ff9a`, both pushed to main, both CONFIRMED LIVE): REUSED the existing `SocialShareButtons` compact button rather than writing a new one — native `navigator.share` sheet where supported, falling back to a Twitter/Facebook/Pinterest/Copy-Link menu. Placed beside the product title, passing `product.slug || product.id` so shared links use the SEO slug instead of leaking a UUID. FIXED 3 real defects in that component, which had exactly one caller (UserProductCreator) and had been emitting broken links from it the whole time: (1) `generateShareUrl` built **`/products/<id>` (plural) but the only public route in App.tsx is `/product/:id` (singular)** — every shared link fell through to the `path="*"` 404; wrong in BOTH exported components (`SocialShareButtons` AND `SocialShareInline`); (2) share copy hardcoded `my custom "X" design`, which reads wrong for a store product — catalog shares now use neutral copy, design flow keeps its wording; (3) the fallback menu was hardcoded `bottom-full mb-2 left-0`, which clips off the top of the viewport and overflows rightward at this high/flush-right placement — added an opt-in `menuPlacement` prop defaulting to the original so the existing caller is untouched. THEN, grepping the live bundle to verify, found the SAME plural-path bug in **5 more dead links** (`CommunityPostCard.tsx:135`, `FeaturedSocialContent.tsx:148`, `DesignGrid.tsx:70`, `UserProfile.tsx:555`, `UserProfile.tsx:776`) — all fixed in `b89ff9a`; verified no `` `/products/${ `` pattern remains in src (`/admin/ai/products/create` and `/api/admin/products/...` are legitimate and untouched). VERIFY: tsc 0 errors; `npm run build` PASSED (8.93s); eslint 0 errors on every touched file, ProductPage + SocialShareButtons at exact baseline (5→5 and 0→0). DEPLOY CONFIRMED by unique-marker grep of the live bundle, not hash: `index-CVWCEQBY.js` contains `top-full mt-2 right-0` (only my new menuPlacement branch emits that) and the neutral share copy. Also re-confirmed the two earlier admin fixes live together in `AdminDashboard-D82SfPiv.js` (264,569 bytes): both `print_locations` AND `Storefront Status` present.
+
+## Scope expansion (2026-07-30) — David direct request: choose the mockup subject before generating
+Request: "we just did a shirt that is for kids going back to school but the mockup subject is a grandma. Can you figure out a way that we can choose the mockup subject before generating the image." (Screenshot: Admin → Etsy → Ready for Etsy, `LEVEL UP ACADEMY T-Shirt`, stage text "Shooting the grandma look in black (1 of 2)".)
+
+### File shortlist (approved scope — 2026-07-30 casting wave)
+- backend/services/etsy-model-shots.ts (persona catalog + cast resolution)
+- backend/routes/admin/etsy.ts (GET /shot-subjects, POST /model-shots body)
+- src/components/AdminEtsyPanel.tsx (cast picker UI)
+
+## Work log (append-only)
+- 2026-07-30: SHIPPED the model-shot cast picker. ROOT CAUSE of the grandma: `buildShotPlan()` called `pickTwo(PERSONAS)` — the cast was uniformly random with zero product context, so a kids' back-to-school tee had a 1-in-12 shot at `grandma look` every single time, and the admin only found out ~60s and two paid renders later. FIX, three layers: (1) **Catalog** — `PERSONAS` went from a bare `{label, persona}` tuple list to an exported `ShotSubject[]` with stable `id`s and `keywords`, exposed via new `GET /api/admin/etsy/shot-subjects`; added 3 personas that close the youth/parent gap the old list had (`student` = college student w/ backpack, `teacher`, `mom`) for 15 total. (2) **Explicit cast** — `startModelShots(productId, userId, cast?)` takes `{subjects: string[], custom?: string}`; `resolveCast()` runs BEFORE the 202 so a bad id or disallowed custom subject is an immediate 400 (new `ShotCastError` → the route maps it, everything else stays 500) instead of a silent async failure 30s later. 0 picks = random (unchanged default), 1 pick = both shots that subject in different scenes, 2 picks = one each. Chosen labels persist to `metadata.etsy_shots.cast` so the panel shows who was cast — including for random shoots, which was previously invisible. (3) **Panel** — the "Model shots" button now opens a picker instead of firing: subject chips (persona text as tooltip), a free-text "describe someone else" field, "Surprise me" to clear, and a "Shoot 2 photos" confirm. Chips are PRE-SELECTED by `suggestCast()`, which word-boundary-matches the product name + composed Etsy tags against each persona's keywords and ranks by hit count — word-boundary on purpose, substring matching had `art` firing on "cartoon"/"party". Metal art skips the picker entirely (room scenes at two bound panel sizes, no human subject) and still shoots on click. **Minors are hard-blocked** in the custom field (`MINOR_TERMS` + a `<18 years old` pattern → 400 with a plain-English message): image-model and Etsy policy both forbid it, and `PROMPT_TAIL` already pins "the model is clearly an adult", so the honest answer for a kids' design is a student/teacher/parent subject, not a child. VERIFY: backend `tsc --noEmit` EXIT 0; frontend `tsc --noEmit -p tsconfig.app.json` EXIT 0 with `--listFiles` confirming AdminEtsyPanel.tsx is in the program; `npm run build` PASSED (9.98s); eslint on AdminEtsyPanel 8 errors before === 8 after (all pre-existing `catch (err: any)`, 0 introduced). Behavior checked by running the REAL exported `resolveCast`/`listShotSubjects` under tsx against David's exact listing: title+tags rank `student` 5 hits → pre-selects `[student, streetwear]` (no grandma); `artsy` keywords correctly score 0 against "cool cartoon party heart"; 1/2/3-id, id+custom, unknown-id, blank-custom and three minor phrasings ("a kid", "10 years old", "little boy") all resolve/reject as designed. NOT deployed — committed on `earth/zero-nine/itp-payments-hardening` only; prod (main) still has the random-only version.
