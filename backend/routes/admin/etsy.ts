@@ -19,6 +19,7 @@ import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-comp
 import { startModelShots, reshootModelShot, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
 import { supabase } from '../../lib/supabase.js'
+import { type EtsyTier, isEtsyTier, tiersForCategory } from '../../shared/etsy-tiers.js'
 
 const router = Router()
 
@@ -44,22 +45,61 @@ router.use(requireRole(['admin', 'manager']))
 
 // Enqueue a product for Rico's Etsy flow (copyright gate → draft → notify Christina).
 // Async: the etsy-jobs-worker picks up state='queued' rows. Does NOT publish (draft only).
+// Body: { tiers?: ('primary'|'transfer'|'download')[] } — defaults to ['primary'].
+// David 2026-07-31 wants this opt-in per design ("SOME i want to offer the
+// physical transfer"), so the panel sends exactly the tiers he ticked. One
+// ledger row per tier; a tier already live on Etsy is reported as skipped
+// rather than failing the whole request, so ticking all three on a design that
+// already has a tee posts the two that are missing.
 router.post('/queue/:productId', async (req: Request, res: Response) => {
   try {
     const { productId } = req.params
-    const { data: existing } = await supabase
-      .from('etsy_listings')
-      .select('listing_id, state')
-      .eq('product_id', productId)
+
+    const { data: product } = await supabase
+      .from('products')
+      .select('category')
+      .eq('id', productId)
       .maybeSingle()
-    if (existing?.listing_id && existing.state !== 'error' && existing.state !== 'removed') {
-      return res.status(409).json({ error: `Product already has an Etsy listing (${existing.state}) — nothing queued` })
+    if (!product) return res.status(404).json({ error: 'Product not found' })
+
+    const allowed = tiersForCategory(product.category)
+    const requested: EtsyTier[] = Array.isArray(req.body?.tiers) && req.body.tiers.length
+      ? [...new Set(req.body.tiers.filter(isEtsyTier))] as EtsyTier[]
+      : ['primary']
+
+    const rejected = requested.filter(t => !allowed.includes(t))
+    if (rejected.length) {
+      return res.status(400).json({
+        error: `Category "${product.category}" cannot be sold as: ${rejected.join(', ')} (allowed: ${allowed.join(', ')})`
+      })
     }
-    await supabase.from('etsy_listings').upsert(
-      { product_id: productId, state: 'queued', last_error: null, updated_at: new Date().toISOString() },
-      { onConflict: 'product_id' }
-    )
-    return res.status(202).json({ ok: true, productId, state: 'queued' })
+
+    const { data: existingRows } = await supabase
+      .from('etsy_listings')
+      .select('tier, listing_id, state')
+      .eq('product_id', productId)
+    const byTier = new Map((existingRows ?? []).map(r => [r.tier as EtsyTier, r]))
+
+    const queued: EtsyTier[] = []
+    const skipped: Array<{ tier: EtsyTier; reason: string }> = []
+    for (const tier of requested) {
+      const existing = byTier.get(tier)
+      if (existing?.listing_id && existing.state !== 'error' && existing.state !== 'removed') {
+        skipped.push({ tier, reason: `already has an Etsy listing (${existing.state})` })
+        continue
+      }
+      const { error } = await supabase.from('etsy_listings').upsert(
+        { product_id: productId, tier, state: 'queued', last_error: null, updated_at: new Date().toISOString() },
+        { onConflict: 'product_id,tier' }
+      )
+      if (error) { skipped.push({ tier, reason: error.message }); continue }
+      queued.push(tier)
+    }
+
+    if (!queued.length) {
+      return res.status(409).json({ error: skipped.map(s => `${s.tier}: ${s.reason}`).join(' | '), skipped })
+    }
+    return res.status(202).json({ ok: true, productId, queued, skipped, state: 'queued' })
   } catch (error: any) {
     console.error('[etsy] queue failed:', error)
     return res.status(500).json({ error: error.message })
@@ -81,13 +121,32 @@ router.get('/candidates', async (_req: Request, res: Response) => {
       .limit(200)
     if (error) throw new Error(error.message)
 
-    const { data: listed } = await supabase.from('etsy_listings').select('product_id, state')
-    const listedState = new Map((listed ?? []).map(l => [l.product_id, l.state]))
+    // Per-tier ledger state. A design stays a candidate while ANY of its
+    // eligible tiers is still unposted — the tee going live must not hide the
+    // design before its transfer and download listings exist.
+    const { data: listed } = await supabase.from('etsy_listings').select('product_id, state, tier')
+    const tierStates = new Map<string, Record<string, string>>()
+    for (const l of listed ?? []) {
+      const row = tierStates.get(l.product_id) ?? {}
+      row[(l.tier as string) || 'primary'] = l.state
+      tierStates.set(l.product_id, row)
+    }
+    const isOpenState = (s?: string) => !s || s === 'error' || s === 'removed'
+
+    // The download tier sells product_assets kind='source'. Fetched once for the
+    // whole page rather than per product, so the panel can grey out the
+    // Download checkbox instead of letting the worker fail 15s later.
+    const { data: sourceAssets } = await supabase
+      .from('product_assets')
+      .select('product_id')
+      .eq('kind', 'source')
+      .in('product_id', (products ?? []).map(p => p.id))
+    const sourceFileProductIds = new Set((sourceAssets ?? []).map(a => a.product_id))
 
     const results = (products ?? [])
       .filter(p => {
-        const state = listedState.get(p.id)
-        return !state || state === 'error' || state === 'removed'
+        const states = tierStates.get(p.id) ?? {}
+        return tiersForCategory(p.category).some(t => isOpenState(states[t]))
       })
       .map(p => {
         const tags = String(p.search_keywords || '').split(',').map(t => t.trim()).filter(Boolean)
@@ -105,6 +164,11 @@ router.get('/candidates', async (_req: Request, res: Response) => {
           hero_image: Array.isArray(p.images) ? p.images[0] ?? null : null,
           image_count: Array.isArray(p.images) ? p.images.length : 0,
           taxonomy_mapped: taxonomyIdFor(p.category) !== null,
+          // Which of the three listings this design can have, which are already
+          // posted, and whether the download tier has a file to sell.
+          eligible_tiers: tiersForCategory(p.category),
+          tier_states: tierStates.get(p.id) ?? {},
+          has_source_file: sourceFileProductIds.has(p.id),
           gate_pass: gate.pass,
           gate_reasons: gate.reasons,
           etsy_pack: (p as any).metadata?.etsy_pack ?? null,

@@ -23,6 +23,10 @@ export interface ProductNormalizationInput {
   tone?: string
   imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'
   searchContext?: string
+  // The category the admin picked in the wizard. Authoritative — passed as a
+  // typed field instead of buried in the prompt text, where the model used to
+  // lose it against the print-settings block below.
+  category?: string
   // DTF Print Settings
   productType?: 'tshirt' | 'hoodie' | 'tank'
   shirtColor?: 'black' | 'white' | 'gray'
@@ -48,9 +52,16 @@ export interface NormalizedProduct {
   image_prompt: string // Detailed prompt for image generation
 }
 
+// The one true list of product categories the builder can emit. The route
+// validates the model's answer against this and falls back to the category the
+// admin actually picked — see PRODUCT_CATEGORY_SLUGS usage in
+// routes/admin/ai-products.ts.
+export const PRODUCT_CATEGORY_SLUGS = ['shirts', 'hoodies', 'tumblers', 'dtf-transfers', 'metal-art'] as const
+export type ProductCategorySlug = typeof PRODUCT_CATEGORY_SLUGS[number]
+
 const SYSTEM_PROMPT = `You are a witty product copywriter for a custom-print shop. Given a free-form idea, output normalized product metadata strictly as compact JSON with these fields:
 
-- category_slug: one of ['dtf-transfers', 'shirts', 'hoodies', 'tumblers', 'metal-art'] — when the idea contains a "Product Category:" line, use that category verbatim
+- category_slug: one of ['shirts', 'hoodies', 'tumblers', 'dtf-transfers', 'metal-art'] — the request states the category explicitly under "Product category (AUTHORITATIVE)". Echo that value EXACTLY. Never substitute a different category because of the print settings or the artwork subject; the print settings describe HOW the design is printed, not WHAT is being sold.
 - category_name: human-readable category name
 - title: concise product title (max 80 chars)
 - summary: one-line summary (max 160 chars)
@@ -123,6 +134,7 @@ export async function normalizeProduct(
   const userPrompt = `${input.prompt}
 
 ${input.searchContext ? `\nContext from search results:\n${input.searchContext}\n` : ''}
+${input.category ? `\nProduct category (AUTHORITATIVE — echo this exact slug as category_slug): ${input.category}\n` : ''}
 
 Additional preferences:
 - Price target: ${input.priceTarget ? `$${input.priceTarget / 100}` : 'suggest based on product'}
@@ -131,7 +143,7 @@ Additional preferences:
 - Tone: ${input.tone || 'professional and appealing'}
 - Image style: ${input.imageStyle || 'semi-realistic'} (CRITICAL: use this exact style for the image_prompt - realistic=photorealistic, cartoon=illustrated, semi-realistic=digital art)
 
-DTF Print Settings:
+Print settings (these describe HOW the artwork is printed — they do NOT change the product category):
 - Product type: ${input.productType || 'tshirt'}
 - Shirt color: ${input.shirtColor || 'black'} (design colors should complement/contrast with this)
 - Print placement: ${input.printPlacement || 'front-center'} (${placementDescriptions[input.printPlacement || 'front-center']})`

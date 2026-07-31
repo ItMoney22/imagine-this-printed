@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import Replicate from 'replicate'
 import { runOpenAIImage } from '../../services/image-flow/providers/openai-image.js'
 import { supabase } from '../../lib/supabase.js'
-import { normalizeProduct } from '../../services/ai-product.js'
+import { normalizeProduct, PRODUCT_CATEGORY_SLUGS } from '../../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
@@ -306,6 +306,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       tone,
       imageStyle,
       useSearch = false, // Default OFF - only enable for pop culture/trending
+      category: requestedCategory,
       // DTF Print Settings
       productType = 'tshirt',
       shirtColor = 'black',
@@ -340,7 +341,13 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     // be mocked up looking massive on a wall).
     const metalSize: '4x6' | '8x10' = req.body.metal_size === '8x10' ? '8x10' : '4x6'
 
-    req.log?.info({ prompt, useSearch }, '[ai-products] 🚀 Creating product from prompt')
+    // Only a slug we actually recognize counts as a selection; anything else is
+    // treated as "not specified" so the model's answer still gets a chance.
+    const wizardCategory = PRODUCT_CATEGORY_SLUGS.includes(requestedCategory)
+      ? requestedCategory as string
+      : null
+
+    req.log?.info({ prompt, useSearch, wizardCategory }, '[ai-products] 🚀 Creating product from prompt')
 
     // Step 0: Optionally search for context using SerpAPI
     let searchContext = ''
@@ -367,6 +374,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       tone,
       imageStyle, // realistic, cartoon, or semi-realistic
       searchContext,
+      category: wizardCategory ?? undefined,
       // DTF settings for context
       productType,
       shirtColor,
@@ -375,6 +383,31 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
 
     if (typeof imagePromptOverride === 'string' && imagePromptOverride.trim()) {
       normalized.image_prompt = imagePromptOverride.trim()
+    }
+
+    // The admin's dropdown wins. The category used to be inferred by the model
+    // from prompt prose, sitting next to a block headed "DTF Print Settings" —
+    // so shirts were landing as `dtf-transfers` at random, which then blocked
+    // them at the Etsy taxonomy check. An unrecognized slug also falls back
+    // here rather than upserting a junk category row.
+    if (wizardCategory) {
+      if (normalized.category_slug !== wizardCategory) {
+        req.log?.warn(
+          { model: normalized.category_slug, requested: wizardCategory },
+          '[ai-products] ⚠️ model category overridden by the admin selection'
+        )
+      }
+      normalized.category_slug = wizardCategory
+    } else if (!PRODUCT_CATEGORY_SLUGS.includes(normalized.category_slug as any)) {
+      req.log?.warn({ model: normalized.category_slug }, '[ai-products] ⚠️ unknown category slug → shirts')
+      normalized.category_slug = 'shirts'
+    }
+    if (normalized.category_slug !== normalized.category_name) {
+      const known: Record<string, string> = {
+        shirts: 'Shirts', hoodies: 'Hoodies', tumblers: 'Tumblers',
+        'dtf-transfers': 'DTF Transfers', 'metal-art': 'Metal Art'
+      }
+      if (known[normalized.category_slug]) normalized.category_name = known[normalized.category_slug]
     }
 
     // Step 2: Upsert category

@@ -21,6 +21,7 @@ import { publishProductToEtsy, isEtsyEnabled } from '../services/etsy.js'
 import { runCopyrightGate } from '../services/etsy-copyright-gate.js'
 import { notifyChristina } from '../services/etsy-notify.js'
 import { claimOnce, type ClaimOutcome } from '../lib/webhook-helpers.js'
+import { type EtsyTier, etsyTierConfig, isEtsyTier } from '../shared/etsy-tiers.js'
 import { startEtsyReceiptPoller } from './etsy-receipt-ingest.js'
 
 const POLL_INTERVAL = 15_000 // 15s — Etsy posting is low-volume
@@ -91,14 +92,14 @@ export async function processEtsyQueue(): Promise<void> {
 
     const { data: queued, error } = await supabase
       .from('etsy_listings')
-      .select('id, product_id, state')
+      .select('id, product_id, state, tier')
       .eq('state', 'queued')
       .order('created_at', { ascending: true })
       .limit(5)
     if (error) { console.error('[etsy-worker] poll failed:', error.message); return }
     if (!queued?.length) return
 
-    for (const row of queued as Array<{ id: string; product_id: string }>) {
+    for (const row of queued as Array<{ id: string; product_id: string; tier?: EtsyTier }>) {
       try {
         const claim = await claimEtsyListing(supabase, row.id)
         if (claim.error) { console.error(`[etsy-worker] claim query failed for ${row.id}:`, claim.error); continue }
@@ -106,9 +107,9 @@ export async function processEtsyQueue(): Promise<void> {
           console.warn(`[etsy-worker] lost claim race for ${row.id} — already claimed by another tick/replica, skipping to avoid duplicate listing`)
           continue
         }
-        await processOne(row.id, row.product_id)
+        await processOne(row.id, row.product_id, isEtsyTier(row.tier) ? row.tier : 'primary')
       } catch (e: any) {
-        console.error(`[etsy-worker] product ${row.product_id} failed:`, e?.message)
+        console.error(`[etsy-worker] product ${row.product_id} [${row.tier ?? 'primary'}] failed:`, e?.message)
         await supabase
           .from('etsy_listings')
           .update({ state: 'error', last_error: String(e?.message).slice(0, 500), updated_at: new Date().toISOString() })
@@ -120,7 +121,7 @@ export async function processEtsyQueue(): Promise<void> {
   }
 }
 
-async function processOne(rowId: string, productId: string): Promise<void> {
+async function processOne(rowId: string, productId: string, tier: EtsyTier = 'primary'): Promise<void> {
   // Row is already claimed (state='processing') by claimEtsyListing() in
   // processEtsyQueue's loop above.
   const { data: product } = await supabase
@@ -146,13 +147,19 @@ async function processOne(rowId: string, productId: string): Promise<void> {
   }
 
   // Passed the gate → create the DRAFT (service manages pending→draft/error + the sync ledger + images).
-  const result = await publishProductToEtsy(productId, { descriptionSuffix: gate.disclosure, publish: false })
+  const result = await publishProductToEtsy(productId, { tier, descriptionSuffix: gate.disclosure, publish: false })
+
+  // Christina reviews three different listings per design now, so the tier has
+  // to be on the notification or "Graffiti Roaring Lion Face" arrives 3x with
+  // no way to tell the tee from the transfer from the file.
+  const label = etsyTierConfig(tier).label
+  const productName = tier === 'primary' ? p.name : `${p.name} — ${label}`
 
   if (result.ok) {
-    await notifyChristina({ productName: p.name, productId, outcome: 'draft', etsyUrl: result.etsyUrl, listingId: result.listingId, price: p.price, tags })
-    console.log(`[etsy-worker] DRAFT ${productId} → listing ${result.listingId}`)
+    await notifyChristina({ productName, productId, outcome: 'draft', etsyUrl: result.etsyUrl, listingId: result.listingId, price: p.price, tags })
+    console.log(`[etsy-worker] DRAFT ${productId} [${tier}] → listing ${result.listingId}`)
   } else {
-    await notifyChristina({ productName: p.name, productId, outcome: 'error', errorMessage: result.error })
-    console.log(`[etsy-worker] ERROR ${productId}: ${result.error}`)
+    await notifyChristina({ productName, productId, outcome: 'error', errorMessage: result.error })
+    console.log(`[etsy-worker] ERROR ${productId} [${tier}]: ${result.error}`)
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Store, RefreshCw, ExternalLink, Sparkles, Send, Eraser, Camera, X, AlertTriangle } from 'lucide-react'
+import { Store, RefreshCw, ExternalLink, Sparkles, Send, Eraser, Camera, X, AlertTriangle, Check } from 'lucide-react'
 import api from '../lib/api'
 
 interface EtsyStatus {
@@ -75,12 +75,33 @@ interface EtsyCandidate {
   hero_image: string | null
   image_count: number
   taxonomy_mapped: boolean
+  /** Which of the three Etsy listings this design may have (backend/shared/etsy-tiers.ts). */
+  eligible_tiers?: EtsyTier[]
+  /** tier -> ledger state, for the tiers already posted. */
+  tier_states?: Record<string, string>
+  /** The download tier sells product_assets kind='source'; without one it can't post. */
+  has_source_file?: boolean
   gate_pass: boolean
   gate_reasons: string[]
   etsy_pack: EtsyPack | null
   etsy_shots: EtsyShots | null
   created_at: string
 }
+
+type EtsyTier = 'primary' | 'transfer' | 'download'
+
+// Mirrors backend/shared/etsy-tiers.ts. Prices are ANCHORS — the standing 40%
+// shop sale is what the buyer actually pays, which is why both are shown.
+const TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
+  primary: { label: 'Shirt', blurb: 'The tee itself, sizes S–3XL', shown: '$25 → $15' },
+  transfer: { label: 'Transfer', blurb: 'Printed DTF film you mail — buyer presses it', shown: 'from $12 → $7.20' },
+  download: { label: 'Download', blurb: 'The design file, delivered instantly by Etsy', shown: '$5 → $3' }
+}
+
+const TIER_ORDER: EtsyTier[] = ['primary', 'transfer', 'download']
+
+// A tier is re-postable when it has never been posted or its last attempt died.
+const tierIsOpen = (state?: string) => !state || state === 'error' || state === 'removed'
 
 interface PackDraft {
   title: string
@@ -231,7 +252,25 @@ export default function AdminEtsyPanel() {
   // Which single photo is being recast, and who with. One at a time on purpose.
   const [reshootAt, setReshootAt] = useState<{ id: string; index: number } | null>(null)
   const [reshootCast, setReshootCast] = useState<CastDraft>({ ids: [], custom: '' })
+  // Which tiers the admin has ticked per product. Absent = the default below.
+  const [tierPicks, setTierPicks] = useState<Record<string, EtsyTier[]>>({})
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Default selection for a design: every eligible tier that isn't already
+  // posted and can actually be fulfilled. David said "SOME i want to offer the
+  // physical transfer", so this is a starting point he unticks — not a rule.
+  const defaultTiers = (c: EtsyCandidate): EtsyTier[] =>
+    (c.eligible_tiers ?? ['primary'])
+      .filter(t => tierIsOpen(c.tier_states?.[t]))
+      .filter(t => t !== 'download' || c.has_source_file !== false)
+
+  const selectedTiers = (c: EtsyCandidate): EtsyTier[] => tierPicks[c.id] ?? defaultTiers(c)
+
+  const toggleTier = (c: EtsyCandidate, tier: EtsyTier) => {
+    const current = selectedTiers(c)
+    const next = current.includes(tier) ? current.filter(t => t !== tier) : [...current, tier]
+    setTierPicks(prev => ({ ...prev, [c.id]: next }))
+  }
 
   const refreshCandidates = async () => {
     try {
@@ -470,11 +509,17 @@ export default function AdminEtsyPanel() {
     }
   }
 
-  const handleQueue = async (id: string) => {
+  const handleQueue = async (id: string, tiers: EtsyTier[]) => {
     try {
       setBusyFor(id, 'queueing')
       setError(null)
-      await api.post(`/api/admin/etsy/queue/${id}`)
+      const res = await api.post(`/api/admin/etsy/queue/${id}`, { tiers })
+      // A tier the backend refused (already live) is worth saying out loud —
+      // silently dropping it would read as "posted" when it wasn't.
+      const skipped: Array<{ tier: string; reason: string }> = res.data?.skipped ?? []
+      if (skipped.length) {
+        setError(`Queued ${(res.data?.queued ?? []).join(', ') || 'nothing'} — skipped ${skipped.map(s => `${s.tier} (${s.reason})`).join(', ')}`)
+      }
       setCandidates(prev => prev.filter(c => c.id !== id))
       if (expanded === id) setExpanded(null)
       // Refresh the ledger so the new queued row shows in the chips.
@@ -614,8 +659,13 @@ export default function AdminEtsyPanel() {
               </h4>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              New active shirts land here automatically. Compose writes Etsy-native copy for review; Queue posts an
-              invisible draft. Listings are priced at $25 — run a 40% shop sale in Shop Manager so buyers see $15.
+              New active shirts land here automatically. Compose writes Etsy-native copy for review; Queue posts
+              invisible drafts. Each design can go out as up to three separate Etsy listings — tick the ones you want
+              before queueing: <span className="font-medium text-slate-600">Shirt</span> (the tee),{' '}
+              <span className="font-medium text-slate-600">Transfer</span> (printed DTF film you mail), and{' '}
+              <span className="font-medium text-slate-600">Download</span> (the design file, delivered instantly by
+              Etsy, personal use only). All prices are anchors — run a 40% shop sale in Shop Manager so buyers see
+              $15 / from $7.20 / $3.
             </p>
 
             {candidates.length === 0 ? (
@@ -627,6 +677,25 @@ export default function AdminEtsyPanel() {
                   const action = busy[c.id]
                   const isOpen = expanded === c.id
                   const blocked = !c.gate_pass
+                  // Every reason Queue is dead, in the tooltip. The old copy named
+                  // only the pack and the gate, so a taxonomy/image block showed a
+                  // disabled button whose tooltip cheerfully offered to post it.
+                  const tiers = selectedTiers(c)
+                  const eligible = c.eligible_tiers ?? ['primary']
+                  // The category map only gates the primary tier — transfer and
+                  // download carry their own Etsy taxonomy, so an unmapped ITP
+                  // category can't block them.
+                  const needsCategoryMap = tiers.includes('primary')
+                  const queueBlockers = [
+                    !c.etsy_pack && 'compose the listing copy first',
+                    blocked && `copyright gate: ${c.gate_reasons.join(', ')}`,
+                    tiers.length === 0 && 'pick at least one tier to post',
+                    needsCategoryMap && !c.taxonomy_mapped
+                      && `no Etsy category mapped for “${c.category ?? 'none'}” — untick Shirt, or map it in ETSY_TAXONOMY_MAP`,
+                    c.image_count === 0 && 'product has no images',
+                    tiers.includes('download') && c.has_source_file === false
+                      && 'no source design file to sell (download tier needs the print-ready art)'
+                  ].filter((r): r is string => typeof r === 'string')
                   return (
                     <li key={c.id} className="border border-slate-100 rounded-xl p-3">
                       <div className="flex items-center gap-3">
@@ -679,6 +748,46 @@ export default function AdminEtsyPanel() {
                               </span>
                             )}
                           </div>
+
+                          {/* Which of the three Etsy listings to post for this
+                              design. Only shown when there's a real choice —
+                              metal art has one tier and the row would be noise. */}
+                          {eligible.length > 1 && (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                              {TIER_ORDER.filter(t => eligible.includes(t)).map(t => {
+                                const posted = !tierIsOpen(c.tier_states?.[t])
+                                const noFile = t === 'download' && c.has_source_file === false
+                                const disabled = posted || noFile
+                                const on = tiers.includes(t)
+                                return (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => !disabled && toggleTier(c, t)}
+                                    disabled={disabled}
+                                    title={posted
+                                      ? `Already on Etsy (${c.tier_states?.[t]})`
+                                      : noFile
+                                        ? 'No source design file — this tier sells the print-ready art itself'
+                                        : `${TIER_META[t].blurb} · ${TIER_META[t].shown}`}
+                                    className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                                      disabled
+                                        ? 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed line-through'
+                                        : on
+                                          ? 'bg-[#f1641e] border-[#f1641e] text-white'
+                                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                                    }`}
+                                  >
+                                    {on && !disabled && <Check className="w-2.5 h-2.5" />}
+                                    {TIER_META[t].label}
+                                    <span className={on && !disabled ? 'text-white/70' : 'text-slate-400'}>
+                                      {TIER_META[t].shown.split('→')[1]?.trim()}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -703,13 +812,17 @@ export default function AdminEtsyPanel() {
                             {c.etsy_shots?.status === 'generating' ? 'Shooting…' : c.etsy_shots?.images.length ? 'Reshoot' : 'Model shots'}
                           </button>
                           <button
-                            onClick={() => handleQueue(c.id)}
-                            disabled={!!action || blocked || !c.taxonomy_mapped || c.image_count === 0 || !c.etsy_pack}
-                            title={!c.etsy_pack ? 'Compose the listing copy first' : blocked ? c.gate_reasons.join(' | ') : 'Post as an invisible Etsy draft'}
+                            onClick={() => handleQueue(c.id, tiers)}
+                            disabled={!!action || queueBlockers.length > 0}
+                            title={queueBlockers.length
+                              ? `Can't queue yet — ${queueBlockers.join(' | ')}`
+                              : `Post ${tiers.length} invisible Etsy draft${tiers.length > 1 ? 's' : ''}: ${tiers.map(t => TIER_META[t].label).join(', ')}`}
                             className="inline-flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg bg-[#f1641e] hover:bg-[#d9531a] disabled:bg-slate-200 disabled:text-slate-400 text-white"
                           >
                             <Send className="w-3.5 h-3.5" />
-                            {action === 'queueing' ? 'Queueing…' : 'Queue draft'}
+                            {action === 'queueing'
+                              ? 'Queueing…'
+                              : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
                           </button>
                         </div>
                       </div>

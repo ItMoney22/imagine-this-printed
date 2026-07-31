@@ -16,6 +16,12 @@ import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES } from '../shared/metal-art.js'
+import {
+  type EtsyTier,
+  TRANSFER_SHEET_SIZES,
+  etsyTierConfig,
+  tierCopy
+} from '../shared/etsy-tiers.js'
 
 const ETSY_API = 'https://api.etsy.com/v3'
 const ETSY_CONNECT_URL = 'https://www.etsy.com/oauth/connect'
@@ -34,8 +40,13 @@ const OAUTH_SCOPES = 'listings_r listings_w shops_r shops_w transactions_r'
 // etsy-listing-fields.ts alongside the mapping rules that enforce them.
 const MAX_IMAGES = 10
 const MIN_PRICE_USD = 0.2
+// Etsy caps a digital listing's attached files at 20MB each (max 5 files).
+const MAX_DIGITAL_FILE_BYTES = 20 * 1024 * 1024
 
 export interface EtsyPublishOptions {
+  /** Which of the three Etsy listings for this design to post. Defaults to
+   *  'primary' — the behaviour every caller had before tiers existed. */
+  tier?: EtsyTier
   taxonomyId?: number
   shippingProfileId?: number
   returnPolicyId?: number
@@ -311,6 +322,33 @@ export async function getReturnPolicies(): Promise<any[]> {
 // Product → listing mapping
 // ---------------------------------------------------------------------------
 
+// The file a download-tier listing actually sells: the raw design art stored as
+// product_assets kind='source'. Deliberately does NOT fall back to the product
+// hero the way the model-shot generator does — a hero is a MOCKUP, and shipping
+// a mockup to someone who paid for a press-ready file is selling the wrong
+// thing. No source row means the tier refuses to post.
+async function sourceDesignFile(productId: string, productName?: string | null): Promise<{ url: string; name: string } | null> {
+  const { data: assets } = await supabase
+    .from('product_assets')
+    .select('url, is_primary, display_order')
+    .eq('product_id', productId)
+    .eq('kind', 'source')
+    .order('is_primary', { ascending: false })
+    .order('display_order', { ascending: true })
+    .limit(1)
+  const url = assets?.[0]?.url
+  if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return null
+
+  // Buyers see this filename in their downloads — give them the design name,
+  // not a storage uuid. Keep the real extension so the file opens.
+  const ext = (url.split('?')[0].split('.').pop() || 'png').toLowerCase().slice(0, 4)
+  const slug = String(productName || 'design')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'design'
+  return { url, name: `${slug}-300dpi.${ext}` }
+}
+
 // ITP category slug → Etsy taxonomy id. Populated via ETSY_TAXONOMY_MAP env
 // (JSON, e.g. {"shirts":1234,"tumblers":5678}) after browsing
 // GET /api/admin/etsy/taxonomy — Etsy's ids are theirs to define, so none are
@@ -471,16 +509,22 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
   // behind, and trusting them produced a permanent bogus "already has listing"
   // error loop (hit live 2026-07-26 on a re-queued Walk By Faith whose
   // original draft David had deleted).
+  // Scoped to the tier: a design legitimately has up to three live listings
+  // (tee, transfer, download), so "already listed" is a per-tier question.
+  const tier: EtsyTier = opts.tier ?? 'primary'
+  const tierCfg = etsyTierConfig(tier)
+
   const { data: existing } = await supabase
     .from('etsy_listings')
     .select('id, listing_id, state')
     .eq('product_id', productId)
+    .eq('tier', tier)
     .maybeSingle()
 
   const upsertSync = async (fields: Record<string, unknown>) => {
     await supabase.from('etsy_listings').upsert(
-      { product_id: productId, updated_at: new Date().toISOString(), ...fields },
-      { onConflict: 'product_id' }
+      { product_id: productId, tier, updated_at: new Date().toISOString(), ...fields },
+      { onConflict: 'product_id,tier' }
     )
   }
 
@@ -500,25 +544,57 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
         if (!/\(404\)/.test(String(e?.message))) throw e
       }
       if (stateOnEtsy && stateOnEtsy !== 'removed' && stateOnEtsy !== 'expired') {
-        throw new Error(`Product already has Etsy listing ${existing.listing_id} (${stateOnEtsy} on Etsy) — use update instead of re-posting`)
+        throw new Error(`Product already has a ${tier} Etsy listing ${existing.listing_id} (${stateOnEtsy} on Etsy) — use update instead of re-posting`)
       }
       console.log(`[etsy] ${productId}: ledger pointed at deleted listing ${existing.listing_id} — re-listing fresh`)
       await upsertSync({ listing_id: null, etsy_url: null, uploaded_image_count: 0 })
     }
 
-    const taxonomyId = opts.taxonomyId ?? taxonomyIdFor(product.category)
+    // Transfer/download carry their own Etsy category; only the primary tier
+    // falls back to the ITP-category map.
+    const taxonomyId = opts.taxonomyId ?? tierCfg.taxonomyId ?? taxonomyIdFor(product.category)
     if (!taxonomyId) {
       throw new Error(`No Etsy taxonomy id for category "${product.category}" — set ETSY_TAXONOMY_MAP or pass taxonomyId (browse GET /api/admin/etsy/taxonomy)`)
     }
 
-    const price = Math.max(Number(opts.priceOverride ?? pack?.price ?? product.price) || 0, MIN_PRICE_USD)
-    const title = pack?.title
-      ? String(pack.title).replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
-      : toEtsyTitle(product.meta_title || product.name || '', product.search_keywords)
-    const baseDescription = (pack?.description && String(pack.description).trim())
-      || product.description || product.meta_description || product.name
-    const description = opts.descriptionSuffix ? `${baseDescription}\n\n${opts.descriptionSuffix}` : baseDescription
-    const tags = packTags.length ? packTags : toEtsyTags(product.search_keywords)
+    const price = Math.max(
+      Number(opts.priceOverride ?? tierCfg.price ?? pack?.price ?? product.price) || 0,
+      MIN_PRICE_USD
+    )
+
+    // The composed pack describes the DESIGN; each tier reframes what actually
+    // ships. tierCopy() is a deterministic transform of that one pack rather
+    // than three separate model calls — same voice across all three listings,
+    // no extra spend. The primary tier is returned untouched.
+    const basePack = {
+      title: pack?.title
+        ? String(pack.title).replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
+        : toEtsyTitle(product.meta_title || product.name || '', product.search_keywords),
+      description: String(
+        (pack?.description && String(pack.description).trim())
+        || product.description || product.meta_description || product.name || ''
+      ),
+      tags: packTags.length ? packTags : toEtsyTags(product.search_keywords)
+    }
+    const copy = tierCopy(tier, basePack, { maxTitleLen: MAX_TITLE_LEN, maxTags: MAX_TAGS })
+    const title = copy.title
+    const description = opts.descriptionSuffix ? `${copy.description}\n\n${opts.descriptionSuffix}` : copy.description
+    const tags = copy.tags
+
+    // A digital listing sells the raw artwork, so it needs the real source file
+    // — never a mockup. Resolve it BEFORE spending a listing creation, so a
+    // product with no source art fails clean instead of leaving an empty draft
+    // that can't be fulfilled.
+    let downloadFile: { url: string; name: string } | null = null
+    if (tierCfg.requiresSourceFile) {
+      downloadFile = await sourceDesignFile(productId, product.name)
+      if (!downloadFile) {
+        throw new Error(
+          `No source design file for product ${productId} — the download tier sells the artwork itself, ` +
+          `and product_assets has no kind='source' row. Regenerate the design or upload the print file first.`
+        )
+      }
+    }
     const shippingProfileId = opts.shippingProfileId ?? (Number(process.env.ETSY_SHIPPING_PROFILE_ID) || undefined)
     const returnPolicyId = opts.returnPolicyId ?? (Number(process.env.ETSY_RETURN_POLICY_ID) || undefined)
     // Etsy now REQUIRES readiness_state_id on physical listings (verified live 2026-07-25 — omitting it 400s).
@@ -529,11 +605,15 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     await upsertSync({ state: 'pending', last_error: null })
 
     // createDraftListing — always lands in draft state (no fee, invisible).
+    // Digital listings take NO shipping profile and NO readiness state (both
+    // are physical-fulfilment concepts and Etsy rejects them on type=download),
+    // and their stock is not consumed, so quantity is effectively unlimited.
+    const isDigital = tierCfg.listingType === 'download'
     const listing = await etsyFetch(`/application/shops/${shopId}/listings`, {
       method: 'POST',
       token,
       form: {
-        quantity: opts.quantity ?? Number(process.env.ETSY_DEFAULT_QUANTITY || 100),
+        quantity: opts.quantity ?? (isDigital ? 999 : Number(process.env.ETSY_DEFAULT_QUANTITY || 100)),
         title,
         description,
         price,
@@ -542,10 +622,14 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
         should_auto_renew: true,      // David 2026-07-26: listings self-renew ($0.20/4mo) instead of quietly expiring
 
         taxonomy_id: taxonomyId,
-        type: 'physical',
-        shipping_profile_id: shippingProfileId,
-        return_policy_id: returnPolicyId,
-        readiness_state_id: readinessStateId,
+        type: tierCfg.listingType,
+        ...(isDigital
+          ? {}
+          : {
+            shipping_profile_id: shippingProfileId,
+            return_policy_id: returnPolicyId,
+            readiness_state_id: readinessStateId
+          }),
         tags: tags.length ? tags.join(',') : undefined
       }
     })
@@ -579,27 +663,54 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     }
     await upsertSync({ uploaded_image_count: result.uploadedImages })
 
+    // The digital good itself. NOT best-effort: a download listing with no file
+    // attached is one an admin could activate and then sell nothing, so a
+    // failure here marks the row errored and the draft stays unfulfillable but
+    // visible for follow-up.
+    if (isDigital && downloadFile) {
+      const fileRes = await fetch(downloadFile.url)
+      if (!fileRes.ok) throw new Error(`source design fetch failed (${fileRes.status}) for ${downloadFile.url}`)
+      const buf = await fileRes.arrayBuffer()
+      if (buf.byteLength > MAX_DIGITAL_FILE_BYTES) {
+        throw new Error(`source design is ${(buf.byteLength / 1024 / 1024).toFixed(1)}MB — Etsy's digital file limit is 20MB`)
+      }
+      const fd = new FormData()
+      fd.append('file', new Blob([buf]), downloadFile.name)
+      fd.append('name', downloadFile.name)
+      await etsyFetch(`/application/shops/${shopId}/listings/${listingId}/files`, { method: 'POST', token, multipart: fd })
+      console.log(`[etsy] ${productId} download tier: attached ${downloadFile.name} (${(buf.byteLength / 1024).toFixed(0)}KB)`)
+    }
+
     // Variations — buyers pick from dropdowns. Apparel: Size S-3XL × pack
     // colors at uniform price. Metal art: Size 4x6/8x10 with per-size pricing.
+    // Transfer tier: sheet size with per-size pricing, no color axis (the film
+    // is the film — garment color is the buyer's own shirt). Downloads have no
+    // axis at all: one file, one price.
     // Best-effort: a failed inventory write leaves a valid no-variation draft
     // rather than failing the listing (the error is logged for follow-up).
     const category = String(product.category)
-    if (APPAREL_CATEGORIES.has(category) || METAL_CATEGORIES.has(category)) {
+    const wantsVariations = tier === 'transfer'
+      || (tier === 'primary' && (APPAREL_CATEGORIES.has(category) || METAL_CATEGORIES.has(category)))
+    if (wantsVariations) {
       try {
-        const isMetal = METAL_CATEGORIES.has(category)
-        const colors: string[] = isMetal ? [] : (Array.isArray(pack?.colors)
+        const isMetal = tier === 'primary' && METAL_CATEGORIES.has(category)
+        const isTransfer = tier === 'transfer'
+        const colors: string[] = (isMetal || isTransfer) ? [] : (Array.isArray(pack?.colors)
           ? pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
           : [])
-        const sizes = isMetal ? METAL_SIZES : APPAREL_SIZES.map(s => ({ label: s }))
+        const sizes = isTransfer
+          ? TRANSFER_SHEET_SIZES.map(s => ({ label: s.label, price: s.price }))
+          : isMetal ? METAL_SIZES : APPAREL_SIZES.map(s => ({ label: s }))
         const combos = await applyListingVariations(token, listingId, taxonomyId, {
           colors,
           sizes,
           basePrice: price,
           readinessStateId
         })
-        console.log(`[etsy] ${productId} variations applied: ${colors.length || 'no'} colors × ${sizes.length} sizes (${combos} combos${isMetal ? ', price varies by size' : ''})`)
+        const perSize = isMetal || isTransfer ? ', price varies by size' : ''
+        console.log(`[etsy] ${productId} [${tier}] variations applied: ${colors.length || 'no'} colors × ${sizes.length} sizes (${combos} combos${perSize})`)
       } catch (varErr: any) {
-        console.warn(`[etsy] ${productId} variations failed (draft kept without them): ${varErr.message}`)
+        console.warn(`[etsy] ${productId} [${tier}] variations failed (draft kept without them): ${varErr.message}`)
       }
     }
 
