@@ -32,6 +32,9 @@ const ProductPage: React.FC = () => {
   const toast = useToast()
   const [quantity, setQuantity] = useState(1)
   const [selectedImage, setSelectedImage] = useState(0)
+  // Spin hero video (metadata.hero_video_url) plays as the landing media when
+  // present; thumbnails switch to stills, the play tile switches back.
+  const [videoActive, setVideoActive] = useState(true)
   const [product, setProduct] = useState<Product | null>(null)
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -311,6 +314,9 @@ const ProductPage: React.FC = () => {
   // Gallery = artwork/photos + the contextual mockup (metadata.mockup_url),
   // which was previously never shown. Falls back to the unsplash placeholder.
   const galleryImages = getGalleryImages(product)
+  const heroVideoUrl = typeof (product?.metadata as Record<string, unknown> | undefined)?.hero_video_url === 'string'
+    ? String((product?.metadata as Record<string, unknown>).hero_video_url)
+    : undefined
 
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -428,29 +434,52 @@ const ProductPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div>
           <div className="mb-4">
-            <ProtectedImage
-              src={galleryImages.length > 0
-                ? galleryImages[selectedImage]
-                : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
-              alt={product.altText || product.name}
-              // object-contain (was object-cover) — mockups have varying
-              // aspect ratios and the previous "cover" was cropping the top
-              // off taller designs. The bg-bg/40 fills any letterbox area
-              // with a subtle backdrop instead of leaving raw white space.
-              className="w-full h-96 object-contain bg-bg/40 rounded-lg shadow-lg"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
-              }}
-            />
+            {/* Signature hero: when the product has a spin video (model turning,
+                shirt changing color), it IS the landing media — autoplay, muted,
+                looping. Tapping any thumbnail switches to stills; the play tile
+                brings the video back. */}
+            {heroVideoUrl && videoActive ? (
+              <video
+                src={heroVideoUrl}
+                autoPlay muted loop playsInline
+                poster={galleryImages[0]}
+                className="w-full h-96 object-contain bg-bg/40 rounded-lg shadow-lg"
+              />
+            ) : (
+              <ProtectedImage
+                src={galleryImages.length > 0
+                  ? galleryImages[selectedImage]
+                  : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
+                alt={product.altText || product.name}
+                // object-contain (was object-cover) — mockups have varying
+                // aspect ratios and the previous "cover" was cropping the top
+                // off taller designs. The bg-bg/40 fills any letterbox area
+                // with a subtle backdrop instead of leaving raw white space.
+                className="w-full h-96 object-contain bg-bg/40 rounded-lg shadow-lg"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+                }}
+              />
+            )}
           </div>
 
-          {galleryImages.length > 1 && (
+          {(galleryImages.length > 1 || heroVideoUrl) && (
             <div className="flex space-x-2 overflow-x-auto">
+              {heroVideoUrl && (
+                <button
+                  onClick={() => setVideoActive(true)}
+                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 relative ${videoActive ? 'border-primary shadow-glow' : 'card-border'}`}
+                  aria-label="Play product video"
+                >
+                  <video src={heroVideoUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/30 text-white text-lg">▶</span>
+                </button>
+              )}
               {galleryImages.map((image, index) => (
                 <button
                   key={index}
-                  onClick={() => setSelectedImage(index)}
-                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 ${selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
+                  onClick={() => { setSelectedImage(index); setVideoActive(false) }}
+                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 ${!videoActive && selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
                     }`}
                 >
                   <img

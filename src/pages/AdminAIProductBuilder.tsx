@@ -43,6 +43,8 @@ const STEPS: Array<{ key: StepKey; label: string }> = [
 
 interface Candidate { id: string; url: string; label?: string }
 interface MockupAsset { id: string; url: string; label: string }
+interface ModelShot { url: string; ok: boolean; label?: string; reason?: string }
+interface HeroVideo { status: string; url?: string }
 interface SizeTier { tier: string; label: string; description: string; itcCost: number }
 interface FiledTask { taskId?: string; title: string }
 
@@ -75,6 +77,10 @@ interface BuildState {
   /** Last research pull (web or market scout) — shown on the board so voice
    *  findings don't evaporate. */
   research: string | null
+  /** Hardened Etsy-flow model shoot results (metadata.etsy_shots). */
+  modelShots: ModelShot[]
+  /** Spin hero video (metadata.hero_video). */
+  heroVideo: HeroVideo | null
 }
 
 const initialBuild: BuildState = {
@@ -96,13 +102,15 @@ const initialBuild: BuildState = {
   generating: false,
   filedTasks: [],
   research: null,
+  modelShots: [],
+  heroVideo: null,
 }
 
 type BuildAction =
   | { type: 'SET_LANE'; lane: Lane; metalSize?: '4x6' | '8x10' }
   | { type: 'SET_BRIEF'; brief: Brief }
   | { type: 'GENERATE_STARTED'; productId?: string; productName?: string; model3dId?: string }
-  | { type: 'SYNC_PIPELINE'; candidates: Candidate[]; mockups: MockupAsset[]; selectedDesignUrl: string | null; nobgDone: boolean; generating: boolean }
+  | { type: 'SYNC_PIPELINE'; candidates: Candidate[]; mockups: MockupAsset[]; selectedDesignUrl: string | null; nobgDone: boolean; generating: boolean; modelShots: ModelShot[]; heroVideo: HeroVideo | null }
   | { type: 'DESIGN_SELECTED'; assetId: string }
   | { type: 'CONCEPT_READY'; url: string }
   | { type: 'CONCEPT_APPROVED' }
@@ -136,6 +144,8 @@ function buildReducer(state: BuildState, action: BuildAction): BuildState {
         selectedDesignUrl: action.selectedDesignUrl,
         nobgDone: action.nobgDone,
         generating: action.generating,
+        modelShots: action.modelShots,
+        heroVideo: action.heroVideo,
       }
     case 'DESIGN_SELECTED':
       return { ...state, selectedAssetId: action.assetId }
@@ -167,7 +177,7 @@ function stepDone(s: BuildState, key: StepKey): boolean {
     case 'brief': return s.brief !== null
     case 'generate': return is3d ? !!s.concept3dUrl : s.candidates.length > 0
     case 'pick': return is3d ? s.conceptApproved : !!s.selectedAssetId
-    case 'polish': return is3d ? !!s.glbUrl : (s.mockups.length > 0 || s.nobgDone)
+    case 'polish': return is3d ? !!s.glbUrl : (s.mockups.length > 0 || s.nobgDone || s.modelShots.length > 0)
     case 'publish': return is3d ? (!!s.glbUrl && s.published !== null) : s.published !== null
   }
 }
@@ -262,6 +272,30 @@ const TOOLS: MrImagineToolDef[] = [
   },
   {
     type: 'function',
+    name: 'list_shot_subjects',
+    description: 'See the casting list for model shoots — archetype ids and personas (student, teacher, streetwear, grandma…). Call before shoot_model_photos so you can pitch fitting subjects.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    type: 'function',
+    name: 'shoot_model_photos',
+    description: 'Run the hardened model shoot on the selected design: 2 photos of real everyday people wearing it, unique person each time, automatic design-fidelity QA. Pass subjects (archetype ids from list_shot_subjects) to cast, or omit for a surprise cast. Shirt-family lanes only, after a design is selected. The board reports when shots land.',
+    parameters: {
+      type: 'object',
+      properties: {
+        subjects: { type: 'array', items: { type: 'string' }, description: 'Up to 2 archetype ids. Omit for random.' },
+        custom: { type: 'string', description: 'Free-text custom subject (adults only — minors are blocked).' },
+      },
+    },
+  },
+  {
+    type: 'function',
+    name: 'create_spin_video',
+    description: 'Generate the SIGNATURE storefront hero: a ~5 second video of the model turning while the shirt changes color mid-spin (teaches shoppers the color options). Needs at least one finished model shot. Takes a couple of minutes — the board reports when it is ready.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    type: 'function',
     name: 'approve_concept',
     description: '3D lane only: approve the concept image so the admin can pick a print size for the actual 3D conversion.',
     parameters: { type: 'object', properties: {} },
@@ -311,6 +345,42 @@ const TOOLS: MrImagineToolDef[] = [
       properties: {
         family: { type: 'string', enum: ['all', 'apparel', 'tumblers', 'dtf-transfers', 'stickers', 'metal-art', '3d-toys'], description: 'Product family to scout. Default all.' },
       },
+    },
+  },
+  {
+    type: 'function',
+    name: 'save_memory',
+    description: "Save something durable to YOUR memory — a client and what they ordered, a design decision, a staff preference, how a build turned out. Call it the moment it comes up ('remember the bowling client wanted navy'). One plain fact per call.",
+    parameters: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'The fact, written plainly.' },
+        memory_type: { type: 'string', enum: ['client', 'design', 'preference', 'context'] },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'recall_memory',
+    description: "Search your own memory — past clients, designs, decisions. Use when the admin says 'remember that design we did…' or asks about past work. Speak only from what comes back.",
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'Keywords, e.g. "bowling client".' } },
+      required: ['query'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'bulk_build',
+    description: 'Volume mode: pull N market-backed trend ideas and run the FULL pipeline on each automatically (up to 20). Finished designs land as draft products for review; the board announces the final score in a few minutes. Confirm the count out loud before firing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        count: { type: 'integer', description: '1-20 designs.' },
+        focus: { type: 'string', description: "Optional niche, e.g. 'teachers', 'fishing dads'." },
+      },
+      required: ['count'],
     },
   },
   {
@@ -430,8 +500,58 @@ const AdminAIProductBuilder: React.FC = () => {
   const tiersRef = useRef<SizeTier[]>([])
   const last3dStatusRef = useRef<string>('')
   const sendBoardUpdateRef = useRef<(text: string) => void>(() => {})
+  // Which reveal chimes have already fired for the CURRENT build — reset per lane pick.
+  const revealedRef = useRef({ candidates: false, design: false, mockups: false, concept3d: false, glb: false })
 
   useEffect(() => { localStorage.setItem('itp-ai-builder-mode', mode) }, [mode])
+
+  // ---------------------------------------------------------------- reveals
+  const playChime = useCallback((src: string, volume = 0.55) => {
+    try {
+      const audio = new Audio(src)
+      audio.volume = volume
+      void audio.play().catch(() => {})
+    } catch { /* autoplay blocked or unsupported — the visual pop still lands */ }
+  }, [])
+
+  useEffect(() => { revealedRef.current = { candidates: false, design: false, mockups: false, concept3d: false, glb: false } }, [build.lane])
+
+  useEffect(() => {
+    if (build.candidates.length > 0 && !revealedRef.current.candidates) {
+      revealedRef.current.candidates = true
+      playChime('/mr-imagine/audio/ding.mp3')
+    }
+  }, [build.candidates.length, playChime])
+
+  useEffect(() => {
+    if (build.selectedDesignUrl && !revealedRef.current.design) {
+      revealedRef.current.design = true
+      playChime('/mr-imagine/audio/ding.mp3')
+      confetti({ particleCount: 50, spread: 55, origin: { y: 0.55 }, scalar: 0.8 })
+    }
+  }, [build.selectedDesignUrl, playChime])
+
+  useEffect(() => {
+    if (build.mockups.length > 0 && !revealedRef.current.mockups) {
+      revealedRef.current.mockups = true
+      playChime('/mr-imagine/audio/ding.mp3')
+    }
+  }, [build.mockups.length, playChime])
+
+  useEffect(() => {
+    if (build.concept3dUrl && !revealedRef.current.concept3d) {
+      revealedRef.current.concept3d = true
+      playChime('/mr-imagine/audio/ding.mp3')
+    }
+  }, [build.concept3dUrl, playChime])
+
+  useEffect(() => {
+    if (build.glbUrl && !revealedRef.current.glb) {
+      revealedRef.current.glb = true
+      playChime('/mr-imagine/audio/ding.mp3', 0.6)
+      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } })
+    }
+  }, [build.glbUrl, playChime])
 
   // ------------------------------------------------------------------ tools
   const handleToolCall = useCallback(async (name: string, args: Record<string, unknown>): Promise<unknown> => {
@@ -555,6 +675,33 @@ const AdminAIProductBuilder: React.FC = () => {
         return { ok: true, note: 'Mockup shoot started — the board will report when the shots land.' }
       }
 
+      case 'list_shot_subjects': {
+        const data = await apiFetch('/api/admin/etsy/shot-subjects') as { subjects?: unknown[] }
+        return { ok: true, subjects: data.subjects || [], note: 'Pitch 2-3 that fit the design and audience; empty cast = surprise me.' }
+      }
+
+      case 'shoot_model_photos': {
+        const b = buildRef.current
+        if (!b.productId || !b.selectedAssetId) throw new Error('Select a winning design first.')
+        const subjects = Array.isArray(args.subjects) ? args.subjects.map(String).slice(0, 2) : []
+        await apiFetch(`/api/admin/etsy/model-shots/${b.productId}`, {
+          method: 'POST',
+          body: JSON.stringify({ subjects, ...(args.custom ? { custom: String(args.custom) } : {}) }),
+        })
+        return { ok: true, note: 'Shoot is rolling — 30 to 60 seconds a photo, the board will report as they land, with a fidelity flag on any shot where the design got mangled.' }
+      }
+
+      case 'create_spin_video': {
+        const b = buildRef.current
+        if (!b.productId) throw new Error('No product yet.')
+        if (!b.modelShots.length) throw new Error('Shoot the model first — the video animates the best model shot.')
+        const data = await apiFetch('/api/ai/realtime/spin-video', {
+          method: 'POST',
+          body: JSON.stringify({ productId: b.productId }),
+        }) as { ok?: boolean; seconds?: number }
+        return { ok: true, note: `Spin video is generating (${data.seconds || 5} seconds of footage, takes a couple of minutes). The board will call it when the hero is ready.` }
+      }
+
       case 'approve_concept': {
         const b = buildRef.current
         if (b.lane !== '3d-print' || !b.model3dId) throw new Error('No 3D concept to approve.')
@@ -660,6 +807,44 @@ const AdminAIProductBuilder: React.FC = () => {
         }
       }
 
+      case 'save_memory': {
+        const content = String(args.content || '').trim()
+        if (!content) throw new Error('Nothing to remember.')
+        await apiFetch('/api/ai/realtime/memory', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'save', content, memoryType: args.memory_type }),
+        })
+        return { ok: true, note: 'Saved — it survives to every future session.' }
+      }
+
+      case 'recall_memory': {
+        const query = String(args.query || '').trim()
+        const data = await apiFetch('/api/ai/realtime/memory', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'recall', query, limit: 8 }),
+        }) as { results?: Array<{ content: string; created_at: string }> }
+        return { ok: true, results: data.results || [], note: (data.results || []).length ? 'Speak from these naturally.' : 'Nothing in memory for that — say so honestly.' }
+      }
+
+      case 'bulk_build': {
+        const count = Math.min(20, Math.max(1, Number(args.count) || 10))
+        const focus = String(args.focus || '').trim()
+        const trends = await aiProducts.trends({ family: 'apparel', limit: count, ...(focus ? { seed: focus } : {}) })
+        const prompts = (trends.ideas || []).slice(0, count).map((i) => i.prompt).filter(Boolean)
+        if (!prompts.length) throw new Error('The trend scout came back empty — try a different focus.')
+        // Fire-and-forget: the batch takes minutes; the board calls the score.
+        void apiFetch('/api/admin/products/ai/bulk', {
+          method: 'POST',
+          body: JSON.stringify({ prompts }),
+        }).then((res) => {
+          const r = res as { succeeded?: number; failed?: number }
+          sendBoardUpdateRef.current(`BULK DROP COMPLETE: ${r.succeeded ?? '?'} of ${prompts.length} designs built and sitting as drafts in the products list${r.failed ? ` (${r.failed} failed — they can be retried)` : ''}. Remind the admin: Ready-for-Etsy panel turns drafts into listings.`)
+        }).catch(() => {
+          sendBoardUpdateRef.current('The bulk drop hit an error partway — some designs may still have landed as drafts. Offer to check and rerun.')
+        })
+        return { ok: true, started: prompts.length, note: `Bulk drop launched — ${prompts.length} trend-backed designs running the full pipeline. Takes a few minutes; the board will call the final score. Keep building or keep talking meanwhile.` }
+      }
+
       case 'create_watchtower_task': {
         const title = String(args.title || '').trim()
         const description = String(args.description || '').trim()
@@ -687,11 +872,16 @@ const AdminAIProductBuilder: React.FC = () => {
     if (!b.productId || b.lane === '3d-print') return
     try {
       const data = await aiProducts.getStatus(b.productId) as {
+        product?: { metadata?: Record<string, unknown> }
         assets?: Array<{ id: string; kind: string; url: string; asset_role?: string; is_primary?: boolean; metadata?: Record<string, unknown>; meta?: Record<string, unknown> }>
         jobs?: AIJob[]
       }
       const assets = data.assets || []
       const jobs = data.jobs || []
+      const productMeta = (data.product?.metadata || {}) as {
+        etsy_shots?: { status?: string; images?: string[]; cast?: string[]; checks?: Array<{ ok?: boolean; reason?: string }> }
+        hero_video?: { status?: string; url?: string }
+      }
       const terminal = (j: AIJob) => j.status === 'succeeded' || j.status === 'failed' || j.status === 'skipped'
       const imageJobs = jobs.filter((j) => j.type === 'replicate_image' || j.type === 'replicate_image_v2')
       const mockupJobs = jobs.filter((j) => j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2' || j.type === 'ghost_mannequin')
@@ -705,19 +895,56 @@ const AdminAIProductBuilder: React.FC = () => {
         .map((a) => ({ id: a.id, url: a.url, label: a.asset_role === 'mockup_flat_lay' ? 'Flat lay' : a.asset_role === 'mockup_mr_imagine' ? 'Mr. Imagine' : 'Mockup' }))
       const nobg = assets.find((a) => a.kind === 'nobg')
       const primary = assets.find((a) => a.is_primary || a.asset_role === 'design')
+
+      // Model shoot state (written by the shared Etsy shoot service).
+      const shots = productMeta.etsy_shots
+      const modelShots: ModelShot[] = (shots?.images || []).map((url, i) => ({
+        url,
+        ok: shots?.checks?.[i]?.ok !== false,
+        label: shots?.cast?.[i],
+        reason: shots?.checks?.[i]?.reason,
+      }))
+
+      // Hero video: while generating, the status endpoint is what advances it
+      // (it finalizes the mp4 into GCS on success).
+      let heroVideo: HeroVideo | null = productMeta.hero_video ? { status: productMeta.hero_video.status || 'unknown', url: productMeta.hero_video.url } : null
+      if (heroVideo?.status === 'generating') {
+        try {
+          const hv = await apiFetch(`/api/ai/realtime/spin-video/${b.productId}/status`) as { status?: string; url?: string }
+          if (hv?.status) heroVideo = { status: hv.status, url: hv.url }
+        } catch { /* keep generating state */ }
+      }
+
       dispatch({
         type: 'SYNC_PIPELINE',
         candidates,
         mockups,
         selectedDesignUrl: (nobg || primary)?.url || null,
         nobgDone: !!nobg,
-        generating: jobs.some((j) => !terminal(j)),
+        generating: jobs.some((j) => !terminal(j)) || shots?.status === 'generating' || heroVideo?.status === 'generating',
+        modelShots,
+        heroVideo,
       })
 
       const announce = (key: string, text: string) => {
         if (announcedRef.current.has(key)) return
         announcedRef.current.add(key)
         sendBoardUpdateRef.current(text)
+      }
+
+      if (shots?.status === 'ready' && modelShots.length > 0) {
+        const flagged = modelShots.filter((s) => !s.ok)
+        announce(`shots:${modelShots.map((s) => s.url).join('|')}`,
+          `Model shots are in — ${modelShots.length} photo${modelShots.length === 1 ? '' : 's'} on the board${modelShots[0]?.label ? ` (cast: ${modelShots.map((s) => s.label).filter(Boolean).join(', ')})` : ''}.${flagged.length ? ` Heads up: ${flagged.length} shot${flagged.length === 1 ? '' : 's'} got flagged by the fidelity check — offer a reshoot.` : ' The design survived the fidelity check on every shot.'} Offer the spin video next — that's the signature.`)
+      }
+      if (shots?.status === 'failed') {
+        announce('shotsfail', 'The model shoot failed. Offer to run it again.')
+      }
+      if (heroVideo?.status === 'ready' && heroVideo.url) {
+        announce(`herovideo:${heroVideo.url}`, 'THE SPIN VIDEO IS READY — it is playing on the board right now. If they love it, it ships as the product page hero automatically on publish.')
+      }
+      if (heroVideo?.status === 'failed') {
+        announce('herovideofail', 'The spin video generation failed. Offer to run it again — sometimes a different model shot animates better.')
       }
 
       if (imageJobs.length > 0 && imageJobs.every(terminal)) {
@@ -981,7 +1208,11 @@ const AdminAIProductBuilder: React.FC = () => {
                     <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">Candidates — call the number</div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {build.candidates.map((c, i) => (
-                        <div key={c.id} className="relative rounded-xl overflow-hidden border border-white/10 bg-bg/40">
+                        <div
+                          key={c.id}
+                          className="relative rounded-xl overflow-hidden border border-white/10 bg-bg/40 animate-reveal-pop"
+                          style={{ animationDelay: `${i * 110}ms`, opacity: 0 }}
+                        >
                           <img src={c.url} alt={`Candidate ${i + 1}`} className="w-full aspect-square object-contain" />
                           <div className="absolute top-2 left-2 w-8 h-8 flex items-center justify-center bg-gradient-to-br from-primary to-secondary text-white text-sm font-bold" style={{ clipPath: HEX_CLIP }}>
                             {i + 1}
@@ -999,7 +1230,7 @@ const AdminAIProductBuilder: React.FC = () => {
                     <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">
                       Winning design{build.nobgDone ? ' — clean cutout' : ''}
                     </div>
-                    <div className="rounded-xl overflow-hidden border border-primary/40 bg-bg/40 max-w-sm shadow-glowSm">
+                    <div className="rounded-xl overflow-hidden border border-primary/40 bg-bg/40 max-w-sm shadow-glowSm animate-reveal-pop animate-reveal-flash">
                       <img src={build.selectedDesignUrl} alt="Selected design" className="w-full object-contain" />
                     </div>
                   </div>
@@ -1010,13 +1241,55 @@ const AdminAIProductBuilder: React.FC = () => {
                   <div>
                     <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">Mockups</div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {build.mockups.map((m) => (
-                        <div key={m.id} className="rounded-xl overflow-hidden border border-white/10 bg-bg/40">
+                      {build.mockups.map((m, i) => (
+                        <div
+                          key={m.id}
+                          className="rounded-xl overflow-hidden border border-white/10 bg-bg/40 animate-reveal-pop"
+                          style={{ animationDelay: `${i * 110}ms`, opacity: 0 }}
+                        >
                           <img src={m.url} alt={m.label} className="w-full aspect-square object-cover" />
                           <div className="text-[10px] text-center py-1 text-muted">{m.label}</div>
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* model shots */}
+                {build.modelShots.length > 0 && (
+                  <div>
+                    <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">Model shots — the house look</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {build.modelShots.map((s, i) => (
+                        <div key={s.url} className={`rounded-xl overflow-hidden border ${s.ok ? 'border-white/10' : 'border-amber-400/60'} bg-bg/40`}>
+                          <img src={s.url} alt={`Model shot ${i + 1}`} className="w-full aspect-[3/4] object-cover" />
+                          <div className="text-[10px] text-center py-1 text-muted">
+                            {s.label || `Shot ${i + 1}`}{!s.ok && <span className="text-amber-400"> — fidelity flag</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* spin hero video */}
+                {build.heroVideo && (
+                  <div>
+                    <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">
+                      Spin hero video{build.heroVideo.status === 'generating' ? ' — rendering…' : build.heroVideo.status === 'failed' ? ' — failed' : ''}
+                    </div>
+                    {build.heroVideo.status === 'ready' && build.heroVideo.url ? (
+                      <video
+                        src={build.heroVideo.url}
+                        autoPlay muted loop playsInline controls
+                        className="rounded-xl border border-primary/40 max-w-sm w-full shadow-glowSm"
+                      />
+                    ) : build.heroVideo.status === 'generating' ? (
+                      <div className="flex items-center gap-3 text-sm text-muted bg-bg/40 border border-white/10 rounded-xl px-4 py-3">
+                        <span className="w-2.5 h-2.5 bg-amber-400 animate-pulse" style={{ clipPath: HEX_CLIP }} />
+                        Grok is filming the turn + color change — a couple of minutes.
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
@@ -1026,13 +1299,13 @@ const AdminAIProductBuilder: React.FC = () => {
                     <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">
                       3D concept{build.conceptApproved ? ' — approved' : ' — awaiting your call'}
                     </div>
-                    <div className={`rounded-xl overflow-hidden border max-w-sm ${build.conceptApproved ? 'border-emerald-400/50' : 'border-white/10'} bg-bg/40`}>
+                    <div className={`rounded-xl overflow-hidden border max-w-sm ${build.conceptApproved ? 'border-emerald-400/50' : 'border-white/10'} bg-bg/40 animate-reveal-pop animate-reveal-flash`}>
                       <img src={build.concept3dUrl} alt="3D concept" className="w-full object-contain" />
                     </div>
                   </div>
                 )}
                 {build.glbUrl && (
-                  <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-400/30 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-400/30 rounded-xl px-4 py-3 animate-reveal-pop animate-reveal-flash">
                     <Check className="w-5 h-5 text-emerald-400" />
                     <div className="text-sm">
                       <span className="font-bold text-emerald-400">Printable 3D model ready.</span>{' '}

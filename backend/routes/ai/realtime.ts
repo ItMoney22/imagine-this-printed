@@ -13,10 +13,15 @@
 // discuss admin tooling.
 
 import { Router, Request, Response } from 'express'
+import Replicate from 'replicate'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import { MODELS } from '../../services/image-flow/models.js'
+import { supabase } from '../../lib/supabase.js'
+import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 
 const router = Router()
+
+const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
 
 const XAI_REALTIME_MODEL = process.env.XAI_REALTIME_MODEL || 'grok-voice-latest'
 // David wants Mr. Imagine to sound like a kid character — "a Barney type":
@@ -41,7 +46,12 @@ You walk the admin through building a product, step by step, and you DRIVE the a
 2. BRIEF — Pull the idea out of them like a creative director: subject, style, mood, colors, text if any. When you have enough for a strong design, say back a tight one-or-two-sentence brief, get a yes, then call set_design_brief.
 3. GENERATE — Confirm they're ready, then call generate_designs. Generation takes a minute or two. While it runs, keep them company or plan the listing — the page will TELL you (as a system message) the moment designs are ready, or if a job fails. React to those messages out loud; never pretend to know results you haven't been given.
 4. PICK — When designs land, the admin sees them on screen numbered. Ask which one wins. Call select_design with their pick.
-5. POLISH — Offer the polish moves: remove_background for a clean DTF-ready cutout, create_mockups for product shots (shirts get garment mockups, metal art gets size-accurate shelf and wall scenes). Fire the tools they want; the page reports when each finishes.
+5. POLISH — Offer the polish moves: remove_background for a clean DTF-ready cutout, create_mockups for product shots (shirts get garment mockups, metal art gets size-accurate shelf and wall scenes) — and for shirts, the SIGNATURE moves below. Fire the tools they want; the page reports when each finishes.
+
+## THE SIGNATURE LOOK — model shoot + spin video (shirts; this is how we stand out)
+The store's product pages must look UNIFIED — same photography standard on every listing. That standard is the hardened model shoot, and the crown on top is the spin video.
+- MODEL SHOOT (shoot_model_photos): real-people photos of the design being worn — a different everyday person every shoot, with automatic design-fidelity QA. Offer it on EVERY shirt build after the design is picked. Ask who to cast first: call list_shot_subjects and pitch two or three fitting archetypes (a kids' back-to-school tee wants the student or the teacher, not the grandma), or let them say "surprise me" (empty cast = random). About 30-60 seconds a shot; the board reports when they land, and flags any shot where the design didn't survive faithfully — offer a reshoot on those.
+- SPIN VIDEO (create_spin_video): a short hero clip of the model turning while the shirt CHANGES COLOR mid-spin — it's the first thing shoppers see on the product page and it silently teaches them the color options. Needs at least one finished model shot first (it animates the best one). Takes a couple of minutes; the board reports when it's ready. Nobody else's store opens like this — pitch it proudly.
 6. PUBLISH — Recap what was built, confirm, then call finalize_product to put it live on the storefront (or leave it draft if they say hold).
 
 PHOTO-TEMPLATE LANE — same machine as shirts, one special rule. A template is a reusable personalized product: think "Class of 2027" with a big empty photo slot — the design sells on Etsy, and for every order the team drops that customer's photo into the slot. When briefing one, get: the occasion, the EXACT text, the style, and where the photo slot sits (center frame, polaroid, jersey number, heart — whatever fits). The slot must stay COMPLETELY EMPTY in the generated design — a blank framed area, no sample faces, no stock photos — that's what makes it a template. These land in the store's Templates category, flagged for personalization, ready for the Etsy flow. If the admin describes a personalized product ("customer sends a photo and we…"), suggest the template lane yourself.
@@ -78,7 +88,46 @@ The Watchtower is the dev task board for this whole operation. When the admin hi
 - If the admin starts talking, stop and listen.
 - You are Mr. Imagine. Never break character.
 
+## BULK DROPS — when they want VOLUME
+When the admin says "make me 20 designs" (any number up to 20): call bulk_build. It pulls that many market-backed trend ideas (real marketplace signals with ready briefs) and runs the WHOLE pipeline on each one automatically — the finished products land as drafts in the products list for review, and the board announces the final score when the batch is done (a few minutes). Pass focus if they name a niche ("teachers", "fishing dads"). This is the volume lever for the Etsy push — after a drop, remind them the Ready-for-Etsy panel is where drafts become listings.
+
+## YOUR MEMORY — never forget a client or a design
+Your memory survives between sessions. USE IT:
+- The moment something worth keeping comes up — a client's name and what they ordered ("the bowling client"), a design decision, a preference, how a build turned out — call save_memory. Plainly written, one fact.
+- When the admin says "remember that design we did…" or asks about past work, call recall_memory with keywords and speak from what comes back. Never fake a memory you didn't get back.
+- Your session opens with your freshest memories already in your head — live them, don't recite them.
+
 WHAT'S POWERING YOU: this live voice runs on xAI Grok realtime. If asked what model or voice you are, that's the honest answer — xAI Grok.`
+
+/** Per-session instructions: the builder persona + who's on the line (call
+ *  them by name — David's ask: "he should call based on my username so he
+ *  gets my staff names right too") + the freshest memories. */
+async function buildSessionInstructions(req: Request): Promise<string> {
+  let name = ''
+  try {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('username, first_name')
+      .eq('id', req.user?.id || '')
+      .maybeSingle()
+    name = String(profile?.first_name || profile?.username || '').trim()
+  } catch { /* fall through */ }
+  if (!name && req.user?.email) name = req.user.email.split('@')[0]
+
+  let memoryBlock = ''
+  try {
+    const memories = (await loadMemories()).slice(-14).reverse()
+    if (memories.length) {
+      memoryBlock = `\n\n## WHAT YOU REMEMBER (freshest first — use naturally, don't recite)\n${memories.map((m) => `- ${m.content}`).join('\n')}`
+    }
+  } catch { /* no memories yet */ }
+
+  const who = name
+    ? `\n\n## WHO'S ON THE LINE\nYou are talking with ${name} right now. Use their name — greet them with it, and keep using it naturally. Different staff use this studio; the name above is who it is THIS session.`
+    : ''
+
+  return `${BUILDER_INSTRUCTIONS}${who}${memoryBlock}`
+}
 
 // Live research brain: Grok's Agent Tools API (/v1/responses) with server-side
 // web_search + x_search. The realtime voice model can't browse on its own —
@@ -246,6 +295,199 @@ router.post('/replicate-search', requireAuth, requireRole(['admin', 'manager']),
   }
 })
 
+// ---------------------------------------------------------------------------
+// Spin hero video — the storefront signature: a ~5s clip of the model turning
+// while the shirt shifts color (teaches shoppers the color options exist).
+// Source frame = the product's first model shot (the hardened Etsy shoot),
+// engine = xai/grok-imagine-video on Replicate (image-to-video).
+// ---------------------------------------------------------------------------
+
+const SPIN_VIDEO_MODEL = process.env.SPIN_VIDEO_MODEL || 'xai/grok-imagine-video'
+const SPIN_VIDEO_SECONDS = Math.min(15, Math.max(3, Number(process.env.SPIN_VIDEO_SECONDS) || 5))
+
+const spinLimit = new Map<string, { count: number; resetAt: number }>()
+function checkSpinLimit(userId: string): boolean {
+  const now = Date.now()
+  const state = spinLimit.get(userId)
+  if (!state || state.resetAt < now) {
+    spinLimit.set(userId, { count: 1, resetAt: now + 60_000 })
+    return true
+  }
+  if (state.count >= 4) return false
+  state.count++
+  return true
+}
+
+/**
+ * POST /api/ai/realtime/spin-video  Body: { productId }
+ * Kicks a hero-video generation from the product's best model shot.
+ * Writes metadata.hero_video = { status:'generating', prediction_id }.
+ */
+router.post('/spin-video', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!process.env.REPLICATE_API_TOKEN) return res.status(503).json({ error: 'Replicate is not configured.' })
+    const userId = req.user?.sub || req.user?.id
+    if (!userId || !checkSpinLimit(userId)) return res.status(429).json({ error: 'Spin-video rate limit — give it a minute.' })
+
+    const productId = typeof req.body?.productId === 'string' ? req.body.productId : ''
+    if (!productId) return res.status(400).json({ error: 'productId is required' })
+
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('id, name, images, metadata')
+      .eq('id', productId)
+      .single()
+    if (error || !product) return res.status(404).json({ error: 'Product not found' })
+
+    const meta = (product.metadata || {}) as Record<string, any>
+    const shot: string | undefined = meta.etsy_shots?.images?.[0] || product.images?.[0]
+    if (!shot) return res.status(400).json({ error: 'No model shot or image to animate — shoot the model first.' })
+
+    const baseColor: string = meta.shirt_color || 'black'
+    const altColor = baseColor === 'black' ? 'white' : 'black'
+    const prompt =
+      `Professional e-commerce product video: the model turns slowly in place, a smooth full turn showing the t-shirt design from front and side. ` +
+      `Halfway through the turn the t-shirt fabric smoothly changes color from ${baseColor} to ${altColor} while the printed design stays EXACTLY the same. ` +
+      `Clean studio backdrop, soft even lighting, steady camera, no cuts, no text overlays.`
+
+    const prediction = await replicate.predictions.create({
+      model: SPIN_VIDEO_MODEL,
+      input: { image: shot, prompt, duration: SPIN_VIDEO_SECONDS, resolution: '720p' },
+    })
+
+    await supabase
+      .from('products')
+      .update({ metadata: { ...meta, hero_video: { status: 'generating', prediction_id: prediction.id, started_at: new Date().toISOString() } } })
+      .eq('id', productId)
+
+    req.log?.info({ productId, predictionId: prediction.id }, '[ai-realtime] spin video started')
+    return res.json({ ok: true, predictionId: prediction.id, seconds: SPIN_VIDEO_SECONDS })
+  } catch (err) {
+    req.log?.error({ err }, '[ai-realtime] spin video kick failed')
+    return res.status(502).json({ error: 'Could not start the spin video.' })
+  }
+})
+
+/**
+ * GET /api/ai/realtime/spin-video/:productId/status
+ * Polls the prediction; on success pulls the mp4 into GCS and writes
+ * metadata.hero_video_url (what ProductPage renders). Safe to call repeatedly.
+ */
+router.get('/spin-video/:productId/status', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('id, metadata')
+      .eq('id', req.params.productId)
+      .single()
+    if (error || !product) return res.status(404).json({ error: 'Product not found' })
+
+    const meta = (product.metadata || {}) as Record<string, any>
+    const hv = meta.hero_video as { status?: string; prediction_id?: string; url?: string; error?: string } | undefined
+    if (!hv) return res.json({ status: 'none' })
+    if (hv.status === 'ready') return res.json({ status: 'ready', url: hv.url })
+    if (hv.status === 'failed') return res.json({ status: 'failed', error: hv.error })
+    if (!hv.prediction_id) return res.json({ status: hv.status || 'unknown' })
+
+    const prediction = await replicate.predictions.get(hv.prediction_id)
+    if (prediction.status === 'succeeded') {
+      const output = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output
+      if (typeof output !== 'string') throw new Error('no video URL in prediction output')
+      const videoRes = await fetch(output)
+      if (!videoRes.ok) throw new Error(`video fetch ${videoRes.status}`)
+      const buffer = Buffer.from(await videoRes.arrayBuffer())
+      if (buffer.length > 60 * 1024 * 1024) throw new Error('video unexpectedly large')
+      const uploaded = await uploadImageFromBuffer(buffer, `hero-videos/${product.id}-${Date.now()}.mp4`, 'video/mp4')
+      const freshMeta = { ...meta, hero_video: { status: 'ready', url: uploaded.publicUrl }, hero_video_url: uploaded.publicUrl }
+      await supabase.from('products').update({ metadata: freshMeta }).eq('id', product.id)
+      req.log?.info({ productId: product.id }, '[ai-realtime] spin video ready')
+      return res.json({ status: 'ready', url: uploaded.publicUrl })
+    }
+    if (prediction.status === 'failed' || prediction.status === 'canceled') {
+      const errMsg = String(prediction.error || 'generation failed')
+      await supabase.from('products').update({ metadata: { ...meta, hero_video: { status: 'failed', error: errMsg } } }).eq('id', product.id)
+      return res.json({ status: 'failed', error: errMsg })
+    }
+    return res.json({ status: 'generating' })
+  } catch (err) {
+    req.log?.error({ err }, '[ai-realtime] spin video status failed')
+    return res.status(502).json({ error: 'Could not check the spin video.' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Mr. Imagine's memory — durable across sessions, private Supabase Storage
+// (service-role only; no public URL, no DB migration needed). One JSON file,
+// newest-last, capped at 500 entries. v1 recall = keyword match, newest first.
+// ---------------------------------------------------------------------------
+
+const MEMORY_BUCKET = 'mr-imagine'
+const MEMORY_KEY = 'memory.json'
+interface MrMemory { content: string; type: string; author?: string; created_at: string }
+
+let memoryBucketReady = false
+async function ensureMemoryBucket(): Promise<void> {
+  if (memoryBucketReady) return
+  try { await supabase.storage.createBucket(MEMORY_BUCKET, { public: false }) } catch { /* exists */ }
+  memoryBucketReady = true
+}
+
+async function loadMemories(): Promise<MrMemory[]> {
+  try {
+    await ensureMemoryBucket()
+    const { data } = await supabase.storage.from(MEMORY_BUCKET).download(MEMORY_KEY)
+    if (!data) return []
+    const parsed = JSON.parse(await data.text())
+    return Array.isArray(parsed) ? parsed as MrMemory[] : []
+  } catch { return [] }
+}
+
+async function persistMemories(list: MrMemory[]): Promise<void> {
+  await ensureMemoryBucket()
+  const body = JSON.stringify(list.slice(-500))
+  const { error } = await supabase.storage.from(MEMORY_BUCKET).upload(MEMORY_KEY, body, { upsert: true, contentType: 'application/json' })
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * POST /api/ai/realtime/memory
+ * Body: { action: 'save', content, memoryType? } | { action: 'recall', query?, limit? }
+ */
+router.post('/memory', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const action = String(req.body?.action || '')
+    if (action === 'save') {
+      const content = typeof req.body?.content === 'string' ? req.body.content.trim().slice(0, 600) : ''
+      if (!content) return res.status(400).json({ error: 'content is required' })
+      const list = await loadMemories()
+      list.push({
+        content,
+        type: ['client', 'design', 'preference', 'context'].includes(req.body?.memoryType) ? req.body.memoryType : 'context',
+        author: req.user?.email || undefined,
+        created_at: new Date().toISOString(),
+      })
+      await persistMemories(list)
+      req.log?.info({ chars: content.length }, '[ai-realtime] memory saved')
+      return res.json({ ok: true })
+    }
+    if (action === 'recall') {
+      const query: string = typeof req.body?.query === 'string' ? req.body.query.trim().toLowerCase() : ''
+      const limit = Math.min(20, Math.max(1, Number(req.body?.limit) || 6))
+      const list = await loadMemories()
+      const words = query.split(/\s+/).filter((w) => w.length > 2)
+      const matches = (words.length
+        ? list.filter((m) => words.some((w) => m.content.toLowerCase().includes(w)))
+        : list
+      ).slice(-limit).reverse()
+      return res.json({ results: matches })
+    }
+    return res.status(400).json({ error: 'action must be save or recall' })
+  } catch (err) {
+    req.log?.error({ err }, '[ai-realtime] memory op failed')
+    return res.status(502).json({ error: 'Memory is unavailable right now.' })
+  }
+})
+
 /**
  * POST /api/ai/realtime/token
  * Admin/manager only. Returns { token, expires_at, model, voice, instructions }.
@@ -288,7 +530,7 @@ router.post('/token', requireAuth, requireRole(['admin', 'manager']), async (req
       model: XAI_REALTIME_MODEL,
       voice: MR_IMAGINE_VOICE,
       pitch: MR_IMAGINE_PITCH,
-      instructions: BUILDER_INSTRUCTIONS,
+      instructions: await buildSessionInstructions(req),
     })
   } catch (err: unknown) {
     const aborted = err instanceof Error && err.name === 'AbortError'
