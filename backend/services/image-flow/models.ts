@@ -456,7 +456,11 @@ export function requiresCostGate(model: ImageModel): boolean {
 export const DEFAULT_GENERATE_MODEL = 'openai/gpt-image-2'
 export const DEFAULT_EDIT_MODEL = 'openai/gpt-image-2'
 export const DEFAULT_MOCKUP_MODEL = 'google/nano-banana-2-lite'
-export const DEFAULT_BG_REMOVE_MODEL = 'fal-ai/bria/background/remove'
+// Merge note: main still pointed background removal at fal.ai; the fal key is
+// dead and this branch already moved every image path to Replicate, so the
+// Replicate remover wins here while main's newer nano-banana-2-lite compositor
+// is kept.
+export const DEFAULT_BG_REMOVE_MODEL = '851-labs/background-remover'
 export const DEFAULT_UPSCALE_MODEL = 'recraft-ai/recraft-crisp-upscale'
 
 /**
