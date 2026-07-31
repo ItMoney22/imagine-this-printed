@@ -214,8 +214,29 @@ const TOOLS: MrImagineToolDef[] = [
   {
     type: 'function',
     name: 'generate_designs',
-    description: 'Fire the design generation for the locked brief. Shirt/metal art: multiple AI models paint candidates in parallel (takes a minute or two — the board will tell you when they land). 3D print: generates the concept image (spends ITC — say the cost first).',
+    description: 'Fire the design generation for the locked brief. Default (no model_id): four AI models paint candidates in parallel — good for variety. Pass model_id to cast ONE specific model instead — REQUIRED when the design contains text (use a typography specialist). 3D print lane ignores model_id (concept pipeline, spends ITC — say the cost first).',
+    parameters: {
+      type: 'object',
+      properties: {
+        model_id: { type: 'string', description: "Registry model id from list_design_models, e.g. 'ideogram-ai/ideogram-v3-quality' or 'openai/gpt-image-2'. Omit for the multi-model fan-out." },
+      },
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_design_models',
+    description: 'See the stable of registered image models — id, strengths (text-in-image, photoreal, stylized, logo-vector…), cost per image, and speed. Call before casting a model_id on generate_designs.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    type: 'function',
+    name: 'search_replicate',
+    description: "Search Replicate's public catalog of thousands of models (new Flux versions, text specialists, anything). DISCOVERY ONLY — the machine can only run registered models, so if you find a winner, offer to file a Watchtower task to get it onboarded.",
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', description: "e.g. 'flux', 'typography', 'text rendering'." } },
+      required: ['query'],
+    },
   },
   {
     type: 'function',
@@ -488,6 +509,7 @@ const AdminAIProductBuilder: React.FC = () => {
           brief.style ? `Style: ${brief.style}.` : '',
           brief.tone ? `Mood: ${brief.tone}.` : '',
         ].filter(Boolean).join(' ')
+        const castModel = typeof args.model_id === 'string' && args.model_id.includes('/') ? args.model_id : undefined
         const res = await aiProducts.create({
           prompt: fullPrompt,
           tone: brief.tone,
@@ -496,9 +518,16 @@ const AdminAIProductBuilder: React.FC = () => {
           print_locations: isMetal ? undefined : brief.printLocations,
           metal_size: isMetal ? buildRef.current.metalSize : undefined,
           category_slug_override: isTemplate ? 'templates' : undefined,
+          ...(castModel ? { modelId: castModel, forceSingleModel: true } : {}),
         })
         dispatch({ type: 'GENERATE_STARTED', productId: res.productId, productName: res.product?.name })
-        return { ok: true, productName: res.product?.name, note: 'Generation is rolling — multiple AI models painting in parallel. The board will announce the candidates. Keep the admin company meanwhile.' }
+        return {
+          ok: true,
+          productName: res.product?.name,
+          note: castModel
+            ? `Generation is rolling on ${castModel} solo — your cast. The board will announce the candidates.`
+            : 'Generation is rolling — multiple AI models painting in parallel. The board will announce the candidates. Keep the admin company meanwhile.',
+        }
       }
 
       case 'select_design': {
@@ -581,6 +610,25 @@ const AdminAIProductBuilder: React.FC = () => {
           steps_complete: STEPS.filter((st) => stepDone(b, st.key)).map((st) => st.label),
           current_step: activeStep(b),
           generating: b.generating,
+        }
+      }
+
+      case 'list_design_models': {
+        const data = await apiFetch('/api/ai/realtime/models') as { models?: unknown[] }
+        return { ok: true, models: data.models || [], note: 'Cast by strengths: text-in-image for lettering, photoreal-* for realism, logo-vector for flat marks. Mention cost if you pick a pricey one.' }
+      }
+
+      case 'search_replicate': {
+        const query = String(args.query || '').trim()
+        if (!query) throw new Error('Search needs a query.')
+        const data = await apiFetch('/api/ai/realtime/replicate-search', {
+          method: 'POST',
+          body: JSON.stringify({ query }),
+        }) as { results?: unknown[] }
+        return {
+          ok: true,
+          results: data.results || [],
+          note: 'Discovery only — these are NOT runnable until registered. If one looks like a winner, pitch it and offer to file a Watchtower task to onboard it.',
         }
       }
 
@@ -818,7 +866,7 @@ const AdminAIProductBuilder: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
               {/* Left — Mr. Imagine live */}
-              <div className="lg:col-span-2 bg-card/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-5 h-fit">
+              <div className="lg:col-span-2 p-6 flex flex-col items-center gap-5 h-fit">
                 <MrImagineOrb status={status} busy={busyTool} />
 
                 <div className="font-tech uppercase tracking-widest text-xs text-muted text-center">
@@ -898,7 +946,7 @@ const AdminAIProductBuilder: React.FC = () => {
               </div>
 
               {/* Right — the build board */}
-              <div className="lg:col-span-3 bg-card/40 backdrop-blur-md border border-white/10 rounded-3xl p-6 space-y-6">
+              <div className="lg:col-span-3 p-6 space-y-6">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <div className="font-tech text-[10px] uppercase tracking-widest text-muted">Build board</div>

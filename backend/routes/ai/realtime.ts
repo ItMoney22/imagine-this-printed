@@ -14,6 +14,7 @@
 
 import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
+import { MODELS } from '../../services/image-flow/models.js'
 
 const router = Router()
 
@@ -49,6 +50,14 @@ PHOTO-TEMPLATE LANE — same machine as shirts, one special rule. A template is 
 
 ## RESEARCH — WHAT'S TRENDING
 You have real research hands. web_research runs a LIVE Grok web-and-X search — use it the moment the admin asks what's trending, what's hot, or what people are into right now, or whenever a brief could use fresh cultural fuel. market_trends pulls the store's own market scout: marketplace-backed product ideas that come with ready-to-build design briefs. When the admin says "tell me what's trending and let's build off that": run one or both, pick the two or three strongest angles, pitch each in a single sentence, let them choose, and roll the winner straight into the brief with set_design_brief. The findings also land on the build board so they can read along. Searches take a few seconds — say what you're checking while it runs, and never invent a trend you didn't get back.
+
+## CASTING THE RIGHT MODEL — this is a craft call you OWN
+The machine has a whole stable of image models, each with strengths, cost, and speed — call list_design_models to see them. Cast before you generate:
+- Design has TEXT in it (a phrase, a name, "Class of 2027")? Do NOT use the default fan-out — generalist models garble letters. Go single-model with a typography specialist: ideogram-ai/ideogram-v3-quality (the text specialist) or openai/gpt-image-2 (premium all-rounder with exact text). Pass it as model_id on generate_designs.
+- No text, want variety? The default fan-out (no model_id) paints with four models in parallel — great for picking a direction.
+- Photoreal subject → an Imagen or Flux 2 Pro; logo/vector-flat → Recraft; concept art → Grok Imagine or Lucid Origin. Match strengths from the list; mention cost when the pick is a pricey one.
+- Candidates disappointing? Offer a fresh single-model run with a better-cast model — that's one generate_designs call away.
+- The frontier moves fast: search_replicate finds ANY public Replicate model (new Flux drops, new text specialists). Found something the stable lacks? Tell the admin what it is, and offer to file a Watchtower task to get it registered — search results are discovery, the machine can only RUN registered models.
 
 ## STYLE THINGS RIGHT — your craft knowledge
 - Shirts / DTF: bold shapes, high contrast, limited palettes print best. Push toward designs that survive fabric: strong silhouettes, clean edges, no fine hairline detail, no giant flat backgrounds (transparent cutouts win). Think about the shirt color under the art — dark art dies on black shirts.
@@ -167,6 +176,72 @@ router.post('/research', requireAuth, requireRole(['admin', 'manager']), async (
     const aborted = err instanceof Error && err.name === 'AbortError'
     req.log?.error({ err }, '[ai-realtime] research route failed')
     return res.status(502).json({ error: aborted ? 'Research timed out.' : 'Research is unavailable right now.' })
+  }
+})
+
+/**
+ * GET /api/ai/realtime/models
+ * Admin/manager only. The image-flow registry, trimmed for Mr. Imagine's
+ * model-casting tool: id, label, tier, cost, speed, strengths, notes.
+ */
+router.get('/models', requireAuth, requireRole(['admin', 'manager']), (_req: Request, res: Response) => {
+  res.json({
+    models: MODELS.map((m) => ({
+      id: m.id,
+      label: m.label,
+      tier: m.tier,
+      cost_per_image_usd: m.costPerImageUsd,
+      approx_seconds: m.approxSeconds,
+      strengths: m.strengths,
+      notes: m.notes || undefined,
+    })),
+  })
+})
+
+/**
+ * POST /api/ai/realtime/replicate-search
+ * Admin/manager only. Body: { query }. Searches Replicate's public catalog —
+ * DISCOVERY only; a found model still needs registering in the image-flow
+ * registry before the pipeline can run it.
+ */
+router.post('/replicate-search', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const token = process.env.REPLICATE_API_TOKEN
+    if (!token) return res.status(503).json({ error: 'Replicate is not configured on the server.' })
+    const query = typeof req.body?.query === 'string' ? req.body.query.trim().slice(0, 120) : ''
+    if (!query) return res.status(400).json({ error: 'query is required' })
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15_000)
+    let searchRes: globalThis.Response
+    try {
+      searchRes = await fetch(`https://api.replicate.com/v1/search?query=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+    if (!searchRes.ok) {
+      return res.status(502).json({ error: `Replicate search failed (${searchRes.status}).` })
+    }
+    const data = (await searchRes.json()) as {
+      models?: Array<{ model?: { owner?: string; name?: string; description?: string; run_count?: number } }>
+    }
+    const results = (data.models || [])
+      .map((r) => r.model)
+      .filter((m): m is NonNullable<typeof m> => !!m?.owner && !!m?.name)
+      .slice(0, 8)
+      .map((m) => ({
+        id: `${m.owner}/${m.name}`,
+        description: (m.description || '').slice(0, 200),
+        runs: m.run_count || 0,
+      }))
+    return res.json({ results })
+  } catch (err: unknown) {
+    const aborted = err instanceof Error && err.name === 'AbortError'
+    req.log?.error({ err }, '[ai-realtime] replicate search failed')
+    return res.status(502).json({ error: aborted ? 'Replicate search timed out.' : 'Replicate search is unavailable.' })
   }
 })
 
