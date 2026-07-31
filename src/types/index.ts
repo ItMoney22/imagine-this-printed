@@ -1141,6 +1141,9 @@ export interface AIProductCreationRequest {
   skipImageGeneration?: boolean
   sourceImageDataUrl?: string
   sourceImageMime?: 'image/png' | 'image/jpeg' | 'image/webp'
+  // Metal art panel size → backend metadata.metal_size (drives size-accurate
+  // shelf/wall mockups). Only meaningful when the prompt normalizes to metal-art.
+  metal_size?: '4x6' | '8x10'
   deterministicTextDesign?: {
     phrase: string
     style: string

@@ -64,6 +64,8 @@ import adminProductsRouter from './routes/admin/products.js'
 import shippingRouter from './routes/shipping.js'
 import invoicesRouter from './routes/invoices.js'
 import imageFlowRouter from './routes/image-flow.js'
+import watchtowerRouter from './routes/watchtower.js'
+import aiRealtimeRouter from './routes/ai/realtime.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -188,6 +190,8 @@ app.use('/api/ai/chat', chatRouter)
 app.use('/api/ai/design-assistant', designAssistantRouter)
 app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
+app.use('/api/ai/realtime', aiRealtimeRouter)
+app.use('/api/watchtower', watchtowerRouter)
 app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background, enhance
 app.use('/api/user-products', userProductsRouter)
 app.use('/api/admin/user-products', userProductApprovalsRouter)
