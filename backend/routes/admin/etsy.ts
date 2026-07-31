@@ -16,7 +16,7 @@ import {
   taxonomyIdFor
 } from '../../services/etsy.js'
 import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-composer.js'
-import { startModelShots, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
+import { startModelShots, reshootModelShot, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
 import { supabase } from '../../lib/supabase.js'
 
@@ -150,6 +150,25 @@ router.post('/model-shots/:productId', async (req: Request, res: Response) => {
   } catch (error: any) {
     if (error instanceof ShotCastError) return res.status(400).json({ error: error.message })
     console.error('[etsy] model-shots kickoff failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Recast ONE photo in place, keeping the others (the admin didn't like that
+// model). Body { index, subjects?, custom? } — omit the subject to just get a
+// different person. Same fire-and-forget contract as a full shoot.
+router.post('/model-shots/:productId/reshoot', async (req: Request, res: Response) => {
+  try {
+    const userId = ((req as any).user?.id as string | undefined) || 'admin'
+    const index = Number(req.body?.index)
+    if (!Number.isInteger(index)) return res.status(400).json({ error: 'index is required' })
+    const subjects = Array.isArray(req.body?.subjects) ? req.body.subjects.map(String) : undefined
+    const custom = typeof req.body?.custom === 'string' ? req.body.custom : undefined
+    const state = await reshootModelShot(req.params.productId, userId, index, { subjects, custom })
+    return res.status(202).json({ ok: true, productId: req.params.productId, shots: state })
+  } catch (error: any) {
+    if (error instanceof ShotCastError) return res.status(400).json({ error: error.message })
+    console.error('[etsy] model-shots reshoot failed:', error)
     return res.status(500).json({ error: error.message })
   }
 })
