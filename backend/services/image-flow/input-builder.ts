@@ -121,32 +121,8 @@ export function buildInput(model: ImageModel, opts: BuildInputOpts): Record<stri
       base.size = '1024x1024'
       break
     }
-
-    // --- Edit models on fal ---
-    case 'fal-ai/flux-pro/kontext': {
-      if (refs[0]) base.image_url = refs[0]
-      break
-    }
-    case 'fal-ai/gemini-3-pro-image-preview/edit': {
-      base.image_urls = refs
-      break
-    }
-    case 'fal-ai/bytedance/seedream/v4.5/edit': {
-      base.image_urls = refs
-      break
-    }
     case 'bytedance/seedream-5-lite': {
       if (refs[0]) base.image = refs[0]
-      break
-    }
-
-    // --- BG models ---
-    case 'fal-ai/bria/background/remove': {
-      if (refs[0]) base.image_url = refs[0]
-      break
-    }
-    case 'fal-ai/bria/background/replace': {
-      if (refs[0]) base.image_url = refs[0]
       break
     }
 

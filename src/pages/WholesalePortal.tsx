@@ -1,73 +1,82 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
-import type { WholesaleAccount, WholesaleProduct } from '../types'
+import { useCart } from '../context/CartContext'
+import { apiFetch } from '../lib/api'
+import type { WholesaleProduct } from '../types'
+
+// Real account shape returned by GET /api/wholesale/account (backend/routes/wholesale.ts).
+// Deliberately NOT the fabricated src/types WholesaleAccount interface — that
+// type carries fields (businessLicense, notes, documents, approvedBy, ...)
+// nothing real backs yet, and re-fitting a real lookup into a shape built for
+// mock data would just reintroduce fake-looking fields under a new name.
+export interface RealWholesaleAccount {
+  companyName: string
+  businessType: string | null
+  taxId: string | null
+  tier: 'bronze' | 'silver' | 'gold' | 'platinum'
+  discountRate: number
+  creditLimit: number
+  paymentTerms: number
+  totalOrders: number
+  totalSpent: number
+  averageOrderValue: number
+  lastOrderDate: string | null
+  contactEmail: string | null
+  contactPhone: string | null
+  recentOrders: Array<{ id: string; orderNumber: string; total: number; status: string; date: string }>
+}
+
+interface WholesaleApplicationInfo {
+  id: string
+  company_name: string
+  business_type: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  rejection_reason: string | null
+}
+
+type PortalStatus = 'loading' | 'not_applied' | 'pending' | 'rejected' | 'approved'
 
 const WholesalePortal: React.FC = () => {
   const { user } = useAuth()
   const [selectedTab, setSelectedTab] = useState<'dashboard' | 'products' | 'orders' | 'vendors' | 'account' | 'apply'>('dashboard')
-  const [isLoading, setIsLoading] = useState(true)
-  const [wholesaleAccount, setWholesaleAccount] = useState<WholesaleAccount | null>(null)
+  const [portalStatus, setPortalStatus] = useState<PortalStatus>('loading')
+  const [wholesaleAccount, setWholesaleAccount] = useState<RealWholesaleAccount | null>(null)
+  const [application, setApplication] = useState<WholesaleApplicationInfo | null>(null)
 
   useEffect(() => {
-    // Check if user has wholesale access or needs to apply
     checkWholesaleAccess()
   }, [user])
 
   const checkWholesaleAccess = async () => {
-    setIsLoading(true)
+    if (!user) {
+      setPortalStatus('not_applied')
+      return
+    }
+    setPortalStatus('loading')
     try {
-      // Mock check - in real app, this would query the database
-      if (user?.role === 'wholesale') {
-        // User has wholesale access, load their account
-        const mockAccount: WholesaleAccount = {
-          id: 'ws_account_1',
-          userId: user.id,
-          companyName: (user as any).companyName || 'ABC Retail Inc.',
-          businessType: 'retailer',
-          taxId: '12-3456789',
-          address: {
-            company: 'ABC Retail Inc.',
-            address1: '123 Business St',
-            city: 'Business City',
-            state: 'CA',
-            zip: '90210',
-            country: 'US',
-            phone: '(555) 123-4567',
-            email: 'wholesale@abcretail.com'
-          },
-          contactPerson: {
-            firstName: (user as any).firstName || 'John',
-            lastName: (user as any).lastName || 'Doe',
-            title: 'Purchasing Manager',
-            email: user.email || '',
-            phone: '(555) 123-4567'
-          },
-          tier: (user as any).wholesaleTier || 'bronze',
-          status: (user as any).wholesaleStatus || 'approved',
-          creditLimit: (user as any).creditLimit || 10000,
-          paymentTerms: (user as any).paymentTerms || 30,
-          discountRate: 0.15,
-          totalOrders: 45,
-          totalSpent: 87500.50,
-          averageOrderValue: 1944.45,
-          lastOrderDate: '2025-01-10T10:30:00Z',
-          registrationDate: '2024-06-15T00:00:00Z',
-          approvedDate: '2024-06-18T00:00:00Z',
-          approvedBy: 'admin_user',
-          notes: ['Excellent payment history', 'High volume customer'],
-          documents: []
-        }
-        setWholesaleAccount(mockAccount)
+      const result = await apiFetch('/api/wholesale/account')
+      if (result.status === 'approved') {
+        setWholesaleAccount(result.account)
+        setPortalStatus('approved')
+        setSelectedTab('dashboard')
+      } else if (result.status === 'pending' || result.status === 'rejected') {
+        setApplication(result.application)
+        setPortalStatus(result.status)
+        setSelectedTab('apply')
       } else {
-        // User needs to apply for wholesale access
+        setPortalStatus('not_applied')
         setSelectedTab('apply')
       }
     } catch (error) {
       console.error('Error checking wholesale access:', error)
-    } finally {
-      setIsLoading(false)
+      setPortalStatus('not_applied')
+      setSelectedTab('apply')
     }
   }
+
+  const isLoading = portalStatus === 'loading'
 
   if (!user) {
     return (
@@ -89,13 +98,14 @@ const WholesalePortal: React.FC = () => {
     )
   }
 
+  const isApproved = portalStatus === 'approved'
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊', available: !!wholesaleAccount },
-    { id: 'products', label: 'Products', icon: '📦', available: !!wholesaleAccount },
-    { id: 'orders', label: 'Orders', icon: '📋', available: !!wholesaleAccount },
-    { id: 'vendors', label: 'Vendors', icon: '🏢', available: !!wholesaleAccount },
-    { id: 'account', label: 'Account', icon: '⚙️', available: !!wholesaleAccount },
-    { id: 'apply', label: 'Apply', icon: '📝', available: !wholesaleAccount }
+    { id: 'dashboard', label: 'Dashboard', icon: '📊', available: isApproved },
+    { id: 'products', label: 'Products', icon: '📦', available: isApproved },
+    { id: 'orders', label: 'Orders', icon: '📋', available: isApproved },
+    { id: 'vendors', label: 'Vendors', icon: '🏢', available: isApproved },
+    { id: 'account', label: 'Account', icon: '⚙️', available: isApproved },
+    { id: 'apply', label: 'Apply', icon: '📝', available: !isApproved }
   ].filter(tab => tab.available)
 
   return (
@@ -104,9 +114,13 @@ const WholesalePortal: React.FC = () => {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-text mb-2">Wholesale Portal</h1>
         <p className="text-muted">
-          {wholesaleAccount 
-            ? `Welcome back, ${wholesaleAccount.companyName}` 
-            : 'Apply for wholesale access to unlock exclusive pricing and features'
+          {wholesaleAccount
+            ? `Welcome back, ${wholesaleAccount.companyName}`
+            : portalStatus === 'pending'
+              ? 'Your wholesale application is under review'
+              : portalStatus === 'rejected'
+                ? 'Your wholesale application was not approved'
+                : 'Apply for wholesale access to unlock exclusive pricing and features'
           }
         </p>
       </div>
@@ -179,18 +193,50 @@ const WholesalePortal: React.FC = () => {
         <WholesaleAccount account={wholesaleAccount} />
       )}
 
-      {selectedTab === 'apply' && !wholesaleAccount && (
-        <WholesaleApplication onApplicationSubmit={() => {
-          // Handle application submission
-          alert('Application submitted! We will review your application within 2-3 business days.')
-        }} />
+      {selectedTab === 'apply' && !isApproved && (
+        <WholesaleApplication
+          status={portalStatus === 'pending' || portalStatus === 'rejected' ? portalStatus : 'not_applied'}
+          application={application}
+          onApplicationSubmit={() => {
+            // Re-check status instead of assuming approval — the application
+            // is now 'pending' server-side, so this just re-fetches and lets
+            // the pending-state UI below take over (no more alert()).
+            checkWholesaleAccess()
+          }}
+        />
       )}
     </div>
   )
 }
 
 // Dashboard Component
-const WholesaleDashboard: React.FC<{ account: WholesaleAccount; onTabChange: (tab: string) => void }> = ({ account, onTabChange }) => {
+const WholesaleDashboard: React.FC<{ account: RealWholesaleAccount; onTabChange: (tab: string) => void }> = ({ account, onTabChange }) => {
+  const navigate = useNavigate()
+  const { addToCart } = useCart()
+  const [isReordering, setIsReordering] = useState(false)
+  const [reorderError, setReorderError] = useState<string | null>(null)
+
+  const handleQuickReorder = async () => {
+    setIsReordering(true)
+    setReorderError(null)
+    try {
+      const result = await apiFetch('/api/wholesale/reorder', { method: 'POST' })
+      const items: Array<{ product: any; quantity: number; selectedSize?: string; selectedColor?: string }> = result.items || []
+      if (items.length === 0) {
+        setReorderError('No previous order items are still available to reorder.')
+        return
+      }
+      items.forEach(item => {
+        addToCart(item.product, item.quantity, item.selectedSize, item.selectedColor)
+      })
+      navigate('/cart')
+    } catch (error: any) {
+      console.error('Quick reorder failed:', error)
+      setReorderError(error.message || 'Could not reorder — please try again.')
+    } finally {
+      setIsReordering(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -267,30 +313,30 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount; onTabChange: (ta
           </div>
         </div>
         <div className="p-6">
-          <div className="space-y-4">
-            {[
-              { id: 'WO-2025-001', date: '2025-01-10', items: 25, total: 2450.00, status: 'delivered' },
-              { id: 'WO-2025-002', date: '2025-01-08', items: 12, total: 1320.00, status: 'shipped' },
-              { id: 'WO-2025-003', date: '2025-01-05', items: 35, total: 3850.00, status: 'processing' }
-            ].map((order) => (
-              <div key={order.id} className="flex items-center justify-between p-4 bg-card rounded-lg">
-                <div>
-                  <p className="font-medium text-text">{order.id}</p>
-                  <p className="text-sm text-muted">{new Date(order.date).toLocaleDateString()} • {order.items} items</p>
+          {account.recentOrders.length === 0 ? (
+            <p className="text-muted text-sm">No orders yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {account.recentOrders.map((order) => (
+                <div key={order.id} className="flex items-center justify-between p-4 bg-card rounded-lg">
+                  <div>
+                    <p className="font-medium text-text">{order.orderNumber}</p>
+                    <p className="text-sm text-muted">{new Date(order.date).toLocaleDateString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-text">${order.total.toLocaleString()}</p>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      order.status === 'delivered' ? 'bg-green-100 text-green-800' :
+                      order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {order.status}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-medium text-text">${order.total.toLocaleString()}</p>
-                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                    order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                    order.status === 'shipped' ? 'bg-blue-100 text-blue-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {order.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -309,10 +355,17 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount; onTabChange: (ta
 
         <div className="bg-card rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-text mb-4">Place Quick Order</h3>
-          <p className="text-muted mb-4">Reorder your most popular items quickly</p>
-          <button className="btn-secondary w-full">
-            Quick Reorder
+          <p className="text-muted mb-4">Re-add the items from your most recent order</p>
+          <button
+            onClick={handleQuickReorder}
+            disabled={isReordering}
+            className="btn-secondary w-full disabled:opacity-60"
+          >
+            {isReordering ? 'Adding to cart…' : 'Quick Reorder'}
           </button>
+          {reorderError && (
+            <p className="text-red-600 text-xs mt-2">{reorderError}</p>
+          )}
         </div>
 
         <div className="bg-card rounded-lg shadow p-6">
@@ -331,7 +384,7 @@ const WholesaleDashboard: React.FC<{ account: WholesaleAccount; onTabChange: (ta
 }
 
 // Products Component
-const WholesaleProducts: React.FC<{ account: WholesaleAccount }> = ({ account }) => {
+const WholesaleProducts: React.FC<{ account: RealWholesaleAccount }> = ({ account }) => {
   const [products] = useState<WholesaleProduct[]>([
     {
       id: 'wp_1',
@@ -467,7 +520,7 @@ const WholesaleProducts: React.FC<{ account: WholesaleAccount }> = ({ account })
 }
 
 // Placeholder components for other tabs
-const WholesaleOrders: React.FC<{ account: WholesaleAccount }> = () => (
+const WholesaleOrders: React.FC<{ account: RealWholesaleAccount }> = () => (
   <div className="bg-card rounded-lg shadow p-6">
     <h3 className="text-lg font-medium text-text mb-4">Order Management</h3>
     <p className="text-muted">Order management interface will be implemented here.</p>
@@ -481,46 +534,168 @@ const WholesaleVendors: React.FC = () => (
   </div>
 )
 
-const WholesaleAccount: React.FC<{ account: WholesaleAccount }> = () => (
+const WholesaleAccount: React.FC<{ account: RealWholesaleAccount }> = () => (
   <div className="bg-card rounded-lg shadow p-6">
     <h3 className="text-lg font-medium text-text mb-4">Account Settings</h3>
     <p className="text-muted">Account management interface will be implemented here.</p>
   </div>
 )
 
-const WholesaleApplication: React.FC<{ onApplicationSubmit: () => void }> = ({ onApplicationSubmit }) => (
-  <div className="bg-card rounded-lg shadow p-6">
-    <h3 className="text-lg font-medium text-text mb-4">Apply for Wholesale Access</h3>
-    <p className="text-muted mb-6">
-      Join our wholesale program to access exclusive pricing, bulk discounts, and priority support.
-    </p>
-    
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div>
-        <label className="block text-sm font-medium text-text mb-2">Company Name</label>
-        <input type="text" className="form-input w-full" />
+const WholesaleApplication: React.FC<{
+  status: 'not_applied' | 'pending' | 'rejected'
+  application: WholesaleApplicationInfo | null
+  onApplicationSubmit: () => void
+}> = ({ status, application, onApplicationSubmit }) => {
+  const [companyName, setCompanyName] = useState('')
+  const [businessType, setBusinessType] = useState('')
+  const [taxId, setTaxId] = useState('')
+  const [contactFirstName, setContactFirstName] = useState('')
+  const [contactLastName, setContactLastName] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // An application already under review — nothing to submit, just show status.
+  if (status === 'pending' && application) {
+    return (
+      <div className="bg-card rounded-lg shadow p-6">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">⏳</span>
+          <div>
+            <h3 className="text-lg font-medium text-text mb-1">Application Under Review</h3>
+            <p className="text-muted mb-1">
+              Your application for <strong>{application.company_name}</strong> was submitted on{' '}
+              {new Date(application.created_at).toLocaleDateString()}.
+            </p>
+            <p className="text-muted text-sm">We typically respond within 2-3 business days.</p>
+          </div>
+        </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-text mb-2">Business Type</label>
-        <select className="form-select w-full">
-          <option>Select...</option>
-          <option>Retailer</option>
-          <option>Distributor</option>
-          <option>Reseller</option>
-          <option>Manufacturer</option>
-        </select>
+    )
+  }
+
+  const handleSubmit = async () => {
+    setSubmitError(null)
+    if (!companyName.trim() || !businessType) {
+      setSubmitError('Company name and business type are required.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await apiFetch('/api/wholesale/apply', {
+        method: 'POST',
+        body: JSON.stringify({
+          companyName,
+          businessType,
+          taxId: taxId || undefined,
+          contactFirstName: contactFirstName || undefined,
+          contactLastName: contactLastName || undefined,
+          contactPhone: contactPhone || undefined
+        })
+      })
+      onApplicationSubmit()
+    } catch (error: any) {
+      setSubmitError(error.message || 'Failed to submit application — please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="bg-card rounded-lg shadow p-6">
+      <h3 className="text-lg font-medium text-text mb-4">Apply for Wholesale Access</h3>
+
+      {status === 'rejected' && application && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-800 font-medium">Your previous application was not approved.</p>
+          {application.rejection_reason && (
+            <p className="text-red-700 text-sm mt-1">{application.rejection_reason}</p>
+          )}
+          <p className="text-red-700 text-sm mt-1">You're welcome to submit a new application below.</p>
+        </div>
+      )}
+
+      <p className="text-muted mb-6">
+        Join our wholesale program to access exclusive pricing, bulk discounts, and priority support.
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label className="block text-sm font-medium text-text mb-2">Company Name *</label>
+          <input
+            type="text"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            className="form-input w-full"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text mb-2">Business Type *</label>
+          <select
+            value={businessType}
+            onChange={(e) => setBusinessType(e.target.value)}
+            className="form-select w-full"
+          >
+            <option value="">Select...</option>
+            <option value="retailer">Retailer</option>
+            <option value="distributor">Distributor</option>
+            <option value="reseller">Reseller</option>
+            <option value="manufacturer">Manufacturer</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text mb-2">Tax ID</label>
+          <input
+            type="text"
+            value={taxId}
+            onChange={(e) => setTaxId(e.target.value)}
+            className="form-input w-full"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text mb-2">Contact Phone</label>
+          <input
+            type="text"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            className="form-input w-full"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text mb-2">First Name</label>
+          <input
+            type="text"
+            value={contactFirstName}
+            onChange={(e) => setContactFirstName(e.target.value)}
+            className="form-input w-full"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text mb-2">Last Name</label>
+          <input
+            type="text"
+            value={contactLastName}
+            onChange={(e) => setContactLastName(e.target.value)}
+            className="form-input w-full"
+          />
+        </div>
+      </div>
+
+      {submitError && (
+        <p className="text-red-600 text-sm mt-4">{submitError}</p>
+      )}
+
+      <div className="mt-6">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="btn-primary disabled:opacity-60"
+        >
+          {submitting ? 'Submitting…' : 'Submit Application'}
+        </button>
       </div>
     </div>
-    
-    <div className="mt-6">
-      <button
-        onClick={onApplicationSubmit}
-        className="btn-primary"
-      >
-        Submit Application
-      </button>
-    </div>
-  </div>
-)
+  )
+}
 
 export default WholesalePortal

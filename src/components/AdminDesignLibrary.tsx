@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt } from 'lucide-react'
+import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt, AlertTriangle, Unlock } from 'lucide-react'
 import api, { aiProducts } from '../lib/api'
 
 interface Collection {
@@ -10,6 +10,19 @@ interface Collection {
   total: number
 }
 
+// Computed server-side from the print type's minDPI — see
+// backend/services/design-library-quality.ts. The threshold deliberately does
+// not live in the frontend, so raising minDPI cannot leave this grid disagreeing
+// with the endpoint that actually blocks activation.
+interface PrintCheck {
+  ok: boolean
+  code: 'ok' | 'too_small' | 'unmeasured'
+  reason: string
+  short_edge_px: number | null
+  required_px: number
+  min_dpi: number
+}
+
 interface LibraryProduct {
   id: string
   name: string
@@ -17,6 +30,16 @@ interface LibraryProduct {
   price: number
   status: string
   images: string[]
+  print_check?: PrintCheck
+  quarantine?: { reason?: string; released_at?: string; override_reason?: string } | null
+  can_activate?: boolean
+}
+
+interface BlockedDesign {
+  id: string
+  name: string | null
+  reason: string
+  code: string
 }
 
 export default function AdminDesignLibrary() {
@@ -33,11 +56,15 @@ export default function AdminDesignLibrary() {
   const [mockupRun, setMockupRun] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState<BlockedDesign[]>([])
 
   const flash = (msg: string) => {
     setNotice(msg)
     setTimeout(() => setNotice(null), 5000)
   }
+
+  const blockedProducts = products.filter(p => p.can_activate === false)
+  const checkedBlocked = blockedProducts.filter(p => checked.has(p.id))
 
   const fetchCollections = async () => {
     try {
@@ -82,15 +109,46 @@ export default function AdminDesignLibrary() {
     try {
       setBusy(true)
       setError(null)
+      setBlocked([])
       const response = await api.post('/api/admin/design-library/set-status', {
         status,
         ...(ids?.length ? { product_ids: ids } : { collection: selected })
       })
+      setBlocked(response.data.blocked || [])
       flash(`${response.data.updated} design(s) → ${status}. ${response.data.note}`)
       fetchCollections()
       fetchProducts(selected, statusFilter, offset)
     } catch (err: any) {
+      // 422 = every candidate was below print quality. The reasons come back
+      // with it — showing them is the whole point of the block.
+      setBlocked(err.response?.data?.blocked || [])
       setError(err.response?.data?.error || 'Failed to update status')
+      fetchProducts(selected, statusFilter, offset)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Reversible quarantine: an admin who knows a design will only ever be sold
+  // small can let it through, and the override is stored next to the original
+  // reason rather than erasing it.
+  const releaseQuarantine = async () => {
+    const ids = checkedBlocked.map(p => p.id)
+    if (!ids.length || !selected) return
+    const reason = window.prompt(
+      `Release ${ids.length} design(s) from the low-resolution block?\n\n` +
+      'They will print blurry at full size. Say why this is acceptable — it is stored on the product.'
+    )
+    if (!reason || reason.trim().length < 4) return
+    try {
+      setBusy(true)
+      setError(null)
+      const response = await api.post('/api/admin/design-library/quarantine/release', { product_ids: ids, reason })
+      setBlocked([])
+      flash(`${response.data.released} design(s) released. ${response.data.note}`)
+      fetchProducts(selected, statusFilter, offset)
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to release quarantine')
     } finally {
       setBusy(false)
     }
@@ -171,6 +229,23 @@ export default function AdminDesignLibrary() {
         {error && <div className="text-sm text-red-600 mb-3">{error}</div>}
         {notice && <div className="text-sm text-emerald-600 mb-3">{notice}</div>}
 
+        {blocked.length > 0 && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-2">
+              <AlertTriangle className="w-4 h-4" />
+              {blocked.length} design(s) held back — too low-resolution to print
+            </div>
+            <ul className="space-y-1 max-h-40 overflow-y-auto">
+              {blocked.map(b => (
+                <li key={b.id} className="text-xs text-red-700">
+                  <span className="font-medium">{b.name || b.id}</span> — {b.reason}
+                </li>
+              ))}
+            </ul>
+            <button onClick={() => setBlocked([])} className="mt-2 text-xs text-red-600 underline">Dismiss</button>
+          </div>
+        )}
+
         {!selected ? (
           <div className="text-slate-500 text-sm py-16 text-center">
             Pick a collection to review its designs. Activate a whole collection or hand-pick designs to go live.
@@ -207,6 +282,13 @@ export default function AdminDesignLibrary() {
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50">
                       <EyeOff className="w-4 h-4" /> Draft {checked.size}
                     </button>
+                    {checkedBlocked.length > 0 && (
+                      <button onClick={releaseQuarantine} disabled={busy || !!mockupRun}
+                        title="Override the low-resolution block for the selected designs"
+                        className="flex items-center gap-1.5 px-3 py-2 text-sm bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 disabled:opacity-50">
+                        <Unlock className="w-4 h-4" /> Release {checkedBlocked.length}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>
@@ -237,6 +319,19 @@ export default function AdminDesignLibrary() {
                         {p.images?.[0] && <img src={p.images[0]} alt={p.name} loading="lazy" className="max-w-full max-h-full object-contain" />}
                       </div>
                       <div className="text-xs font-medium text-slate-800 truncate" title={p.name}>{p.name}</div>
+                      {p.can_activate === false && p.print_check && (
+                        <div title={p.print_check.reason}
+                          className="mt-1 flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          {p.print_check.code === 'unmeasured' ? 'NOT MEASURED' : 'TOO SMALL TO PRINT'}
+                        </div>
+                      )}
+                      {p.quarantine?.released_at && (
+                        <div title={`Override: ${p.quarantine.override_reason || ''}`}
+                          className="mt-1 flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                          <Unlock className="w-3 h-3 shrink-0" /> LOW-RES, RELEASED
+                        </div>
+                      )}
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-xs text-slate-400">${Number(p.price).toFixed(2)}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
@@ -247,7 +342,12 @@ export default function AdminDesignLibrary() {
                   ))}
                 </div>
                 <div className="flex items-center justify-between mt-4 text-sm text-slate-500">
-                  <span>{total} design(s){checked.size > 0 ? ` · ${checked.size} selected` : ''}</span>
+                  <span>
+                    {total} design(s){checked.size > 0 ? ` · ${checked.size} selected` : ''}
+                    {blockedProducts.length > 0 && (
+                      <span className="text-red-600"> · {blockedProducts.length} on this page blocked from going live</span>
+                    )}
+                  </span>
                   <div className="flex items-center gap-2">
                     <button disabled={offset === 0}
                       onClick={() => selected && fetchProducts(selected, statusFilter, Math.max(0, offset - pageSize))}

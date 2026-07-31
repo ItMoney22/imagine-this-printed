@@ -45,6 +45,8 @@ CREATE TABLE public.user_profiles (
 );
 
 -- User wallets table (MISSING from DEPLOYMENT.md - CRITICAL)
+-- NOTE: no last_itc_activity — live column is updated_at, not last_itc_activity.
+-- See supabase/migrations/20260727_fix_itc_wallet_schema_drift.sql.
 CREATE TABLE public.user_wallets (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   points_balance INTEGER DEFAULT 0,
@@ -52,7 +54,6 @@ CREATE TABLE public.user_wallets (
   lifetime_points_earned INTEGER DEFAULT 0,
   lifetime_itc_earned DECIMAL DEFAULT 0.00,
   last_points_activity TIMESTAMP WITH TIME ZONE,
-  last_itc_activity TIMESTAMP WITH TIME ZONE,
   wallet_status TEXT DEFAULT 'active',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -76,21 +77,20 @@ CREATE TABLE public.points_transactions (
 );
 
 -- ITC transactions table (MISSING from DEPLOYMENT.md - CRITICAL)
+-- Live shape (verified via information_schema, corroborated independently by
+-- backend/utils/wallet-logger.ts:71-72 and commit 6299315's 13-site ledger-drift
+-- fix): id, user_id, type, amount, balance_after, reference, metadata, created_at.
+-- No usd_value/exchange_rate/reason/payment_intent_id/transaction_hash/
+-- reference_id/status/processed_at — see
+-- supabase/migrations/20260727_fix_itc_wallet_schema_drift.sql.
 CREATE TABLE public.itc_transactions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   type TEXT NOT NULL, -- 'purchase', 'reward', 'redemption', 'usage', 'transfer', 'refund'
   amount DECIMAL NOT NULL, -- Can be negative for usage/redemptions
   balance_after DECIMAL NOT NULL,
-  usd_value DECIMAL, -- USD equivalent at time of transaction
-  exchange_rate DECIMAL DEFAULT 0.10, -- ITC to USD rate
-  reason TEXT NOT NULL,
-  payment_intent_id TEXT, -- For Stripe payments
-  transaction_hash TEXT, -- For potential blockchain integration
-  reference_id UUID, -- Reference to order, product, etc.
+  reference TEXT, -- free-text reference/reason; see backend/utils/wallet-logger.ts
   metadata JSONB DEFAULT '{}',
-  status TEXT DEFAULT 'completed', -- 'pending', 'completed', 'failed', 'refunded'
-  processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -794,10 +794,10 @@ BEGIN
   END IF;
   
   IF NEW.type LIKE '%itc%' OR NEW.type IN ('purchase', 'reward', 'redemption', 'usage', 'transfer') THEN
-    UPDATE public.user_wallets 
-    SET 
+    -- No last_itc_activity column live — updated_at already covers "last activity".
+    UPDATE public.user_wallets
+    SET
       itc_balance = NEW.balance_after,
-      last_itc_activity = NEW.created_at,
       updated_at = NOW()
     WHERE user_id = NEW.user_id;
   END IF;
@@ -816,6 +816,53 @@ CREATE TRIGGER create_user_wallet_trigger
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION create_user_wallet();
+
+-- ==========================================
+-- SECURITY: prevent role self-escalation
+-- ==========================================
+-- "Users can update own profile" above (FOR UPDATE USING (auth.uid() = id))
+-- has no WITH CHECK, so its implicit check only re-asserts auth.uid() = id --
+-- it does not constrain which columns may change. Without this trigger, any
+-- authenticated user could run
+-- supabase.from('user_profiles').update({ role: 'admin' }).eq('id', auth.uid())
+-- and self-promote. This mirrors supabase/migrations/20260727_prevent_role_self_escalation.sql;
+-- see that file for the full writeup. create_user_profile() above already
+-- hardcodes role to 'customer' and ignores signup metadata, so no change is
+-- needed there.
+CREATE OR REPLACE FUNCTION public.enforce_user_profile_role_immutable()
+RETURNS TRIGGER AS $$
+DECLARE
+  caller_role TEXT;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.role IS NOT DISTINCT FROM OLD.role THEN
+    RETURN NEW;
+  END IF;
+
+  -- Server-side connections (service role key) may always set role.
+  IF auth.role() = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+
+  -- A caller who already holds admin/founder may change any user's role.
+  SELECT role INTO caller_role FROM public.user_profiles WHERE id = auth.uid();
+  IF caller_role IN ('admin', 'founder') THEN
+    RETURN NEW;
+  END IF;
+
+  -- Non-privileged caller inserting their own profile: force a safe default.
+  IF TG_OP = 'INSERT' THEN
+    NEW.role := 'customer';
+    RETURN NEW;
+  END IF;
+
+  -- Non-privileged caller attempting to change role via UPDATE: reject.
+  RAISE EXCEPTION 'permission denied: role cannot be changed by this user';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+CREATE TRIGGER enforce_user_profile_role_immutable_trigger
+  BEFORE INSERT OR UPDATE ON public.user_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_user_profile_role_immutable();
 
 -- Triggers for wallet balance updates
 CREATE TRIGGER update_wallet_balance_points_trigger

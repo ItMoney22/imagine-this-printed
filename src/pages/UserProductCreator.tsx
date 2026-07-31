@@ -8,6 +8,7 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { TrendingPrompts } from '../components/TrendingPrompts'
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
+import { API_BASE } from '../lib/api'
 
 // Design session interface
 interface DesignSession {
@@ -174,7 +175,7 @@ export const UserProductCreator = () => {
                 const token = session?.access_token
                 if (!token) return
 
-                const { data } = await axios.get('/api/user-products/design-sessions/drafts', {
+                const { data } = await axios.get(`${API_BASE}/api/user-products/design-sessions/drafts`, {
                     headers: { Authorization: `Bearer ${token}` }
                 })
 
@@ -208,12 +209,12 @@ export const UserProductCreator = () => {
 
             if (currentSessionId) {
                 // Update existing session
-                await axios.patch(`/api/user-products/design-sessions/${currentSessionId}`, sessionData, {
+                await axios.patch(`${API_BASE}/api/user-products/design-sessions/${currentSessionId}`, sessionData, {
                     headers: { Authorization: `Bearer ${token}` }
                 })
             } else if (formData.prompt) {
                 // Create new session only if we have a prompt
-                const { data } = await axios.post('/api/user-products/design-sessions', sessionData, {
+                const { data } = await axios.post(`${API_BASE}/api/user-products/design-sessions`, sessionData, {
                     headers: { Authorization: `Bearer ${token}` }
                 })
                 setCurrentSessionId(data.session.id)
@@ -437,14 +438,14 @@ export const UserProductCreator = () => {
 
             if (!token) throw new Error('Authentication required')
 
-            const { data } = await axios.post('/api/user-products/create', {
+            const { data } = await axios.post(`${API_BASE}/api/user-products/create`, {
                 prompt: formData.prompt,
                 imageStyle: formData.imageStyle,
                 shirtColor: color,
                 printStyle: 'dtf',
                 productType: 'tshirt',
                 printPlacement: 'front-center',
-                modelId: 'black-forest-labs/flux-1.1-pro-ultra' // Flux only
+                modelId: 'black-forest-labs/flux-2-pro' // Flux only
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             })
@@ -478,7 +479,7 @@ export const UserProductCreator = () => {
                 const { data: { session } } = await supabase.auth.getSession()
                 const token = session?.access_token
 
-                const { data } = await axios.get(`/api/user-products/${productId}/status`, {
+                const { data } = await axios.get(`${API_BASE}/api/user-products/${productId}/status`, {
                     headers: token ? { Authorization: `Bearer ${token}` } : {}
                 })
 
@@ -1037,14 +1038,14 @@ export const UserProductCreator = () => {
                                         const token = session?.access_token
 
                                         // Step 1: Select the image (triggers mockup generation)
-                                        await axios.post(`/api/user-products/${productId}/select-image`, {
+                                        await axios.post(`${API_BASE}/api/user-products/${productId}/select-image`, {
                                             selectedAssetId: selectedImageId
                                         }, {
                                             headers: { Authorization: `Bearer ${token}` }
                                         })
 
                                         // Step 2: Submit for approval
-                                        await axios.post(`/api/user-products/${productId}/submit-for-approval`, {}, {
+                                        await axios.post(`${API_BASE}/api/user-products/${productId}/submit-for-approval`, {}, {
                                             headers: { Authorization: `Bearer ${token}` }
                                         })
 

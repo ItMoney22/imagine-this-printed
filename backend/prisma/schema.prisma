@@ -63,6 +63,10 @@ model UserProfile {
   @@map("user_profiles")
 }
 
+// NOTE: no per-ITC-activity timestamp field — the live table only tracks
+// wallet activity via updated_at. See
+// supabase/migrations/20260727_fix_itc_wallet_schema_drift.sql for the column
+// this replaces.
 model UserWallet {
   userId                String    @id @map("user_id")
   pointsBalance         Int       @default(0) @map("points_balance")
@@ -70,14 +74,13 @@ model UserWallet {
   lifetimePointsEarned  Int       @default(0) @map("lifetime_points_earned")
   lifetimeItcEarned     Decimal   @default(0.00) @map("lifetime_itc_earned")
   lastPointsActivity    DateTime? @map("last_points_activity")
-  lastItcActivity       DateTime? @map("last_itc_activity")
   walletStatus          String    @default("active") @map("wallet_status")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
-  
+
   // Relations
   user                  UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@map("user_wallets")
 }
 
@@ -101,26 +104,25 @@ model PointsTransaction {
   @@map("points_transactions")
 }
 
+// Live shape (verified via information_schema, corroborated independently by
+// backend/utils/wallet-logger.ts:71-72 and commit 6299315's 13-site ledger-drift
+// fix): id, user_id, type, amount, balance_after, reference, metadata, created_at.
+// No usd_value/exchange_rate/reason/payment_intent_id/transaction_hash/
+// reference_id/status/processed_at — see
+// supabase/migrations/20260727_fix_itc_wallet_schema_drift.sql.
 model ItcTransaction {
   id                String    @id @default(uuid())
   userId            String    @map("user_id")
   type              String    // 'purchase', 'reward', 'redemption', 'usage', 'transfer', 'refund'
   amount            Decimal   // Can be negative for usage/redemptions
   balanceAfter      Decimal   @map("balance_after")
-  usdValue          Decimal?  @map("usd_value")
-  exchangeRate      Decimal   @default(0.10) @map("exchange_rate")
-  reason            String
-  paymentIntentId   String?   @map("payment_intent_id")
-  transactionHash   String?   @map("transaction_hash")
-  referenceId       String?   @map("reference_id")
+  reference         String?   // free-text reference/reason; see backend/utils/wallet-logger.ts
   metadata          Json      @default("{}")
-  status            String    @default("completed") // 'pending', 'completed', 'failed', 'refunded'
-  processedAt       DateTime  @default(now()) @map("processed_at")
   createdAt         DateTime  @default(now()) @map("created_at")
-  
+
   // Relations
   user              UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@map("itc_transactions")
 }
 
@@ -445,7 +447,10 @@ model Kiosk {
 
 model CostVariable {
   id                       String    @id @default(uuid())
-  managerId                String    @map("manager_id")
+  // One row per manager — mirrors the live cost_variables_manager_id_key unique
+  // index, which is what makes upsert(onConflict: 'manager_id') resolve to an
+  // UPDATE instead of piling up a new row on every save.
+  managerId                String    @unique @map("manager_id")
   locationId               String?   @map("location_id")
   locationName             String?   @map("location_name")
   filamentPricePerGram     Decimal   @map("filament_price_per_gram")

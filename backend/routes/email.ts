@@ -22,6 +22,7 @@ import {
   type InboundEmailData,
 } from '../services/email-resend.js';
 import { uploadFile } from '../services/gcs-storage.js';
+import { listSuppressions, recordSuppression } from '../services/email-suppression.js';
 
 const router = Router();
 
@@ -1021,6 +1022,209 @@ async function forwardInbound(input: ForwardInput): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Delivery-event webhook handling (Resend email.delivered / .bounced /
+// .complained / .opened / .clicked / .failed)
+//
+// These land on the SAME endpoint as email.received. They carry the Resend
+// email id, which is what we already store as email_logs.message_id (template
+// sends, via sendEmailWithTracking) and email_messages.resend_id (mail composed
+// in the admin inbox) — so the id is the join key back to the send record.
+//
+// Hard bounces and spam complaints additionally go on the suppression list so
+// sendEmailWithTracking stops mailing that address at all.
+// ---------------------------------------------------------------------------
+
+interface ResendBounceInfo { message?: string; subType?: string; type?: string }
+
+interface ResendDeliveryData {
+  email_id?: string;
+  id?: string;
+  from?: string;
+  to?: string[] | string;
+  subject?: string;
+  created_at?: string;
+  bounce?: ResendBounceInfo;
+  click?: { link?: string; timestamp?: string };
+  failed?: { reason?: string };
+}
+
+const DELIVERY_EVENT_TYPES = new Set([
+  'email.delivered',
+  'email.bounced',
+  'email.complained',
+  'email.opened',
+  'email.clicked',
+  'email.failed',
+]);
+
+/**
+ * A bounce is only worth suppressing when the provider says it is PERMANENT.
+ * Transient bounces (full mailbox, greylisting, temporary DNS) resolve on their
+ * own, and an unclassified bounce is not evidence enough to cut a paying
+ * customer off from their order emails — those are logged, never suppressed.
+ */
+function isPermanentBounce(bounce: ResendBounceInfo | undefined): boolean {
+  return String(bounce?.type || '').toLowerCase() === 'permanent';
+}
+
+function describeBounce(bounce: ResendBounceInfo | undefined): string {
+  const parts = [bounce?.type, bounce?.subType].filter(Boolean).join('/');
+  const message = bounce?.message?.trim();
+  if (parts && message) return `${parts}: ${message}`;
+  return message || parts || 'Email could not be delivered';
+}
+
+async function handleResendDeliveryEvent(
+  eventType: string,
+  event: Record<string, any>,
+  svixId: string | null
+): Promise<Record<string, unknown>> {
+  const data: ResendDeliveryData = event?.data || {};
+  const emailId = data.email_id || data.id || null;
+  if (!emailId) return { received: true, type: eventType, ignored: 'no email_id' };
+
+  // Resend webhooks are ACCOUNT-wide: other products on the same Resend account
+  // deliver here too. Only act on mail we actually sent.
+  const fromAddress = parseAddress(String(data.from || '')).address;
+  if (fromAddress && !fromAddress.endsWith(`@${EMAIL_DOMAIN}`)) {
+    return { received: true, type: eventType, ignored: 'foreign-sender' };
+  }
+
+  const eventAt = new Date(event?.created_at || data.created_at || Date.now());
+  const at = (Number.isFinite(eventAt.getTime()) ? eventAt : new Date()).toISOString();
+  const recipients = toAddressArray(data.to);
+
+  // ── email_logs (transactional/template sends) ────────────────────────────
+  // message_id holds the Resend id returned by sendEmailWithTracking.
+  const { data: logs } = await supabase
+    .from('email_logs')
+    .select('id, status, open_count, click_count, clicked_links')
+    .eq('message_id', emailId);
+
+  // A terminal status is final: svix can redeliver an old `delivered` event
+  // after the complaint that followed it, and that must not un-flag the row.
+  const TERMINAL_STATUSES = ['bounced', 'spam', 'failed'];
+
+  let logsUpdated = 0;
+  for (const log of logs || []) {
+    const update: Record<string, any> = {};
+
+    switch (eventType) {
+      case 'email.delivered':
+        if (!TERMINAL_STATUSES.includes(String(log.status))) update.status = 'delivered';
+        break;
+
+      case 'email.opened':
+        update.open_count = (log.open_count || 0) + 1;
+        if (!log.open_count) update.opened_at = at;
+        break;
+
+      case 'email.clicked': {
+        update.click_count = (log.click_count || 0) + 1;
+        if (!log.click_count) update.clicked_at = at;
+        if (data.click?.link) {
+          update.clicked_links = [
+            ...(Array.isArray(log.clicked_links) ? log.clicked_links : []),
+            { url: data.click.link, clicked_at: at },
+          ];
+        }
+        break;
+      }
+
+      case 'email.bounced':
+        update.status = 'bounced';
+        update.bounced_at = at;
+        update.error_message = describeBounce(data.bounce);
+        break;
+
+      case 'email.complained':
+        update.status = 'spam';
+        update.spam_reported_at = at;
+        break;
+
+      case 'email.failed':
+        update.status = 'failed';
+        update.error_message = data.failed?.reason || 'Resend reported the send as failed';
+        break;
+    }
+
+    if (!Object.keys(update).length) continue;
+    const { error } = await supabase.from('email_logs').update(update).eq('id', log.id);
+    if (error) console.error('[email-webhook] email_logs update failed:', error.message);
+    else logsUpdated++;
+  }
+
+  // ── email_messages (mail composed in the admin inbox) ────────────────────
+  // Its status column only models received/sent/failed, so only terminal
+  // failures move it; opens and clicks are tracked on email_logs.
+  if (eventType === 'email.bounced' || eventType === 'email.complained' || eventType === 'email.failed') {
+    await supabase
+      .from('email_messages')
+      .update({ status: 'failed' })
+      .eq('resend_id', emailId)
+      .eq('direction', 'outbound');
+  }
+
+  // ── suppression list ─────────────────────────────────────────────────────
+  let suppressed = 0;
+  const suppressReason =
+    eventType === 'email.complained'
+      ? 'complaint'
+      : eventType === 'email.bounced' && isPermanentBounce(data.bounce)
+        ? 'hard_bounce'
+        : null;
+
+  if (suppressReason) {
+    const detail =
+      suppressReason === 'complaint'
+        ? 'Recipient marked the message as spam'
+        : describeBounce(data.bounce);
+    for (const recipient of recipients) {
+      const ok = await recordSuppression({
+        email: recipient,
+        reason: suppressReason,
+        detail,
+        source: 'resend',
+        providerEmailId: emailId,
+        providerEventId: svixId,
+      });
+      if (ok) suppressed++;
+    }
+  } else if (eventType === 'email.bounced') {
+    console.warn(
+      '[email-webhook] non-permanent bounce, NOT suppressing:',
+      recipients.join(', '),
+      describeBounce(data.bounce)
+    );
+  }
+
+  return { received: true, type: eventType, email_id: emailId, logs_updated: logsUpdated, suppressed };
+}
+
+// ---------------------------------------------------------------------------
+// Suppression list (read-only admin view)
+// ---------------------------------------------------------------------------
+
+// GET /api/email/suppressions — admin/manager: addresses we no longer mail.
+router.get('/suppressions', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const role = await ensureRole(req);
+    if (role !== 'admin' && role !== 'manager') {
+      res.status(403).json({ error: 'Admin only' });
+      return;
+    }
+    const result = await listSuppressions({
+      search: typeof req.query.search === 'string' ? req.query.search : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Inbound webhook (Resend email.received, svix-signed, raw body)
 // ---------------------------------------------------------------------------
 
@@ -1039,8 +1243,26 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
     }
 
     const event = JSON.parse(rawBody);
-    if (event?.type !== 'email.received') {
-      res.json({ received: true, ignored: event?.type });
+    const eventType = String(event?.type || '');
+
+    if (eventType !== 'email.received') {
+      if (!DELIVERY_EVENT_TYPES.has(eventType)) {
+        res.json({ received: true, ignored: eventType || 'unknown' });
+        return;
+      }
+      // Delivery events are best-effort bookkeeping: never 500 on them, or svix
+      // redelivers the event and we double-count opens/clicks.
+      try {
+        const result = await handleResendDeliveryEvent(
+          eventType,
+          event,
+          req.header('svix-id') || null
+        );
+        res.json(result);
+      } catch (err) {
+        console.error('[email-webhook] delivery event failed:', eventType, err instanceof Error ? err.message : err);
+        res.json({ received: true, type: eventType, error: 'processing failed' });
+      }
       return;
     }
 
@@ -1169,6 +1391,19 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
       const known = new Set((mailboxes || []).map(m => m.address));
       const unknown = ourRecipients.filter(r => !known.has(r));
       console.warn('[email-webhook] mail for unknown mailbox(es):', unknown.join(', '));
+      // Persist rather than just logging — a customer reply to a mistyped or
+      // deprovisioned mailbox used to be silently discarded here.
+      const { error: unmatchedError } = await supabase.from('email_unmatched_inbound').insert({
+        recipients: unknown,
+        from_address: from.address,
+        from_name: from.name,
+        subject: src.subject || data.subject || '(no subject)',
+        resend_id: emailId,
+        message_id: src.message_id || data.message_id || null,
+      });
+      if (unmatchedError) {
+        console.error('[email-webhook] failed to persist unmatched inbound mail:', unmatchedError.message);
+      }
     }
 
     res.json({ received: true, matched: inserted });

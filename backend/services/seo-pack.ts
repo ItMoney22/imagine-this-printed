@@ -9,15 +9,23 @@
 //     product without a pack (covers admin-created products and legacy rows),
 //     bounded per run to keep model spend flat.
 //
-// Cost-first (David's standing rule): gpt-4o-mini, one call per product, and
-// existing AI copy in metadata is reused as input, never regenerated.
+// Cost-first (David's standing rule): cheap-tier model, one call per
+// product, and existing AI copy in metadata is reused as input, never
+// regenerated. gpt-4o-mini is retired (gpt-4 family hard shutdown
+// 2026-10-23) — default is now gpt-5.4-nano, the current cheap tier.
 // Idempotent via products.metadata.seo_pack_generated_at. If no OPENAI_API_KEY
 // the pack falls back to mechanical derivation so columns still get filled.
 // ---------------------------------------------------------------------------
+import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
+import { withSocialUtm } from './social-utm.js'
 
-const SEO_MODEL = process.env.SEO_PACK_MODEL || 'gpt-4o-mini'
+const SEO_MODEL = process.env.SEO_PACK_MODEL || 'gpt-5.4-nano'
+// gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
+// verified live during the sibling design-assistant.ts migration (see
+// handoff-joshua-knight-1785113728792.json).
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(SEO_MODEL)
 const SWEEP_BATCH = Number(process.env.SEO_PACK_SWEEP_BATCH || 10)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
 
@@ -61,7 +69,7 @@ async function aiPack(product: any, tags: string[]): Promise<SeoPack | null> {
     const completion = await openai.chat.completions.create({
       model: SEO_MODEL,
       response_format: { type: 'json_object' },
-      max_tokens: 600,
+      ...(isReasoningModel ? { max_completion_tokens: 600 } : { max_tokens: 600 }),
       messages: [
         {
           role: 'system',
@@ -140,16 +148,26 @@ export async function generateSeoPackForProduct(productId: string): Promise<bool
     // Queue a DRAFT TikTok post in the social outbox (David approves/edits in
     // the admin Outbox tab before Rico ever sees it). Idempotent via the
     // (product_id, platform, kind) unique index; never fails the pack.
+    //
+    // The row id is generated here rather than by the database so the caption
+    // can carry utm_campaign=<outbox id> in the SAME insert — the alternative
+    // is insert-then-update, and a caption is worth more than a round trip.
+    // metadata.marketing_hooks.product_url stays UNTAGGED on purpose: it is the
+    // canonical product link, and every post that reuses it gets its own
+    // campaign id at enqueue time.
     try {
+      const outboxId = randomUUID()
+      const trackedUrl = withSocialUtm(productUrl, { platform: 'tiktok', outboxId })
       const { data: images } = await supabase.from('products').select('images').eq('id', productId).single()
       await supabase.from('social_outbox').upsert({
+        id: outboxId,
         product_id: productId,
         platform: 'tiktok',
         kind: 'post',
-        caption: `${pack.captions[0] || product.name} ${productUrl}`.trim(),
+        caption: `${pack.captions[0] || product.name} ${trackedUrl}`.trim(),
         hashtags: pack.hashtags,
         media_urls: images?.images || [],
-        listing: { title: product.name, description: product.description, price: product.price, product_url: productUrl },
+        listing: { title: product.name, description: product.description, price: product.price, product_url: trackedUrl },
         status: 'draft'
       }, { onConflict: 'product_id,platform,kind', ignoreDuplicates: true })
     } catch (outboxErr: any) {

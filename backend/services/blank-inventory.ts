@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 import { supabase } from '../lib/supabase.js'
 import { sendLowStockAlertEmail } from '../utils/email.js'
+import { pushBlankQuantityToEtsy } from './etsy-inventory-sync.js'
 
 const SHIRT_CATEGORIES = new Set(['shirts'])
 
@@ -156,6 +157,16 @@ export async function decrementBlanksForOrder(orderId: string): Promise<void> {
         console.error(`[blank-inventory] record_blank_sale failed for blank ${blankId} / order ${orderId}:`, error.message)
       } else if (recorded) {
         console.log(`[blank-inventory] ✅ Decremented blank ${blankId} by ${qty} for order ${orderId}`)
+        // Mirror the NEW qty_on_hand to Etsy — read fresh (never reuse the
+        // pre-decrement `blanks` row above) so this reflects the post-decrement
+        // truth even under concurrent decrements. See etsy-inventory-sync.ts
+        // for the full conflict rule. Self-contained/never throws.
+        const { data: freshBlank } = await supabase
+          .from('blank_inventory')
+          .select('style_code, color, size, qty_on_hand')
+          .eq('id', blankId)
+          .maybeSingle()
+        if (freshBlank) await pushBlankQuantityToEtsy(freshBlank)
       }
     }
   } catch (err: any) {

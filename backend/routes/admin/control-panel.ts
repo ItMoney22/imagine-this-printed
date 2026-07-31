@@ -177,6 +177,42 @@ router.get('/earnings', requireAuth, requireRole(['admin', 'founder']), async (r
     const inHouseSales = totalRevenue - vendorSales
 
     const totalPlatformFees = totalRevenue * platformFeeRate
+
+    /**
+     * `totalFounderEarnings` on THIS route is the founder's cut of the
+     * MARKETPLACE take, not their invoice earnings. Derivation:
+     *
+     *   totalPlatformFees    = order revenue x platform_fee_percentage (7%)
+     *   totalFounderEarnings = totalPlatformFees x founder_earnings_percentage (35%)
+     *                        = order revenue x 0.07 x 0.35
+     *                        = 2.45% of order revenue
+     *
+     * That is NOT the canonical founder-share rule, which is 35% of a founder
+     * INVOICE subtotal (backend/services/invoice-stats.ts, documented at the
+     * top of backend/routes/invoices.ts). The two are ~14x apart on the same
+     * dollar and both used to be labelled "Founder Earnings" -- Watchtower task
+     * c82667d5. They are kept separate deliberately: this tile sits in an
+     * order-derived row (Revenue / Platform Fees / Vendor Payouts) that has to
+     * reconcile against itself, and the invoice figure has its own surfaces at
+     * /founder/earnings and /founder/dashboard sourced from `founder_invoices`.
+     * The UI tile is relabelled "Founder Share of Platform Fees"
+     * (src/pages/AdminControlPanel.tsx) rather than re-sourced, so no financial
+     * number on the admin dashboard changes.
+     *
+     * RATE SOURCING (deliberate asymmetry, do not "unify" these):
+     *  - here, runtime `platform_settings.founder_earnings_percentage`, which
+     *    supabase/migrations/20251222_platform_settings.sql:20 defines verbatim
+     *    as "Percentage of platform fees for founder (35%)" -- exactly this
+     *    quantity, and it is an admin-tunable marketplace policy;
+     *  - invoices, hardcoded `FOUNDER_PERCENTAGE = 35`, because each issued
+     *    invoice persists its own `founder_percentage` and re-deriving already
+     *    billed and paid Stripe invoices from a mutable setting would silently
+     *    restate money that has already moved.
+     *
+     * KNOWN GAP, not fixed here (would change a live figure): platformFeeRate
+     * is applied to `totalRevenue`, which includes in-house (non-vendor) sales
+     * that never carry a marketplace fee. Flagged for David.
+     */
     const totalVendorPayouts = vendorSales * (1 - platformFeeRate)
     const totalFounderEarnings = totalPlatformFees * founderRate
 

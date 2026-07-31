@@ -215,7 +215,7 @@ router.get('/logs/recent', async (req: Request, res: Response): Promise<any> => 
 
 /**
  * GET /api/admin/email-templates/stats
- * Get email statistics including Brevo tracking data
+ * Get email statistics including Resend tracking data
  */
 router.get('/stats/overview', async (req: Request, res: Response): Promise<any> => {
   try {

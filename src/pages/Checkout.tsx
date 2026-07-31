@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -22,6 +22,35 @@ const isPlusSize = (size?: string): boolean => {
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
+// Server-calculated order totals, returned by POST /checkout-payment-intent.
+// Tax in particular is authoritative here — the client no longer invents a
+// flat rate (see ServerPricing usage below).
+interface ServerPricing {
+  subtotal: number
+  discount: number
+  shipping: number
+  tax: number
+  taxRate: number
+  total: number
+}
+
+// apiFetch (src/lib/api.ts) throws `Error("HTTP <status>: <raw body>")` on a
+// non-2xx response. checkout-payment-intent's 400 for a stale/mismatched
+// amount still carries the authoritative `pricing` breakdown in that body —
+// pulling it out here lets the UI resync to the real numbers (see the
+// createPaymentIntent catch block) instead of getting stuck.
+function extractPricingFromApiError(err: unknown): ServerPricing | null {
+  if (!(err instanceof Error)) return null
+  const match = err.message.match(/^HTTP \d+: ([\s\S]*)$/)
+  if (!match) return null
+  try {
+    const body = JSON.parse(match[1])
+    return body?.pricing ?? null
+  } catch {
+    return null
+  }
+}
+
 const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, orderId: string }> = ({ orderId }) => {
   const { clearCart } = useCart()
   const navigate = useNavigate()
@@ -40,9 +69,31 @@ const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, or
     if (result?.error) {
       console.error('Express payment failed:', result.error)
       toast.error('Payment failed', result.error.message || 'Please try a different payment method.')
-    } else {
+      return
+    }
+
+    // redirect:'if_required' resolves here (instead of redirecting away) with
+    // the PaymentIntent's REAL status. 'succeeded' is the only one that means
+    // the charge went through — unconditionally clearing the cart here used
+    // to also fire for 'processing' (ACH/bank debits) and 'requires_action',
+    // losing the customer's cart before their payment had actually completed.
+    // See Watchtower task 6079bd09.
+    const status = result?.paymentIntent?.status
+    if (status === 'succeeded') {
       clearCart()
       navigate(`/order-success?order_id=${orderId}`)
+    } else if (status === 'processing') {
+      // Order confirmation page reads the REAL status from the server and
+      // shows a "confirming your payment" state — cart intentionally not
+      // cleared until that status resolves to 'succeeded'.
+      navigate(`/order-success?order_id=${orderId}`)
+    } else {
+      toast.error(
+        'Payment not completed',
+        status === 'requires_action' || status === 'requires_confirmation'
+          ? 'Your bank needs additional confirmation for this payment. Please try again.'
+          : 'Please try a different payment method.'
+      )
     }
   }
 
@@ -91,7 +142,7 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
       return
     }
 
-    const { error } = await stripe.confirmPayment({
+    const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/order-success?order_id=${orderId}`,
@@ -104,10 +155,36 @@ const CheckoutForm: React.FC<{ clientSecret: string, total: number, items: any[]
       // to retry the same card, change card, or contact their bank. The old
       // inline banner was easy to miss on mobile under the Pay button.
       toast.error('Payment failed', error.message || 'Please try a different payment method.')
-    } else {
-      toast.success('Payment successful', 'Redirecting to order confirmation…')
-      clearCart()
-      navigate(`/order-success?order_id=${orderId}`)
+      setLoading(false)
+      return
+    }
+
+    // redirect:'if_required' resolves here (instead of redirecting away) with
+    // the PaymentIntent's REAL status — 'succeeded' is the only one that
+    // means the charge actually went through. ACH/bank-debit methods land in
+    // 'processing'; some flows can still come back 'requires_action'. The old
+    // code unconditionally showed "Payment successful" and cleared the cart
+    // for ANY non-error result, which meant a customer could see a false
+    // success message and lose their cart for a payment that hadn't
+    // completed. See Watchtower task 6079bd09.
+    switch (paymentIntent?.status) {
+      case 'succeeded':
+        toast.success('Payment successful', 'Redirecting to order confirmation…')
+        clearCart()
+        navigate(`/order-success?order_id=${orderId}`)
+        break
+      case 'processing':
+        toast.info('Payment processing', "We're confirming your payment — this can take a moment for bank transfers.")
+        // Order confirmation page reads the REAL status from the server;
+        // cart is intentionally NOT cleared until it resolves to 'succeeded'.
+        navigate(`/order-success?order_id=${orderId}`)
+        break
+      case 'requires_action':
+      case 'requires_confirmation':
+        toast.error('Additional action required', 'Your bank needs you to confirm this payment. Please try again.')
+        break
+      default:
+        toast.error('Payment not completed', `Payment status: ${paymentIntent?.status || 'unknown'}. Please try again or use a different payment method.`)
     }
     setLoading(false)
   }
@@ -165,6 +242,12 @@ const Checkout: React.FC = () => {
   const [clientSecret, setClientSecret] = useState('')
   const [paymentIntentId, setPaymentIntentId] = useState('')
   const [orderId, setOrderId] = useState('')
+  // Guards against createPaymentIntent firing twice concurrently (e.g. two
+  // dependency changes in quick succession before paymentIntentId/orderId
+  // state commits) — without it, both calls take the "create new" branch and
+  // mint two Stripe PaymentIntents + two draft orders for the same cart.
+  // Idempotency requirement — see task handoff.
+  const creatingPaymentIntentRef = useRef(false)
   const [shippingCalculation, setShippingCalculation] = useState<ShippingCalculation | null>(null)
   const [loadingShipping, setLoadingShipping] = useState(false)
   const [processingITCPayment, setProcessingITCPayment] = useState(false)
@@ -181,6 +264,9 @@ const Checkout: React.FC = () => {
   // Payment method selection: 'card' | 'itc_full'
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'itc_full'>('card')
   const [processingFullITC, setProcessingFullITC] = useState(false)
+  // Server-calculated tax/discount/shipping/total, refreshed on every
+  // checkout-payment-intent response (success or the amount-mismatch 400).
+  const [serverPricing, setServerPricing] = useState<ServerPricing | null>(null)
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -339,7 +425,11 @@ const Checkout: React.FC = () => {
   // If free_shipping coupon is applied, the base shipping is $0 (rush still adds)
   const baseShipping = selectedRate?.amount || 0
   const shipping = (appliedCoupon?.freeShipping ? 0 : baseShipping) + rushFee
-  const tax = usdTotal * 0.08 // Only apply tax to USD items
+  // Tax is calculated server-side (US state rate table, keyed off the
+  // shipping address) and reflected back from checkout-payment-intent — the
+  // client never invents a flat rate. Shows $0 until the first server
+  // round-trip resolves, same as the pre-address state in Cart.tsx.
+  const tax = serverPricing?.tax ?? 0
   // ITC credit converts to USD at rate of 1 ITC = $0.01
   const itcCreditUSD = itcCreditAmount * 0.01
   const totalUSD = Math.max(0, usdTotal + shipping + tax - itcCreditUSD)
@@ -415,6 +505,12 @@ const Checkout: React.FC = () => {
   }
 
   const createPaymentIntent = async () => {
+    // Skip a re-entrant call rather than firing a second request in
+    // parallel — see creatingPaymentIntentRef declaration above. The
+    // effect that calls this re-fires on the next relevant state change
+    // regardless, so a skipped call isn't lost, just deferred.
+    if (creatingPaymentIntentRef.current) return
+    creatingPaymentIntentRef.current = true
     try {
       // totalUSD already has itcCreditUSD deducted
       const discountedTotal = Math.max(0, totalUSD - discount)
@@ -452,6 +548,11 @@ const Checkout: React.FC = () => {
           // fulfillment team sees the next-day promise on the order.
           shippingMethod: `${selectedShipping?.name || 'Standard'}${rushActive ? ' — Rush (Next Business Day)' : ''}`,
           shippingType: selectedShipping?.type || 'shipping',
+          // Signed carrier quote (Watchtower task 188ead33 GAP 2) — only
+          // standard carrier rates carry one; pickup/delivery are already
+          // fully server-derived and don't need it. The server verifies this
+          // instead of trusting `shippingCost` above.
+          shippingQuoteToken: selectedShipping?.type === 'shipping' ? selectedShipping?.token : undefined,
           rush: rushActive,
           rushFee: rushFee,
           // Local pickup appointment info
@@ -468,6 +569,9 @@ const Checkout: React.FC = () => {
       })
 
       console.log('[checkout] Payment intent API response:', data)
+      if (data.pricing) {
+        setServerPricing(data.pricing)
+      }
       if (data.clientSecret) {
         console.log('[checkout] Setting clientSecret')
         setClientSecret(data.clientSecret)
@@ -482,6 +586,17 @@ const Checkout: React.FC = () => {
       }
     } catch (error) {
       console.error('Error creating payment intent:', error)
+      // The server rejects a stale/mismatched amount with 400, but still
+      // returns its authoritative pricing (tax in particular — see the `tax`
+      // definition above). Picking it up here lets the totals re-render with
+      // the real numbers, which changes `totalUSD` and automatically retries
+      // via the effect below instead of leaving checkout stuck.
+      const serverPricingFromError = extractPricingFromApiError(error)
+      if (serverPricingFromError) {
+        setServerPricing(serverPricingFromError)
+      }
+    } finally {
+      creatingPaymentIntentRef.current = false
     }
   }
 
@@ -1398,6 +1513,11 @@ const Checkout: React.FC = () => {
                           style={{ backgroundColor: item.selectedColor }}
                           title={item.selectedColor}
                         />
+                      )}
+                      {item.printLocation && (
+                        <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
+                          {item.printLocation}
+                        </span>
                       )}
                       {item.paymentMethod === 'itc' && (
                         <span className="text-xs px-2 py-0.5 bg-secondary/20 text-secondary rounded flex items-center gap-1">

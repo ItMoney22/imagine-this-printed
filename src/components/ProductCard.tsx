@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Sparkles, Loader2, ShoppingCart, Check } from 'lucide-react'
-import { socialService } from '../utils/social-service'
+import { apiFetch } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
 import ProtectedImage from './ProtectedImage'
@@ -10,11 +10,46 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import { productKindOf, defaultSizesFor, getGalleryImages } from '../lib/product-kind'
-import type { Product, SocialPost } from '../types'
+import type { Product, SocialPost, TshirtPrintLocation } from '../types'
+
+// Customer-facing labels for products.print_locations values. Mirrors
+// ProductPage.tsx's PRINT_LOCATION_LABELS for the product-page selector.
+const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
+  front_image: 'Front',
+  back_image: 'Back',
+  pocket: 'Pocket'
+}
 
 interface ProductCardProps {
   product: Product
   showSocialBadges?: boolean
+}
+
+// Raw social_posts row shape returned by GET /api/social/posts (backend/routes/social.ts)
+// — snake_case, distinct from the fabricated camelCase SocialPost type in
+// src/types/index.ts. Mapped to SocialPost right after fetch.
+interface SocialPostRow {
+  id: string
+  platform: 'tiktok' | 'instagram' | 'youtube' | 'twitter'
+  url: string
+  embed_code: string | null
+  thumbnail_url: string | null
+  title: string | null
+  description: string | null
+  author_username: string | null
+  author_display_name: string | null
+  approved_at: string
+  // The route filters `.in('status', ['approved', 'featured'])`
+  // (backend/routes/social.ts:283), so those are the only values that can
+  // reach this component — narrower than the DB CHECK, which also allows
+  // 'hidden' (supabase/migrations/20251222_social_content.sql:45).
+  status: 'approved' | 'featured'
+  tags: string[]
+  product_ids: string[]
+  votes: number
+  is_featured: boolean
+  view_count: number
+  engagement?: { likes: number; shares: number; comments: number }
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
@@ -26,6 +61,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [selectedSize, setSelectedSize] = useState<string | null>(null)
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
+  const [selectedPrintLocation, setSelectedPrintLocation] = useState<TshirtPrintLocation | null>(null)
   const [addedToCart, setAddedToCart] = useState(false)
 
   // Product kind drives type-aware UI (metal/3D must not look like a t-shirt).
@@ -50,7 +86,21 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // picker only shows when the product has colors, so color is conditional.
   const colorSatisfied = !hasColors || !!selectedColor
   const sizeSatisfied = !!selectedSize
-  const readyToAdd = colorSatisfied && sizeSatisfied
+  // Multi-location products (front/back/pocket) need an explicit choice —
+  // mirrors ProductPage.tsx's requiresPrintLocation. Without this, quick-add
+  // silently shipped every product on the default (front) location even when
+  // the customer paid for back print (Watchtower task 2b20562c).
+  const printLocations = product.print_locations || []
+  const requiresPrintLocation = printLocations.length > 1
+  const printLocationSatisfied = !requiresPrintLocation || !!selectedPrintLocation
+  const readyToAdd = colorSatisfied && sizeSatisfied && printLocationSatisfied
+
+  // Missing-selection labels for the button text below — extends the
+  // existing "Pick Size & Color" messaging to cover print placement too.
+  const missingSelections: string[] = []
+  if (!sizeSatisfied) missingSelections.push('a Size')
+  if (!colorSatisfied) missingSelections.push('a Color')
+  if (!printLocationSatisfied) missingSelections.push('a Placement')
 
   useEffect(() => {
     if (showSocialBadges) {
@@ -61,7 +111,39 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const loadSocialPosts = async () => {
     try {
       setIsLoading(true)
-      const posts = await socialService.getPostsByProduct(product.id)
+      // /api/social/posts is public (no auth required) and only ever returns
+      // approved/featured posts — see backend/routes/social.ts.
+      const result = await apiFetch(`/api/social/posts?productId=${encodeURIComponent(product.id)}`)
+      const rows: SocialPostRow[] = result?.posts || []
+
+      // Map the raw DB row (snake_case) to the SocialPost shape the rest of
+      // this component already reads (post.isFeatured, post.platform,
+      // post.engagement.{likes,shares,comments}).
+      const posts: SocialPost[] = rows.map(row => ({
+        id: row.id,
+        platform: row.platform,
+        url: row.url,
+        embedCode: row.embed_code || undefined,
+        thumbnailUrl: row.thumbnail_url || undefined,
+        title: row.title || undefined,
+        description: row.description || undefined,
+        author: {
+          username: row.author_username || 'unknown',
+          displayName: row.author_display_name || undefined
+        },
+        submittedAt: row.approved_at,
+        approvedAt: row.approved_at,
+        status: row.status,
+        tags: row.tags || [],
+        productIds: row.product_ids || [],
+        modelIds: [],
+        votes: row.votes || 0,
+        comments: [],
+        isFeatured: !!row.is_featured,
+        viewCount: row.view_count || 0,
+        engagement: row.engagement || { likes: 0, shares: 0, comments: 0 }
+      }))
+
       setSocialPosts(posts)
     } catch (error) {
       console.error('Error loading social posts for product:', error)
@@ -320,6 +402,33 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </div>
         )}
 
+        {/* Quick Print Placement Picker â€” same trigger flag as size/color;
+            appears only for products offering more than one print location
+            (front/back/pocket). Without this, quick-add had no way to ask
+            and silently shipped the default location (Watchtower task
+            2b20562c). */}
+        {showSizePicker && requiresPrintLocation && (
+          <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <p className="text-xs text-muted font-medium mb-2">Select Print Placement:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {printLocations.map((loc) => (
+                <button
+                  key={loc}
+                  type="button"
+                  onClick={() => setSelectedPrintLocation(loc)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                    selectedPrintLocation === loc
+                      ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
+                      : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
+                  }`}
+                >
+                  {PRINT_LOCATION_LABELS[loc] || loc}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
           {/* Add to Cart Button */}
           <button
@@ -332,17 +441,22 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 // Picker(s) already visible; user still needs to make required selections
                 return
               }
-              addToCart(product, 1, selectedSize ?? undefined, selectedColor ?? undefined)
+              // Single-location products have nothing to choose — carry that
+              // one location along automatically so it still reaches the
+              // cart/order (matches ProductPage.tsx's auto-select).
+              const printLocation = requiresPrintLocation ? selectedPrintLocation ?? undefined : printLocations[0]
+              addToCart(product, 1, selectedSize ?? undefined, selectedColor ?? undefined, undefined, undefined, undefined, undefined, printLocation)
               setAddedToCart(true)
               // Dispatch custom event for cart notification
               window.dispatchEvent(new CustomEvent('cart-item-added', {
-                detail: { product, size: selectedSize, color: selectedColor }
+                detail: { product, size: selectedSize, color: selectedColor, printLocation }
               }))
               setTimeout(() => {
                 setAddedToCart(false)
                 setShowSizePicker(false)
                 setSelectedSize(null)
                 setSelectedColor(null)
+                setSelectedPrintLocation(null)
               }, 2000)
             }}
             disabled={!product.inStock}
@@ -362,11 +476,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             ) : showSizePicker && !readyToAdd ? (
               <>
                 <ShoppingCart className="w-4 h-4" />
-                {!sizeSatisfied && !colorSatisfied
-                  ? 'Pick Size & Color'
-                  : !sizeSatisfied
-                  ? 'Pick a Size'
-                  : 'Pick a Color'}
+                {`Pick ${missingSelections.join(' & ')}`}
               </>
             ) : (
               <>

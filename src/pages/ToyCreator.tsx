@@ -1597,7 +1597,7 @@ export default function ToyCreator() {
 
       <div className="aspect-square w-full max-w-sm mx-auto rounded-3xl overflow-hidden border-4 border-purple-300 shadow-[0_4px_30px_rgba(147,51,234,0.25)]">
         {model?.glb_url ? (
-          <Model3DViewer glbUrl={model.glb_url} alt="Your 3D toy" className="w-full h-full" autoRotate />
+          <Model3DViewer glbUrl={model.glb_url} alt="Your 3D toy" className="w-full h-full" autoRotate conceptUrl={model.concept_image_url} />
         ) : model?.concept_image_url ? (
           <img src={model.concept_image_url} alt="Your creature" className="w-full h-full object-cover" />
         ) : (

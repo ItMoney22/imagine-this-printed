@@ -306,6 +306,8 @@ export function Model3DDetailModal({
                     glbUrl={model.glb_url}
                     alt={model.prompt}
                     className="w-full h-full"
+                    conceptUrl={model.concept_image_url}
+                    angleImages={model.angle_images}
                   />
                 ) : (
                   <Model3DFallbackViewer
@@ -373,6 +375,8 @@ export function Model3DDetailModal({
                     glbUrl={model.glb_url}
                     alt={model.prompt}
                     className="w-full h-full"
+                    conceptUrl={model.concept_image_url}
+                    angleImages={model.angle_images}
                   />
                 )}
               </div>
@@ -482,6 +486,8 @@ export function Model3DDetailModal({
                     glbUrl={model.glb_url}
                     alt={model.prompt}
                     className="w-full h-full"
+                    conceptUrl={model.concept_image_url}
+                    angleImages={model.angle_images}
                   />
                 )}
               </div>

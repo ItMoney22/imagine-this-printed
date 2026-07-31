@@ -21,10 +21,14 @@ const router = Router()
 // missing we fall back to direct OpenAI. Legacy clients that still send
 // 'gpt-4o' simply fall through the allowlist onto the cheap default.
 const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+// gpt-4o / gpt-4o-mini / gpt-4.1-mini are retired from OpenAI's current
+// model + pricing pages (gpt-4 family hard shutdown 2026-10-23). The direct-
+// OpenAI fallback default is now env-configurable via OPENAI_TEXT_MODEL.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
 const ALLOWED_MODELS = USE_OPENROUTER
-  ? new Set(['google/gemini-2.5-flash', 'google/gemini-2.5-pro', 'openai/gpt-4o-mini'])
-  : new Set(['gpt-4o', 'gpt-4.1-mini', 'gpt-4o-mini'])
-const DEFAULT_MODEL = USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-4o'
+  ? new Set(['google/gemini-2.5-flash', 'google/gemini-2.5-pro', 'google/gemini-2.5-flash-lite'])
+  : new Set([OPENAI_TEXT_MODEL])
+const DEFAULT_MODEL = USE_OPENROUTER ? 'google/gemini-2.5-flash' : OPENAI_TEXT_MODEL
 
 // Per-IP rate limit for anonymous callers. Authenticated users are
 // rate-limited at a higher tier (their JWT also gives us an audit trail).
@@ -97,6 +101,10 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
         // falls back to DEFAULT_MODEL. Closes the cost-vector hole.
         const requestedModel = typeof model === 'string' ? model : ''
         const resolvedModel = ALLOWED_MODELS.has(requestedModel) ? requestedModel : DEFAULT_MODEL
+        // gpt-5.x/o-series reasoning models reject a non-default `temperature`
+        // (verified live during the sibling design-assistant.ts migration —
+        // see handoff-joshua-knight-1785113728792.json).
+        const isReasoningModel = /^(o[1-9]|gpt-5)/.test(resolvedModel)
 
         console.log('[chat] 💬 Processing message:', message.substring(0, 50) + '...')
 
@@ -194,7 +202,7 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
             messages,
             tools,
             tool_choice: 'auto',
-            temperature: 0.7,
+            ...(isReasoningModel ? {} : { temperature: 0.7 }),
         })
 
         const responseMessage = completion.choices[0].message
@@ -401,7 +409,7 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                 model: resolvedModel,
                 messages,
                 tools: [],
-                temperature: 0.7,
+                ...(isReasoningModel ? {} : { temperature: 0.7 }),
             })
 
             const finalContent = secondResponse.choices[0].message.content

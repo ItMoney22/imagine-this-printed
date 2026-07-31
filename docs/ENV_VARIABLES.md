@@ -209,22 +209,44 @@ STRIPE_SECRET_KEY="sk_live_..."
 STRIPE_WEBHOOK_SECRET="whsec_..." (for production webhook)
 ```
 
-### Email Service - Brevo (Optional but Recommended)
+### Email Service - Resend (Required)
+
+Resend is the **only** transactional email transport — there is no fallback
+provider. (A legacy Brevo fallback path existed here historically; it was
+removed 2026-07-28 because it was armed-but-unmonitored: a missing/rotated
+`RESEND_API_KEY` would have silently rerouted customer mail through Brevo.)
 
 | Variable | Description | Example | Required |
 |----------|-------------|---------|----------|
-| `BREVO_API_KEY` | Brevo API key (⚠️ KEEP SECRET) | `xkeysib-...` | No |
-| `BREVO_SENDER_EMAIL` | Verified sender email address | `noreply@imaginethisprinted.com` | No |
-| `BREVO_SENDER_NAME` | Sender display name | `Imagine This Printed` | No |
+| `RESEND_API_KEY` | Resend API key (⚠️ KEEP SECRET) | `re_...` | Yes |
+| `EMAIL_FROM` | "From" address for all transactional mail | `Imagine This Printed <wecare@imaginethisprinted.com>` | No (defaults to the example) |
+| `HEALTH_PROBE_TOKEN` | Required to trigger a real test send from `GET /api/health/email` (header `x-health-probe-token` or `?token=`) | random 32+ char string | No (endpoint reports config-presence only without it) |
 
-**Where to find Brevo credentials:**
+**Where to find Resend credentials:**
 
-1. Go to [Brevo Dashboard](https://app.brevo.com)
-2. Navigate to Settings > Account > SMTP & API
-3. Copy API key
-4. Verify sender email in: Senders > Sender list
+1. Go to [Resend Dashboard](https://resend.com/api-keys)
+2. Create/copy an API key
+3. Verify the sending domain: Domains > `imaginethisprinted.com`
 
-**Usage:** Used for transactional emails (password reset, order confirmation, etc.)
+**Usage:** Used for transactional emails (password reset, order confirmation, support tickets, payouts, etc.) — see `backend/utils/email.ts`.
+
+**Sender identity — required DNS records for `imaginethisprinted.com`**
+
+Both Resend sending and inbound receiving depend on the domain being fully
+verified. Add these records at the DNS provider for `imaginethisprinted.com`
+(exact host/value strings are generated per-domain in the Resend dashboard under
+Domains > `imaginethisprinted.com` > DNS Records — the entries below describe
+what must exist, not literal copy-paste values):
+
+| Record | Type | Purpose |
+|--------|------|---------|
+| SPF | TXT (on the root or `send` subdomain Resend assigns) | Authorizes Resend's sending IPs for `imaginethisprinted.com`. Typically merges into an existing `v=spf1 ... include:amazonses.com ~all` — a domain must have exactly ONE SPF record, so an existing record needs `include:amazonses.com` added, not a second TXT record. |
+| DKIM | TXT/CNAME (Resend gives 1-3 host/value pairs) | Cryptographically signs outgoing mail as sent-by-`imaginethisprinted.com`. Without this, mail may still send but is far more likely to land in spam. |
+| DMARC | TXT at `_dmarc.imaginethisprinted.com` | Tells receiving mail servers what to do when SPF/DKIM fail (`p=quarantine` or `p=reject`) and where to send aggregate failure reports (`rua=mailto:...`). Start at `p=none` to observe, then tighten to `p=quarantine` once SPF/DKIM are confirmed passing for all real senders. |
+
+Verify status in Resend Dashboard > Domains — all three must show "Verified"
+before relying on inbox placement. An unverified sending domain doesn't
+necessarily fail to send, but lands in spam far more often.
 
 ### AI Product Builder (Optional)
 
@@ -347,7 +369,7 @@ Windows (PowerShell):
 
 2. **Configure environment variables:**
    - Use production URLs for `APP_ORIGIN`, `API_ORIGIN`, `FRONTEND_URL`
-   - Use production API keys for Stripe, Brevo, AWS
+   - Use production API keys for Stripe, Resend, AWS
    - Use `NODE_ENV="production"`
 
 3. **Deploy to Railway:**
@@ -383,7 +405,7 @@ ALLOWED_ORIGINS="http://localhost:5173,http://localhost:4000"
 JWT_SECRET="..." (32+ characters)
 STRIPE_PUBLISHABLE_KEY="pk_test_..."
 STRIPE_SECRET_KEY="sk_test_..."
-BREVO_API_KEY="..."
+RESEND_API_KEY="re_..."
 AWS_ACCESS_KEY_ID="..."
 AWS_SECRET_ACCESS_KEY="..."
 ```
@@ -413,7 +435,7 @@ JWT_SECRET="..." (32+ characters)
 STRIPE_PUBLISHABLE_KEY="pk_live_..."
 STRIPE_SECRET_KEY="sk_live_..."
 STRIPE_WEBHOOK_SECRET="whsec_..." (production webhook)
-BREVO_API_KEY="..."
+RESEND_API_KEY="re_..."
 AWS_ACCESS_KEY_ID="..."
 AWS_SECRET_ACCESS_KEY="..."
 CLOUDFRONT_URL="https://xxx.cloudfront.net"
@@ -464,7 +486,7 @@ Regularly rotate sensitive keys:
 
 1. **Supabase:** Generate new keys in Settings > API
 2. **Stripe:** Create new API keys in Developers > API keys
-3. **Brevo:** Regenerate API key in Settings > Account
+3. **Resend:** Regenerate API key in https://resend.com/api-keys
 4. **AWS:** Create new access keys in IAM > Users
 
 ---
@@ -536,7 +558,7 @@ Regularly rotate sensitive keys:
 
 ### Missing Dependencies
 
-**Problem:** "BREVO_API_KEY is required" but file has it set
+**Problem:** "RESEND_API_KEY is required" but file has it set
 
 **Solutions:**
 1. Check variable name is exactly correct (case-sensitive)
@@ -575,7 +597,7 @@ Regularly rotate sensitive keys:
 |---------|--------------------------|
 | Supabase | https://app.supabase.com/project/[PROJECT_ID]/settings/api |
 | Stripe | https://dashboard.stripe.com/apikeys |
-| Brevo | https://app.brevo.com/settings/account |
+| Resend | https://resend.com/api-keys |
 | AWS | https://console.aws.amazon.com/iam/ |
 
 ---

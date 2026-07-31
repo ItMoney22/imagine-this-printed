@@ -3,7 +3,32 @@ import { useParams, Navigate } from 'react-router-dom'
 import { useKioskAuth } from '../context/KioskAuthContext'
 import KioskInterface from '../pages/KioskInterface'
 
+// Kiosk Mode is a whole in-store terminal flow (real checkout, cash/card/ITC
+// payment, per-device session auth). Gating it behind a flag that defaults
+// OFF means an un-provisioned deployment has zero kiosk attack surface at
+// all — the cheapest fix available, per the 2026-07-28 audit that flagged
+// this. Flip VITE_KIOSK_ENABLED=true only once real kiosks are provisioned
+// (see backend/routes/admin/kiosk-devices.ts).
+//
+// The flag check happens BEFORE any hooks run (in the wrapper below, not
+// inside KioskRouteInner) so it can't violate React's rules-of-hooks — the
+// two components never share a render, one or the other mounts.
 const KioskRoute: React.FC = () => {
+  if (import.meta.env.VITE_KIOSK_ENABLED !== 'true') {
+    return (
+      <div className="min-h-screen bg-card flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <h2 className="text-2xl font-bold text-text mb-2">Kiosk Mode is not configured</h2>
+          <p className="text-muted">This point-of-sale terminal has not been enabled for this deployment.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return <KioskRouteInner />
+}
+
+const KioskRouteInner: React.FC = () => {
   const { kioskId } = useParams<{ kioskId: string }>()
   const { initializeKiosk, isKioskMode, isLoading, kiosk } = useKioskAuth()
   const [initializationComplete, setInitializationComplete] = useState(false)

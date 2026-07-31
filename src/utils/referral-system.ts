@@ -148,13 +148,20 @@ export class ReferralSystem {
 
   // Get platform-wide referral statistics (for admin dashboard)
   async getPlatformReferralStats(): Promise<ReferralStats> {
-    // Platform-wide stats endpoint not yet implemented on backend
-    // Returns empty stats as a safe default
-    return {
-      totalReferrals: 0,
-      totalEarnings: 0,
-      conversionRate: 0,
-      topPerformers: []
+    try {
+      const result = await apiFetch('/api/wallet/admin/referral-stats')
+      if (result?.ok && result.stats) {
+        return {
+          totalReferrals: result.stats.totalReferrals || 0,
+          totalEarnings: result.stats.totalEarnings || 0,
+          conversionRate: result.stats.conversionRate || 0,
+          topPerformers: result.stats.topPerformers || []
+        }
+      }
+      return { totalReferrals: 0, totalEarnings: 0, conversionRate: 0, topPerformers: [] }
+    } catch (error) {
+      console.error('Error fetching platform referral stats:', error)
+      return { totalReferrals: 0, totalEarnings: 0, conversionRate: 0, topPerformers: [] }
     }
   }
 
