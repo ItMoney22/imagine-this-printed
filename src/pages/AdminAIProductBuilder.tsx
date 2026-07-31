@@ -23,7 +23,7 @@ import { supabase } from '../lib/supabase'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import OneShotProductModal from '../components/OneShotProductModal'
 import BulkProductModal from '../components/BulkProductModal'
-import type { AIJob, TshirtPrintLocation } from '../types'
+import type { AIJob, ProductTrendFamily, TshirtPrintLocation } from '../types'
 
 // ---------------------------------------------------------------------------
 // Build board state machine
@@ -72,6 +72,9 @@ interface BuildState {
   published: boolean | null // true = live, false = kept draft; null = not decided
   generating: boolean
   filedTasks: FiledTask[]
+  /** Last research pull (web or market scout) — shown on the board so voice
+   *  findings don't evaporate. */
+  research: string | null
 }
 
 const initialBuild: BuildState = {
@@ -92,6 +95,7 @@ const initialBuild: BuildState = {
   published: null,
   generating: false,
   filedTasks: [],
+  research: null,
 }
 
 type BuildAction =
@@ -105,13 +109,15 @@ type BuildAction =
   | { type: 'GLB_READY'; url: string }
   | { type: 'PUBLISHED'; live: boolean }
   | { type: 'TASK_FILED'; task: FiledTask }
+  | { type: 'SET_RESEARCH'; research: string }
   | { type: 'RESET' }
 
 function buildReducer(state: BuildState, action: BuildAction): BuildState {
   switch (action.type) {
     case 'SET_LANE':
-      // A new lane restarts the board but keeps the session's Watchtower log.
-      return { ...initialBuild, filedTasks: state.filedTasks, lane: action.lane, metalSize: action.metalSize || state.metalSize }
+      // A new lane restarts the board but keeps the session's Watchtower log
+      // and any research pull — trends usually come BEFORE the lane choice.
+      return { ...initialBuild, filedTasks: state.filedTasks, research: state.research, lane: action.lane, metalSize: action.metalSize || state.metalSize }
     case 'SET_BRIEF':
       return { ...state, brief: action.brief }
     case 'GENERATE_STARTED':
@@ -143,6 +149,8 @@ function buildReducer(state: BuildState, action: BuildAction): BuildState {
       return { ...state, published: action.live }
     case 'TASK_FILED':
       return { ...state, filedTasks: [...state.filedTasks, action.task] }
+    case 'SET_RESEARCH':
+      return { ...state, research: action.research }
     case 'RESET':
       return initialBuild
     default:
@@ -262,6 +270,27 @@ const TOOLS: MrImagineToolDef[] = [
     name: 'get_build_state',
     description: 'Get the current build board snapshot — lane, brief, what is generated, what is selected, what is done. Call this whenever you are unsure where we are.',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    type: 'function',
+    name: 'web_research',
+    description: "Run a LIVE Grok web + X search. Use when the admin asks what's trending, what's hot, or when a brief needs fresh cultural fuel. Takes a few seconds — tell them you're checking. Findings show on the board too.",
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', description: "What to research, e.g. 'trending graphic tee themes this week' or 'what's big on X today'." } },
+      required: ['query'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'market_trends',
+    description: "Pull the store's own market scout: marketplace-backed product ideas (TikTok/Etsy/Amazon/Google signals) that come with ready-to-build design briefs. Great for 'what should we make that will SELL'. Findings show on the board.",
+    parameters: {
+      type: 'object',
+      properties: {
+        family: { type: 'string', enum: ['all', 'apparel', 'tumblers', 'dtf-transfers', 'stickers', 'metal-art', '3d-toys'], description: 'Product family to scout. Default all.' },
+      },
+    },
   },
   {
     type: 'function',
@@ -546,6 +575,34 @@ const AdminAIProductBuilder: React.FC = () => {
           steps_complete: STEPS.filter((st) => stepDone(b, st.key)).map((st) => st.label),
           current_step: activeStep(b),
           generating: b.generating,
+        }
+      }
+
+      case 'web_research': {
+        const query = String(args.query || '').trim()
+        if (!query) throw new Error('Research needs a query.')
+        const data = await apiFetch('/api/ai/realtime/research', {
+          method: 'POST',
+          body: JSON.stringify({ query }),
+        }) as { summary?: string }
+        if (!data.summary) throw new Error('Research came back empty.')
+        dispatch({ type: 'SET_RESEARCH', research: data.summary })
+        return { ok: true, findings: data.summary, note: 'Findings are on the board. Pitch the strongest angles, then build off the winner.' }
+      }
+
+      case 'market_trends': {
+        const family = String(args.family || 'all') as ProductTrendFamily
+        const data = await aiProducts.trends({ family, limit: 5 })
+        const ideas = (data.ideas || []).slice(0, 5)
+        if (!ideas.length) throw new Error('The market scout came back empty — try web_research instead.')
+        const summary = ideas
+          .map((i, n) => `${n + 1}. ${i.title} — ${i.whyItMaySell} (style: ${i.designStyle}; colors: ${i.primaryColors}; saturation: ${i.saturation})`)
+          .join('\n')
+        dispatch({ type: 'SET_RESEARCH', research: `Market scout (${family}):\n${summary}` })
+        return {
+          ok: true,
+          ideas: ideas.map((i) => ({ title: i.title, why: i.whyItMaySell, ready_brief: i.prompt, style: i.designStyle, colors: i.primaryColors, saturation: i.saturation })),
+          note: 'Ideas are on the board, numbered. Each has a ready_brief you can hand to set_design_brief once the admin picks one.',
         }
       }
 
@@ -852,6 +909,16 @@ const AdminAIProductBuilder: React.FC = () => {
 
                 {build.brief && (
                   <p className="text-sm text-muted border-l-2 border-primary/50 pl-3 italic">“{build.brief.prompt}”</p>
+                )}
+
+                {/* research pull */}
+                {build.research && (
+                  <div>
+                    <div className="font-tech text-[10px] uppercase tracking-widest text-muted mb-2">Trend research</div>
+                    <div className="text-sm text-text/90 bg-bg/40 border border-secondary/30 rounded-xl px-4 py-3 whitespace-pre-wrap max-h-56 overflow-y-auto">
+                      {build.research}
+                    </div>
+                  </div>
                 )}
 
                 {/* candidates */}

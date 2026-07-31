@@ -45,6 +45,9 @@ You walk the admin through building a product, step by step, and you DRIVE the a
 
 3D PRINT LANE — different machine, same rhythm: the brief becomes a concept image (generate_designs), the admin approves it (approve_concept), then convert_3d turns it into a printable model at a size tier. IMPORTANT: the 3D lane spends ITC from the signed-in wallet — the page tells you each cost, and you say the cost OUT LOUD before firing anything that spends.
 
+## RESEARCH — WHAT'S TRENDING
+You have real research hands. web_research runs a LIVE Grok web-and-X search — use it the moment the admin asks what's trending, what's hot, or what people are into right now, or whenever a brief could use fresh cultural fuel. market_trends pulls the store's own market scout: marketplace-backed product ideas that come with ready-to-build design briefs. When the admin says "tell me what's trending and let's build off that": run one or both, pick the two or three strongest angles, pitch each in a single sentence, let them choose, and roll the winner straight into the brief with set_design_brief. The findings also land on the build board so they can read along. Searches take a few seconds — say what you're checking while it runs, and never invent a trend you didn't get back.
+
 ## STYLE THINGS RIGHT — your craft knowledge
 - Shirts / DTF: bold shapes, high contrast, limited palettes print best. Push toward designs that survive fabric: strong silhouettes, clean edges, no fine hairline detail, no giant flat backgrounds (transparent cutouts win). Think about the shirt color under the art — dark art dies on black shirts.
 - Metal art: one strong silhouette or high-contrast graphic reads best on a panel. Respect the physical size — 4x6 is a shelf piece (simpler, bolder), 8x10 can carry more detail.
@@ -64,6 +67,106 @@ The Watchtower is the dev task board for this whole operation. When the admin hi
 - You are Mr. Imagine. Never break character.
 
 WHAT'S POWERING YOU: this live voice runs on xAI Grok realtime. If asked what model or voice you are, that's the honest answer — xAI Grok.`
+
+// Live research brain: Grok's Agent Tools API (/v1/responses) with server-side
+// web_search + x_search. The realtime voice model can't browse on its own —
+// the page's web_research tool calls this, and the summary goes back into the
+// conversation. NOTE the old chat-completions `search_parameters` /
+// `live_search` lanes are DEAD (410 Gone, verified 2026-07-31) — only the
+// Agent Tools API searches now. Model id from this account's /v1/models.
+const XAI_RESEARCH_MODEL = process.env.XAI_RESEARCH_MODEL || 'grok-4.20-0309-non-reasoning'
+
+// Each research call fans out real web/X searches on xAI's meter — soft-cap it.
+const researchLimit = new Map<string, { count: number; resetAt: number }>()
+const RESEARCH_LIMIT = 6
+const RESEARCH_WINDOW_MS = 60_000
+
+function checkResearchLimit(userId: string): boolean {
+  const now = Date.now()
+  const state = researchLimit.get(userId)
+  if (!state || state.resetAt < now) {
+    researchLimit.set(userId, { count: 1, resetAt: now + RESEARCH_WINDOW_MS })
+    return true
+  }
+  if (state.count >= RESEARCH_LIMIT) return false
+  state.count++
+  return true
+}
+
+/**
+ * POST /api/ai/realtime/research
+ * Admin/manager only. Body: { query }. Runs a live Grok web+X search and
+ * returns { summary } written for Mr. Imagine to speak.
+ */
+router.post('/research', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY
+    if (!xaiKey) return res.status(503).json({ error: 'Research is not configured (XAI_API_KEY missing).' })
+
+    const userId = req.user?.sub || req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+    if (!checkResearchLimit(userId)) {
+      return res.status(429).json({ error: `Research is rate-limited (${RESEARCH_LIMIT}/min). Give it a moment.` })
+    }
+
+    const query = typeof req.body?.query === 'string' ? req.body.query.trim().slice(0, 500) : ''
+    if (!query) return res.status(400).json({ error: 'query is required' })
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 45_000)
+    let searchRes: globalThis.Response
+    try {
+      searchRes = await fetch('https://api.x.ai/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${xaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: XAI_RESEARCH_MODEL,
+          tools: [{ type: 'web_search' }, { type: 'x_search' }],
+          // Left to its own devices the model answers trending questions from
+          // training data — force at least one real search (verified live).
+          tool_choice: 'required',
+          instructions:
+            'You are the live research brain for Mr. Imagine, the creative director of a custom print shop (DTF shirts, metal art panels, 3D prints). ' +
+            'SEARCH FIRST — the live web and X — then answer only from what you found, in a form he can SPEAK: 3 to 5 short findings, one line each, every one ending with a concrete design angle for a shirt, metal art panel, or 3D print. ' +
+            'Plain spoken text — no URLs, no markdown, no citations, no hashtags read out loud. Close with one line starting "Hottest right now:".',
+          input: query,
+        }),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+
+    if (!searchRes.ok) {
+      const detail = await searchRes.text().catch(() => '')
+      req.log?.error({ status: searchRes.status, detail: detail.slice(0, 200) }, '[ai-realtime] research failed')
+      return res.status(502).json({ error: `Research call failed (xAI ${searchRes.status}).` })
+    }
+
+    const data = (await searchRes.json()) as {
+      output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>
+    }
+    const summary = (data.output || [])
+      .filter((item) => item.type === 'message')
+      .flatMap((item) => (item.content || []).filter((c) => c.type === 'output_text').map((c) => c.text || ''))
+      .join('\n')
+      // The model leaks markdown + citation pills despite instructions —
+      // strip them so the voice line never reads link salad out loud.
+      .replace(/\[\[\d+\]\]\([^)]*\)/g, '')
+      .replace(/\[[^\]]*\]\((https?:\/\/)[^)]*\)/g, '')
+      .replace(/\*\*/g, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .trim()
+    if (!summary) return res.status(502).json({ error: 'Research came back empty.' })
+
+    req.log?.info({ query, chars: summary.length }, '[ai-realtime] research complete')
+    return res.json({ summary })
+  } catch (err: unknown) {
+    const aborted = err instanceof Error && err.name === 'AbortError'
+    req.log?.error({ err }, '[ai-realtime] research route failed')
+    return res.status(502).json({ error: aborted ? 'Research timed out.' : 'Research is unavailable right now.' })
+  }
+})
 
 /**
  * POST /api/ai/realtime/token

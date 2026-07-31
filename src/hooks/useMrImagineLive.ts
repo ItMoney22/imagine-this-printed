@@ -73,6 +73,11 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
   onToolCallRef.current = onToolCall
 
   const wsRef = useRef<WebSocket | null>(null)
+  // Barge-in: after the user starts talking we cancel the response, but xAI
+  // keeps streaming the already-generated audio deltas for a beat — without
+  // this flag those chunks get scheduled and Mr. Imagine "talks over" the
+  // admin anyway. Set on interrupt, cleared when the next response begins.
+  const suppressAudioRef = useRef(false)
   // Server-configured playback rate (MR_IMAGINE_PITCH) — set once per session
   // from the token response, read on every chunk.
   const pitchRef = useRef(1)
@@ -277,7 +282,7 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
         try { args = JSON.parse(argsStr || '{}') } catch { /* no args */ }
 
         const activityId = ++activityIdRef.current
-        const label = String(args.title || args.prompt || args.type || args.size_tier || '')
+        const label = String(args.title || args.prompt || args.query || args.type || args.size_tier || '')
         setToolActivity((prev) => [...prev.slice(-9), { id: activityId, name: name!, label, status: 'running' }])
         try {
           const output = await onToolCallRef.current(name, args)
@@ -305,9 +310,13 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
             // Greet first so the studio comes alive the moment the line opens.
             try { ws.send(JSON.stringify({ type: 'response.create' })) } catch { /* noop */ }
             break
+          case 'response.created':
+            // New response — safe to speak again after a barge-in.
+            suppressAudioRef.current = false
+            break
           case 'response.output_audio.delta':
           case 'response.audio.delta':
-            if (msg.delta) {
+            if (msg.delta && !suppressAudioRef.current) {
               setStatus('speaking')
               playChunk(pcm16ToFloat32(msg.delta))
             }
@@ -328,17 +337,18 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
             try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.create' })) } catch { /* noop */ }
             break
           case 'input_audio_buffer.speech_started':
-            setStatus((prev) => {
-              if (prev === 'speaking') {
-                interruptPlayback()
-                try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' })) } catch { /* noop */ }
-                return 'listening'
-              }
-              return prev
-            })
+            // The admin is talking — kill scheduled audio, drop any deltas
+            // still in flight, and cancel the response server-side. Do this
+            // unconditionally (not just when status was 'speaking'): the
+            // status state can lag the audio by a render.
+            interruptPlayback()
+            suppressAudioRef.current = true
+            try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' })) } catch { /* noop */ }
+            setStatus('listening')
             setAgentTranscript('')
             break
           case 'response.done':
+            suppressAudioRef.current = false
             setStatus('listening')
             break
           case 'error': {
