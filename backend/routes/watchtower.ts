@@ -13,9 +13,20 @@
 // project "imagine-this-printed" so the board's engine cd's into this repo.
 
 import { Router, Request, Response } from 'express'
+import multer from 'multer'
+import { randomUUID } from 'crypto'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
+import { uploadImageFromBuffer, sniffImageContentType, extForImageContentType } from '../services/google-cloud-storage.js'
 
 const router = Router()
+
+// Optional screenshot rides the same POST as multipart form-data; JSON bodies
+// (Mr. Imagine's create_watchtower_task tool) skip multer entirely.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+})
 
 const BOARD_URL = (process.env.WATCHTOWER_BOARD_URL || 'https://davidtrinidad.com').replace(/\/$/, '')
 const INTERNAL_SECRET = process.env.WATCHTOWER_INTERNAL_SECRET || ''
@@ -47,10 +58,13 @@ function checkFileLimit(userId: string): boolean {
 
 /**
  * POST /api/watchtower/tasks
- * Body: { title, description?, priority?, source? }
+ * JSON body { title, description?, priority?, source? } — or multipart with the
+ * same fields plus an optional `screenshot` image, which is uploaded to GCS and
+ * stapled to the description as a trailing "Screenshot: <url>" line (the board
+ * renders those as a preview on the task card).
  * → files onto the board as project imagine-this-printed, status pending.
  */
-router.post('/tasks', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+router.post('/tasks', requireAuth, requireRole(['admin', 'manager']), upload.single('screenshot'), async (req: Request, res: Response): Promise<any> => {
   try {
     if (!INTERNAL_SECRET) {
       return res.status(503).json({
@@ -71,40 +85,74 @@ router.post('/tasks', requireAuth, requireRole(['admin', 'manager']), async (req
     const priority = PRIORITIES.has(req.body?.priority) ? req.body.priority : 'medium'
     const source = SOURCES.has(req.body?.source) ? req.body.source : 'itp-admin'
 
+    // Optional screenshot: upload to GCS and staple the URL to the description.
+    // The mimetype is sniffed from magic bytes, not trusted from the client.
+    let screenshotUrl = ''
+    if (req.file?.buffer?.length) {
+      try {
+        const contentType = sniffImageContentType(req.file.buffer) || 'image/png'
+        const ext = extForImageContentType(contentType)
+        const uploaded = await uploadImageFromBuffer(
+          req.file.buffer,
+          `watchtower-tasks/${randomUUID()}.${ext}`,
+          contentType,
+        )
+        screenshotUrl = uploaded.publicUrl
+      } catch (err) {
+        req.log?.error({ err }, '[watchtower] screenshot upload failed')
+        return res.status(502).json({ error: 'Screenshot upload failed — task NOT filed. Try again or file without the image.' })
+      }
+    }
+
     // Stamp who filed it so the board (and whoever picks the task up) knows
     // which human or agent conversation it came from.
     const filedBy = req.user?.email ? `Filed from ITP by ${req.user.email}` : 'Filed from ITP'
-    const description = [rawDescription, filedBy].filter(Boolean).join('\n\n').slice(0, 8000)
+    const description = [rawDescription, filedBy, screenshotUrl ? `Screenshot: ${screenshotUrl}` : '']
+      .filter(Boolean).join('\n\n').slice(0, 8000)
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15_000)
-    let boardRes: globalThis.Response
-    try {
-      boardRes = await fetch(`${BOARD_URL}/api/tasks/internal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-internal-secret': INTERNAL_SECRET,
-        },
-        body: JSON.stringify({
-          title: title.slice(0, 300),
-          description,
-          priority,
-          project: BOARD_PROJECT,
-          source,
-        }),
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timeout)
+    const postToBoard = async (src: string) => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15_000)
+      try {
+        const boardRes = await fetch(`${BOARD_URL}/api/tasks/internal`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': INTERNAL_SECRET,
+          },
+          body: JSON.stringify({
+            title: title.slice(0, 300),
+            description,
+            priority,
+            project: BOARD_PROJECT,
+            source: src,
+          }),
+          signal: controller.signal,
+        })
+        const data = await boardRes.json().catch(() => ({})) as {
+          id?: string; title?: string; status?: string; priority?: string; error?: string
+        }
+        return { ok: boardRes.ok, status: boardRes.status, data }
+      } finally {
+        clearTimeout(timeout)
+      }
     }
 
-    const data = await boardRes.json().catch(() => ({})) as {
-      id?: string; title?: string; status?: string; priority?: string; error?: string
+    // The board's tasks_source_check constraint only knows the sources its
+    // migrations have added (itp-mr-imagine is in; itp-admin may lag). If the
+    // preferred source is rejected, retry once as 'internal' — the task
+    // landing matters more than the avatar badge (same fallback the
+    // trend-scout bridge uses).
+    let result = await postToBoard(source)
+    if (!result.ok && /tasks_source_check/i.test(result.data?.error || '')) {
+      req.log?.warn({ source }, '[watchtower] source rejected by board constraint — retrying as internal')
+      result = await postToBoard('internal')
     }
-    if (!boardRes.ok) {
-      req.log?.warn({ status: boardRes.status, error: data?.error }, '[watchtower] board rejected task')
-      return res.status(502).json({ error: data?.error || `Watchtower board error (${boardRes.status})` })
+
+    const data = result.data
+    if (!result.ok) {
+      req.log?.warn({ status: result.status, error: data?.error }, '[watchtower] board rejected task')
+      return res.status(502).json({ error: data?.error || `Watchtower board error (${result.status})` })
     }
 
     req.log?.info({ taskId: data?.id, title, source }, '[watchtower] task filed on the board')
@@ -114,6 +162,7 @@ router.post('/tasks', requireAuth, requireRole(['admin', 'manager']), async (req
       title: data?.title || title,
       status: data?.status || 'pending',
       priority: data?.priority || priority,
+      screenshot: screenshotUrl || undefined,
     })
   } catch (err: unknown) {
     const aborted = err instanceof Error && err.name === 'AbortError'

@@ -4,10 +4,11 @@
 // through the backend proxy at /api/watchtower/tasks — same board Mr. Imagine
 // files to from the Imagine Studio, different source tag (itp-admin).
 
-import React, { useState } from 'react'
-import { ClipboardList, X, Check, Loader2 } from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { ClipboardList, X, Check, Loader2, ImagePlus } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { apiFetch } from '../lib/api'
+import { API_BASE } from '../lib/api'
+import { supabase } from '../lib/supabase'
 
 const HEX_CLIP = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)'
 
@@ -22,8 +23,30 @@ const WatchtowerTaskButton: React.FC = () => {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filedId, setFiledId] = useState<string | null>(null)
+  // Optional screenshot so the agent picking the task up can SEE the problem.
+  // Attach via the picker button or just Ctrl+V a Win+Shift+S capture.
+  const [screenshot, setScreenshot] = useState<{ file: File; preview: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => () => { if (screenshot) URL.revokeObjectURL(screenshot.preview) }, [screenshot])
 
   if (!user || (user.role !== 'admin' && user.role !== 'manager')) return null
+
+  const attachFile = (file: File | null | undefined) => {
+    if (!file || !file.type.startsWith('image/')) return
+    if (file.size > 8 * 1024 * 1024) { setError('Screenshot is over 8 MB — crop it down.'); return }
+    setScreenshot((prev) => {
+      if (prev) URL.revokeObjectURL(prev.preview)
+      return { file, preview: URL.createObjectURL(file) }
+    })
+    setError(null)
+  }
+
+  const onPaste = (e: React.ClipboardEvent) => {
+    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/'))
+    const file = item?.getAsFile()
+    if (file) { attachFile(file); e.preventDefault() }
+  }
 
   const reset = () => {
     setTitle('')
@@ -31,6 +54,7 @@ const WatchtowerTaskButton: React.FC = () => {
     setPriority('medium')
     setError(null)
     setFiledId(null)
+    setScreenshot((prev) => { if (prev) URL.revokeObjectURL(prev.preview); return null })
   }
 
   const submit = async () => {
@@ -38,10 +62,23 @@ const WatchtowerTaskButton: React.FC = () => {
     setSubmitting(true)
     setError(null)
     try {
-      const data = await apiFetch('/api/watchtower/tasks', {
+      // Multipart when a screenshot rides along (apiFetch forces a JSON
+      // content-type, so build the request by hand either way).
+      const { data: session } = await supabase.auth.getSession()
+      const token = session.session?.access_token
+      const form = new FormData()
+      form.set('title', title.trim())
+      form.set('description', description.trim())
+      form.set('priority', priority)
+      form.set('source', 'itp-admin')
+      if (screenshot) form.set('screenshot', screenshot.file, screenshot.file.name || 'screenshot.png')
+      const res = await fetch(`${API_BASE}/api/watchtower/tasks`, {
         method: 'POST',
-        body: JSON.stringify({ title: title.trim(), description: description.trim(), priority, source: 'itp-admin' }),
-      }) as { ok?: boolean; taskId?: string }
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: form,
+      })
+      const data = await res.json().catch(() => ({})) as { ok?: boolean; taskId?: string; error?: string }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setFiledId(data.taskId || 'filed')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reach the Watchtower board.')
@@ -67,7 +104,7 @@ const WatchtowerTaskButton: React.FC = () => {
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="relative w-full max-w-md bg-card border border-white/10 rounded-2xl shadow-2xl p-6">
+          <div className="relative w-full max-w-md bg-card border border-white/10 rounded-2xl shadow-2xl p-6" onPaste={onPaste}>
             <button onClick={() => setOpen(false)} className="absolute top-4 right-4 text-muted hover:text-text" aria-label="Close">
               <X className="w-5 h-5" />
             </button>
@@ -121,6 +158,35 @@ const WatchtowerTaskButton: React.FC = () => {
                   rows={4}
                   className="w-full bg-bg/60 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-text placeholder:text-muted focus:outline-none focus:border-primary/60 resize-none"
                 />
+                {/* optional screenshot */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = '' }}
+                />
+                {screenshot ? (
+                  <div className="relative rounded-xl overflow-hidden border border-white/10 bg-bg/60">
+                    <img src={screenshot.preview} alt="Attached screenshot" className="w-full max-h-40 object-contain" />
+                    <button
+                      onClick={() => setScreenshot((prev) => { if (prev) URL.revokeObjectURL(prev.preview); return null })}
+                      className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500/80 transition-colors"
+                      aria-label="Remove screenshot"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 border border-dashed border-white/20 rounded-xl px-4 py-3 text-xs text-muted hover:text-text hover:border-primary/50 transition-all"
+                  >
+                    <ImagePlus className="w-4 h-4" />
+                    Attach a screenshot (optional) — click, or just paste one
+                  </button>
+                )}
+
                 <div className="flex items-center gap-2">
                   {(['low', 'medium', 'high', 'critical'] as Priority[]).map((p) => (
                     <button
