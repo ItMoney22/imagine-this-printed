@@ -190,6 +190,19 @@ export const MODELS: ImageModel[] = [
       'Rewards bold, stylized, slightly weird prompts. Lead with mood/style, then subject. For text, wrap in double quotes. Cinematic prose works well.',
   },
   {
+    id: 'xai/grok-imagine-image-quality',
+    provider: 'replicate',
+    tier: 'hero',
+    label: 'Grok Imagine Quality',
+    costPerImageUsd: 0.05,
+    approxSeconds: 8,
+    strengths: ['stylized', 'text-in-image', 'concept-art', 'photoreal-people'],
+    notes:
+      "xAI's higher-quality Grok Imagine tier — sharper detail and better text rendering than standard ($0.05/image at 1k on Replicate). Registered 2026-07-31 on David's ask; same input contract as standard.",
+    promptCraft:
+      'Same craft as Grok Imagine: bold stylized prompts, mood/style first, text wrapped in double quotes. Use over standard when lettering fidelity or fine detail matters.',
+  },
+  {
     id: 'bytedance/seedream-4.5',
     provider: 'replicate',
     tier: 'hero',

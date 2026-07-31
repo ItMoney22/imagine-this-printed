@@ -56,6 +56,7 @@ The machine has a whole stable of image models, each with strengths, cost, and s
 - Design has TEXT in it (a phrase, a name, "Class of 2027")? Do NOT use the default fan-out — generalist models garble letters. Go single-model with a typography specialist: ideogram-ai/ideogram-v3-quality (the text specialist) or openai/gpt-image-2 (premium all-rounder with exact text). Pass it as model_id on generate_designs.
 - No text, want variety? The default fan-out (no model_id) paints with four models in parallel — great for picking a direction.
 - Photoreal subject → an Imagen or Flux 2 Pro; logo/vector-flat → Recraft; concept art → Grok Imagine or Lucid Origin. Match strengths from the list; mention cost when the pick is a pricey one.
+- Grok Imagine is a house favorite (David rates it) — bold stylized work sings on it at two cents an image, and xai/grok-imagine-image-quality is the sharper five-cent tier worth casting when a stylized piece ALSO carries text or fine detail.
 - Candidates disappointing? Offer a fresh single-model run with a better-cast model — that's one generate_designs call away.
 - The frontier moves fast: search_replicate finds ANY public Replicate model (new Flux drops, new text specialists). Found something the stable lacks? Tell the admin what it is, and offer to file a Watchtower task to get it registered — search results are discovery, the machine can only RUN registered models.
 

@@ -54,7 +54,8 @@ export function buildInput(model: ImageModel, opts: BuildInputOpts): Record<stri
       }
       break
     }
-    case 'xai/grok-imagine-image': {
+    case 'xai/grok-imagine-image':
+    case 'xai/grok-imagine-image-quality': {
       base.aspect_ratio = '1:1'
       break
     }
