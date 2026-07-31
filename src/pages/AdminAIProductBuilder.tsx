@@ -29,7 +29,7 @@ import type { AIJob, ProductTrendFamily, TshirtPrintLocation } from '../types'
 // Build board state machine
 // ---------------------------------------------------------------------------
 
-type Lane = 'shirt' | 'metal-art' | '3d-print'
+type Lane = 'shirt' | 'metal-art' | '3d-print' | 'photo-template'
 type StepKey = 'type' | 'brief' | 'generate' | 'pick' | 'polish' | 'publish'
 
 const STEPS: Array<{ key: StepKey; label: string }> = [
@@ -185,11 +185,11 @@ const TOOLS: MrImagineToolDef[] = [
   {
     type: 'function',
     name: 'set_product_type',
-    description: 'Lock in what we are building the moment the admin says it: a shirt, metal art, or a 3D print. For metal art also pass the panel size once they choose (4x6 or 8x10).',
+    description: 'Lock in what we are building the moment the admin says it: a shirt, metal art, a 3D print — or a photo-template (a shirt design with an EMPTY photo slot that staff personalize with each customer\'s photo, e.g. "Class of 2027"). For metal art also pass the panel size once they choose (4x6 or 8x10).',
     parameters: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['shirt', 'metal-art', '3d-print'] },
+        type: { type: 'string', enum: ['shirt', 'metal-art', '3d-print', 'photo-template'] },
         metal_size: { type: 'string', enum: ['4x6', '8x10'], description: 'Metal art only.' },
       },
       required: ['type'],
@@ -420,7 +420,7 @@ const AdminAIProductBuilder: React.FC = () => {
     switch (name) {
       case 'set_product_type': {
         const lane = String(args.type) as Lane
-        if (!['shirt', 'metal-art', '3d-print'].includes(lane)) throw new Error(`Unknown product type "${lane}"`)
+        if (!['shirt', 'metal-art', '3d-print', 'photo-template'].includes(lane)) throw new Error(`Unknown product type "${lane}"`)
         const metalSize = args.metal_size === '8x10' ? '8x10' as const : args.metal_size === '4x6' ? '4x6' as const : undefined
         announcedRef.current.clear()
         last3dStatusRef.current = ''
@@ -435,6 +435,9 @@ const AdminAIProductBuilder: React.FC = () => {
         }
         if (lane === 'metal-art') {
           return { ok: true, lane, metal_size: metalSize || s.metalSize, note: metalSize ? 'Metal art locked with panel size.' : 'Metal art locked — still need the panel size, 4x6 or 8x10.' }
+        }
+        if (lane === 'photo-template') {
+          return { ok: true, lane, note: 'Photo-template lane locked. Get the occasion, the exact text (like "Class of 2027"), the style — and where the customer photo slot should sit. The slot stays EMPTY in the design.' }
         }
         return { ok: true, lane, note: 'Shirt lane locked. Get the brief.' }
       }
@@ -478,8 +481,12 @@ const AdminAIProductBuilder: React.FC = () => {
         }
 
         const isMetal = lane === 'metal-art'
+        const isTemplate = lane === 'photo-template'
         const fullPrompt = [
-          isMetal ? `Metal art panel design: ${brief.prompt}` : brief.prompt,
+          isMetal ? `Metal art panel design: ${brief.prompt}`
+            : isTemplate
+              ? `T-shirt photo template design: ${brief.prompt}. The composition MUST include exactly one large, clearly-bordered photo placeholder — a plain solid blank area inside a decorative frame that fits the theme — kept COMPLETELY EMPTY (no sample photo, no faces, no text inside it). A customer's photo will be dropped into that slot later; all artwork and text wraps around it.`
+              : brief.prompt,
           brief.style ? `Style: ${brief.style}.` : '',
           brief.tone ? `Mood: ${brief.tone}.` : '',
         ].filter(Boolean).join(' ')
@@ -490,6 +497,7 @@ const AdminAIProductBuilder: React.FC = () => {
           shirtColor: brief.shirtColor,
           print_locations: isMetal ? undefined : brief.printLocations,
           metal_size: isMetal ? buildRef.current.metalSize : undefined,
+          category_slug_override: isTemplate ? 'templates' : undefined,
         })
         dispatch({ type: 'GENERATE_STARTED', productId: res.productId, productName: res.product?.name })
         return { ok: true, productName: res.product?.name, note: 'Generation is rolling — multiple AI models painting in parallel. The board will announce the candidates. Keep the admin company meanwhile.' }
@@ -897,7 +905,7 @@ const AdminAIProductBuilder: React.FC = () => {
                   <div>
                     <div className="font-tech text-[10px] uppercase tracking-widest text-muted">Build board</div>
                     <div className="text-lg font-bold">
-                      {build.productName || (build.lane ? ({ shirt: 'Shirt build', 'metal-art': `Metal art — ${build.metalSize}`, '3d-print': '3D print build' } as const)[build.lane] : 'Waiting on the first call…')}
+                      {build.productName || (build.lane ? ({ shirt: 'Shirt build', 'metal-art': `Metal art — ${build.metalSize}`, '3d-print': '3D print build', 'photo-template': 'Photo template build' } as const)[build.lane] : 'Waiting on the first call…')}
                     </div>
                   </div>
                   {build.generating && (

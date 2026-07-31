@@ -78,6 +78,10 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
   // this flag those chunks get scheduled and Mr. Imagine "talks over" the
   // admin anyway. Set on interrupt, cleared when the next response begins.
   const suppressAudioRef = useRef(false)
+  // Whether a model response is currently in flight — response.cancel is only
+  // valid then; sending it idle makes xAI emit "Cancellation failed: no
+  // active response found", which used to surface as a session error.
+  const responseActiveRef = useRef(false)
   // Server-configured playback rate (MR_IMAGINE_PITCH) — set once per session
   // from the token response, read on every chunk.
   const pitchRef = useRef(1)
@@ -313,6 +317,7 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
           case 'response.created':
             // New response — safe to speak again after a barge-in.
             suppressAudioRef.current = false
+            responseActiveRef.current = true
             break
           case 'response.output_audio.delta':
           case 'response.audio.delta':
@@ -339,20 +344,27 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
           case 'input_audio_buffer.speech_started':
             // The admin is talking — kill scheduled audio, drop any deltas
             // still in flight, and cancel the response server-side. Do this
-            // unconditionally (not just when status was 'speaking'): the
-            // status state can lag the audio by a render.
+            // regardless of the React status (it lags the audio by a render),
+            // but only send the cancel when a response is actually in flight.
             interruptPlayback()
             suppressAudioRef.current = true
-            try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' })) } catch { /* noop */ }
+            if (responseActiveRef.current) {
+              responseActiveRef.current = false
+              try { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' })) } catch { /* noop */ }
+            }
             setStatus('listening')
             setAgentTranscript('')
             break
           case 'response.done':
             suppressAudioRef.current = false
+            responseActiveRef.current = false
             setStatus('listening')
             break
           case 'error': {
             const em = typeof msg.error === 'string' ? msg.error : (msg.error as { message?: string })?.message
+            // A cancel that raced response.done is a no-op, not a failure —
+            // never surface it or kill the session over it.
+            if (em && /cancel/i.test(em)) break
             setError(em || 'Voice error.')
             setStatus('error')
             break

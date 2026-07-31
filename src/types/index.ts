@@ -1144,6 +1144,9 @@ export interface AIProductCreationRequest {
   // Metal art panel size → backend metadata.metal_size (drives size-accurate
   // shelf/wall mockups). Only meaningful when the prompt normalizes to metal-art.
   metal_size?: '4x6' | '8x10'
+  // Pins the product category instead of letting GPT normalization guess.
+  // Whitelisted server-side; currently only photo-template products use it.
+  category_slug_override?: 'templates'
   deterministicTextDesign?: {
     phrase: string
     style: string

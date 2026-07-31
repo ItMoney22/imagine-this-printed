@@ -372,6 +372,15 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       normalized.image_prompt = imagePromptOverride.trim()
     }
 
+    // Photo-template products (Imagine Studio, 2026-07-31): the caller pins the
+    // category instead of letting normalization guess. Whitelisted — this is
+    // the only slug the override may force; absent param = behavior unchanged.
+    const isTemplate = req.body.category_slug_override === 'templates'
+    if (isTemplate) {
+      normalized.category_slug = 'templates'
+      normalized.category_name = 'Templates'
+    }
+
     // Step 2: Upsert category
     const { data: category, error: catError } = await supabase
       .from('product_categories')
@@ -440,6 +449,9 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           print_style: printStyle,
           // Model used for image generation
           model_id: modelId,
+          // Personalizable template: design ships with an EMPTY photo slot;
+          // staff drop the customer's photo in per order (Etsy flow).
+          ...(isTemplate ? { is_template: true, personalization: 'customer_photo' } : {}),
         },
       })
       .select()
