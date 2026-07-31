@@ -51,6 +51,9 @@ interface RealtimeTokenResponse {
   token: string
   model: string
   voice: string
+  /** Playback-rate multiplier for the kid-character register (e.g. 1.18 —
+   *  raises pitch AND pace together, the classic cartoon-voice trick). */
+  pitch?: number
   instructions: string
 }
 
@@ -70,6 +73,9 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
   onToolCallRef.current = onToolCall
 
   const wsRef = useRef<WebSocket | null>(null)
+  // Server-configured playback rate (MR_IMAGINE_PITCH) — set once per session
+  // from the token response, read on every chunk.
+  const pitchRef = useRef(1)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const inputCtxRef = useRef<AudioContext | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -108,12 +114,16 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
     const now = ctx.currentTime
     const source = ctx.createBufferSource()
     source.buffer = buf
+    // Kid-character register: playbackRate raises pitch and pace together.
+    // The scheduling below must use the SHORTENED duration or chunks overlap.
+    const rate = pitchRef.current || 1
+    source.playbackRate.value = rate
     source.connect(ctx.destination)
     const startAt = playbackSourceRef.current
       ? Math.max(now, (playbackSourceRef.current as unknown as { _endAt?: number })._endAt || now)
       : now
     source.start(startAt)
-    ;(source as unknown as { _endAt?: number })._endAt = startAt + buf.duration
+    ;(source as unknown as { _endAt?: number })._endAt = startAt + buf.duration / rate
     playbackSourceRef.current = source
     pendingSourcesRef.current.add(source)
     source.onended = () => { pendingSourcesRef.current.delete(source) }
@@ -190,6 +200,7 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
 
       const tok = await apiFetch('/api/ai/realtime/token', { method: 'POST', body: '{}' }) as RealtimeTokenResponse
       if (!tok?.token) throw new Error('Could not start the live line.')
+      pitchRef.current = Math.min(2, Math.max(0.5, Number(tok.pitch) || 1))
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, sampleRate: SAMPLE_RATE, echoCancellation: true, noiseSuppression: true, autoGainControl: true },

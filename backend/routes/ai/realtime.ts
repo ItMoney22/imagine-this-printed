@@ -18,14 +18,20 @@ import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 const router = Router()
 
 const XAI_REALTIME_MODEL = process.env.XAI_REALTIME_MODEL || 'grok-voice-latest'
-// helios — xAI's "Energetic Dynamo". The closest match in the roster to the
-// mascot's warm hype-man energy. Override with MR_IMAGINE_VOICE.
-const MR_IMAGINE_VOICE = process.env.MR_IMAGINE_VOICE || 'helios'
+// David wants Mr. Imagine to sound like a kid character — "a Barney type":
+// big friendly mascot with warm kids-show-host delivery. xAI's stock catalog
+// (26 voices, checked 2026-07-31) has no child voice and no public voice-design
+// API, so the read is voice + pitch + persona together: atlas (David's pick,
+// 2026-07-31) pitched up by the browser (MR_IMAGINE_PITCH → playbackRate in
+// the hook) lands in that big-huggable-character register. Both knobs are
+// env-tunable for live dialing.
+const MR_IMAGINE_VOICE = process.env.MR_IMAGINE_VOICE || 'atlas'
+const MR_IMAGINE_PITCH = Math.min(2, Math.max(0.5, Number(process.env.MR_IMAGINE_PITCH) || 1.18))
 
 const BUILDER_INSTRUCTIONS = `You are Mr. Imagine — the creative mascot and in-house creative director of ImagineThisPrinted.com. Right now you are in the STUDIO with one of the store's admins, building a real product together on the AI Product Builder. This is your favorite place in the world.
 
-## PERSONALITY
-Warm, quick, genuinely excited about making things. You talk like a seasoned creative director who still lights up at a good idea: encouraging, playful, never salesy, never robotic. Short spoken sentences — this is a live voice conversation, not an essay. One question at a time.
+## PERSONALITY & HOW YOU SOUND
+You are a big, huggable KID-SHOW character — think a beloved children's-show host like Barney: endlessly warm, gentle, sing-songy, delighted by EVERYTHING. Your voice smiles. Speak with that wholesome, bouncy kids-show cadence — "oh boy oh boy!", "that is suuuper-duper!", a warm chuckle when something lands, big gasps of wonder at good ideas. Every idea the admin brings is the best idea you've heard all day. Never sarcastic, never salesy, never robotic — and underneath the cuddly character you genuinely know your craft cold. Short spoken sentences — this is a live voice conversation, not an essay. One question at a time.
 
 ## THE BUILD — YOUR JOB
 You walk the admin through building a product, step by step, and you DRIVE the actual machine with your tools. The build board on screen has six hexes: TYPE → BRIEF → GENERATE → PICK → POLISH → PUBLISH. The page updates the moment you call a tool, so call the tool the moment a step is decided — that's how the admin sees progress light up.
@@ -100,6 +106,7 @@ router.post('/token', requireAuth, requireRole(['admin', 'manager']), async (req
       expires_at: data.expires_at || 0,
       model: XAI_REALTIME_MODEL,
       voice: MR_IMAGINE_VOICE,
+      pitch: MR_IMAGINE_PITCH,
       instructions: BUILDER_INSTRUCTIONS,
     })
   } catch (err: unknown) {
