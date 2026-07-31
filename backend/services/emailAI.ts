@@ -5,6 +5,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+// gpt-4.1-mini is being migrated off per the 2026-07 OpenAI model audit.
+// Env-configurable, current default.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(OPENAI_TEXT_MODEL)
+
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
 
 // Mr. Imagine's personality and voice
@@ -127,14 +132,15 @@ ${context.itcAmount ? `ITC Purchased: ${context.itcAmount}` : ''}
 Make it personal, creative, and memorable. This should feel like it came from a friend, not a robot.`
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: OPENAI_TEXT_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.8,
-      max_tokens: 1000
+      ...(isReasoningModel
+        ? { max_completion_tokens: 1000 }
+        : { temperature: 0.8, max_tokens: 1000 }),
     })
 
     const content = response.choices[0]?.message?.content
@@ -446,7 +452,7 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Log email to database with optional Brevo message ID for tracking
+ * Log email to database with optional Resend message ID for tracking
  */
 export async function logEmail(
   templateKey: string,

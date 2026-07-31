@@ -26,13 +26,11 @@ import mockupsRouter from './routes/mockups.js'
 import designerRouter from './routes/designer.js'
 import realisticMockupsRouter from './routes/realistic-mockups.js'
 import voiceRouter from './routes/ai/voice.js'
-import conciergeAvatarRouter from './routes/ai/concierge-avatar.js'
 import transcribeRouter from './routes/ai/transcribe.js'
 import chatRouter from './routes/ai/chat.js'
 import designAssistantRouter from './routes/ai/design-assistant.js'
 import voiceChatRouter from './routes/ai/voice-chat.js'
 import mrImagineChatRouter from './routes/ai/mr-imagine-chat.js'
-import imageToolsRouter from './routes/ai/image-tools.js'
 import userProductsRouter from './routes/user-products.js'
 import userProductApprovalsRouter from './routes/admin/user-product-approvals.js'
 import adminSupportRouter from './routes/admin/support.js'
@@ -46,6 +44,7 @@ import adminInventoryRouter from './routes/admin/inventory.js'
 import adminDesignLibraryRouter from './routes/admin/design-library.js'
 import adminMonitorRouter from './routes/admin/monitor.js'
 import adminEtsyRouter from './routes/admin/etsy.js'
+import adminTrendScoutRouter from './routes/admin/trend-scout.js'
 import seoRouter from './routes/seo.js'
 import socialOutboxRouter from './routes/social-outbox.js'
 import couponsRouter from './routes/coupons.js'
@@ -63,9 +62,14 @@ import emailRouter from './routes/email.js'
 import adminProductsRouter from './routes/admin/products.js'
 import shippingRouter from './routes/shipping.js'
 import invoicesRouter from './routes/invoices.js'
+import wholesaleRouter from './routes/wholesale.js'
 import imageFlowRouter from './routes/image-flow.js'
 import watchtowerRouter from './routes/watchtower.js'
 import aiRealtimeRouter from './routes/ai/realtime.js'
+import kioskRouter from './routes/kiosk.js'
+import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
+import messagingRouter from './routes/messaging.js'
+import reviewsRouter from './routes/reviews.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
@@ -95,8 +99,6 @@ logger.info({
     PORT: process.env.PORT || 4000,
     RESEND_API_KEY: !!process.env.RESEND_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM,
-    BREVO_API_KEY: !!process.env.BREVO_API_KEY,   // fallback only — remove after migration
-    BREVO_SENDER_EMAIL: process.env.BREVO_SENDER_EMAIL,
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
@@ -125,8 +127,13 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .map(origin => origin.trim())
   .filter(Boolean)
 
-// In development, allow all localhost origins
-const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
+// Permissive CORS (origin: true, which reflects any Origin header back with
+// credentials: true) is ONLY for local development. This used to also
+// trigger when NODE_ENV was simply unset — a misconfigured production deploy
+// with no NODE_ENV would silently allow any website to make authenticated
+// cross-origin calls against this API. NODE_ENV must now be the literal
+// string 'development'.
+const isDevelopment = process.env.NODE_ENV === 'development'
 
 const corsOptions: CorsOptions = {
   origin: isDevelopment
@@ -137,6 +144,16 @@ const corsOptions: CorsOptions = {
   credentials: true,
   allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+}
+
+// Boot-time safety net: permissive CORS must never be reachable outside
+// explicit local development. Unreachable today given the check above, but
+// guards against a future edit reintroducing the "unset NODE_ENV falls back
+// to permissive" bug this fixed.
+if (!isDevelopment && corsOptions.origin === true) {
+  throw new Error(
+    '[boot] Refusing to start: permissive CORS (origin: true) is only allowed when NODE_ENV=development.'
+  )
 }
 
 app.use(cors(corsOptions))
@@ -184,7 +201,10 @@ app.use('/api/mockups', mockupsRouter)
 app.use('/api/designer', designerRouter)
 app.use('/api/realistic-mockups', realisticMockupsRouter)
 app.use('/api/ai/voice', voiceRouter)
-app.use('/api/ai/concierge', conciergeAvatarRouter)
+// /api/ai/concierge retired 2026-07-28 (Watchtower a19d9784 / cab59113): it was
+// an unauthenticated, unrate-limited GET that paid for a Flux 1.1 Pro Ultra
+// generation on every cold start. The avatar is now the committed static asset
+// public/ai-concierge-avatar.png, served at /ai-concierge-avatar.png.
 app.use('/api/ai/transcribe', transcribeRouter)
 app.use('/api/ai/chat', chatRouter)
 app.use('/api/ai/design-assistant', designAssistantRouter)
@@ -192,7 +212,7 @@ app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
 app.use('/api/ai/realtime', aiRealtimeRouter)
 app.use('/api/watchtower', watchtowerRouter)
-app.use('/api/ai', imageToolsRouter) // Image tools: upscale, remove-background, enhance
+// imageToolsRouter retired on the hardening branch (8f6e7a2: unbilled AI route)
 app.use('/api/user-products', userProductsRouter)
 app.use('/api/admin/user-products', userProductApprovalsRouter)
 app.use('/api/admin/support', adminSupportRouter)
@@ -206,6 +226,7 @@ app.use('/api/admin/inventory', adminInventoryRouter) // blank-shirt inventory +
 app.use('/api/admin/design-library', adminDesignLibraryRouter) // imported design bundle: collections + bulk activate
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth connect + product posting (draft-first)
+app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task
 app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
 app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)
 app.use('/api/coupons', couponsRouter)
@@ -224,6 +245,11 @@ app.use('/api/admin', adminProductsRouter)
 app.use('/api/products', adminProductsRouter)
 app.use('/api/shipping', shippingRouter)
 app.use('/api/invoices', invoicesRouter)
+app.use('/api/wholesale', wholesaleRouter)
+app.use('/api/kiosk', kioskRouter) // kiosk terminal device-secret -> session exchange + session-gated ordering
+app.use('/api/admin/kiosks', adminKioskDevicesRouter) // admin: provision/revoke per-device kiosk secrets
+app.use('/api/messaging', messagingRouter) // durable message attachment upload + per-request signed-URL resolution
+app.use('/api/reviews', reviewsRouter) // product reviews; writes gated on a verified purchase
 
 // Lightweight auth probe
 app.get('/api/auth/me', requireAuth, (req, res) => {

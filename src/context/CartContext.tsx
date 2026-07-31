@@ -16,6 +16,20 @@ const API_BASE = import.meta.env.VITE_API_BASE || ''
 const CART_STORAGE_KEY = 'itp_cart_v1'
 const COUPON_STORAGE_KEY = 'itp_cart_coupon_v1'
 
+// Module-level monotonic counter appended to every generated line-item id.
+// A plain `${product.id}-${Date.now()}` collides when two distinct variants
+// (different size/color/addons) are added within the same millisecond —
+// rapid clicks or a programmatic bulk add (restoreFromOrder) both hit this.
+// Both items then share an id, so removeFromCart/updateQuantity act on both
+// instead of one. The counter never resets and is strictly increasing for
+// the lifetime of the module, so it stays unique even under a pinned/fake
+// clock. See task 6593e839.
+let lineItemIdCounter = 0
+const nextLineItemId = (prefix: string): string => {
+  lineItemIdCounter += 1
+  return `${prefix}-${Date.now()}-${lineItemIdCounter}`
+}
+
 function loadCartFromStorage(): CartState {
   if (typeof window === 'undefined') return { items: [], total: 0 }
   try {
@@ -32,6 +46,57 @@ function loadCartFromStorage(): CartState {
   }
 }
 
+const isDataUrl = (value: unknown): value is string =>
+  typeof value === 'string' && value.startsWith('data:')
+
+// Strip the fields that blow up localStorage before every persisted write.
+// Full-size base64 data: URLs (product.images / designData.mockupUrl), the
+// entire layer array, and the JSON-stringified canvas snapshot can put a
+// single Imagination Sheet cart item well past 1MB; two or three of them
+// blow past the ~5MB localStorage quota entirely (see task 428a05df). The
+// in-memory redux state keeps the full item for the current session —
+// only what actually reaches localStorage is trimmed. Real GCS URLs
+// (http/https, e.g. designData.printReadyUrl) are cheap strings and pass
+// through untouched.
+function sanitizeItemForStorage(item: CartItem): CartItem {
+  const images = item.product.images
+  const sanitizedImages = images?.some(isDataUrl)
+    ? images.filter(img => !isDataUrl(img))
+    : images
+
+  const sanitizedProduct = sanitizedImages === images
+    ? item.product
+    : { ...item.product, images: sanitizedImages as string[] }
+
+  if (!item.designData) {
+    return sanitizedProduct === item.product ? item : { ...item, product: sanitizedProduct }
+  }
+
+  const { elements: _elements, canvasSnapshot: _canvasSnapshot, mockupUrl, ...restDesignData } = item.designData
+  return {
+    ...item,
+    product: sanitizedProduct,
+    designData: {
+      ...restDesignData,
+      elements: [], // shape requires the field; contents never needed after add-to-cart
+      mockupUrl: isDataUrl(mockupUrl) ? '' : mockupUrl
+    }
+  }
+}
+
+// Cross-browser QuotaExceededError detection. Chrome/Edge/Safari use
+// name === 'QuotaExceededError' (code 22); old Firefox uses
+// NS_ERROR_DOM_QUOTA_REACHED (code 1014).
+function isQuotaExceededError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === 'QuotaExceededError' ||
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err.code === 22 ||
+      err.code === 1014)
+  )
+}
+
 function loadCouponFromStorage(): AppliedCoupon | null {
   if (typeof window === 'undefined') return null
   try {
@@ -44,7 +109,7 @@ function loadCouponFromStorage(): AppliedCoupon | null {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[]) => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -55,12 +120,17 @@ interface CartContextType {
   applyCoupon: (code: string, userId?: string) => Promise<{ success: boolean; error?: string }>
   removeCoupon: () => void
   couponLoading: boolean
+  // Set when the most recent localStorage write failed (quota, private-mode,
+  // etc). The in-memory cart still works — this only means it may not
+  // survive a refresh. Never silently swallowed; see the persist effect.
+  persistError: string | null
+  dismissPersistError: () => void
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[] } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation'] } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -123,13 +193,14 @@ const calculateTotal = (items: CartItem[]): number => {
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
         item.selectedSize === selectedSize &&
         item.selectedColor === selectedColor &&
         item.paymentMethod === paymentMethod &&
+        item.printLocation === printLocation &&
         addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons)
       )
 
@@ -142,11 +213,12 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
         )
       } else {
         const newItem: CartItem = {
-          id: `${product.id}-${Date.now()}`,
+          id: nextLineItemId(product.id),
           product,
           quantity,
           selectedSize,
           selectedColor,
+          printLocation,
           selectedAddons,
           customDesign,
           designData,
@@ -196,16 +268,26 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [state, dispatch] = useReducer(cartReducer, undefined, loadCartFromStorage)
   const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(loadCouponFromStorage)
   const [couponLoading, setCouponLoading] = useState(false)
+  const [persistError, setPersistError] = useState<string | null>(null)
 
-  // Persist cart on every change. localStorage writes are synchronous but
-  // small (typical cart < 5KB JSON). Wrapped in try/catch because quota
-  // errors and Safari private-mode throw instead of returning false.
+  // Persist cart on every change. Items are sanitized first (large base64
+  // data and layer/canvas data stripped — see sanitizeItemForStorage) so a
+  // handful of Imagination Sheets can't blow the ~5MB localStorage quota by
+  // themselves. If the write still fails, surface it — a cart that silently
+  // fails to save is how customers lose their work on refresh.
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
-      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: state.items }))
-    } catch {
-      // Quota or private-mode — silent. The in-memory cart still works.
+      const sanitizedItems = state.items.map(sanitizeItemForStorage)
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ items: sanitizedItems }))
+      setPersistError(null)
+    } catch (err) {
+      console.error('[CartContext] Failed to persist cart to localStorage:', err)
+      setPersistError(
+        isQuotaExceededError(err)
+          ? "Your cart couldn't be fully saved — there's too much design data to store locally. It'll keep working in this tab, but may not survive a refresh. Check out soon, or remove an item."
+          : "Your cart couldn't be saved and may not survive a refresh. Check out soon to avoid losing it."
+      )
     }
   }, [state])
 
@@ -222,8 +304,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [appliedCoupon])
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[]) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } })
   }
 
   const removeFromCart = (itemId: string) => {
@@ -242,7 +324,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Restore cart from order metadata (for resuming draft orders)
   const restoreFromOrder = useCallback((orderItems: any[]) => {
     const cartItems: CartItem[] = orderItems.map((item: any, index: number) => ({
-      id: `restored-${item.product?.id || item.id || index}-${Date.now()}`,
+      id: nextLineItemId(`restored-${item.product?.id || item.id || index}`),
       product: item.product || {
         id: item.id || item.product_id || `unknown-${index}`,
         name: item.name || item.product_name || 'Unknown Product',
@@ -256,6 +338,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       quantity: item.quantity || 1,
       selectedSize: item.selectedSize || item.variations?.size,
       selectedColor: item.selectedColor || item.variations?.color,
+      printLocation: item.printLocation || item.print_location || item.variations?.printLocation,
       customDesign: item.customDesign,
       designData: item.designData,
       paymentMethod: item.paymentMethod || 'usd'
@@ -303,6 +386,10 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setAppliedCoupon(null)
   }, [])
 
+  const dismissPersistError = useCallback(() => {
+    setPersistError(null)
+  }, [])
+
   const discount = appliedCoupon?.discount || 0
   const finalTotal = Math.max(0, state.total - discount)
 
@@ -319,8 +406,40 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       finalTotal,
       applyCoupon,
       removeCoupon,
-      couponLoading
+      couponLoading,
+      persistError,
+      dismissPersistError
     }}>
+      {persistError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            padding: '10px 16px',
+            background: '#dc2626',
+            color: '#fff',
+            fontSize: '14px'
+          }}
+        >
+          <span>{persistError}</span>
+          <button
+            onClick={dismissPersistError}
+            aria-label="Dismiss cart save warning"
+            style={{ background: 'transparent', border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {children}
     </CartContext.Provider>
   )

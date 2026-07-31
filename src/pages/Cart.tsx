@@ -96,6 +96,9 @@ const Cart: React.FC = () => {
                     {item.customDesign && !item.designData?.mockupUrl && (
                       <p className="text-sm text-purple-600 mt-1">Custom Design Included</p>
                     )}
+                    {item.printLocation && (
+                      <p className="text-sm text-muted mt-1">Print location: {item.printLocation}</p>
+                    )}
                     <p className="text-lg font-bold text-purple-600 mt-2">
                       ${item.product.price.toFixed(2)}
                     </p>
@@ -149,12 +152,16 @@ const Cart: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Tax</span>
-                <span>${(state.total * 0.08).toFixed(2)}</span>
+                {/* Tax depends on the shipping address (server-side US state
+                    rate table) — there's no address yet on this page, so we
+                    don't invent a number. See src/pages/Checkout.tsx for the
+                    real, server-calculated figure once it's known. */}
+                <span className="text-muted">Calculated at checkout</span>
               </div>
               <div className="border-t pt-3 flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span>
-                  ${(state.total + state.total * 0.08).toFixed(2)}{!freeShippingProgress.qualified && '+'}
+                  ${state.total.toFixed(2)}{!freeShippingProgress.qualified && '+'} <span className="text-sm font-normal text-muted">+ tax</span>
                 </span>
               </div>
             </div>

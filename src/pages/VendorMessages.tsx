@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
-import { messagingService } from '../utils/messaging'
+import { messagingService, getAttachmentDownloadUrl } from '../utils/messaging'
 import type { Conversation, Message } from '../types'
 
 const VendorMessages: React.FC = () => {
@@ -144,6 +144,16 @@ const VendorMessages: React.FC = () => {
       alert('Failed to upload files. Please try again.')
     } finally {
       setIsSending(false)
+    }
+  }
+
+  const handleAttachmentClick = async (attachmentId: string) => {
+    try {
+      const { url } = await getAttachmentDownloadUrl(attachmentId)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch (error) {
+      console.error('Error opening attachment:', error)
+      alert('This attachment is unavailable.')
     }
   }
 
@@ -433,12 +443,17 @@ const VendorMessages: React.FC = () => {
                         {message.attachments && message.attachments.length > 0 && (
                           <div className="mt-2 space-y-2">
                             {message.attachments.map((attachment) => (
-                              <div key={attachment.id} className="flex items-center space-x-2">
+                              <button
+                                key={attachment.id}
+                                type="button"
+                                onClick={() => handleAttachmentClick(attachment.id)}
+                                className="flex items-center space-x-2 hover:underline cursor-pointer"
+                              >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                 </svg>
                                 <span className="text-xs">{attachment.name}</span>
-                              </div>
+                              </button>
                             ))}
                           </div>
                         )}

@@ -7,11 +7,25 @@
 //
 // Admin endpoints:  requireAuth + admin/manager.
 // Bridge endpoints: Bearer PRINT_BRIDGE_TOKEN (same seam as the print factory).
+import { randomUUID } from 'crypto'
 import { Router, Request, Response, NextFunction } from 'express'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
+import { withSocialUtm } from '../services/social-utm.js'
 
 const router = Router()
+
+/**
+ * scheduled_for accepts an ISO timestamp, or null/'' to clear the schedule and
+ * release the item immediately. Anything unparseable is rejected rather than
+ * silently stored — a bad date here would either post instantly or never.
+ */
+function parseScheduledFor(raw: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (raw === null || raw === '' || raw === undefined) return { ok: true, value: null }
+  const d = new Date(String(raw))
+  if (Number.isNaN(d.getTime())) return { ok: false }
+  return { ok: true, value: d.toISOString() }
+}
 
 function requireBridgeAuth(req: Request, res: Response, next: NextFunction): void {
   const token = process.env.PRINT_BRIDGE_TOKEN
@@ -30,14 +44,22 @@ function requireBridgeAuth(req: Request, res: Response, next: NextFunction): voi
 // Bridge (Rico) — declared before the admin router.use guards
 // ---------------------------------------------------------------------------
 
-// GET /api/social-outbox/bridge/next?kind=post|listing — claim oldest approved
+// GET /api/social-outbox/bridge/next?kind=post|listing — claim oldest DUE approved item
 router.get('/bridge/next', requireBridgeAuth, async (req: Request, res: Response) => {
   try {
     const kind = req.query.kind === 'listing' ? 'listing' : req.query.kind === 'post' ? 'post' : null
+    // Scheduled release: an approved item with a future scheduled_for is
+    // invisible to the bridge until it comes due. This is the whole scheduler —
+    // Rico already polls, so a due-time filter on the claim query is all that a
+    // week of pre-approved content needs. No extra worker, no extra state.
+    const nowIso = new Date().toISOString()
     let query = supabase
       .from('social_outbox')
       .select('*, products(name, slug, price, images, description)')
       .eq('status', 'approved')
+      .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
+      // Unscheduled items go first, then whatever has been due longest.
+      .order('scheduled_for', { ascending: true, nullsFirst: true })
       .order('created_at', { ascending: true })
       .limit(1)
     if (kind) query = query.eq('kind', kind)
@@ -127,7 +149,7 @@ router.get('/', async (req: Request, res: Response) => {
   }
 })
 
-// PUT /api/social-outbox/:id — edit caption/hashtags/listing while draft/approved/failed
+// PUT /api/social-outbox/:id — edit caption/hashtags/listing/schedule while draft/approved/failed
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const updates: Record<string, any> = { updated_at: new Date().toISOString() }
@@ -135,6 +157,11 @@ router.put('/:id', async (req: Request, res: Response) => {
     if ('hashtags' in req.body && Array.isArray(req.body.hashtags)) updates.hashtags = req.body.hashtags.map(String)
     if ('listing' in req.body && req.body.listing && typeof req.body.listing === 'object') updates.listing = req.body.listing
     if ('kind' in req.body && ['post', 'listing'].includes(req.body.kind)) updates.kind = req.body.kind
+    if ('scheduled_for' in req.body) {
+      const parsed = parseScheduledFor(req.body.scheduled_for)
+      if (!parsed.ok) return res.status(400).json({ error: 'scheduled_for must be an ISO timestamp or null' })
+      updates.scheduled_for = parsed.value
+    }
 
     const { data, error } = await supabase
       .from('social_outbox')
@@ -151,16 +178,24 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/social-outbox/:id/approve — David's gate
+// POST /api/social-outbox/:id/approve — David's gate.
+// Optional body { scheduled_for } approves AND schedules in one call, so a
+// week of content can be approved now and released on its own timetable.
 router.post('/:id/approve', async (req: Request, res: Response) => {
   try {
+    const updates: Record<string, any> = {
+      status: 'approved',
+      approved_by: req.user?.sub ?? null,
+      updated_at: new Date().toISOString()
+    }
+    if ('scheduled_for' in (req.body || {})) {
+      const parsed = parseScheduledFor(req.body.scheduled_for)
+      if (!parsed.ok) return res.status(400).json({ error: 'scheduled_for must be an ISO timestamp or null' })
+      updates.scheduled_for = parsed.value
+    }
     const { data, error } = await supabase
       .from('social_outbox')
-      .update({
-        status: 'approved',
-        approved_by: req.user?.sub ?? null,
-        updated_at: new Date().toISOString()
-      })
+      .update(updates)
       .eq('id', req.params.id)
       .in('status', ['draft', 'failed'])
       .select()
@@ -222,18 +257,25 @@ router.post('/enqueue-missing', async (_req: Request, res: Response) => {
 
     const rows = candidates.map(p => {
       const hooks = p.metadata.marketing_hooks
+      // Same trick as seo-pack.ts: mint the row id here so the caption can
+      // carry utm_campaign=<this row's id> in a single insert.
+      const outboxId = randomUUID()
+      const trackedUrl = hooks.product_url
+        ? withSocialUtm(String(hooks.product_url), { platform: 'tiktok', outboxId })
+        : null
       return {
+        id: outboxId,
         product_id: p.id,
         platform: 'tiktok',
         kind: 'post',
-        caption: `${hooks.captions?.[0] || p.name} ${hooks.product_url || ''}`.trim(),
+        caption: `${hooks.captions?.[0] || p.name} ${trackedUrl || ''}`.trim(),
         hashtags: hooks.hashtags || [],
         media_urls: p.images || [],
         listing: {
           title: p.name,
           description: p.description,
           price: p.price,
-          product_url: hooks.product_url || null
+          product_url: trackedUrl
         },
         status: 'draft'
       }

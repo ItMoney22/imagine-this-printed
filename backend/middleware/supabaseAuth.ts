@@ -1,8 +1,19 @@
 ﻿import type { Request, Response, NextFunction } from "express";
 import { jose } from "../lib/jose.js";
+import { getCachedRole } from "../lib/role-cache.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET!;
+// Supabase's JWT secret must never be aliased to the legacy Prisma-era
+// JWT_SECRET (see backend/routes/account.ts) — sharing one secret between
+// the two systems means anyone holding either one can mint a token the
+// other accepts. Fail fast at boot instead of limping along with token
+// verification silently broken (wrong secret) or cross-accepted (shared
+// secret).
+const rawSupabaseJwtSecret = process.env.SUPABASE_JWT_SECRET;
+if (!rawSupabaseJwtSecret) {
+  throw new Error("SUPABASE_JWT_SECRET is not set — refusing to boot without a way to verify auth tokens.");
+}
+const SUPABASE_JWT_SECRET: string = rawSupabaseJwtSecret;
 
 export type AuthUser = { id: string; sub: string; email?: string; role?: string };
 
@@ -37,18 +48,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     });
     void decoded; // referenced for tooling, not logged on the happy path
 
-    // Extract app role from user_metadata if available
-    // NOTE: payload.role is the Supabase auth role ("authenticated"/"anon"), NOT the app role.
-    // Only use user_metadata.role; otherwise leave undefined so requireRole() does a DB lookup.
-    const userMetadata = payload.user_metadata as any;
-    const role = userMetadata?.role || undefined;
+    // Role is intentionally NOT read from the token. `user_metadata` is
+    // client-writable via supabase.auth.updateUser({ data: { role: ... } }),
+    // so a forged role claim inside an otherwise legitimately-signed JWT
+    // must never be trusted. Authorization always resolves through
+    // requireRole() -> role-cache.ts, which reads the server-controlled
+    // `user_profiles` table.
     const sub = String(payload.sub ?? "");
 
     req.user = {
       id: sub,
       sub,
       email: typeof payload.email === "string" ? payload.email : undefined,
-      role,
     };
     next();
   } catch (err: any) {
@@ -60,15 +71,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 export function requireRole(roles: string[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!req.user) { res.status(401).json({ error: "Not authenticated" }); return; }
-    // If role is set in token, check it directly
-    if (req.user.role && roles.includes(req.user.role)) { next(); return; }
-    // Otherwise fall back to a DB lookup
+    // Role always resolves from the server-trusted role cache (backed by
+    // user_profiles), never from the JWT — see requireAuth() above for why.
     try {
-      const { createClient } = await import("@supabase/supabase-js");
-      const sb = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      const { data } = await sb.from("user_profiles").select("role").eq("id", req.user.id).single();
-      if (data?.role && roles.includes(data.role)) {
-        req.user.role = data.role;
+      const role = await getCachedRole(req.user.id);
+      if (role && roles.includes(role)) {
+        req.user.role = role;
         next();
       } else {
         res.status(403).json({ error: "Insufficient permissions" });
@@ -90,13 +98,11 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
       algorithms: ["HS256"],
       issuer: `https://${new URL(SUPABASE_URL).host}/auth/v1`,
     });
-    const userMetadata = payload.user_metadata as any;
     const sub = String(payload.sub ?? "");
     req.user = {
       id: sub,
       sub,
       email: typeof payload.email === "string" ? payload.email : undefined,
-      role: userMetadata?.role || undefined,
     };
   } catch {
     // no-op — optional means unauthenticated is fine

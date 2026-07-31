@@ -11,7 +11,8 @@
 //      hardcoded 8-item array).
 //
 // Brain = Gemini 2.5 Flash via OpenRouter (same default as routes/ai/chat.ts —
-// cheap, fast, 1M context). Falls back to OpenAI gpt-4o if no OPENROUTER key.
+// cheap, fast, 1M context). Falls back to OPENAI_TEXT_MODEL if no OPENROUTER
+// key (gpt-4o is retired — gpt-4 family hard shutdown 2026-10-23).
 
 import OpenAI from 'openai'
 import { searchTrends } from './serpapi-search.js'
@@ -31,7 +32,12 @@ const client = new OpenAI(
     : { apiKey: process.env.OPENAI_API_KEY }
 )
 
-const MODEL = USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-4o'
+const MODEL = USE_OPENROUTER ? 'google/gemini-2.5-flash' : (process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano')
+// gpt-5.x/o-series reasoning models reject a non-default `temperature` and
+// the legacy `max_tokens` param (verified live during the sibling
+// design-assistant.ts migration — see
+// handoff-joshua-knight-1785113728792.json).
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(MODEL)
 
 // Rotating "trend lenses" — each call picks one at random so the idea pool is
 // effectively unbounded and feels current, instead of cycling 8 fixed strings.
@@ -152,8 +158,7 @@ export async function brainstormDesign(turns: BrainstormTurn[], mode: 'dtf' | 'w
   const completion = await client.chat.completions.create({
     model: MODEL,
     messages: [{ role: 'system', content: systemPrompt }, ...history],
-    temperature: 0.8,
-    max_tokens: 500,
+    ...(isReasoningModel ? { max_completion_tokens: 500 } : { temperature: 0.8, max_tokens: 500 }),
   })
 
   const raw = completion.choices[0]?.message?.content || ''
@@ -186,8 +191,7 @@ export async function randomDesignIdea(seed?: string): Promise<string> {
 
   const completion = await client.chat.completions.create({
     model: MODEL,
-    temperature: 1.0,
-    max_tokens: 90,
+    ...(isReasoningModel ? { max_completion_tokens: 90 } : { temperature: 1.0, max_tokens: 90 }),
     messages: [
       {
         role: 'system',

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import { supabase } from '../lib/supabase'
+import { API_BASE } from '../lib/api'
 import { Link } from 'react-router-dom'
 
 interface ProductPreviewCarouselProps {
@@ -114,7 +115,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
     try {
       console.log(`[ProductPreviewCarousel] Generating mockup for ${product.name}...`)
 
-      const { data } = await axios.post('/api/mockups/itp-enhance', {
+      const { data } = await axios.post(`${API_BASE}/api/mockups/itp-enhance`, {
         design_url: designImageUrl,
         product_type: product.id,
         mockup_type: product.mockupType,
@@ -188,7 +189,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
       if (!token) throw new Error('Not authenticated')
 
       // Deduct ITC via API
-      await axios.post('/api/wallet/deduct-itc', {
+      await axios.post(`${API_BASE}/api/wallet/deduct-itc`, {
         amount: product.cost,
         reason: `Mockup generation: ${product.name}`
       }, {
@@ -224,7 +225,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
         try {
           const { data: { session } } = await supabase.auth.getSession()
           const token = session?.access_token
-          const refund = await axios.post('/api/wallet/refund-itc', {
+          const refund = await axios.post(`${API_BASE}/api/wallet/refund-itc`, {
             amount: product.cost,
             reason: `Refund: mockup gen failed for ${product.name}`,
             reference_type: 'mockup_generation',

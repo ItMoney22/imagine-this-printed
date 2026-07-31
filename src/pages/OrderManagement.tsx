@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
-import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
 import { shippoAPI } from '../utils/shippo'
 import type { Order, ShippingAddress } from '../types'
@@ -120,56 +119,66 @@ const OrderManagement: React.FC = () => {
     }
   }
 
+  // apiFetch throws `HTTP <code>: <body>` — pull the backend's `error` string
+  // out of the JSON body so the toast shows the real reason (e.g. an illegal
+  // status transition) rather than a raw status line.
+  const extractApiError = (err: unknown, fallback: string): string => {
+    const raw = err instanceof Error ? err.message : String(err)
+    const body = raw.replace(/^HTTP \d+:\s*/, '')
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed?.error) return String(parsed.error)
+    } catch {
+      // not JSON — fall through
+    }
+    return body || fallback
+  }
+
+  // The list is keyed by display id (order_number), but every write needs the
+  // real orders.id uuid.
+  const dbId = (order: Order | undefined, fallback: string) =>
+    (order as any)?.orderId || fallback
+
+  // Status and notes both go through PATCH /api/orders/:orderId. These used to
+  // be direct supabase writes from the browser: they ran under RLS as the
+  // signed-in admin, failed silently when a policy said no, and left local
+  // state showing a change that was never persisted.
   const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
-    // Find the order to get the actual database ID
     const order = orders.find(o => o.id === orderId)
-    const dbOrderId = (order as any)?.orderId || orderId
 
     try {
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', dbOrderId)
+      const result = await apiFetch(`/api/orders/${dbId(order, orderId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus })
+      })
 
-      if (error) {
-        console.error('Error updating order status:', error)
-        return
-      }
-
+      const persisted = result?.order
       setOrders(prev => prev.map(o =>
         o.id === orderId
-          ? { ...o, status: newStatus, updatedAt: new Date().toISOString() }
+          ? { ...o, status: (persisted?.status ?? newStatus) as Order['status'], updatedAt: persisted?.updated_at || new Date().toISOString() }
           : o
       ))
+      setSelectedOrder(prev => prev && prev.id === orderId
+        ? { ...prev, status: (persisted?.status ?? newStatus) as Order['status'] }
+        : prev)
 
-      console.log(`Order ${orderId} status updated to ${newStatus}`)
+      toast.success('Status updated', `Order ${orderId} is now ${String(persisted?.status ?? newStatus).replace('_', ' ')}.`)
     } catch (err) {
+      // State was never changed optimistically, so the UI still shows the last
+      // persisted value — nothing to roll back.
       console.error('Failed to update order status:', err)
+      toast.error('Status update failed', extractApiError(err, 'Could not update the order status.'))
     }
   }
 
   const updateOrderNotes = async (orderId: string, internal: string, customer: string) => {
-    // Find the order to get the actual database ID
     const order = orders.find(o => o.id === orderId)
-    const dbOrderId = (order as any)?.orderId || orderId
 
     try {
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          internal_notes: internal,
-          notes: customer,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', dbOrderId)
-
-      if (error) {
-        console.error('Error updating order notes:', error)
-        return
-      }
+      await apiFetch(`/api/orders/${dbId(order, orderId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ internal_notes: internal, notes: customer })
+      })
 
       setOrders(prev => prev.map(o =>
         o.id === orderId
@@ -177,9 +186,12 @@ const OrderManagement: React.FC = () => {
           : o
       ))
 
-      console.log(`Order ${orderId} notes updated`)
+      toast.success('Notes saved', `Order ${orderId} notes updated.`)
+      return true
     } catch (err) {
       console.error('Failed to update order notes:', err)
+      toast.error('Notes not saved', extractApiError(err, 'Could not save the order notes.'))
+      return false
     }
   }
 
@@ -639,9 +651,11 @@ const OrderManagement: React.FC = () => {
 
               <div className="flex space-x-3">
                 <button
-                  onClick={() => {
-                    updateOrderNotes(selectedOrder.id, internalNotes, customerNotes)
-                    setShowOrderModal(false)
+                  onClick={async () => {
+                    // Only close once the save actually persisted — closing on
+                    // a failed write is how the old UI hid the failure.
+                    const saved = await updateOrderNotes(selectedOrder.id, internalNotes, customerNotes)
+                    if (saved) setShowOrderModal(false)
                   }}
                   className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white py-3 px-6 rounded-xl shadow-lg shadow-purple-500/25 font-medium transition-all"
                 >

@@ -1,9 +1,10 @@
 // src/pages/ToyAR.tsx
 // Public AR "comes to life" page for NFC-enabled toy figurines.
 // Route: /ar/:modelId (no auth required)
-// model-viewer is injected imperatively (same pattern as Model3DViewer.tsx)
+// model-viewer is created imperatively (same pattern as Model3DViewer.tsx)
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { Model3DFallbackViewer } from '../components/3d-models/Model3DViewer'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,21 +16,6 @@ interface ArData {
   glb_url: string
   concept_image_url: string | null
   video_url: string | null
-}
-
-// ---------------------------------------------------------------------------
-// model-viewer script injector — once per page load
-// ---------------------------------------------------------------------------
-
-const MV_CDN = 'https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js'
-
-function ensureModelViewerScript() {
-  if (document.querySelector(`script[src="${MV_CDN}"]`)) return
-  const script = document.createElement('script')
-  script.type = 'module'
-  script.src = MV_CDN
-  script.async = true
-  document.head.appendChild(script)
 }
 
 // ---------------------------------------------------------------------------
@@ -90,9 +76,27 @@ interface ModelViewerHostProps {
 
 function ModelViewerHost({ data }: ModelViewerHostProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+
+  // Lazily load the bundled model-viewer package (registers the custom
+  // element as a side effect) instead of injecting it from a third-party CDN.
+  useEffect(() => {
+    let cancelled = false
+    if (!customElements.get('model-viewer')) {
+      import('@google/model-viewer').catch(() => {
+        if (!cancelled) {
+          console.warn('[ToyAR] Failed to load @google/model-viewer')
+          setLoadFailed(true)
+        }
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
-    ensureModelViewerScript()
+    if (loadFailed) return
     const container = containerRef.current
     if (!container) return
 
@@ -144,7 +148,16 @@ function ModelViewerHost({ data }: ModelViewerHostProps) {
 
     container.appendChild(mv)
     return () => { mv.remove() }
-  }, [data])
+  }, [data, loadFailed])
+
+  if (loadFailed) {
+    return (
+      <Model3DFallbackViewer
+        conceptUrl={data.concept_image_url}
+        className="w-full aspect-square rounded-3xl border-2 border-purple-200 shadow-lg bg-gradient-to-br from-purple-50 to-fuchsia-50"
+      />
+    )
+  }
 
   return <div ref={containerRef} className="w-full" aria-label={`3D model of ${data.name}`} />
 }

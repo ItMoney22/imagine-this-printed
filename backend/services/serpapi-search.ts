@@ -7,6 +7,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+// gpt-4.1-mini is being migrated off per the 2026-07 OpenAI model audit.
+// Env-configurable, current default.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(OPENAI_TEXT_MODEL)
+
 export interface SearchResult {
   query: string
   context: string
@@ -23,7 +28,7 @@ export interface SearchResult {
 async function extractSearchTopic(userPrompt: string): Promise<string> {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: OPENAI_TEXT_MODEL,
       messages: [
         {
           role: 'system',
@@ -34,8 +39,9 @@ async function extractSearchTopic(userPrompt: string): Promise<string> {
           content: userPrompt
         }
       ],
-      temperature: 0.3,
-      max_tokens: 50,
+      ...(isReasoningModel
+        ? { max_completion_tokens: 50 }
+        : { temperature: 0.3, max_tokens: 50 }),
     })
 
     const topic = completion.choices[0].message.content?.trim() || userPrompt

@@ -2,11 +2,13 @@
 // Design-library importer: walks David's local design bundle
 // (E:\Business\Imagine-This-Printed\Imagine This Printed (Designs)),
 // uploads each design's transparent PNG to GCS, names/categorizes it with
-// gpt-4o-mini vision (detail:low — pennies per design), and creates catalogued
+// OPENAI_VISION_MODEL (detail:low — pennies per design), and creates catalogued
 // DRAFT products (status flips per collection via --activate after review).
 //
-// Idempotent: each design carries metadata.import_key = "<dir>/<file-id>";
-// re-runs skip anything already imported.
+// Idempotent: each design carries metadata.import_key = its path under
+// DESIGN_ROOT minus the ".png" ("Gaming/controller", "8. Fishing/Fishing (50
+// Designs)/bass"); re-runs skip anything already imported. The scan is
+// recursive — scripts/lib/design-scan.mjs explains why both of those matter.
 //
 // Usage (from backend/, reads backend/.env):
 //   node scripts/import-designs.mjs --dir Gaming --limit 2      # smoke test
@@ -20,6 +22,7 @@ import path from 'node:path'
 import { Storage } from '@google-cloud/storage'
 import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
+import { planImports, groupByCollection } from './lib/design-scan.mjs'
 
 const DESIGN_ROOT = process.env.DESIGN_LIBRARY_ROOT ||
   'E:\\Business\\Imagine-This-Printed\\Imagine This Printed (Designs)'
@@ -35,6 +38,15 @@ const storage = new Storage({
 })
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME || 'imagine-this-printed-main')
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+
+// gpt-4o-mini is retired from OpenAI's current model + pricing pages (gpt-4
+// family hard shutdown 2026-10-23). Sends an image_url, so it reads the shared
+// OPENAI_VISION_MODEL var used by the backend services.
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+// gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param and
+// bill hidden reasoning tokens against the same allowance — hence the bigger
+// budget under `max_completion_tokens`.
+const isReasoningModel = (m) => /^(o[1-9]|gpt-5)/.test(m)
 
 const args = process.argv.slice(2)
 const flag = (name) => args.includes(`--${name}`)
@@ -58,9 +70,9 @@ async function nameDesign(pngPath, collection) {
   try {
     const b64 = fs.readFileSync(pngPath).toString('base64')
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: OPENAI_VISION_MODEL,
       response_format: { type: 'json_object' },
-      max_tokens: 300,
+      ...(isReasoningModel(OPENAI_VISION_MODEL) ? { max_completion_tokens: 900 } : { max_tokens: 300 }),
       messages: [
         {
           role: 'system',
@@ -86,13 +98,23 @@ async function nameDesign(pngPath, collection) {
       tags: Array.isArray(parsed.tags) ? parsed.tags.map(String).slice(0, 8) : fallback.tags
     }
   } catch (err) {
-    console.error(`  [ai] naming failed for ${path.basename(pngPath)} (${err.message}) — using fallback`)
+    // A bad OPENAI_VISION_MODEL (unknown id, or a param the model rejects)
+    // fails on EVERY image, so the whole run silently produces mechanical
+    // "Collection Design <file-id>" names that look like real output. Call
+    // that out as the config bug it is instead of burying it per-image.
+    if (err?.status === 400 || err?.status === 404) {
+      console.error(
+        `  [ai] MODEL CONFIG ERROR — OPENAI_VISION_MODEL="${OPENAI_VISION_MODEL}" rejected the request ` +
+        `(${err.status}: ${err.message}). Every design will fall back to mechanical naming. Fix the model id and re-run.`
+      )
+    } else {
+      console.error(`  [ai] naming failed for ${path.basename(pngPath)} (${err.message}) — using fallback`)
+    }
     return fallback
   }
 }
 
-async function uploadPng(pngPath, collectionSlug, designId) {
-  const dest = `design-library/${collectionSlug}/${designId}.png`
+async function uploadPng(pngPath, dest) {
   const file = bucket.file(dest)
   await file.save(fs.readFileSync(pngPath), { contentType: 'image/png', resumable: false })
   const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 365 * 24 * 60 * 60 * 1000 })
@@ -104,9 +126,14 @@ async function loadExisting() {
   const slugs = new Set()
   let from = 0
   for (;;) {
+    // .order() is not decoration: PostgREST pagination without a stable sort
+    // can hand back the same row twice across pages and drop another, so some
+    // already-imported keys would never load and the next run would insert
+    // them a second time. Ordering by id is what makes the skip reliable.
     const { data, error } = await supabase
       .from('products')
       .select('slug, metadata')
+      .order('id')
       .range(from, from + 999)
     if (error) throw new Error(`preload failed: ${error.message}`)
     for (const row of data || []) {
@@ -127,23 +154,25 @@ function uniqueSlug(base, slugs) {
   return s
 }
 
-async function importDesign(dir, pngName, existing, stats) {
-  const designId = path.basename(pngName, '.png')
-  const importKey = `${dir}/${designId}`
+async function importDesign(design, existing, stats) {
+  const { importKey, designId, collectionDir, subDirs, dirPath, fullPath: pngPath } = design
   if (existing.keys.has(importKey)) { stats.skipped++; return }
 
-  const collection = cleanCollection(dir)
+  const collection = cleanCollection(collectionDir)
   const collectionSlug = slugify(collection)
-  const pngPath = path.join(DESIGN_ROOT, dir, pngName)
+  // Nested folders survive into the object name too. Without them two designs
+  // called "bass.png" in sibling subfolders of one collection would upload to
+  // the same GCS object and the second would silently overwrite the first.
+  const storageId = [...subDirs.map(slugify), designId].join('/')
 
   const [named, uploaded] = await Promise.all([
     nameDesign(pngPath, collection),
-    uploadPng(pngPath, collectionSlug, designId)
+    uploadPng(pngPath, `design-library/${collectionSlug}/${storageId}.png`)
   ])
 
   const sourceFiles = {}
   for (const ext of ['ai', 'svg', 'psd', 'jpg']) {
-    const p = path.join(DESIGN_ROOT, dir, `${designId}.${ext}`)
+    const p = path.join(dirPath, `${designId}.${ext}`)
     if (fs.existsSync(p)) sourceFiles[ext] = p
   }
 
@@ -217,28 +246,33 @@ async function run() {
 
   const dirFilter = opt('dir')
   const limit = Number(opt('limit') || 0)
-  const dirs = fs.readdirSync(DESIGN_ROOT, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name)
-    .filter(d => !dirFilter || d.toLowerCase().includes(dirFilter.toLowerCase()))
-  if (!dirs.length) { console.error('No matching collection folders'); process.exit(1) }
 
-  console.log(`Importing from ${dirs.length} collection(s)${limit ? ` (limit ${limit}/collection)` : ''} — price $${PRICE}, status draft`)
   const existing = await loadExisting()
   console.log(`Preloaded ${existing.keys.size} already-imported keys, ${existing.slugs.size} slugs`)
+
+  // Recursive: 22 of 56 collection folders nest their designs one level deeper
+  // and the old readdirSync(<collection>) walk skipped all 1,392 of them.
+  const plan = planImports(DESIGN_ROOT, existing.keys, { dirFilter, limit })
+  const byCollection = groupByCollection(plan)
+  if (!plan.length) {
+    console.log(dirFilter
+      ? `Nothing to import: no new designs under a collection matching "${dirFilter}" (check the spelling, or everything already imported).`
+      : 'Nothing to import — every PNG under DESIGN_ROOT is already in the catalogue.')
+    return
+  }
+
+  console.log(`Importing ${plan.length} new design(s) from ${byCollection.size} collection(s)${limit ? ` (limit ${limit}/collection)` : ''} — price $${PRICE}, status draft`)
 
   const stats = { imported: 0, skipped: 0, failed: 0 }
   const started = Date.now()
 
-  for (const dir of dirs) {
-    let pngs = fs.readdirSync(path.join(DESIGN_ROOT, dir)).filter(f => f.toLowerCase().endsWith('.png')).sort()
-    if (limit) pngs = pngs.slice(0, limit)
-    console.log(`\n📁 ${dir} — ${pngs.length} design(s)`)
-    for (let i = 0; i < pngs.length; i += CONCURRENCY) {
-      await Promise.all(pngs.slice(i, i + CONCURRENCY).map(png =>
-        importDesign(dir, png, existing, stats).catch(err => {
+  for (const [dir, designs] of byCollection) {
+    console.log(`\n📁 ${dir} — ${designs.length} design(s)`)
+    for (let i = 0; i < designs.length; i += CONCURRENCY) {
+      await Promise.all(designs.slice(i, i + CONCURRENCY).map(design =>
+        importDesign(design, existing, stats).catch(err => {
           stats.failed++
-          console.error(`  ❌ ${dir}/${png}: ${err.message}`)
+          console.error(`  ❌ ${design.relPath}: ${err.message}`)
         })
       ))
       const done = stats.imported + stats.skipped + stats.failed

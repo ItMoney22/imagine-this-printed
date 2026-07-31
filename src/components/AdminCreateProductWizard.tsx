@@ -238,7 +238,7 @@ function PrintLocationsDropdown({
 }
 
 type WizardStep = 'describe' | 'review' | 'generate' | 'select-image' | 'enhance-image' | 'success'
-type ProductCategoryOption = 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+type ProductCategoryOption = 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers' | 'metal-art'
 
 // Draft autosave — losing a half-finished generation (paid AI output) to a
 // refresh or crash was the top admin complaint. Versioned key so a future
@@ -597,6 +597,9 @@ export default function AdminCreateProductWizard() {
   // Multi-select print placements offered for T-shirts → products.print_locations.
   const [printLocations, setPrintLocations] = useState<TshirtPrintLocation[]>(['front_image'])
   const [printStyle, setPrintStyle] = useState<'clean' | 'halftone' | 'grunge'>('clean')
+  // Metal art panel size → metadata.metal_size; mockups scale-anchor to it so
+  // a 4x6 never gets staged looking like massive wall art.
+  const [metalSize, setMetalSize] = useState<'4x6' | '8x10'>('4x6')
 
   // Note: Generation, edits, and all 3 mockup variants run through openai/gpt-image-2 (Replicate)
 
@@ -1040,6 +1043,8 @@ export default function AdminCreateProductWizard() {
         printPlacement,
         // T-shirt multi-select placements → products.print_locations (shirts only).
         print_locations: category === 'shirts' ? printLocations : undefined,
+        // Metal art: physical panel size for size-accurate mockups.
+        metal_size: category === 'metal-art' ? metalSize : undefined,
         printStyle,
         skipImageGeneration: Boolean(simpleTextPngDataUrl),
         sourceImageDataUrl: simpleTextPngDataUrl,
@@ -1963,7 +1968,34 @@ export default function AdminCreateProductWizard() {
                   <option value="shirts">T-Shirts</option>
                   <option value="hoodies">Hoodies</option>
                   <option value="tumblers">Tumblers</option>
+                  <option value="metal-art">Metal Art</option>
                 </select>
+                {category === 'metal-art' && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-semibold text-text mb-2">
+                      Panel Size *
+                    </label>
+                    <div className="flex gap-2">
+                      {(['4x6', '8x10'] as const).map(s => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setMetalSize(s)}
+                          className={`px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
+                            metalSize === s
+                              ? 'bg-primary/20 border-primary text-text'
+                              : 'bg-bg/50 border-white/10 text-muted hover:border-white/30'
+                          }`}
+                        >
+                          {s === '4x6' ? '4 × 6" (small — desk/shelf)' : '8 × 10" (letter-paper size)'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted mt-1.5">
+                      Mockups stage the panel at true scale — a 4×6 shows as a small desk piece, never massive wall art.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div>

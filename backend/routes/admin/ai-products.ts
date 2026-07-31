@@ -335,6 +335,11 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       )
     )
 
+    // Metal art panel size (4x6 | 8x10) → metadata.metal_size. Drives the
+    // size-accurate mockup scale anchors (David 2026-07-28: a 4x6 must never
+    // be mocked up looking massive on a wall).
+    const metalSize: '4x6' | '8x10' = req.body.metal_size === '8x10' ? '8x10' : '4x6'
+
     req.log?.info({ prompt, useSearch }, '[ai-products] 🚀 Creating product from prompt')
 
     // Step 0: Optionally search for context using SerpAPI
@@ -447,6 +452,8 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           shirt_color: shirtColor,
           print_placement: printPlacement,
           print_style: printStyle,
+          // Metal art: physical panel size (drives size-accurate mockups)
+          ...(normalized.category_slug === 'metal-art' ? { metal_size: metalSize } : {}),
           // Model used for image generation
           model_id: modelId,
           // Personalizable template: design ships with an EMPTY photo slot;
@@ -1332,9 +1339,25 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       selectedAssetId: selectedAssetId || 'none (will use fallback)',
     })
 
-    // Create mockup jobs: flat_lay + ghost_mannequin (for garments) + mr_imagine
-    const jobs: any[] = [
-      {
+    // Create mockup jobs. Metal art gets size-accurate scene templates
+    // (metal_shelf + metal_wall, scale-anchored to metadata.metal_size — David
+    // 2026-07-28: a 4x6 must never be mocked up looking massive); garments get
+    // flat_lay + ghost_mannequin + mr_imagine.
+    const productCategory = product.category || 'shirts'
+    const jobs: any[] = []
+    if (productCategory === 'metal-art') {
+      const metalSize = meta.metal_size === '8x10' ? '8x10' : '4x6'
+      for (const template of ['metal_shelf', 'metal_wall']) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: { ...baseInput, template, metalSize },
+        })
+      }
+      console.log(`[ai-products] 🖼️ Metal-art mockup jobs (size ${metalSize}): metal_shelf + metal_wall`)
+    } else {
+      jobs.push({
         product_id: id,
         type: 'replicate_mockup_v2',
         status: 'queued',
@@ -1342,36 +1365,35 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
           ...baseInput,
           template: 'flat_lay',
         },
-      },
-    ]
+      })
 
-    // Add ghost mannequin job only for supported garment types
-    const productCategory = product.category || 'shirts'
-    const productType = resolvedProductType
-    if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
-        GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+      // Add ghost mannequin job only for supported garment types
+      const productType = resolvedProductType
+      if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
+          GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'ghost_mannequin',  // Template determines the mockup style
+          },
+        })
+        console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
+      }
+
+      // Always add Mr. Imagine mockup (garment paths only)
       jobs.push({
         product_id: id,
-        type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
+        type: 'replicate_mockup_v2',
         status: 'queued',
         input: {
           ...baseInput,
-          template: 'ghost_mannequin',  // Template determines the mockup style
+          template: 'mr_imagine',
         },
       })
-      console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
     }
-
-    // Always add Mr. Imagine mockup
-    jobs.push({
-      product_id: id,
-      type: 'replicate_mockup_v2',
-      status: 'queued',
-      input: {
-        ...baseInput,
-        template: 'mr_imagine',
-      },
-    })
 
     console.log('[ai-products] 🎨 Creating mockup jobs:', jobs.map(j => ({ type: j.type, template: j.input?.template || j.type })))
 
@@ -1676,8 +1698,22 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       selected_asset_id: selectedAssetId,
     }
 
-    const mockupJobs: any[] = [
-      {
+    const productCategory = product?.category || 'shirts'
+    const mockupJobs: any[] = []
+    if (productCategory === 'metal-art') {
+      // Metal art: size-accurate scenes, no garment/mascot templates.
+      const metalSize = meta.metal_size === '8x10' ? '8x10' : '4x6'
+      for (const template of ['metal_shelf', 'metal_wall']) {
+        mockupJobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: { ...baseInput, template, metalSize },
+        })
+      }
+      console.log(`[ai-products] 🖼️ Metal-art mockup jobs (size ${metalSize}): metal_shelf + metal_wall`)
+    } else {
+      mockupJobs.push({
         product_id: id,
         type: 'replicate_mockup_v2',
         status: 'queued',
@@ -1685,36 +1721,35 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
           ...baseInput,
           template: 'flat_lay',
         },
-      },
-    ]
+      })
 
-    // Add ghost mannequin job only for supported garment types
-    const productCategory = product?.category || 'shirts'
-    const productType = resolvedProductType
-    if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
-        GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+      // Add ghost mannequin job only for supported garment types
+      const productType = resolvedProductType
+      if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
+          GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+        mockupJobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'ghost_mannequin',  // Template determines the mockup style
+          },
+        })
+        console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
+      }
+
+      // Always add Mr. Imagine mockup (garment paths only)
       mockupJobs.push({
         product_id: id,
-        type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
+        type: 'replicate_mockup_v2',
         status: 'queued',
         input: {
           ...baseInput,
-          template: 'ghost_mannequin',  // Template determines the mockup style
+          template: 'mr_imagine',
         },
       })
-      console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
     }
-
-    // Always add Mr. Imagine mockup
-    mockupJobs.push({
-      product_id: id,
-      type: 'replicate_mockup_v2',
-      status: 'queued',
-      input: {
-        ...baseInput,
-        template: 'mr_imagine',
-      },
-    })
 
     console.log('[ai-products] 🎨 Creating mockup jobs:', mockupJobs.map(j => ({ type: j.type, template: j.input?.template || j.type })))
 

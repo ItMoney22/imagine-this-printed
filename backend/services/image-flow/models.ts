@@ -2,7 +2,7 @@
 // Ported from david-trinidad-com (Watchtower) at src/modules/image-flow/lib/models.ts
 // with ITP additions: openai/gpt-image-2 (default for ITP product builder).
 
-export type Provider = 'replicate' | 'fal'
+export type Provider = 'replicate'
 
 export type ModelTier =
   | 'draft'
@@ -316,30 +316,6 @@ export const MODELS: ImageModel[] = [
       },
     ],
   },
-  {
-    id: 'fal-ai/flux-pro/kontext',
-    provider: 'fal',
-    tier: 'edit',
-    label: 'Flux Kontext Pro',
-    costPerImageUsd: 0.04,
-    approxSeconds: 5,
-    strengths: ['edit', 'stylized'],
-    promptCraft:
-      "Strong at style transfer and contextual edits. 'Turn this into a watercolor painting.' Short and directive (<30 words).",
-  },
-  {
-    id: 'fal-ai/gemini-3-pro-image-preview/edit',
-    provider: 'fal',
-    tier: 'edit',
-    label: 'Gemini 3 Pro Image',
-    costPerImageUsd: 0.15,
-    approxSeconds: 8,
-    strengths: ['edit', 'photoreal-people', 'multi-image'],
-    notes: 'Identity-lock, reasoning edits. Triggers cost gate.',
-    promptCraft:
-      "Reasoning edits — 'make him look 10 years older while preserving identity'. Brief like a retoucher.",
-  },
-
   // --- MOCKUP (apparel-on-model rendering) ---
   {
     id: 'google/nano-banana-2-lite',
@@ -388,25 +364,15 @@ export const MODELS: ImageModel[] = [
 
   // --- BG ---
   {
-    id: 'fal-ai/bria/background/remove',
-    provider: 'fal',
+    id: '851-labs/background-remover',
+    provider: 'replicate',
     tier: 'bg',
-    label: 'Bria BG Remove',
-    costPerImageUsd: 0.018,
-    approxSeconds: 1,
+    label: 'Background Remover (851-labs)',
+    costPerImageUsd: 0.002,
+    approxSeconds: 2,
     strengths: ['bg-remove'],
+    notes: 'Replaces the dead fal Bria remover — same model backend/services/replicate.ts already uses for the sync remover path.',
     promptCraft: 'No prompt needed.',
-  },
-  {
-    id: 'fal-ai/bria/background/replace',
-    provider: 'fal',
-    tier: 'bg',
-    label: 'Bria BG Replace',
-    costPerImageUsd: 0.04,
-    approxSeconds: 3,
-    strengths: ['bg-replace'],
-    promptCraft:
-      "Describe ONLY the new background, not the subject. 'A sunlit marble studio with soft shadows.'",
   },
 ]
 
@@ -502,10 +468,10 @@ export const ADMIN_EDIT_MODEL_OPTIONS = [
     costPerImageUsd: 0.04,
   },
   {
-    id: 'fal-ai/gemini-3-pro-image-preview/edit',
-    label: 'Gemini 3 Pro Image',
-    description: 'Reasoning-edit model. Faster (~8s) but pricier per call. Strong at identity-locked edits.',
+    id: 'google/nano-banana',
+    label: 'Nano Banana',
+    description: 'Fast Gemini 2.5 Flash Image edit. Strong at multi-image compositing and identity-preserving edits.',
     approxSeconds: 8,
-    costPerImageUsd: 0.15,
+    costPerImageUsd: 0.039,
   },
 ] as const

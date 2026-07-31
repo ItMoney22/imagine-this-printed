@@ -2,23 +2,33 @@
  * Tripo3D v2.5 Image-to-3D client (direct Tripo platform API).
  *
  * Uses TRIPO_API_KEY → https://api.tripo3d.ai/v2/openapi/task
- * Falls back to fal.ai if TRIPO_API_KEY is not set (FAL_API_KEY required).
+ *
+ * The fal.ai fallback was removed 2026-07-28 (Watchtower 5aeeab4f). It was
+ * dead code: FAL_API_KEY is missing/revoked since the 2026-07 fal.ai purge,
+ * so every fallback attempt threw "FAL_API_KEY missing" — which then became
+ * the error the user saw, masking the real Tripo failure underneath.
  *
  * Tripo3D outputs GLB by default. We convert to STL downstream with three.js.
  */
 
 const TRIPO_BASE = 'https://api.tripo3d.ai/v2/openapi'
-const FAL_QUEUE_BASE = 'https://queue.fal.run'
-const FAL_MODEL_ID = 'tripo3d/tripo/v2.5/image-to-3d'
 
 function tripoToken(): string | null {
   return process.env.TRIPO_API_KEY ?? null
 }
 
-function falAuth(): string {
-  const t = process.env.FAL_API_KEY
-  if (!t) throw new Error('FAL_API_KEY missing')
-  return `Key ${t}`
+/**
+ * Tripo failure. `submitted` records whether Tripo had already accepted a
+ * task when this threw — the retry in generateTripo3D must never re-submit
+ * after that point, because Tripo has already started billable work.
+ */
+class TripoError extends Error {
+  readonly submitted: boolean
+  constructor(message: string, submitted: boolean) {
+    super(message)
+    this.name = 'TripoError'
+    this.submitted = submitted
+  }
 }
 
 /**
@@ -115,7 +125,7 @@ export interface Tripo3DOutput {
     texture: 'standard' | 'HD'
     quad: boolean
     autoSized: boolean
-    provider: 'tripo' | 'fal'
+    provider: 'tripo'
   }
   processingTimeSec: number
   raw?: unknown
@@ -171,12 +181,12 @@ async function generateViaTripo(input: Tripo3DInput, cfg: SizeTierConfig, start:
 
   if (!submit.ok) {
     const text = await submit.text().catch(() => '')
-    throw new Error(`tripo submit ${submit.status}: ${text.slice(0, 400)}`)
+    throw new TripoError(`tripo submit ${submit.status}: ${text.slice(0, 400)}`, false)
   }
   const submitJson = (await submit.json()) as TripoTaskResponse
   const taskId = submitJson?.data?.task_id
   if (!taskId) {
-    throw new Error(`tripo submit returned no task_id: ${JSON.stringify(submitJson).slice(0, 300)}`)
+    throw new TripoError(`tripo submit returned no task_id: ${JSON.stringify(submitJson).slice(0, 300)}`, false)
   }
   console.log('[tripo3d] 📨 Task submitted:', taskId)
 
@@ -200,7 +210,7 @@ async function generateViaTripo(input: Tripo3DInput, cfg: SizeTierConfig, start:
       const glbUrl = result.pbr_model?.url ?? result.model?.url
       if (!glbUrl) {
         console.error('[tripo3d] no model URL in success response:', JSON.stringify(status.data).slice(0, 500))
-        throw new Error('Tripo3D returned no GLB URL on success')
+        throw new TripoError('Tripo3D returned no GLB URL on success', true)
       }
       const processingTimeSec = (Date.now() - start) / 1000
       console.log('[tripo3d] ✅', cfg.label, 'tier complete in', processingTimeSec.toFixed(1) + 's')
@@ -221,132 +231,41 @@ async function generateViaTripo(input: Tripo3DInput, cfg: SizeTierConfig, start:
       }
     }
     if (s === 'failed' || s === 'cancelled') {
-      throw new Error(`tripo task ${s}: ${status.data?.error_msg ?? 'unknown error'}`)
+      throw new TripoError(`tripo task ${s}: ${status.data?.error_msg ?? 'unknown error'}`, true)
     }
   }
-  throw new Error('tripo task: poll timeout (>6 min)')
-}
-
-/**
- * Fallback path via fal.ai. Used only if TRIPO_API_KEY isn't set.
- */
-async function generateViaFal(input: Tripo3DInput, cfg: SizeTierConfig, start: number): Promise<Tripo3DOutput> {
-  console.log('[tripo3d] 🎲 Using fal.ai fallback (TRIPO_API_KEY not set)')
-
-  const submitUrl = `${FAL_QUEUE_BASE}/${FAL_MODEL_ID}`
-  const submit = await fetch(submitUrl, {
-    method: 'POST',
-    headers: { Authorization: falAuth(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      image_url: input.imageUrl,
-      face_limit: cfg.faceLimit,
-      texture: cfg.texture,
-      pbr: true,
-      quad: cfg.quad,
-      auto_size: true,
-      orientation: input.orientation ?? 'align_image',
-      texture_alignment: 'original_image',
-      ...(input.seed !== undefined ? { seed: input.seed } : {}),
-    }),
-    signal: AbortSignal.timeout(60_000),
-  })
-
-  if (!submit.ok) {
-    const text = await submit.text().catch(() => '')
-    throw new Error(`fal/tripo submit ${submit.status}: ${text.slice(0, 400)}`)
-  }
-  const queued = (await submit.json()) as {
-    request_id: string
-    status_url?: string
-    response_url?: string
-  }
-  const statusUrl = queued.status_url ?? `${submitUrl}/requests/${queued.request_id}/status`
-  const responseUrl = queued.response_url ?? `${submitUrl}/requests/${queued.request_id}`
-
-  // Generous 15-minute deadline (fal.ai's Tripo3D queue can be slow).
-  const deadline = Date.now() + 900_000
-  let completed = false
-  let pollCount = 0
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 4000))
-    pollCount++
-    const sr = await fetch(statusUrl, { headers: { Authorization: falAuth() } })
-    if (!sr.ok) continue
-    const status = (await sr.json()) as { status?: string }
-    if (pollCount % 5 === 0) {
-      const elapsed = ((Date.now() - start) / 1000).toFixed(0)
-      console.log(`[tripo3d] still ${status.status ?? 'polling'} after ${elapsed}s (poll #${pollCount})`)
-    }
-    if (status.status === 'COMPLETED') { completed = true; break }
-    if (status.status === 'FAILED' || status.status === 'CANCELED') {
-      throw new Error(`fal/tripo ${status.status}`)
-    }
-  }
-  if (!completed) {
-    throw new Error('fal/tripo poll timeout (>15 min)')
-  }
-
-  // Result endpoint can lag the status endpoint by a few seconds — retry up to 5x with backoff.
-  let output: any = null
-  let lastErr = ''
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const finalRes = await fetch(responseUrl, { headers: { Authorization: falAuth() } })
-    if (finalRes.ok) {
-      output = await finalRes.json()
-      break
-    }
-    const text = await finalRes.text().catch(() => '')
-    lastErr = `${finalRes.status}: ${text.slice(0, 200)}`
-    if (finalRes.status === 400 && /still in progress/i.test(text)) {
-      console.log('[tripo3d] result not ready yet, retrying in 4s...')
-      await new Promise((r) => setTimeout(r, 4000))
-      continue
-    }
-    throw new Error(`fal/tripo fetch result ${lastErr}`)
-  }
-  if (!output) {
-    throw new Error(`fal/tripo result never ready: ${lastErr}`)
-  }
-  const glbUrl: string | undefined = output?.model_mesh?.url
-  if (!glbUrl) throw new Error('fal/tripo returned no GLB URL')
-
-  const processingTimeSec = (Date.now() - start) / 1000
-  return {
-    glbUrl,
-    pbrUrl: output?.pbr_model?.url,
-    rendererPreviewUrl: output?.rendered_image?.url,
-    modelMetadata: {
-      tier: cfg.tier,
-      faceLimit: cfg.faceLimit,
-      texture: cfg.texture,
-      quad: cfg.quad,
-      autoSized: true,
-      provider: 'fal',
-    },
-    processingTimeSec,
-    raw: output,
-  }
+  throw new TripoError('tripo task: poll timeout (>6 min)', true)
 }
 
 /**
  * Generate a 3D model from a single image using Tripo3D v2.5.
- * Tries direct Tripo platform first if TRIPO_API_KEY is set, else falls back to fal.ai.
- * If Tripo auth fails at runtime, also falls back to fal automatically.
+ *
+ * Requires TRIPO_API_KEY. On failure the real Tripo error is surfaced — there
+ * is no provider fallback (see the fal.ai note at the top of this file).
+ *
+ * Retry policy: exactly one retry, and only when Tripo never accepted a task
+ * (network error, or a non-2xx on submit). Once Tripo has issued a task_id it
+ * has started billable work, so a poll timeout / failed task is surfaced
+ * immediately rather than paying for a second generation.
  */
 export async function generateTripo3D(input: Tripo3DInput): Promise<Tripo3DOutput> {
   const cfg = SIZE_TIERS[input.tier]
   if (!cfg) throw new Error(`Unknown size tier: ${input.tier}`)
+  if (!tripoToken()) {
+    throw new Error('TRIPO_API_KEY missing — 3D model generation is unavailable')
+  }
+
   const start = Date.now()
   console.log('[tripo3d] 🎲 Generating', cfg.label, 'tier — face_limit:', cfg.faceLimit, 'texture:', cfg.texture, 'quad:', cfg.quad)
-  if (tripoToken()) {
-    try {
-      return await generateViaTripo(input, cfg, start)
-    } catch (err: any) {
-      // Auth or other Tripo platform error — fall back to fal so we don't fail the whole job
-      const isAuth = /Authentication failed|401|1002/.test(err?.message ?? '')
-      console.warn('[tripo3d] direct path failed' + (isAuth ? ' (auth)' : '') + ' — falling back to fal:', err?.message)
-      return generateViaFal(input, cfg, start)
-    }
+
+  try {
+    return await generateViaTripo(input, cfg, start)
+  } catch (err: any) {
+    // Only a pre-submit failure is safe to retry; anything after Tripo issued
+    // a task_id would double-charge.
+    if (err instanceof TripoError && err.submitted) throw err
+
+    console.warn('[tripo3d] submit failed, retrying once:', err?.message)
+    return await generateViaTripo(input, cfg, start)
   }
-  return generateViaFal(input, cfg, start)
 }

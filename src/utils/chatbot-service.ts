@@ -108,7 +108,6 @@ export class ChatbotService {
         body: JSON.stringify({
           message: userMessage,
           systemPrompt: SYSTEM_PROMPT,
-          model: 'gpt-3.5-turbo',
           history: historyForBackend,
         }),
       })

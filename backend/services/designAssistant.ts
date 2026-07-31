@@ -4,6 +4,15 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+// gpt-4o is retired from OpenAI's current model + pricing pages (gpt-4
+// family hard shutdown 2026-10-23). Env-configurable, current default.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+// gpt-5.x/o-series reasoning models reject a non-default `temperature` value
+// (verified live against gpt-5.4-nano during the sibling design-assistant.ts
+// migration — see handoff-joshua-knight-1785113728792.json). Only send it for
+// models that actually accept it.
+const isReasoningModel = /^(o[1-9]|gpt-5)/.test(OPENAI_TEXT_MODEL)
+
 // Conversation state tracking - NEW FLOW
 interface ConversationState {
   step: 'greeting' | 'exploring' | 'refining' | 'confirm_design' | 'generating' | 'select_design' | 'garment_options' | 'final_confirm' | 'complete'
@@ -103,10 +112,10 @@ export async function generateAssistantResponse(
     ]
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: OPENAI_TEXT_MODEL,
       messages,
       max_completion_tokens: 80, // Keep responses SHORT - user can't interrupt
-      temperature: 0.8,
+      ...(isReasoningModel ? {} : { temperature: 0.8 }),
     })
 
     const assistantText = completion.choices[0].message.content || 'Hmm, I had trouble with that. Could you say it again?'

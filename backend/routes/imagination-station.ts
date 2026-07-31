@@ -4,6 +4,7 @@ import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
+import sharp from 'sharp';
 import { PrintType } from '../config/imagination-presets.js';
 import { imaginationProducts } from '../services/imagination-products.js';
 import { pricingService } from '../services/imagination-pricing.js';
@@ -15,6 +16,7 @@ import { editOpenAIImage } from '../services/image-flow/providers/openai-image.j
 import { layoutService } from '../services/imagination-layout.js';
 import gcsStorage from '../services/gcs-storage.js';
 import { uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { partitionLayersForSave, rotatedBoundingBox, RENDER_DPI } from '../services/imagination-layer-save.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
@@ -62,6 +64,7 @@ router.get('/presets', async (req: Request, res: Response) => {
           width: preset.width,
           heights: preset.heights,
           rules: preset.rules,
+          minDpi: preset.rules.minDPI,
           displayName: preset.displayName,
           description: preset.description
         };
@@ -73,10 +76,17 @@ router.get('/presets', async (req: Request, res: Response) => {
     // Legacy frontend expects { dtf: {...}, uv_dtf: {...} } map.
     const presetsMap: any = {};
     for (const p of products) {
+      // Ensure rules.minDPI is populated even if the DB rules JSON predates
+      // this field — the dedicated min_dpi column (p.minDpi) is authoritative.
+      const rules = {
+        ...(p.rules || {}),
+        minDPI: (p.rules && p.rules.minDPI) || p.minDpi || 300,
+      };
       presetsMap[p.printType] = {
         width: p.width,
         heights: p.sizes?.filter(s => s.enabled).map(s => s.height) || [],
-        rules: p.rules,
+        rules,
+        minDpi: p.minDpi ?? rules.minDPI,
         displayName: p.displayName,
         description: p.description
       };
@@ -285,6 +295,31 @@ router.post('/sheets/:id/upload', requireAuth, upload.single('image'), async (re
     const result = await uploadImageFromBuffer(file.buffer, filePath, file.mimetype);
     const publicUrl = result.publicUrl;
 
+    // Position/size (inches) and metadata (dpiInfo, originalWidth/Height,
+    // name, etc.) are computed client-side from the image's real natural
+    // dimensions before this call. Previously this always hardcoded
+    // position 0,0 / 100x100in regardless of what the client sent — the
+    // frontend's later attempt to correct it in-memory never made it back to
+    // the DB (see /projects/save), so a page refresh before the next
+    // autosave showed every image stacked at the origin at 100in square.
+    const toNum = (v: unknown): number | undefined => {
+      const n = typeof v === 'string' ? parseFloat(v) : (typeof v === 'number' ? v : NaN);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    let clientMetadata: Record<string, any> = {};
+    if (typeof req.body?.metadata === 'string' && req.body.metadata.length > 0) {
+      try {
+        clientMetadata = JSON.parse(req.body.metadata);
+      } catch {
+        // Malformed metadata JSON — ignore rather than fail the whole upload
+      }
+    }
+
+    const positionX = toNum(req.body?.position_x) ?? 0;
+    const positionY = toNum(req.body?.position_y) ?? 0;
+    const width = toNum(req.body?.width) ?? 4; // sane fallback (inches) if the client didn't supply real dimensions
+    const height = toNum(req.body?.height) ?? 4;
+
     // Create layer record
     const { data: layer, error: layerError } = await supabase
       .from('imagination_layers')
@@ -292,12 +327,12 @@ router.post('/sheets/:id/upload', requireAuth, upload.single('image'), async (re
         sheet_id: id,
         layer_type: 'image',
         source_url: publicUrl,
-        position_x: 0,
-        position_y: 0,
-        width: 100, // Will be updated by frontend with actual dimensions
-        height: 100,
+        position_x: positionX,
+        position_y: positionY,
+        width,
+        height,
         z_index: Math.floor(Date.now() / 1000),
-        metadata: { originalName: file.originalname, mimeType: file.mimetype }
+        metadata: { originalName: file.originalname, mimeType: file.mimetype, ...clientMetadata }
       })
       .select()
       .single();
@@ -305,6 +340,147 @@ router.post('/sheets/:id/upload', requireAuth, upload.single('image'), async (re
     if (layerError) throw layerError;
     res.status(201).json(layer);
   } catch (error: any) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Server-side 300 DPI print-ready render. Composites the sheet's raster
+// (image / ai_generated) layers into a single RGBA PNG at the print type's
+// promised resolution and uploads it to GCS. This replaces the client-side
+// `canvasRef.current.querySelector('canvas').toDataURL()` approach
+// (src/pages/ImaginationStation.tsx) as the source of the print-ready file —
+// that call only ever captured Konva's background canvas layer (not the
+// elements layer, due to Konva's multi-canvas structure) at ~96 DPI screen
+// resolution, nowhere near the 300 DPI a DTF/UV-DTF/sublimation order needs.
+//
+// Text and shape layers are NOT rendered here (out of scope — see handoff):
+// this endpoint composites layer image URLs, it doesn't re-implement Konva's
+// text/shape drawing server-side. A sheet with only text/shape layers has
+// nothing to render and the frontend skips calling this endpoint entirely.
+router.post('/sheets/:id/render', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+    const { layers, mirror } = req.body as {
+      layers?: Array<{ url: string; x: number; y: number; width: number; height: number; rotation?: number }>;
+      mirror?: boolean;
+    };
+
+    if (!Array.isArray(layers) || layers.length === 0) {
+      res.status(400).json({ error: 'layers is required and must be a non-empty array' });
+      return;
+    }
+
+    // Sheet dimensions come from the DB, never the client, so a malicious/
+    // buggy client can't request an arbitrarily huge canvas.
+    const { data: sheet, error: sheetErr } = await supabase
+      .from('imagination_sheets')
+      .select('id, user_id, sheet_width, sheet_height, print_type')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (sheetErr || !sheet) {
+      res.status(404).json({ error: 'Sheet not found' });
+      return;
+    }
+
+    const outWidth = Math.round(sheet.sheet_width * RENDER_DPI);
+    const outHeight = Math.round(sheet.sheet_height * RENDER_DPI);
+
+    if (!Number.isFinite(outWidth) || !Number.isFinite(outHeight) || outWidth <= 0 || outHeight <= 0) {
+      res.status(400).json({ error: 'Invalid sheet dimensions' });
+      return;
+    }
+
+    const composites: { input: Buffer; left: number; top: number }[] = [];
+
+    for (const layer of layers) {
+      if (!layer?.url) continue;
+      const widthPx = Math.max(1, Math.round((layer.width || 0) * RENDER_DPI));
+      const heightPx = Math.max(1, Math.round((layer.height || 0) * RENDER_DPI));
+      const left = Math.round((layer.x || 0) * RENDER_DPI);
+      const top = Math.round((layer.y || 0) * RENDER_DPI);
+      const rotation = ((layer.rotation || 0) % 360 + 360) % 360;
+
+      try {
+        const response = await fetch(layer.url);
+        if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const srcBuffer = Buffer.from(arrayBuffer);
+
+        const resizedBuffer = await sharp(srcBuffer)
+          .resize(widthPx, heightPx, { fit: 'fill' })
+          .ensureAlpha()
+          .png()
+          .toBuffer();
+
+        if (rotation === 0) {
+          composites.push({ input: resizedBuffer, left, top });
+        } else {
+          const rotatedBuffer = await sharp(resizedBuffer)
+            .rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .png()
+            .toBuffer();
+          const { offsetX, offsetY } = rotatedBoundingBox(widthPx, heightPx, rotation);
+          composites.push({
+            input: rotatedBuffer,
+            left: Math.round(left + offsetX),
+            top: Math.round(top + offsetY),
+          });
+        }
+      } catch (layerErr) {
+        // Skip this layer rather than aborting the whole print-ready render —
+        // a single broken/expired image URL shouldn't block the rest of the sheet.
+        console.error(`[imagination-station] render: failed to composite layer (${layer.url}):`, layerErr);
+      }
+    }
+
+    // If every layer failed to fetch/composite, do NOT silently return a
+    // blank transparent PNG as if it were the customer's print-ready file —
+    // same "tell them, don't ship a degraded file" principle as the DPI
+    // gate. A partial failure (some layers composited, some didn't) still
+    // proceeds, since the alternative — blocking on one broken image URL —
+    // is worse for a multi-design sheet.
+    if (composites.length === 0) {
+      res.status(502).json({ error: 'Could not fetch any layer images to render — print file not generated.' });
+      return;
+    }
+
+    const pipeline = sharp({
+      create: {
+        width: outWidth,
+        height: outHeight,
+        channels: 4,
+        background: { r: 255, g: 255, b: 255, alpha: 0 },
+      },
+    }).composite(composites);
+
+    let finalBuffer = await pipeline.png().toBuffer();
+
+    if (mirror) {
+      finalBuffer = await sharp(finalBuffer).flop().png().toBuffer();
+    }
+
+    // Embed the 300 DPI density in the PNG's own metadata (pHYs chunk) so
+    // downstream print/RIP software that reads physical density agrees with
+    // the pixel-dimension promise.
+    finalBuffer = await sharp(finalBuffer).withMetadata({ density: RENDER_DPI }).png().toBuffer();
+
+    const finalMeta = await sharp(finalBuffer).metadata();
+
+    const fileName = `${id}-${Date.now()}.png`;
+    const gcsPath = `imagination-station/${user.id}/print-ready/${fileName}`;
+    const { publicUrl } = await uploadImageFromBuffer(finalBuffer, gcsPath, 'image/png');
+
+    res.json({
+      url: publicUrl,
+      width: finalMeta.width,
+      height: finalMeta.height,
+      dpi: RENDER_DPI,
+    });
+  } catch (error: any) {
+    console.error('[imagination-station] render error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
@@ -404,13 +580,62 @@ router.post('/projects/save', requireAuth, async (req: Request, res: Response): 
 
     if (updateError) throw updateError;
 
-    // Optionally save layers if provided (for future persistence)
-    // For now, layers are stored in canvas_state
-    // In the future, we could persist individual layers to imagination_layers table
+    // Upsert the full layer array into imagination_layers so position, size,
+    // rotation, z-index and complete metadata (dpiInfo, originalWidth/Height,
+    // opacity, locked, text, fontSize, color, shape props, etc.) survive a
+    // reload. This used to be a no-op — `layers` was destructured above and
+    // never written anywhere, so every save silently dropped everything
+    // except the Konva-attrs-only summary in canvas_state, and reloaded
+    // sheets always came back from the ORIGINAL upload-time row (position
+    // 0,0 / 100x100in, metadata = {originalName, mimeType} only).
+    //
+    // Client-generated layer ids for text/shape layers (e.g. `shape-<ts>`,
+    // `text-<ts>`) are not valid UUIDs, so they can't be upserted by id —
+    // those are inserted fresh and the resulting DB id is returned in
+    // layerIdMap so the client can adopt it for future saves.
+    //
+    // NOTE: these are separate supabase-js calls, not a single DB
+    // transaction (this project's migrations are owned by another lane right
+    // now — see handoff for the RPC/SQL that would make this atomic).
+    const layerIdMap: Record<string, string> = {};
+    if (Array.isArray(layers)) {
+      const { withIdRows, withoutIdRows, withoutIdClientIds } = partitionLayersForSave(layers, sheetId);
+      const keepIds: string[] = withIdRows.map(r => r.id);
+
+      if (withIdRows.length > 0) {
+        const { error: upsertErr } = await supabase
+          .from('imagination_layers')
+          .upsert(withIdRows, { onConflict: 'id' });
+        if (upsertErr) throw upsertErr;
+      }
+
+      if (withoutIdRows.length > 0) {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('imagination_layers')
+          .insert(withoutIdRows)
+          .select('id');
+        if (insertErr) throw insertErr;
+        inserted?.forEach((row: any, idx: number) => {
+          const clientId = withoutIdClientIds[idx];
+          if (clientId) layerIdMap[clientId] = row.id;
+          keepIds.push(row.id);
+        });
+      }
+
+      // Remove layers the user deleted from the sheet (present in DB, absent
+      // from this save). An empty `layers: []` (user cleared the sheet)
+      // correctly deletes everything for this sheet_id.
+      const deleteQuery = supabase.from('imagination_layers').delete().eq('sheet_id', sheetId);
+      const { error: deleteErr } = keepIds.length > 0
+        ? await deleteQuery.not('id', 'in', `(${keepIds.join(',')})`)
+        : await deleteQuery;
+      if (deleteErr) throw deleteErr;
+    }
 
     res.json({
       success: true,
       project: updatedSheet,
+      layerIdMap,
       message: 'Project saved successfully'
     });
   } catch (error: any) {
@@ -1146,6 +1371,10 @@ router.post('/layout/auto-nest', requireAuth, async (req: Request, res: Response
       positions: result.positions,
       efficiency: result.efficiency,
       wastedSpace: result.wastedSpace,
+      // Layers the packer could not fit. Previously these were stacked at the
+      // origin and silently overlapped; the client surfaces them so a customer
+      // is never charged for art that never made it onto the sheet.
+      unplaced: result.unplaced,
       itcCharged: result.itcCharged
     });
   } catch (error: any) {

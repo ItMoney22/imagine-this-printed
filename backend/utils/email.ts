@@ -1,32 +1,27 @@
 // ============================================================================
-// Transactional email — transport is Resend (sendViaResend).
-//
-// Graceful fallback behaviour:
-//   1. If RESEND_API_KEY is present  → use Resend (primary).
-//   2. If RESEND_API_KEY is absent   → log a clear error, then attempt the
-//      legacy Brevo path only if BREVO_API_KEY is also present.
-//   3. If neither key is present     → log and return success:false.
+// Transactional email — transport is Resend (sendViaResend), the ONLY
+// provider. There is no fallback: if RESEND_API_KEY is absent at runtime,
+// sendEmailWithTracking fails loudly (logged) rather than silently rerouting
+// mail through a different, unmonitored provider (Brevo, formerly a "graceful
+// fallback" here, was armed live via BREVO_API_KEY — removed).
 //
 // All exported function *signatures* are unchanged so callers need no edits.
 // ============================================================================
 
 import { sendViaResend } from '../services/email-resend.js'
+import { getSuppression } from '../services/email-suppression.js'
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-// EMAIL_FROM is the primary "from" address for all transactional mail.
-// Fall back to BREVO_SENDER_EMAIL for compat during the migration window.
-const EMAIL_FROM =
-  process.env.EMAIL_FROM ||
-  (process.env.BREVO_SENDER_EMAIL
-    ? `Mr. Imagine from Imagine This Printed <${process.env.BREVO_SENDER_EMAIL}>`
-    : 'Imagine This Printed <wecare@imaginethisprinted.com>')
+// EMAIL_FROM is the "from" address for all transactional mail.
+const EMAIL_FROM = process.env.EMAIL_FROM || 'Imagine This Printed <wecare@imaginethisprinted.com>'
+
+// Default Reply-To for transactional mail — the general support inbox.
+const REPLY_TO = 'wecare@imaginethisprinted.com'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
-const BREVO_API_KEY  = process.env.BREVO_API_KEY
-const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || 'wecare@imaginethisprinted.com'
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://imaginethisprinted.com'
 
@@ -47,6 +42,10 @@ interface EmailOptions {
 export interface SendEmailResult {
   success: boolean
   messageId?: string
+  /** True when the send was blocked by the suppression list (no mail was sent). */
+  suppressed?: boolean
+  /** 'hard_bounce' | 'complaint' | 'manual' when suppressed. */
+  suppressionReason?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -54,55 +53,19 @@ export interface SendEmailResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Primary transport: Resend.
- * Throws on hard failure so the caller can decide whether to fall back.
+ * The only transport: Resend.
  */
 async function sendViaResendTransport(options: EmailOptions): Promise<SendEmailResult> {
   const result = await sendViaResend({
     from: EMAIL_FROM,
     to: [options.to],
+    reply_to: REPLY_TO,
     subject: options.subject,
     html: options.htmlContent,
     text: options.textContent || options.htmlContent.replace(/<[^>]*>/g, ''),
   })
   console.log('[Email] ✅ Sent via Resend to:', options.to, 'id:', result.id)
   return { success: true, messageId: result.id }
-}
-
-/**
- * Legacy Brevo transport used only as a fallback when RESEND_API_KEY is absent.
- */
-async function sendViaBrevoFallback(options: EmailOptions): Promise<SendEmailResult> {
-  if (!BREVO_API_KEY) return { success: false }
-
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      'accept': 'application/json',
-      'api-key': BREVO_API_KEY,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      sender: {
-        name: 'Mr. Imagine from Imagine This Printed',
-        email: BREVO_SENDER_EMAIL,
-      },
-      to: [{ email: options.to, name: options.to }],
-      subject: options.subject,
-      htmlContent: options.htmlContent,
-      textContent: options.textContent || options.htmlContent.replace(/<[^>]*>/g, ''),
-    }),
-  })
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    console.error('[Email] Brevo fallback API error:', errorData)
-    return { success: false }
-  }
-
-  const data = await response.json() as { messageId?: string }
-  console.log('[Email] ✅ Sent via Brevo (fallback) to:', options.to, 'messageId:', data.messageId)
-  return { success: true, messageId: data.messageId }
 }
 
 // ---------------------------------------------------------------------------
@@ -123,28 +86,31 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
  * Returns messageId when available (used by email-templates route for log correlation).
  */
 export const sendEmailWithTracking = async (options: EmailOptions): Promise<SendEmailResult> => {
-  if (!RESEND_API_KEY && !BREVO_API_KEY) {
-    console.error('[Email] No transport configured — set RESEND_API_KEY (or BREVO_API_KEY as fallback)')
-    console.log('[Email] Would have sent to:', options.to, '| Subject:', options.subject)
+  // Suppression list first — an address that hard-bounced or filed a spam
+  // complaint must never be mailed again. getSuppression fails OPEN, so a
+  // database blip can't mute all mail.
+  const suppression = await getSuppression(options.to)
+  if (suppression) {
+    console.warn(
+      `[Email] 🚫 Suppressed — not sending to ${options.to} (${suppression.reason}).`,
+      'Subject:', options.subject
+    )
+    return { success: false, suppressed: true, suppressionReason: suppression.reason }
+  }
+
+  if (!RESEND_API_KEY) {
+    // Fail LOUD, not silent: this used to fall back to Brevo, which meant a
+    // missing/rotated Resend key silently rerouted customer mail through a
+    // provider nobody monitors. Now it just doesn't send, and says so loudly.
+    console.error('[Email] 🚨 NO EMAIL TRANSPORT CONFIGURED — RESEND_API_KEY is missing. Email NOT sent.')
+    console.error('[Email] Would have sent to:', options.to, '| Subject:', options.subject)
     return { success: false }
   }
 
-  if (RESEND_API_KEY) {
-    try {
-      return await sendViaResendTransport(options)
-    } catch (err) {
-      console.error('[Email] Resend transport failed:', err)
-      // Do NOT silently swallow — re-throw so callers know the primary path failed
-      return { success: false }
-    }
-  }
-
-  // RESEND_API_KEY absent — attempt legacy Brevo path
-  console.error('[Email] RESEND_API_KEY is not set; falling back to Brevo (BREVO_API_KEY present)')
   try {
-    return await sendViaBrevoFallback(options)
+    return await sendViaResendTransport(options)
   } catch (err) {
-    console.error('[Email] Brevo fallback failed:', err)
+    console.error('[Email] Resend transport failed:', err)
     return { success: false }
   }
 }
@@ -374,6 +340,52 @@ export const sendNewSupportTicketEmail = async (
           <p style="color: #9ca3af; font-size: 13px; text-align: center;">
             This ticket was created via Mr. Imagine chat assistant.<br>
             Please respond promptly to maintain customer satisfaction.
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+/**
+ * Send notification email to admins when a new wholesale application is
+ * submitted (Watchtower task 0af32316). Mirrors sendNewSupportTicketEmail's
+ * shape/recipient convention (ADMIN_ALERT_EMAIL, falling back to SUPPORT_EMAIL,
+ * falling back to wecare@).
+ */
+export const sendNewWholesaleApplicationEmail = async (
+  applicationId: string,
+  companyName: string,
+  businessType: string,
+  contactEmail: string
+): Promise<boolean> => {
+  const to = process.env.ADMIN_ALERT_EMAIL || process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com'
+
+  return sendEmail({
+    to,
+    subject: `🏢 New Wholesale Application: ${companyName}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">New Wholesale Application 🏢</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0 0 5px 0;">Application ID: <strong>${applicationId.slice(0, 8)}</strong></p>
+          <h2 style="color: #374151; margin: 0 0 10px 0;">${companyName}</h2>
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">Business type: ${businessType}</p>
+          <p style="color: #6b7280; font-size: 14px; margin: 5px 0 0 0;">Contact: ${contactEmail}</p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/admin/dashboard?tab=wholesale" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Review Application
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Please review and respond within 2-3 business days, per the applicant-facing copy.
           </p>
         </div>
       </div>

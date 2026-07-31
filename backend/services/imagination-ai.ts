@@ -234,18 +234,22 @@ export class ImaginationAIService {
         await pricingService.consumeFreeTrial(userId, 'generate');
       }
 
-      // Call Replicate Flux 1.1 Pro Ultra — current default across the platform
-      // (matches user-products.ts:608). Higher resolution and stronger artistic
-      // detail than Recraft V4; same model the admin product flow already uses
-      // so customer + admin output stays visually consistent.
-      console.log('[imagination-ai] generateImage using Flux 1.1 Pro Ultra');
+      // Call Replicate Flux 2 Pro — current default across the platform
+      // (matches user-products.ts and services/replicate.ts). Migrated
+      // 2026-07-28 (Watchtower 335a3416) from flux-1.1-pro-ultra: same
+      // visual tier, but $0.015/MP in + $0.015/MP out instead of $0.06 flat,
+      // so a 1 MP generation is ~75% cheaper.
+      // output_format defaults to webp on flux-2-pro — png stays explicit
+      // because this path needs the alpha channel for transparent DTF art.
+      console.log('[imagination-ai] generateImage using Flux 2 Pro');
       const output = await replicate.run(
-        "black-forest-labs/flux-1.1-pro-ultra" as `${string}/${string}`,
+        "black-forest-labs/flux-2-pro" as `${string}/${string}`,
         {
           input: {
             prompt: enhancedPrompt,
             aspect_ratio: "1:1",
             output_format: "png",
+            resolution: "1 MP",
           }
         }
       );
@@ -283,7 +287,7 @@ export class ImaginationAIService {
           width: 100,
           height: 100,
           z_index: Math.floor(Date.now() / 1000),
-          metadata: { prompt, style, model: 'black-forest-labs/flux-1.1-pro-ultra' }
+          metadata: { prompt, style, model: 'black-forest-labs/flux-2-pro' }
         })
         .select()
         .single();

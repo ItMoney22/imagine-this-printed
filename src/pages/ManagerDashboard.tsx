@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { costManagementService } from '../utils/cost-management'
-import type { CostVariables, ProductCostBreakdown, GPTCostQuery, CostAnalytics } from '../types'
+import type { CostVariables, ProductCostBreakdown, GPTCostQuery } from '../types'
 
 const ManagerDashboard: React.FC = () => {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState<'variables' | 'calculator' | 'assistant' | 'analytics'>('variables')
+  const [activeTab, setActiveTab] = useState<'variables' | 'calculator' | 'assistant'>('variables')
   const [isLoading, setIsLoading] = useState(true)
   const [costVariables, setCostVariables] = useState<CostVariables | null>(null)
   const [costBreakdown, setCostBreakdown] = useState<ProductCostBreakdown | null>(null)
-  const [analytics, setAnalytics] = useState<CostAnalytics | null>(null)
 
   // Cost Variables State
   const [variablesForm, setVariablesForm] = useState({
@@ -43,11 +42,10 @@ const ManagerDashboard: React.FC = () => {
   const loadData = async () => {
     try {
       setIsLoading(true)
-      const [variables, _breakdowns, analyticsData] = await Promise.all([
-        costManagementService.getCostVariables(user?.id || ''),
-        costManagementService.getCostBreakdowns(user?.id || ''),
-        costManagementService.getCostAnalytics(user?.id || '')
-      ])
+      // Only the cost variables are backed by real storage. getCostBreakdowns()
+      // and getCostAnalytics() still return hardcoded demo rows, so nothing
+      // reads them any more.
+      const variables = await costManagementService.getCostVariables(user?.id || '')
 
       if (variables) {
         setCostVariables(variables)
@@ -61,8 +59,6 @@ const ManagerDashboard: React.FC = () => {
           laborRatePerHour: variables.laborRatePerHour
         })
       }
-
-      setAnalytics(analyticsData)
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
@@ -171,8 +167,7 @@ const ManagerDashboard: React.FC = () => {
           {[
             { id: 'variables', label: 'Cost Variables', icon: '💰' },
             { id: 'calculator', label: 'Cost Calculator', icon: '🧮' },
-            { id: 'assistant', label: 'AI Assistant', icon: '🤖' },
-            { id: 'analytics', label: 'Analytics', icon: '📊' }
+            { id: 'assistant', label: 'AI Assistant', icon: '🤖' }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -557,81 +552,14 @@ const ManagerDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Analytics Tab */}
-      {activeTab === 'analytics' && analytics && (
-        <div className="space-y-6">
-          <div className="bg-card rounded-lg shadow">
-            <div className="px-6 py-4 border-b card-border">
-              <h3 className="text-lg font-medium text-text">Cost Analytics Dashboard</h3>
-              <p className="text-sm text-muted">{analytics.period}</p>
-            </div>
-            
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <p className="text-sm text-blue-600 font-medium">Total Products</p>
-                  <p className="text-2xl font-bold text-blue-800">{analytics.totalProducts}</p>
-                </div>
-                
-                <div className="bg-green-50 p-4 rounded-lg">
-                  <p className="text-sm text-green-600 font-medium">Average Cost</p>
-                  <p className="text-2xl font-bold text-green-800">${analytics.averageCost.toFixed(2)}</p>
-                </div>
-                
-                <div className="bg-purple-50 p-4 rounded-lg">
-                  <p className="text-sm text-purple-600 font-medium">Average Margin</p>
-                  <p className="text-2xl font-bold text-purple-800">{analytics.averageMargin.toFixed(1)}%</p>
-                </div>
-                
-                <div className="bg-yellow-50 p-4 rounded-lg">
-                  <p className="text-sm text-yellow-600 font-medium">Profitable Products</p>
-                  <p className="text-2xl font-bold text-yellow-800">{analytics.profitableProducts}</p>
-                </div>
-              </div>
-
-              {/* Low Margin Products */}
-              {analytics.lowMarginProducts.length > 0 && (
-                <div className="mb-8">
-                  <h4 className="text-lg font-medium text-text mb-4">Products Needing Attention</h4>
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                    <div className="space-y-3">
-                      {analytics.lowMarginProducts.map((product, index) => (
-                        <div key={index} className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-text">{product.productName}</p>
-                            <p className="text-sm text-muted">Current margin: {product.currentMargin.toFixed(1)}%</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm text-orange-600">Suggested: {product.suggestedMargin.toFixed(1)}%</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Cost Trends */}
-              <div>
-                <h4 className="text-lg font-medium text-text mb-4">Recent Cost Trends</h4>
-                <div className="bg-card rounded-lg p-4">
-                  <div className="space-y-2">
-                    {analytics.costTrends.map((trend, index) => (
-                      <div key={index} className="flex items-center justify-between">
-                        <p className="text-sm text-muted">{new Date(trend.date).toLocaleDateString()}</p>
-                        <div className="flex space-x-4">
-                          <span className="text-sm">Cost: ${trend.averageCost.toFixed(2)}</span>
-                          <span className="text-sm">Margin: {trend.averageMargin.toFixed(1)}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The "Cost Analytics Dashboard" tab used to live here. Every figure in
+          it — 24 products, $67.45 average cost, 28.5% average margin, a
+          two-item "Products Needing Attention" list and a five-day cost trend —
+          was hardcoded in costManagementService.getCostAnalytics(). Nothing was
+          measured. There is no live table to source it from
+          (product_cost_breakdowns has never been applied to the database), so
+          the tab is gone rather than lying. See the handoff for what it would
+          take to bring it back for real. */}
     </div>
   )
 }

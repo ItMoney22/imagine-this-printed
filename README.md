@@ -374,63 +374,69 @@ Make sure the frontend service has all VITE_ prefixed variables!
 
 ## Email & API Post-Rotation Checklist
 
-### Brevo API Key Rotation
+### Resend API Key Rotation
 
-When rotating the Brevo API key (for email services):
+This backend's ONLY email transport is Resend (`backend/utils/email.ts`) — a
+legacy Brevo fallback existed here and was removed 2026-07-28 (it was
+armed-but-unmonitored: a missing/rotated Resend key would have silently
+rerouted mail through Brevo instead of failing loudly). When rotating the
+Resend API key:
 
-1. **Generate new API key** in Brevo Dashboard:
-   - Go to https://app.brevo.com/
-   - Navigate to Settings → API Keys
+1. **Generate new API key** in the Resend Dashboard:
+   - Go to https://resend.com/api-keys
    - Create new API key
-   - Copy the full key (starts with `xkeysib-`)
+   - Copy the full key (starts with `re_`)
 
 2. **Update Railway backend service**:
    ```bash
    railway service  # Select "backend"
-   railway variables set BREVO_API_KEY=xkeysib-your-new-key-here
+   railway variables set RESEND_API_KEY=re_your-new-key-here
    ```
 
-3. **Verify other email variables** (should already be set):
-   ```bash
-   railway variables  # Check these exist:
-   # BREVO_SENDER_EMAIL=wecare@imaginethisprinted.com
-   # BREVO_SENDER_NAME=Imagine This Printed
-   ```
-
-4. **Redeploy backend**:
+3. **Redeploy backend**:
    ```bash
    railway up --service backend
    ```
 
-5. **Test email service**:
+4. **Test email service** (requires `HEALTH_PROBE_TOKEN` — see docs/ENV_VARIABLES.md):
    ```bash
-   curl https://api.imaginethisprinted.com/api/health/email
-   # Should return: { "ok": true, "messageId": "...", "apiKeyTail": "...BMF1" }
+   curl -H "x-health-probe-token: $HEALTH_PROBE_TOKEN" https://api.imaginethisprinted.com/api/health/email
+   # Should return: { "ok": true, "messageId": "..." }
+   # A GET without the token no longer sends anything — it just reports
+   # { "ok": true, "resendApiKeyConfigured": true, "emailFromConfigured": true }
    ```
 
-6. **Check backend logs** for environment confirmation:
-   ```bash
-   railway logs --service backend
-   # Look for: [env:api] { BREVO_API_KEY_tail: '...BMF1', ... }
-   ```
+### Supabase SMTP Settings — NEEDS VERIFICATION AGAINST THE LIVE SUPABASE DASHBOARD
 
-### Supabase SMTP Settings
+> **Flagging, not deleting, per campaign directive:** this section documents
+> Supabase Auth's OWN SMTP relay setting (Project Settings → Auth → SMTP
+> Settings) — a Supabase dashboard config, NOT anything in this repo's code.
+> If Supabase Auth is *actually* still configured with `smtp-relay.brevo.com`
+> per the instructions below, then password-reset/verification/magic-link
+> emails are STILL flowing through Brevo today, invisibly, even after this
+> backend's own Brevo fallback was removed. This cannot be confirmed from the
+> git repo — someone needs to open the live Supabase dashboard and check.
+> If it's still pointed at Brevo, decide: point it at Resend SMTP instead
+> (Resend supports SMTP, not just the HTTP API), or leave Supabase on its own
+> default mailer, whichever David prefers — but verify which one is actually
+> configured before assuming Brevo is fully gone.
 
-Configure Supabase to send emails via Brevo:
+Historical instructions (as originally documented — verify against the live
+dashboard before trusting these are still in effect):
 
 1. **Go to Supabase Dashboard** → Your Project → **Project Settings** → **Auth**
 
-2. **Scroll to "SMTP Settings"** and configure:
+2. **Scroll to "SMTP Settings"** — as documented, this was configured as:
    ```
    Host: smtp-relay.brevo.com
    Port: 587
-   Username: (your Brevo login email)
-   Password: (your Brevo SMTP password - NOT API key!)
+   Username: (a Brevo login email)
+   Password: (a Brevo SMTP password - NOT the API key)
    Sender email: wecare@imaginethisprinted.com
    Sender name: Imagine This Printed
    ```
 
-3. **Enable SMTP** and test by sending a password reset email
+3. Confirm whether SMTP is still enabled here, and against which provider.
 
 ### Health Endpoints
 
@@ -445,13 +451,12 @@ curl https://api.imaginethisprinted.com/api/health
 **Email Service Health:**
 ```bash
 curl https://api.imaginethisprinted.com/api/health/email
-# Sends test email and returns:
-# {
-#   "ok": true,
-#   "messageId": "...",
-#   "sender": "wecare@imaginethisprinted.com",
-#   "apiKeyTail": "...BMF1"
-# }
+# Without a HEALTH_PROBE_TOKEN, reports config presence only (no email sent):
+# { "ok": true, "resendApiKeyConfigured": true, "emailFromConfigured": true, "sender": "..." }
+
+curl -H "x-health-probe-token: $HEALTH_PROBE_TOKEN" https://api.imaginethisprinted.com/api/health/email
+# Sends a real test email and returns:
+# { "ok": true, "messageId": "...", "sender": "wecare@imaginethisprinted.com" }
 ```
 
 **Auth Configuration:**
@@ -491,8 +496,8 @@ Both frontend and backend log environment variables on startup (with secrets mas
 ```
 [env:api] {
   NODE_ENV: "production",
-  BREVO_API_KEY_tail: "...BMF1",
-  BREVO_SENDER_EMAIL: "wecare@imaginethisprinted.com",
+  RESEND_API_KEY: true,
+  EMAIL_FROM: "Imagine This Printed <wecare@imaginethisprinted.com>",
   SUPABASE_URL: "https://czzyrmizvjqlifcivrhn.supabase.co",
   FRONTEND_URL: "https://imaginethisprinted.com"
 }
@@ -512,7 +517,7 @@ After deploying changes:
    railway logs --service backend --tail 50
    ```
    - Look for `[env:api]` log
-   - Verify BREVO_API_KEY_tail matches last 4 chars of your key
+   - Verify RESEND_API_KEY is `true`
 
 3. **Test auth flow**:
    - Sign in with email/password or Google OAuth
