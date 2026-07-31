@@ -382,10 +382,8 @@ const MrImagineOrb: React.FC<{ status: string; busy: boolean }> = ({ status, bus
           <div className="absolute w-60 h-60 bg-secondary/10 animate-pulse" style={{ clipPath: HEX_CLIP }} />
         </>
       )}
-      <div className="relative w-44 h-44 md:w-52 md:h-52" style={{ filter: glow }}>
-        <div className="w-full h-full bg-gradient-to-br from-primary/30 via-card to-secondary/30 flex items-center justify-center overflow-hidden" style={{ clipPath: HEX_CLIP }}>
-          <img src={src} alt="Mr. Imagine" className="w-[88%] h-[88%] object-contain select-none" draggable={false} />
-        </div>
+      <div className="relative w-44 h-44 md:w-52 md:h-52 flex items-center justify-center" style={{ filter: glow }}>
+        <img src={src} alt="Mr. Imagine" className="w-full h-full object-contain select-none" draggable={false} />
       </div>
     </div>
   )

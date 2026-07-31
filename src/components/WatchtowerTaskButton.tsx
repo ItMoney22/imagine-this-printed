@@ -14,6 +14,19 @@ const HEX_CLIP = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)'
 
 type Priority = 'low' | 'medium' | 'high' | 'critical'
 
+// Where the floating hex sits. Draggable anywhere; the spot sticks per
+// browser. null = the default bottom-left perch.
+const POS_KEY = 'itp-wt-button-pos'
+const BTN_W = 56
+const BTN_H = 64
+
+function clampPos(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(8, x), window.innerWidth - BTN_W - 8),
+    y: Math.min(Math.max(8, y), window.innerHeight - BTN_H - 8),
+  }
+}
+
 const WatchtowerTaskButton: React.FC = () => {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
@@ -28,7 +41,57 @@ const WatchtowerTaskButton: React.FC = () => {
   const [screenshot, setScreenshot] = useState<{ file: File; preview: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Drag-to-move: pointer events cover mouse + touch; a real drag (>4px)
+  // suppresses the click so letting go doesn't pop the modal open.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem(POS_KEY)
+      if (!raw) return null
+      const p = JSON.parse(raw) as { x?: number; y?: number }
+      return typeof p.x === 'number' && typeof p.y === 'number' ? clampPos(p.x, p.y) : null
+    } catch { return null }
+  })
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
+  const suppressClickRef = useRef(false)
+
   useEffect(() => () => { if (screenshot) URL.revokeObjectURL(screenshot.preview) }, [screenshot])
+
+  // Keep a custom perch on screen when the window shrinks.
+  useEffect(() => {
+    const onResize = () => setPos((p) => (p ? clampPos(p.x, p.y) : p))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const onDragStart = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top, moved: false }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const onDragMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current
+    if (!d || d.pointerId !== e.pointerId) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+    d.moved = true
+    setPos(clampPos(d.origX + dx, d.origY + dy))
+  }
+
+  const onDragEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current
+    if (!d || d.pointerId !== e.pointerId) return
+    dragRef.current = null
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* already released */ }
+    if (d.moved) {
+      suppressClickRef.current = true
+      setPos((p) => {
+        if (p) try { localStorage.setItem(POS_KEY, JSON.stringify(p)) } catch { /* storage full */ }
+        return p
+      })
+    }
+  }
 
   if (!user || (user.role !== 'admin' && user.role !== 'manager')) return null
 
@@ -89,13 +152,21 @@ const WatchtowerTaskButton: React.FC = () => {
 
   return (
     <>
-      {/* floating hex trigger — bottom-left, clear of the cart + chat widgets */}
+      {/* floating hex trigger — defaults bottom-left; drag it anywhere, the
+          spot sticks (localStorage). Click still opens the form. */}
       <button
-        onClick={() => { reset(); setOpen(true) }}
-        title="File a task to the Watchtower dev board"
+        onClick={() => {
+          if (suppressClickRef.current) { suppressClickRef.current = false; return }
+          reset(); setOpen(true)
+        }}
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        title="File a task to the Watchtower dev board (drag to move)"
         aria-label="File a Watchtower task"
-        className="fixed bottom-6 left-6 z-40 w-14 h-16 flex flex-col items-center justify-center bg-gradient-to-br from-primary to-secondary text-white shadow-glowSm hover:shadow-glow hover:scale-110 transition-all"
-        style={{ clipPath: HEX_CLIP }}
+        className={`fixed z-40 w-14 h-16 flex flex-col items-center justify-center bg-gradient-to-br from-primary to-secondary text-white shadow-glowSm hover:shadow-glow transition-shadow touch-none ${pos ? '' : 'bottom-6 left-6'}`}
+        style={{ clipPath: HEX_CLIP, ...(pos ? { left: pos.x, top: pos.y } : {}) }}
       >
         <ClipboardList className="w-5 h-5" />
         <span className="text-[8px] font-bold tracking-widest mt-0.5">WT</span>
