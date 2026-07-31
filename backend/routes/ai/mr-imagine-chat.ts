@@ -1,6 +1,10 @@
 import { Router, Request, Response } from 'express'
 import OpenAI from 'openai'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
+import {
+    OPENROUTER_TEXT_MODEL,
+    pickOpenRouterChatModel,
+} from '../../lib/chat-model-routing.js'
 
 const router = Router()
 
@@ -8,8 +12,10 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 })
 
-// OpenRouter client for Gemini 2.5 Pro (vision-capable). Used for /chat which now
-// supports image uploads — Mr. Imagine can SEE the user's reference image and talk about it.
+// OpenRouter client for the Gemini family. Used for /chat, which supports image
+// uploads — Mr. Imagine can SEE the user's reference image and talk about it — and
+// for /design-guidance. Which Gemini model a turn gets is decided per-request by
+// lib/chat-model-routing.ts: pro only when the turn actually carries an image.
 const openrouter = new OpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
     baseURL: 'https://openrouter.ai/api/v1',
@@ -19,7 +25,15 @@ const openrouter = new OpenAI({
     },
 })
 
-const GEMINI_VISION_MODEL = 'google/gemini-2.5-pro'
+// gpt-4o is retired from OpenAI's current model + pricing pages (gpt-4
+// family hard shutdown 2026-10-23). Env-configurable, current defaults.
+const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+// gpt-5.x/o-series reasoning models reject a non-default `temperature` and
+// the legacy `max_tokens` param (verified live during the sibling
+// design-assistant.ts migration — see
+// handoff-joshua-knight-1785113728792.json).
+const isReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
 
 // Mr. Imagine's personality and site knowledge - customer-facing only
 const MR_IMAGINE_SYSTEM_PROMPT = `You are Mr. Imagine, the friendly and creative AI mascot of ImagineThisPrinted.com - a custom print-on-demand platform.
@@ -128,30 +142,40 @@ router.post('/chat', requireAuth, async (req: Request, res: Response): Promise<a
             messages.push({ role: 'user', content: message })
         }
 
-        // Use Gemini 2.5 Pro (vision-capable) via OpenRouter when refs are present OR we have OPENROUTER_API_KEY.
-        // Falls back to OpenAI gpt-4o (which is also vision-capable) if OpenRouter not set.
+        // Use Gemini via OpenRouter whenever OPENROUTER_API_KEY is set; fall back to
+        // OPENAI_VISION_MODEL (also vision-capable) if it isn't.
+        //
+        // Which Gemini is decided from the payload we're about to send, not from a
+        // request flag — see lib/chat-model-routing.ts. Text-only turns (the vast
+        // majority of mascot chatter) go to flash; only turns that actually carry an
+        // image pay for pro. Before this, every turn went to pro.
         const useGemini = !!process.env.OPENROUTER_API_KEY
-        const modelLabel = useGemini ? GEMINI_VISION_MODEL : 'gpt-4o'
+        const geminiModel = pickOpenRouterChatModel(messages)
+        const modelLabel = useGemini ? geminiModel : OPENAI_VISION_MODEL
 
         const completion = useGemini
             ? await openrouter.chat.completions.create({
-                  model: GEMINI_VISION_MODEL,
+                  model: geminiModel,
                   messages,
                   temperature: 0.8,
-                  // Gemini 2.5 Pro silently uses some of max_tokens for internal
+                  // Gemini 2.5 silently uses some of max_tokens for internal
                   // reasoning before completion. Previous values (600 → reported
                   // truncation, then 1200 here) keep responses from cutting off
-                  // mid-sentence. Worth-the-cost: ~$0.001 extra per response.
+                  // mid-sentence. Flash has the same reasoning behaviour, so the
+                  // budget stays the same — it is just ~20x cheaper per token.
                   max_tokens: 1200,
               })
             : await openai.chat.completions.create({
-                  model: 'gpt-4o',
+                  model: OPENAI_VISION_MODEL,
                   messages,
-                  temperature: 0.8,
-                  // gpt-4o doesn't have hidden reasoning tokens, but 400 was
-                  // tight on longer answers. 800 gives full sentences in every
-                  // observed case.
-                  max_tokens: 800,
+                  // Previous model (gpt-4o) had no hidden reasoning tokens and
+                  // took plain max_tokens/temperature; gpt-5.x reasoning models
+                  // reject both, so max_tokens becomes max_completion_tokens and
+                  // temperature is dropped for those models. 800 gives full
+                  // sentences in every observed case for the legacy model.
+                  ...(isReasoningModel(OPENAI_VISION_MODEL)
+                      ? { max_completion_tokens: 800 }
+                      : { temperature: 0.8, max_tokens: 800 }),
               })
 
         const responseText = completion.choices[0].message.content
@@ -191,8 +215,16 @@ router.post('/design-guidance', requireAuth, async (req: Request, res: Response)
 
         const contextPrompt = stepContext[currentStep as keyof typeof stepContext] || ''
 
-        const completion = await openai.chat.completions.create({
-            model: 'gpt-4o',
+        // Same provider preference as /chat above: OpenRouter's cheap text model
+        // when the key is present, direct OpenAI otherwise. This route is always
+        // text-only (it takes a prompt string, never an image), so it never needs
+        // the vision model.
+        const useOpenRouter = !!process.env.OPENROUTER_API_KEY
+        const client = useOpenRouter ? openrouter : openai
+        const guidanceModel = useOpenRouter ? OPENROUTER_TEXT_MODEL : OPENAI_TEXT_MODEL
+
+        const completion = await client.chat.completions.create({
+            model: guidanceModel,
             messages: [
                 { role: 'system', content: MR_IMAGINE_SYSTEM_PROMPT },
                 {
@@ -200,11 +232,15 @@ router.post('/design-guidance', requireAuth, async (req: Request, res: Response)
                     content: `Current step: ${currentStep}\nContext: ${contextPrompt}\n\nUser said: "${userPrompt}"\n\nRespond as Mr. Imagine (1-2 sentences, conversational, encouraging):`
                 }
             ],
-            temperature: 0.8,
             // Was 150 — too tight for design-guidance prompts that include a
             // suggestion + question. 350 keeps replies short but doesn't
-            // truncate mid-sentence.
-            max_tokens: 350,
+            // truncate mid-sentence on OpenAI. Gemini bills hidden reasoning
+            // tokens out of the SAME budget (that is why /chat needs 1200), so a
+            // 350 ceiling there can return an empty completion — 800 on the
+            // Gemini path, still a fraction of the old pro pricing.
+            ...(isReasoningModel(guidanceModel)
+                ? { max_completion_tokens: 350 }
+                : { temperature: 0.8, max_tokens: useOpenRouter ? 800 : 350 }),
         })
 
         const responseText = completion.choices[0].message.content

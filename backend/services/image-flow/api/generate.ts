@@ -3,7 +3,6 @@
 
 import { supabase } from '../../../lib/supabase.js'
 import { runReplicate } from '../providers/replicate.js'
-import { runFal } from '../providers/fal.js'
 import { route, type RouteInput } from '../router.js'
 import { generateKey, uploadFromUrl } from '../storage.js'
 import { type Purpose } from '../models.js'
@@ -87,14 +86,8 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
     extra: req.extra,
   })
 
-  let imageUrl: string
-  if (routed.model.provider === 'replicate') {
-    const r = await runReplicate({ modelId: routed.model.id, input })
-    imageUrl = r.imageUrls[0]
-  } else {
-    const r = await runFal({ modelId: routed.model.id, input })
-    imageUrl = r.imageUrls[0]
-  }
+  const r = await runReplicate({ modelId: routed.model.id, input })
+  const imageUrl = r.imageUrls[0]
 
   const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'
   const safeExt = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext) ? ext : 'png'

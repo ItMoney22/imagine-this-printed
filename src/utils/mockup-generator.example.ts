@@ -17,6 +17,7 @@ import {
   cleanupCanvas
 } from './mockup-generator'
 import type { DesignElement, MockupGeneratorOptions } from './mockup-generator'
+import { API_BASE } from '../lib/api'
 
 // Example 1: Basic mockup generation
 async function basicExample() {
@@ -196,7 +197,7 @@ async function exportExample() {
   const formData = new FormData()
   formData.append('mockup', blob, 'mockup.png')
 
-  await fetch('/api/upload', {
+  await fetch(`${API_BASE}/api/upload`, {
     method: 'POST',
     body: formData
   })

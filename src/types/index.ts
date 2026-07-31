@@ -61,6 +61,10 @@ export interface CartItem {
   customDesign?: string
   selectedSize?: string
   selectedColor?: string
+  // Chosen print placement for products offering more than one
+  // (product.print_locations). Required at add-to-cart time when the
+  // product has >1 option; undefined for products with 0-1 (no choice to make).
+  printLocation?: TshirtPrintLocation
   selectedAddons?: CartAddon[]
   paymentMethod?: 'usd' | 'itc'
   designData?: {
@@ -68,6 +72,8 @@ export interface CartItem {
     template: string
     mockupUrl: string
     canvasSnapshot?: string
+    /** Server-rendered 300 DPI print-ready file URL (Imagination Sheets) */
+    printReadyUrl?: string
   }
 }
 
@@ -667,6 +673,11 @@ export interface MessageAttachment {
   url: string
   size: number
   mimeType: string
+  // GCS object path for a durably-uploaded attachment. Present on real
+  // uploads (see src/utils/messaging.ts uploadAttachments); absent on
+  // legacy rows that only ever had a dead blob: URL. `url` itself is no
+  // longer used for downloads -- see getAttachmentDownloadUrl().
+  gcsPath?: string
 }
 
 export interface Conversation {
@@ -739,6 +750,14 @@ export interface AdminEarningsOverview {
   totalRevenue: number
   totalPlatformFees: number
   totalVendorPayouts: number
+  /**
+   * Founder's cut of the MARKETPLACE take: platform fee (7% of order revenue)
+   * x founder_earnings_percentage (35%) = ~2.45% of order revenue. NOT the
+   * canonical founder invoice share (35% of invoice subtotal, see
+   * backend/services/invoice-stats.ts). Field name kept for wire-contract
+   * stability; the UI labels it "Founder Share of Platform Fees".
+   * Watchtower task c82667d5.
+   */
   totalFounderEarnings: number
   pendingPayouts: number
   period: string
@@ -1079,7 +1098,7 @@ export interface AIJob {
 // No user selection needed - system generates from all models simultaneously
 export const AI_GENERATION_MODELS = [
   { id: 'google/imagen-4-ultra', name: 'Google Imagen 4 Ultra' },
-  { id: 'black-forest-labs/flux-1.1-pro-ultra', name: 'Flux 1.1 Pro Ultra' },
+  { id: 'black-forest-labs/flux-2-pro', name: 'Flux 2 Pro' },
   { id: 'leonardoai/lucid-origin', name: 'Lucid Origin' },
 ] as const
 
@@ -1123,7 +1142,7 @@ export interface AIProductCreationRequest {
   background?: 'transparent' | 'studio' | 'lifestyle' | 'urban'
   tone?: string
   imageStyle?: 'realistic' | 'cartoon' | 'semi-realistic'
-  category?: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers'
+  category?: 'dtf-transfers' | 'shirts' | 'hoodies' | 'tumblers' | 'metal-art'
   numImages?: number
   useSearch?: boolean
   // DTF Print Settings
@@ -1134,6 +1153,8 @@ export interface AIProductCreationRequest {
   // products.print_locations. Distinct from printPlacement, which drives the
   // single AI mockup composition.
   print_locations?: TshirtPrintLocation[]
+  // Metal art: physical panel size → metadata.metal_size (drives size-accurate mockups)
+  metal_size?: '4x6' | '8x10'
   printStyle?: 'clean' | 'halftone' | 'grunge'
   modelId?: string
   forceSingleModel?: boolean

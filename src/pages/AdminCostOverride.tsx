@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { supabase } from '../lib/supabase'
 import { costManagementService } from '../utils/cost-management'
-import type { CostVariables, ProductCostBreakdown, CostAnalytics } from '../types'
+import type { CostVariables } from '../types'
 
 interface ManagerData {
   id: string
   name: string
   email: string
+  role: string
   costVariables: CostVariables | null
-  recentBreakdowns: ProductCostBreakdown[]
-  analytics: CostAnalytics | null
 }
+
+const COST_OWNER_ROLES = ['manager', 'admin', 'founder']
 
 const AdminCostOverride: React.FC = () => {
   const { user } = useAuth()
   const [managers, setManagers] = useState<ManagerData[]>([])
   const [selectedManager, setSelectedManager] = useState<ManagerData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [overrideForm, setOverrideForm] = useState<Partial<CostVariables>>({})
   const [showOverrideModal, setShowOverrideModal] = useState(false)
 
@@ -26,41 +29,39 @@ const AdminCostOverride: React.FC = () => {
     }
   }, [user])
 
+  // Real user_profiles rows, not the three invented people (manager_1/2/3,
+  // "John Smith"/"Sarah Johnson"/"Mike Chen") this page used to list. Their ids
+  // were not uuids, so every cost variable saved against them was written to a
+  // manager who does not exist.
   const loadManagersData = async () => {
     try {
       setIsLoading(true)
+      setLoadError(null)
 
-      // Mock manager data - in real app, this would fetch from database
-      const mockManagers: ManagerData[] = [
-        {
-          id: 'manager_1',
-          name: 'John Smith',
-          email: 'john.smith@company.com',
-          costVariables: await costManagementService.getCostVariables('manager_1'),
-          recentBreakdowns: await costManagementService.getCostBreakdowns('manager_1'),
-          analytics: await costManagementService.getCostAnalytics('manager_1')
-        },
-        {
-          id: 'manager_2',
-          name: 'Sarah Johnson',
-          email: 'sarah.johnson@company.com',
-          costVariables: await costManagementService.getCostVariables('manager_2'),
-          recentBreakdowns: await costManagementService.getCostBreakdowns('manager_2'),
-          analytics: await costManagementService.getCostAnalytics('manager_2')
-        },
-        {
-          id: 'manager_3',
-          name: 'Mike Chen',
-          email: 'mike.chen@company.com',
-          costVariables: await costManagementService.getCostVariables('manager_3'),
-          recentBreakdowns: await costManagementService.getCostBreakdowns('manager_3'),
-          analytics: await costManagementService.getCostAnalytics('manager_3')
-        }
-      ]
+      const { data: profiles, error } = await supabase
+        .from('user_profiles')
+        .select('id, email, first_name, last_name, display_name, role')
+        .in('role', COST_OWNER_ROLES)
+        .order('role', { ascending: true })
 
-      setManagers(mockManagers)
+      if (error) throw error
+
+      const rows = profiles || []
+      const withCosts = await Promise.all(rows.map(async (profile) => ({
+        id: profile.id,
+        name: profile.display_name
+          || [profile.first_name, profile.last_name].filter(Boolean).join(' ')
+          || profile.email,
+        email: profile.email,
+        role: profile.role,
+        costVariables: await costManagementService.getCostVariables(profile.id)
+      })))
+
+      setManagers(withCosts)
     } catch (error) {
       console.error('Error loading managers data:', error)
+      setLoadError(error instanceof Error ? error.message : 'Could not load manager accounts.')
+      setManagers([])
     } finally {
       setIsLoading(false)
     }
@@ -82,12 +83,12 @@ const AdminCostOverride: React.FC = () => {
         lastUpdated: new Date().toISOString()
       }
 
-      await costManagementService.saveCostVariables(updatedVariables)
+      // Show what actually came back from the write, not what we sent.
+      const persisted = await costManagementService.saveCostVariables(updatedVariables)
 
-      // Update local state
       setManagers(prev => prev.map(manager =>
         manager.id === selectedManager.id
-          ? { ...manager, costVariables: updatedVariables as CostVariables }
+          ? { ...manager, costVariables: persisted }
           : manager
       ))
 
@@ -95,7 +96,7 @@ const AdminCostOverride: React.FC = () => {
       alert('Cost variables overridden successfully!')
     } catch (error) {
       console.error('Error saving override:', error)
-      alert('Failed to save override')
+      alert(`Failed to save override: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
   }
 
@@ -138,6 +139,18 @@ const AdminCostOverride: React.FC = () => {
           <p className="text-muted text-lg">View and override manager cost settings across the organization</p>
         </div>
 
+        {loadError && (
+          <div className="mb-8 bg-red-500/10 border border-red-500/30 rounded-2xl p-5 text-red-300">
+            Could not load manager accounts: {loadError}
+          </div>
+        )}
+
+        {!loadError && managers.length === 0 && (
+          <div className="bg-card/30 backdrop-blur-md rounded-3xl p-10 border border-white/10 text-center text-muted">
+            No accounts with a {COST_OWNER_ROLES.join(' / ')} role yet.
+          </div>
+        )}
+
         {/* Managers Overview */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {managers.map((manager) => (
@@ -147,6 +160,7 @@ const AdminCostOverride: React.FC = () => {
                   <div>
                     <h3 className="text-xl font-bold text-text group-hover:text-primary transition-colors">{manager.name}</h3>
                     <p className="text-sm text-muted">{manager.email}</p>
+                    <p className="text-xs uppercase tracking-wider text-primary/70 mt-1">{manager.role}</p>
                   </div>
                   <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10 shadow-inner">
                     <span className="text-lg">👤</span>
@@ -181,28 +195,12 @@ const AdminCostOverride: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Analytics Summary */}
-                  {manager.analytics && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-center">
-                        <p className="text-2xl font-bold text-blue-400 mb-1">{manager.analytics.totalProducts}</p>
-                        <p className="text-xs text-blue-300/70 uppercase font-bold tracking-wider">Products</p>
-                      </div>
-                      <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 text-center">
-                        <p className="text-2xl font-bold text-green-400 mb-1">{manager.analytics.averageMargin.toFixed(1)}%</p>
-                        <p className="text-xs text-green-300/70 uppercase font-bold tracking-wider">Avg Margin</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Recent Activity */}
-                  <div className="flex items-center justify-between text-xs text-muted px-2">
-                    <span>Recent Activity</span>
-                    <span className="flex items-center">
-                      <div className={`w-2 h-2 rounded-full mr-2 ${manager.recentBreakdowns.length > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
-                      {manager.recentBreakdowns.length > 0 ? `${manager.recentBreakdowns.length} calculations` : 'None'}
-                    </span>
-                  </div>
+                  {/* The "Products" / "Avg Margin" tiles and the "N calculations"
+                      activity dot that used to sit here read from
+                      costManagementService.getCostAnalytics/getCostBreakdowns,
+                      both of which return invented numbers. Removed rather than
+                      left on screen looking authoritative — see the handoff for
+                      what would be needed to source them for real. */}
                 </div>
 
                 <div className="mt-6 pt-6 border-t border-white/10">

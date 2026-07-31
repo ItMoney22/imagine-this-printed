@@ -231,8 +231,17 @@ const AdminControlPanel: React.FC = () => {
                   </svg>
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-muted">Founder Earnings</p>
+                  {/*
+                    NOT the founder's invoice earnings. This is 35% of the 7%
+                    platform fee on marketplace orders (~2.45% of order
+                    revenue) -- see the derivation block in
+                    backend/routes/admin/control-panel.ts. Invoice earnings
+                    (35% of invoice subtotal) live on /founder/earnings.
+                    Watchtower task c82667d5.
+                  */}
+                  <p className="text-sm font-medium text-muted">Founder Share of Platform Fees</p>
                   <p className="text-2xl font-bold text-text">{formatCurrency(earningsOverview.totalFounderEarnings)}</p>
+                  <p className="text-xs text-muted mt-1">35% of platform fees on marketplace orders</p>
                 </div>
               </div>
             </div>

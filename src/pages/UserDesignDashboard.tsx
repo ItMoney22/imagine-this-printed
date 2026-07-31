@@ -3,6 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { API_BASE } from '../lib/api'
 import {
   Palette,
   FileText,
@@ -33,7 +34,7 @@ import {
 import { CreateDesignModal } from '../components/CreateDesignModal'
 import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
 import type { User3DModel } from '../types'
-import api from '../lib/api'
+import api, { imaginationApi } from '../lib/api'
 
 interface UserDesign {
   id: string
@@ -118,17 +119,17 @@ export default function UserDesignDashboard() {
       // Fetch in parallel
       const [designsRes, sessionsRes, statsRes, walletRes] = await Promise.all([
         // User's designs (products they created)
-        axios.get('/api/user-products/my-products', {
+        axios.get(`${API_BASE}/api/user-products/my-products`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => ({ data: { products: [] } })),
 
         // Design sessions (drafts)
-        axios.get('/api/user-products/design-sessions', {
+        axios.get(`${API_BASE}/api/user-products/design-sessions`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => ({ data: { sessions: [] } })),
 
         // Creator analytics
-        axios.get('/api/user-products/creator-analytics', {
+        axios.get(`${API_BASE}/api/user-products/creator-analytics`, {
           headers: { Authorization: `Bearer ${token}` }
         }).catch(() => ({ data: null })),
 
@@ -215,27 +216,11 @@ export default function UserDesignDashboard() {
 
     setToolProcessing('upscale')
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
+      // Metered, server-billed route — deducts ITC itself via pricingService.deductITC
+      const { data } = await imaginationApi.upscaleImage({ imageUrl, factor: 4 })
 
-      // Deduct ITC first
-      await axios.post('/api/wallet/deduct-itc', {
-        amount: UPSCALE_COST,
-        reason: 'Image upscaling (4x)'
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      // Call upscale API
-      const { data } = await axios.post('/api/ai/upscale', {
-        image_url: imageUrl,
-        scale: 4
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      setToolResult({ url: data.upscaled_url, type: 'upscale' })
-      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - UPSCALE_COST }))
+      setToolResult({ url: data.processedUrl, type: 'upscale' })
+      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - (typeof data.cost === 'number' ? data.cost : UPSCALE_COST) }))
     } catch (error: any) {
       console.error('[Dashboard] Upscale error:', error)
       alert(error.response?.data?.error || 'Failed to upscale image')
@@ -253,26 +238,11 @@ export default function UserDesignDashboard() {
 
     setToolProcessing('bg-remove')
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
+      // Metered, server-billed route — deducts ITC itself via pricingService.deductITC
+      const { data } = await imaginationApi.removeBackground({ imageUrl })
 
-      // Deduct ITC first
-      await axios.post('/api/wallet/deduct-itc', {
-        amount: BG_REMOVE_COST,
-        reason: 'Background removal'
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      // Call background removal API
-      const { data } = await axios.post('/api/ai/remove-background', {
-        image_url: imageUrl
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      setToolResult({ url: data.result_url, type: 'bg-remove' })
-      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - BG_REMOVE_COST }))
+      setToolResult({ url: data.processedUrl, type: 'bg-remove' })
+      setWallet(prev => ({ ...prev, itc_balance: prev.itc_balance - (typeof data.cost === 'number' ? data.cost : BG_REMOVE_COST) }))
     } catch (error: any) {
       console.error('[Dashboard] BG remove error:', error)
       alert(error.response?.data?.error || 'Failed to remove background')
@@ -296,7 +266,7 @@ export default function UserDesignDashboard() {
       const token = session?.access_token
 
       // Deduct ITC first
-      await axios.post('/api/wallet/deduct-itc', {
+      await axios.post(`${API_BASE}/api/wallet/deduct-itc`, {
         amount: DOWNLOAD_COST,
         reason: 'High-resolution design download'
       }, {
@@ -335,7 +305,7 @@ export default function UserDesignDashboard() {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
 
-      await axios.delete(`/api/user-products/design-sessions/${sessionId}`, {
+      await axios.delete(`${API_BASE}/api/user-products/design-sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 

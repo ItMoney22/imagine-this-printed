@@ -1,142 +1,16 @@
 import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
-import Stripe from 'stripe'
-import { supabase } from '../lib/supabase.js'
+import crypto from 'crypto'
 import { sendWelcomeEmail } from '../utils/email.js'
-import { decrementBlanksForOrder } from '../services/blank-inventory.js'
-import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
-import {
-  handleConnectAccountUpdate,
-  handlePayoutPaid,
-  handlePayoutFailed
-} from '../services/stripe-connect.js'
 
 const router = Router()
-const prisma = new PrismaClient()
 
-// ===============================
-// BREVO EMAIL TRACKING WEBHOOKS
-// ===============================
-
-interface BrevoWebhookEvent {
-  event: 'delivered' | 'opened' | 'click' | 'hard_bounce' | 'soft_bounce' | 'spam' | 'unsubscribe' | 'blocked' | 'invalid'
-  email: string
-  'message-id': string
-  date: string
-  link?: string
-  tag?: string
-  ts_event?: number
-}
-
-/**
- * POST /api/webhooks/brevo
- * Receives real-time email tracking events from Brevo
- */
-router.post('/brevo', async (req: Request, res: Response) => {
-  try {
-    const event = req.body as BrevoWebhookEvent
-
-    console.log('[Brevo Webhook] Received event:', event.event, 'for messageId:', event['message-id'])
-
-    if (!event['message-id']) {
-      console.warn('[Brevo Webhook] No message-id in event')
-      return res.status(200).json({ received: true })
-    }
-
-    const messageId = event['message-id']
-    const eventTime = new Date(event.ts_event ? event.ts_event * 1000 : event.date)
-
-    // Find the email log entry by message_id
-    const { data: emailLog, error: findError } = await supabase
-      .from('email_logs')
-      .select('id, open_count, click_count, clicked_links')
-      .eq('message_id', messageId)
-      .single()
-
-    if (findError || !emailLog) {
-      console.warn('[Brevo Webhook] Email log not found for messageId:', messageId)
-      // Still return 200 to prevent retries
-      return res.status(200).json({ received: true })
-    }
-
-    // Build update based on event type
-    const update: Record<string, any> = {}
-
-    switch (event.event) {
-      case 'delivered':
-        update.status = 'delivered'
-        break
-
-      case 'opened':
-        update.open_count = (emailLog.open_count || 0) + 1
-        if (!emailLog.open_count || emailLog.open_count === 0) {
-          update.opened_at = eventTime.toISOString()
-        }
-        break
-
-      case 'click':
-        update.click_count = (emailLog.click_count || 0) + 1
-        if (!emailLog.click_count || emailLog.click_count === 0) {
-          update.clicked_at = eventTime.toISOString()
-        }
-        // Track clicked links
-        const currentLinks = emailLog.clicked_links || []
-        if (event.link) {
-          currentLinks.push({
-            url: event.link,
-            clicked_at: eventTime.toISOString()
-          })
-          update.clicked_links = currentLinks
-        }
-        break
-
-      case 'hard_bounce':
-      case 'soft_bounce':
-        update.status = 'bounced'
-        update.bounced_at = eventTime.toISOString()
-        update.error_message = `${event.event}: Email could not be delivered`
-        break
-
-      case 'spam':
-        update.status = 'spam'
-        update.spam_reported_at = eventTime.toISOString()
-        break
-
-      case 'unsubscribe':
-        update.unsubscribed_at = eventTime.toISOString()
-        break
-
-      case 'blocked':
-      case 'invalid':
-        update.status = 'failed'
-        update.error_message = `${event.event}: Email blocked or invalid`
-        break
-
-      default:
-        console.log('[Brevo Webhook] Unhandled event type:', event.event)
-    }
-
-    // Update the email log if we have updates
-    if (Object.keys(update).length > 0) {
-      const { error: updateError } = await supabase
-        .from('email_logs')
-        .update(update)
-        .eq('id', emailLog.id)
-
-      if (updateError) {
-        console.error('[Brevo Webhook] Failed to update email log:', updateError)
-      } else {
-        console.log('[Brevo Webhook] Updated email log:', emailLog.id, 'with:', Object.keys(update))
-      }
-    }
-
-    return res.status(200).json({ received: true })
-  } catch (error: any) {
-    console.error('[Brevo Webhook] Processing error:', error)
-    // Still return 200 to prevent Brevo from retrying
-    return res.status(200).json({ received: true, error: error.message })
-  }
-})
+// Brevo email-tracking webhook (POST /brevo) lived here — removed. This app
+// does not use Brevo as an email provider (Resend is the only transport, see
+// backend/utils/email.ts); Brevo's env vars were a legacy fallback that never
+// actually fired in production, and this endpoint had zero authentication —
+// an unauthenticated bounce/spam-status writer for email_logs. Resend's
+// delivery-event handling (including hard-bounce/complaint suppression) lives
+// at POST /api/email/webhooks/resend, which IS svix-signature-verified.
 
 // ===============================
 // SUPABASE AUTH WEBHOOKS
@@ -173,16 +47,54 @@ interface SupabaseAuthWebhookPayload {
  * 4. URL: https://api.imaginethisprinted.com/api/webhooks/supabase-auth
  * 5. Add header: x-webhook-secret with your SUPABASE_WEBHOOK_SECRET
  */
+
+/**
+ * Constant-time string comparison for the webhook shared secret. Mirrors
+ * middleware/requireStorefrontSecret.ts's safeEqual: crypto.timingSafeEqual
+ * throws if the two buffers differ in length, so length is checked first
+ * (leaking only length, never content, via timing) before the constant-time
+ * comparison runs.
+ */
+function safeEqual(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+/**
+ * Verifies the Supabase webhook shared secret. Fails closed: if
+ * SUPABASE_WEBHOOK_SECRET isn't configured server-side at all, every request
+ * is rejected (503) rather than falling through to "no check" — previously
+ * an unset/mistyped secret in the deploy environment turned this endpoint
+ * into an open relay that would call sendWelcomeEmail() for any
+ * attacker-supplied payload. Exported for unit testing.
+ */
+export function verifySupabaseWebhookSecret(
+  configuredSecret: string | undefined,
+  receivedHeader: string | string[] | undefined
+): { ok: true } | { ok: false; status: 401 | 503; error: string } {
+  if (!configuredSecret) {
+    return { ok: false, status: 503, error: 'Webhook not configured' }
+  }
+  if (typeof receivedHeader !== 'string' || !safeEqual(receivedHeader, configuredSecret)) {
+    return { ok: false, status: 401, error: 'Invalid webhook secret' }
+  }
+  return { ok: true }
+}
+
 router.post('/supabase-auth', async (req: Request, res: Response) => {
   try {
-    // Verify webhook secret (optional but recommended)
-    const webhookSecret = process.env.SUPABASE_WEBHOOK_SECRET
-    if (webhookSecret) {
-      const receivedSecret = req.headers['x-webhook-secret']
-      if (receivedSecret !== webhookSecret) {
+    const verification = verifySupabaseWebhookSecret(
+      process.env.SUPABASE_WEBHOOK_SECRET,
+      req.headers['x-webhook-secret']
+    )
+    if (!verification.ok) {
+      if (verification.status === 503) {
+        console.error('[Supabase Webhook] SUPABASE_WEBHOOK_SECRET is not configured — rejecting request')
+      } else {
         console.warn('[Supabase Webhook] Invalid webhook secret')
-        return res.status(401).json({ error: 'Invalid webhook secret' })
       }
+      return res.status(verification.status).json({ error: verification.error })
     }
 
     const payload = req.body as SupabaseAuthWebhookPayload
@@ -220,354 +132,16 @@ router.post('/supabase-auth', async (req: Request, res: Response) => {
   }
 })
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-02-24.acacia'
-})
-
-// Stripe webhook handler
-router.post('/stripe', async (req: Request, res: Response) => {
-  const sig = req.headers['stripe-signature'] as string
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
-
-  if (!webhookSecret) {
-    console.error('Missing STRIPE_WEBHOOK_SECRET')
-    return res.status(500).json({ error: 'Webhook secret not configured' })
-  }
-
-  let event: Stripe.Event
-
-  try {
-    const body = JSON.stringify(req.body)
-    event = stripe.webhooks.constructEvent(body, sig, webhookSecret)
-  } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message)
-    return res.status(400).json({ error: 'Invalid signature' })
-  }
-
-  try {
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        await handlePaymentSuccess(event.data.object as Stripe.PaymentIntent)
-        break
-
-      case 'payment_intent.payment_failed':
-        await handlePaymentFailure(event.data.object as Stripe.PaymentIntent)
-        break
-
-      // ===============================
-      // STRIPE CONNECT EVENTS
-      // ===============================
-      case 'account.updated': {
-        const account = event.data.object as Stripe.Account
-        console.log('[Stripe Connect Webhook] Account updated:', account.id)
-        await handleConnectAccountUpdate(account)
-        break
-      }
-
-      case 'payout.paid': {
-        const payout = event.data.object as Stripe.Payout
-        // Check if this is from a connected account
-        if (event.account) {
-          console.log('[Stripe Connect Webhook] Payout paid:', payout.id, 'account:', event.account)
-          await handlePayoutPaid(payout, event.account)
-        }
-        break
-      }
-
-      case 'payout.failed': {
-        const payout = event.data.object as Stripe.Payout
-        // Check if this is from a connected account
-        if (event.account) {
-          console.log('[Stripe Connect Webhook] Payout failed:', payout.id, 'account:', event.account)
-          await handlePayoutFailed(payout, event.account)
-        }
-        break
-      }
-
-      // ===============================
-      // FOUNDER INVOICE EVENTS
-      // ===============================
-      case 'invoice.paid': {
-        const invoice = event.data.object as Stripe.Invoice
-        console.log('[Stripe Webhook] Invoice paid:', invoice.id)
-        await handleInvoicePaid(invoice)
-        break
-      }
-
-      case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice
-        console.log('[Stripe Webhook] Invoice payment failed:', invoice.id)
-        await handleInvoicePaymentFailed(invoice)
-        break
-      }
-
-      default:
-        console.log(`Unhandled event type: ${event.type}`)
-    }
-
-    return res.status(200).json({ received: true })
-  } catch (error) {
-    console.error('Webhook processing error:', error)
-    return res.status(500).json({ error: 'Webhook processing failed' })
-  }
-})
-
-async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
-  try {
-    const { metadata } = paymentIntent
-    console.log('[Stripe Webhook] Payment succeeded:', paymentIntent.id, 'metadata:', metadata)
-
-    // First, try to find and update an existing order by payment_intent_id or order_id
-    const orderId = metadata?.orderId
-    const paymentIntentIdForLookup = paymentIntent.id
-
-    // Look for existing order in Supabase
-    let existingOrder = null
-    if (orderId) {
-      const { data } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('id', orderId)
-        .single()
-      existingOrder = data
-    }
-
-    if (!existingOrder) {
-      // Try to find by payment_intent_id
-      const { data } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('payment_intent_id', paymentIntentIdForLookup)
-        .single()
-      existingOrder = data
-    }
-
-    if (existingOrder) {
-      // Update existing order to paid
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          payment_status: 'paid',
-          status: 'processing',
-          payment_intent_id: paymentIntentIdForLookup,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingOrder.id)
-
-      if (updateError) {
-        console.error('[Stripe Webhook] Failed to update order:', updateError)
-      } else {
-        console.log('[Stripe Webhook] ✅ Order updated to paid:', existingOrder.id)
-        // Blank-shirt inventory decrement (idempotent across paid paths)
-        await decrementBlanksForOrder(existingOrder.id)
-        // Creator margin accrual (idempotent across paid paths — same
-        // (order, product) dedupe as the stripe.ts path)
-        await accrueCreatorMarginsForOrder(existingOrder.id, console)
-      }
-    } else {
-      // No existing order found - create a new one in Supabase
-      const items = JSON.parse(metadata?.items || '[]')
-      const shipping = JSON.parse(metadata?.shipping || '{}')
-
-      const { data: newOrder, error: createError } = await supabase
-        .from('orders')
-        .insert({
-          order_number: `ITP-${Date.now().toString(36).toUpperCase()}`,
-          payment_intent_id: paymentIntent.id,
-          user_id: metadata?.userId || null,
-          customer_email: metadata?.customerEmail || shipping?.email || null,
-          subtotal: paymentIntent.amount / 100,
-          total: paymentIntent.amount / 100,
-          currency: paymentIntent.currency.toUpperCase(),
-          status: 'processing',
-          payment_status: 'paid',
-          shipping_address: shipping,
-          metadata: { items, source: 'webhook_fallback' }
-        })
-        .select()
-        .single()
-
-      if (createError) {
-        console.error('[Stripe Webhook] Failed to create order:', createError)
-      } else {
-        console.log('[Stripe Webhook] ✅ New order created:', newOrder?.id)
-      }
-    }
-
-    // Handle ITC purchases (wallet top-ups)
-    if (metadata?.userId && metadata?.itcAmount) {
-      const itcAmount = parseFloat(metadata.itcAmount)
-      const usdAmount = paymentIntent.amount / 100
-
-      // Get current wallet
-      const { data: wallet } = await supabase
-        .from('user_wallets')
-        .select('itc_balance')
-        .eq('user_id', metadata.userId)
-        .single()
-
-      const currentBalance = wallet?.itc_balance || 0
-      const newBalance = currentBalance + itcAmount
-
-      // Update wallet in Supabase
-      const { error: walletError } = await supabase
-        .from('user_wallets')
-        .upsert({
-          user_id: metadata.userId,
-          itc_balance: newBalance,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' })
-
-      if (walletError) {
-        console.error('[Stripe Webhook] Failed to update wallet:', walletError)
-      } else {
-        console.log('[Stripe Webhook] ✅ Wallet updated, new ITC balance:', newBalance)
-      }
-
-      // Record ITC transaction
-      await supabase
-        .from('itc_transactions')
-        .insert({
-          user_id: metadata.userId,
-          type: 'purchase',
-          amount: itcAmount,
-          balance_after: newBalance,
-          usd_value: usdAmount,
-          reason: 'ITC token purchase',
-          reference_id: paymentIntent.id
-        })
-    }
-
-    console.log(`[Stripe Webhook] Payment processing complete: ${paymentIntent.id}`)
-  } catch (error) {
-    console.error('[Stripe Webhook] Payment success handling error:', error)
-  }
-}
-
-async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent) {
-  try {
-    console.log(`Payment failed: ${paymentIntent.id}`, paymentIntent.last_payment_error)
-  } catch (error) {
-    console.error('Payment failure handling error:', error)
-  }
-}
-
-// ===============================
-// FOUNDER INVOICE HANDLERS
-// ===============================
-
-async function handleInvoicePaid(stripeInvoice: Stripe.Invoice) {
-  try {
-    const founderId = stripeInvoice.metadata?.founder_id
-
-    if (!founderId) {
-      console.log('[Invoice Webhook] Not a founder invoice, skipping')
-      return
-    }
-
-    // Find the invoice in our database
-    const { data: invoice, error: findError } = await supabase
-      .from('founder_invoices')
-      .select('*')
-      .eq('stripe_invoice_id', stripeInvoice.id)
-      .single()
-
-    if (findError || !invoice) {
-      console.error('[Invoice Webhook] Invoice not found:', stripeInvoice.id)
-      return
-    }
-
-    // Update invoice status
-    const { error: updateError } = await supabase
-      .from('founder_invoices')
-      .update({
-        status: 'paid',
-        paid_at: new Date().toISOString()
-      })
-      .eq('id', invoice.id)
-
-    if (updateError) {
-      console.error('[Invoice Webhook] Failed to update invoice:', updateError)
-      return
-    }
-
-    // Credit founder earnings to their wallet
-    const founderEarningsCents = invoice.founder_earnings_cents
-    const founderEarningsUSD = founderEarningsCents / 100
-
-    // Get current wallet balance
-    const { data: wallet, error: walletError } = await supabase
-      .from('user_wallets')
-      .select('itc_balance')
-      .eq('user_id', founderId)
-      .single()
-
-    if (walletError || !wallet) {
-      console.error('[Invoice Webhook] Founder wallet not found:', founderId)
-      return
-    }
-
-    // Convert USD earnings to ITC (1 ITC = $0.01)
-    const itcEarnings = founderEarningsCents // $1 = 100 ITC
-
-    const newBalance = parseFloat(wallet.itc_balance || '0') + itcEarnings
-
-    // Update wallet
-    const { error: walletUpdateError } = await supabase
-      .from('user_wallets')
-      .update({
-        itc_balance: newBalance,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', founderId)
-
-    if (walletUpdateError) {
-      console.error('[Invoice Webhook] Failed to update wallet:', walletUpdateError)
-      return
-    }
-
-    // Record the ITC transaction
-    await supabase
-      .from('itc_transactions')
-      .insert({
-        user_id: founderId,
-        type: 'reward',
-        amount: itcEarnings,
-        balance_after: newBalance,
-        usd_value: founderEarningsUSD,
-        reason: `Invoice earnings (35% of $${(invoice.subtotal_cents / 100).toFixed(2)})`,
-        reference_id: invoice.id
-      })
-
-    console.log(`[Invoice Webhook] ✅ Invoice paid: ${invoice.id}, Founder ${founderId} earned ${itcEarnings} ITC ($${founderEarningsUSD.toFixed(2)})`)
-  } catch (error) {
-    console.error('[Invoice Webhook] Invoice paid handling error:', error)
-  }
-}
-
-async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice) {
-  try {
-    const founderId = stripeInvoice.metadata?.founder_id
-
-    if (!founderId) {
-      console.log('[Invoice Webhook] Not a founder invoice, skipping')
-      return
-    }
-
-    // Update invoice status to overdue (Stripe will retry)
-    const { error } = await supabase
-      .from('founder_invoices')
-      .update({ status: 'overdue' })
-      .eq('stripe_invoice_id', stripeInvoice.id)
-
-    if (error) {
-      console.error('[Invoice Webhook] Failed to update invoice status:', error)
-    }
-
-    console.log(`[Invoice Webhook] Invoice payment failed: ${stripeInvoice.id}`)
-  } catch (error) {
-    console.error('[Invoice Webhook] Invoice payment failed handling error:', error)
-  }
-}
+// Stripe webhooks (payment_intent.*, Connect, founder invoices) are
+// consolidated into the single, signature-safe, idempotent endpoint at
+// routes/stripe.ts POST /webhook. This route used to duplicate that work
+// but verified signatures against JSON.stringify(req.body) (never matches
+// Stripe's raw bytes — index.ts only gives raw body to /api/stripe/webhook)
+// and had no idempotency guard, so redelivered events double-registered
+// orders and double-credited ITC. Removed rather than patched: both live
+// PaymentIntent-creation flows (checkout-payment-intent, create-payment-intent
+// in routes/stripe.ts) already produce metadata that routes/stripe.ts's own
+// handlePaymentSuccess dispatches correctly, so nothing here was reachable
+// that isn't already handled, better, on the surviving endpoint.
 
 export default router

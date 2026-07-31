@@ -74,7 +74,7 @@ router.get('/submissions', requireAuth, requireRole(['admin', 'manager', 'founde
 // POST /api/social/submissions - Submit content (authenticated user)
 router.post('/submissions', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { platform, url, description, submitterHandle, notes } = req.body
+    const { platform, url, description, submitterHandle, notes, featuredProducts } = req.body
     const userId = req.user?.sub
 
     if (!url) {
@@ -111,6 +111,7 @@ router.post('/submissions', requireAuth, async (req: Request, res: Response): Pr
         description,
         submitter_handle: submitterHandle,
         notes,
+        featured_products: Array.isArray(featuredProducts) ? featuredProducts : [],
         submitted_by: userId,
         status: 'pending'
       })
@@ -274,7 +275,7 @@ router.post('/ugc-inbound', async (req: Request, res: Response): Promise<any> =>
 // GET /api/social/posts - Get approved posts (public)
 router.get('/posts', async (req: Request, res: Response): Promise<any> => {
   try {
-    const { platform, featured, limit = '20', offset = '0', sort = 'recent' } = req.query
+    const { platform, featured, productId, limit = '20', offset = '0', sort = 'recent' } = req.query
 
     let query = supabase
       .from('social_posts')
@@ -287,6 +288,10 @@ router.get('/posts', async (req: Request, res: Response): Promise<any> => {
 
     if (featured === 'true') {
       query = query.eq('is_featured', true)
+    }
+
+    if (productId) {
+      query = query.contains('product_ids', [productId as string])
     }
 
     // Sorting

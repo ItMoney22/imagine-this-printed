@@ -11,12 +11,20 @@ import { addWatermark } from '../services/watermark.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
+import { claimOnce } from '../lib/webhook-helpers.js'
 import Replicate from 'replicate'
 
 // Initialize Replicate client for NanoBanana
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
 
 const POLL_INTERVAL = 5000 // 5 seconds
+
+// In-flight guard: prevents overlapping processQueuedJobs() invocations. Jobs
+// like Tripo3D (2-10 min) or Replicate (up to minutes) routinely outlast the
+// 5s POLL_INTERVAL, so without this a slow-running tick and the next tick's
+// timer fire concurrently and can both grab the same batch of queued jobs
+// (see etsy-jobs-worker.ts's `running` flag for the same pattern).
+let processingQueue = false
 
 // Helper to update job progress message (visible to admin in real-time)
 async function updateJobProgress(jobId: string, message: string, step?: number, totalSteps?: number) {
@@ -48,6 +56,11 @@ async function updateJobProgress(jobId: string, message: string, step?: number, 
 }
 
 export async function processQueuedJobs() {
+  if (processingQueue) {
+    console.log('[worker] ⏭️ Skipping tick — previous processQueuedJobs() still in flight')
+    return
+  }
+  processingQueue = true
   try {
     // Recover orphaned 'running' jobs: only when they've been stuck >12 min with no
     // updates AND aren't 3D Tripo jobs (those legitimately run 2-10 min on fal).
@@ -72,10 +85,12 @@ export async function processQueuedJobs() {
     }
 
     // Hard 30-min ceiling for 3D Tripo jobs. The 12-min sweep above intentionally
-    // skips these because Tripo legitimately runs 2-10 min, but a hung fal.ai
-    // task can squat in 'running' indefinitely. Past 30 min, mark FAILED (not
-    // requeued) so we don't trigger the fal.ai cost spiral that the auto-retry
-    // sweep used to cause. User can manually retry from the UI.
+    // skips these because Tripo legitimately runs 2-10 min, but a task that dies
+    // mid-flight can squat in 'running' indefinitely. Past 30 min, mark FAILED
+    // (not requeued) so we don't re-pay for a generation that may still land.
+    // User can manually retry from the UI.
+    // (The fal.ai provider fallback this used to guard against was removed
+    //  2026-07-28, Watchtower 5aeeab4f — Tripo is now the only 3D provider.)
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
     const { data: hung3d } = await supabase
       .from('ai_jobs')
@@ -98,8 +113,9 @@ export async function processQueuedJobs() {
       }
     }
 
-    // (Auto-retry sweep removed — was looping due to fal.ai Tripo3D being slow.
-    //  User can manually retry from the UI if needed.)
+    // (Auto-retry sweep removed — was looping on slow 3D generations and
+    //  re-paying for each loop. tripo3d.ts now does one bounded, pre-submit-only
+    //  retry internally. User can manually retry from the UI if needed.)
 
     // Fetch queued jobs (not started yet)
     const { data: queuedJobs, error: queuedError } = await supabase
@@ -156,6 +172,8 @@ export async function processQueuedJobs() {
     }
   } catch (error) {
     console.error('[worker] ❌ Worker error:', error)
+  } finally {
+    processingQueue = false
   }
 }
 
@@ -205,17 +223,50 @@ async function optimizeAndUploadDTF(
   return { publicUrl, path }
 }
 
+/**
+ * Atomically claims a queued ai_jobs row by flipping it to 'running' — but
+ * ONLY if it is still 'queued'. A SELECT-then-UPDATE is not a claim: two
+ * overlapping processQueuedJobs() ticks (or two worker processes/deploys) can
+ * both read status='queued' for the same row and both proceed. The
+ * `.eq('status', 'queued')` guard means only ONE caller's UPDATE actually
+ * matches the row; claimOnce() (backend/lib/webhook-helpers.ts) reports zero
+ * rows back as a lost race.
+ *
+ * `db` is injected (rather than importing the `supabase` singleton directly)
+ * so this can be unit-tested against a fake in-memory client without
+ * standing up Supabase — see ai-jobs-worker.claim.test.ts.
+ */
+export async function claimQueuedJob(
+  db: { from: (table: string) => any },
+  jobId: string
+): Promise<import('../lib/webhook-helpers.js').ClaimOutcome<{ id: string }>> {
+  return claimOnce(
+    db
+      .from('ai_jobs')
+      .update({
+        status: 'running',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', jobId)
+      .eq('status', 'queued')
+      .select('id')
+  )
+}
+
 async function startJob(job: any) {
   console.log('[worker] 🔄 Starting job:', job.id, job.type)
 
-  // Mark as running
-  await supabase
-    .from('ai_jobs')
-    .update({
-      status: 'running',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', job.id)
+  const claim = await claimQueuedJob(supabase, job.id)
+
+  if (claim.error) {
+    console.error('[worker] ❌ Claim query failed for job:', job.id, claim.error)
+    throw claim.error
+  }
+
+  if (!claim.claimed) {
+    console.warn('[worker] ⚠️ Lost claim race for job', job.id, '— already claimed by another process/tick, skipping to avoid duplicate paid generation')
+    return
+  }
 
   if (job.type === 'replicate_image' || job.type === 'replicate_image_v2') {
     const promptInput = job.input?.prompt
@@ -792,7 +843,9 @@ async function startJob(job: any) {
     const template = job.input?.template || 'flat_lay'
     const templateName = template === 'mr_imagine' ? 'Mr. Imagine mascot' :
                          template === 'flat_lay' ? 'professional flat lay' :
-                         template === 'ghost_mannequin' ? 'ghost mannequin' : template
+                         template === 'ghost_mannequin' ? 'ghost mannequin' :
+                         template === 'metal_shelf' ? 'metal print shelf scene' :
+                         template === 'metal_wall' ? 'metal print wall scene' : template
 
     await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Replicate AI...`, 1, 3)
     console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
@@ -825,12 +878,14 @@ async function startJob(job: any) {
       await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
       const mockupResult = await runImageFlowMockup({
-        template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine',
+        template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall',
         designImageUrl: garmentImageUrl!,
         productType: productType as 'tshirt' | 'hoodie' | 'tank',
         shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
         characterImageUrl,
         printPlacement: printPlacement as any,
+        // Metal templates: physical panel size for the scale anchors.
+        metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
       })
 
       mockupImageUrl = mockupResult.url
@@ -2300,32 +2355,67 @@ async function cleanupExpiredDesignSessions() {
   }
 }
 
+// Runs each cleanup sweep in its own try/catch so one throwing doesn't skip
+// the rest, and so a bug regressing a sweep's own internal error handling
+// can't take the setInterval/setTimeout callback (and therefore the process,
+// under Node 20's --unhandled-rejections=throw default) down with it.
+// monitorHealthAndOrders is deliberately NOT wrapped here — it already has its
+// own top-level try/catch (backend/services/order-monitor.ts) that logs and
+// swallows everything, so wrapping it again would be redundant.
+async function runCleanupSweeps() {
+  try {
+    await cleanupIncompleteOrders()
+  } catch (error) {
+    console.error('[worker] ❌ cleanupIncompleteOrders threw:', error)
+  }
+  try {
+    await cleanupExpiredDesignSessions()
+  } catch (error) {
+    console.error('[worker] ❌ cleanupExpiredDesignSessions threw:', error)
+  }
+  try {
+    await sweepLowStockBlanks()
+  } catch (error) {
+    console.error('[worker] ❌ sweepLowStockBlanks threw:', error)
+  }
+  await monitorHealthAndOrders()
+  try {
+    await sweepMissingSeoPacks()
+  } catch (error) {
+    console.error('[worker] ❌ sweepMissingSeoPacks threw:', error)
+  }
+}
+
 export function startWorker() {
   console.log('[worker] 🚀 Starting AI jobs worker')
 
   // AI job processing (every 5 seconds)
   setInterval(async () => {
-    await processQueuedJobs()
+    try {
+      await processQueuedJobs()
+    } catch (error) {
+      console.error('[worker] ❌ Uncaught error from processQueuedJobs interval:', error)
+    }
   }, POLL_INTERVAL)
 
   // Cleanup tasks (every hour)
   setInterval(async () => {
-    await cleanupIncompleteOrders()
-    await cleanupExpiredDesignSessions()
-    await sweepLowStockBlanks()
-    await monitorHealthAndOrders()
-    await sweepMissingSeoPacks()
+    try {
+      await runCleanupSweeps()
+    } catch (error) {
+      console.error('[worker] ❌ Uncaught error from cleanup interval:', error)
+    }
   }, CLEANUP_INTERVAL)
 
   // Process immediately on start
-  processQueuedJobs()
+  processQueuedJobs().catch((error) => {
+    console.error('[worker] ❌ Uncaught error from initial processQueuedJobs:', error)
+  })
 
   // Run cleanup once on start (delayed by 1 minute to let server fully start)
-  setTimeout(async () => {
-    await cleanupIncompleteOrders()
-    await cleanupExpiredDesignSessions()
-    await sweepLowStockBlanks()
-    await monitorHealthAndOrders()
-    await sweepMissingSeoPacks()
+  setTimeout(() => {
+    runCleanupSweeps().catch((error) => {
+      console.error('[worker] ❌ Uncaught error from startup cleanup:', error)
+    })
   }, 60000)
 }

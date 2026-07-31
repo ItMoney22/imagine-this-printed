@@ -7,6 +7,9 @@ interface Model3DViewerProps {
   className?: string
   autoRotate?: boolean
   showControls?: boolean
+  /** Used for the static-image fallback if the model-viewer module fails to load. */
+  conceptUrl?: string | null
+  angleImages?: Record<string, string>
 }
 
 export function Model3DViewer({
@@ -14,24 +17,33 @@ export function Model3DViewer({
   alt = '3D Model',
   className = '',
   autoRotate = true,
-  showControls = true
+  showControls = true,
+  conceptUrl,
+  angleImages
 }: Model3DViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
-    // Dynamically load model-viewer if not already loaded
+    // Lazily load the bundled model-viewer package (registers the custom
+    // element as a side effect) instead of injecting it from a third-party CDN.
+    let cancelled = false
     if (!customElements.get('model-viewer')) {
-      const script = document.createElement('script')
-      script.type = 'module'
-      script.src = 'https://unpkg.com/@google/model-viewer@3.1.1/dist/model-viewer.min.js'
-      script.onerror = () => console.error('[Model3DViewer] Failed to load model-viewer from CDN')
-      document.head.appendChild(script)
+      import('@google/model-viewer').catch(() => {
+        if (!cancelled) {
+          console.warn('[Model3DViewer] Failed to load @google/model-viewer')
+          setLoadFailed(true)
+        }
+      })
+    }
+    return () => {
+      cancelled = true
     }
   }, [])
 
   useEffect(() => {
-    if (!containerRef.current || !glbUrl) return
+    if (loadFailed || !containerRef.current || !glbUrl) return
 
     // Create model-viewer element imperatively to avoid TypeScript JSX issues
     const existingViewer = containerRef.current.querySelector('model-viewer')
@@ -62,7 +74,7 @@ export function Model3DViewer({
     return () => {
       modelViewer.remove()
     }
-  }, [glbUrl, alt, autoRotate, showControls])
+  }, [glbUrl, alt, autoRotate, showControls, loadFailed])
 
   if (!glbUrl) {
     return (
@@ -73,6 +85,10 @@ export function Model3DViewer({
         </div>
       </div>
     )
+  }
+
+  if (loadFailed) {
+    return <Model3DFallbackViewer conceptUrl={conceptUrl} angleImages={angleImages} className={className} />
   }
 
   return (

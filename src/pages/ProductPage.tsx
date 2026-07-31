@@ -13,7 +13,16 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch } from '../lib/api'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables } from '../lib/product-kind'
-import type { Product, CartAddon } from '../types'
+import type { Product, CartAddon, TshirtPrintLocation } from '../types'
+
+// Customer-facing labels for products.print_locations values. Mirrors the
+// admin wizard's PrintLocationsDropdown (src/components/AdminCreateProductWizard.tsx),
+// shortened for a compact selector on the storefront product page.
+const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
+  front_image: 'Front',
+  back_image: 'Back',
+  pocket: 'Pocket'
+}
 
 const ProductPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +37,7 @@ const ProductPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
+  const [selectedPrintLocation, setSelectedPrintLocation] = useState<string>('')
   const [selectedAddons, setSelectedAddons] = useState<CartAddon[]>([])
   const [uploading, setUploading] = useState(false)
   // Digital download product: deliverables are returned ONLY by the gated
@@ -85,10 +95,23 @@ const ProductPage: React.FC = () => {
             // back to metadata for legacy rows.
             sizes: data.sizes || data.metadata?.sizes || [],
             colors: data.colors || data.metadata?.colors || [],
+            // products.print_locations TEXT[] — the actual root cause of the
+            // "no consumer" bug: this mapping never read the column at all,
+            // so product.print_locations was always undefined here regardless
+            // of what the admin wizard saved or the DB CHECK enforced.
+            print_locations: (data.print_locations && data.print_locations.length ? data.print_locations : data.metadata?.print_locations) || [],
             product_type: data.product_type,
             digital_price: data.digital_price || 0
           }
           setProduct(mappedProduct)
+          // Single-option products have nothing to choose — auto-select so the
+          // cart still carries a print_location without showing a selector
+          // (multi-option products require the customer to pick one below).
+          if (mappedProduct.print_locations?.length === 1) {
+            setSelectedPrintLocation(mappedProduct.print_locations[0])
+          } else {
+            setSelectedPrintLocation('')
+          }
 
           // Prefer 'source' (original Flux image), then 'nobg' (background removed)
           const assetsData = assetsResult.data
@@ -150,7 +173,56 @@ const ProductPage: React.FC = () => {
       canonical.rel = 'canonical'
       document.head.appendChild(canonical)
     }
-    canonical.href = `https://www.imaginethisprinted.com/product/${product.slug || product.id}`
+    const canonicalUrl = `https://www.imaginethisprinted.com/product/${product.slug || product.id}`
+    canonical.href = canonicalUrl
+
+    // Product JSON-LD. For bot user-agents the server already injected a block
+    // built from the raw DB row (api/_seo/bot-meta.mjs) — that one is richer
+    // than anything the SPA can produce, so it is left alone while it still
+    // describes THIS url. It only goes stale on a client-side navigation to a
+    // different product, and only then do we swap in a client-built block.
+    // Every block either side writes carries data-itp-jsonld, so this never
+    // touches JSON-LD emitted by anything else on the page.
+    const existing = document.querySelector('script[type="application/ld+json"][data-itp-jsonld]')
+    let existingMatches = false
+    if (existing?.textContent) {
+      try {
+        existingMatches = String(JSON.parse(existing.textContent)['@id'] || '').startsWith(canonicalUrl)
+      } catch {
+        existingMatches = false
+      }
+    }
+    if (!existingMatches) {
+      document.querySelectorAll('script[type="application/ld+json"][data-itp-jsonld]').forEach(n => n.remove())
+      const images = (product.images || []).filter(Boolean).slice(0, 6)
+      const ld: Record<string, unknown> = {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        '@id': `${canonicalUrl}#product`,
+        name: product.name,
+        description: desc,
+        image: images.length ? images : ['https://www.imaginethisprinted.com/itp-logo-v3.png'],
+        url: canonicalUrl,
+        sku: product.id,
+        brand: { '@type': 'Brand', name: 'Imagine This Printed' }
+      }
+      if (product.category) ld.category = product.category
+      if (Number.isFinite(product.price) && product.price > 0) {
+        ld.offers = {
+          '@type': 'Offer',
+          url: canonicalUrl,
+          price: product.price.toFixed(2),
+          priceCurrency: 'USD',
+          availability: product.inStock === false ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
+          itemCondition: 'https://schema.org/NewCondition'
+        }
+      }
+      const script = document.createElement('script')
+      script.type = 'application/ld+json'
+      script.dataset.itpJsonld = 'client'
+      script.textContent = JSON.stringify(ld)
+      document.head.appendChild(script)
+    }
 
     return () => {
       document.title = prevTitle
@@ -276,6 +348,11 @@ const ProductPage: React.FC = () => {
     }
   }
 
+  // A print-location choice is only required when the product actually
+  // offers more than one — a single-option (or no) print_locations list
+  // means there's nothing to choose, per the task's acceptance criteria.
+  const requiresPrintLocation = (product?.print_locations?.length ?? 0) > 1
+
   const handleAddToCart = () => {
     // Size is always required (we show default sizes if product doesn't have them)
     if (!selectedSize) {
@@ -286,8 +363,12 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a color')
       return
     }
+    if (requiresPrintLocation && !selectedPrintLocation) {
+      toast.warning('Selection required', 'Please select a print placement')
+      return
+    }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
       toast.success('Added to cart', product.name)
     }
   }
@@ -302,8 +383,12 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a color')
       return
     }
+    if (requiresPrintLocation && !selectedPrintLocation) {
+      toast.warning('Selection required', 'Please select a print placement')
+      return
+    }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
       navigate('/checkout')
     }
   }
@@ -536,6 +621,34 @@ const ProductPage: React.FC = () => {
                           )}
                         </span>
                         <span className="text-sm">{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {requiresPrintLocation && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">
+                  Print Placement
+                  {!selectedPrintLocation && (
+                    <span className="ml-2 text-xs text-amber-400 font-normal">— required</span>
+                  )}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {product.print_locations!.map(loc => {
+                    const isSelected = selectedPrintLocation === loc
+                    return (
+                      <button
+                        key={loc}
+                        onClick={() => setSelectedPrintLocation(loc)}
+                        className={`px-4 py-2 rounded-md border-2 font-bold transition-all ${isSelected
+                          ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
+                          : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
+                          }`}
+                      >
+                        {PRINT_LOCATION_LABELS[loc] || loc}
                       </button>
                     )
                   })}

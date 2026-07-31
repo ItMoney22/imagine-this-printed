@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { sendInvoiceEmail } from '../utils/email.js'
+import { FOUNDER_PERCENTAGE, calculateFounderShareCents } from '../services/invoice-stats.js'
 
 const router = Router()
 
@@ -11,8 +12,32 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia'
 })
 
-// Founder earnings percentage
-const FOUNDER_PERCENTAGE = 35
+/**
+ * THE CANONICAL FOUNDER-SHARE RULE
+ * ================================
+ * A founder's share is 35% of an invoice's SUBTOTAL -- a revenue share, floored
+ * to whole cents:
+ *
+ *     founder_earnings_cents = floor(subtotal_cents * 35 / 100)
+ *
+ * It is a revenue share and not a profit share because `founder_invoices`
+ * carries no cost basis at all -- no COGS column, no per-line cost -- so a
+ * profit split is not computable from the data that exists. Each row also
+ * persists its own `founder_percentage`, so historical invoices keep the rate
+ * they were issued under if the rate ever changes.
+ *
+ * The rate is a hardcoded constant, NOT `platform_settings.founder_earnings_
+ * percentage`. Those are two different rules on two different bases and only
+ * coincidentally share the number 35 -- the platform_settings row is defined by
+ * supabase/migrations/20251222_platform_settings.sql:20 as "Percentage of
+ * platform fees for founder", i.e. the founder's cut of the 7% marketplace fee
+ * on ORDERS, which is what backend/routes/admin/control-panel.ts computes. See
+ * the block at control-panel.ts's earnings route for that side of the split.
+ *
+ * The implementation lives in ONE place -- backend/services/invoice-stats.ts,
+ * which is deliberately import-free so the money maths is unit-testable without
+ * a database or a server (backend/services/invoice-stats.test.ts).
+ */
 
 interface LineItem {
   description: string
@@ -219,8 +244,9 @@ router.post('/', requireAuth, requireRole(['founder', 'admin']), async (req: Req
     )
 
     // For admin invoices: 100% to business, no founder split
-    // For founder invoices: 35% founder / 65% platform
-    const founderEarningsCents = isAdminInvoice ? 0 : Math.floor(subtotalCents * (FOUNDER_PERCENTAGE / 100))
+    // For founder invoices: 35% founder / 65% platform (see the canonical rule
+    // documented at the top of this file)
+    const founderEarningsCents = isAdminInvoice ? 0 : calculateFounderShareCents(subtotalCents)
     const platformFeeCents = subtotalCents - founderEarningsCents
 
     // Calculate due date

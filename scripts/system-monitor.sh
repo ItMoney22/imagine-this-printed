@@ -6,6 +6,13 @@ LOG_FILE="/var/log/metadev/system-monitor.log"
 EMAIL_TO="info@davidtrinidad.com"
 DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
+# Database password must come from the environment. Never hardcode it here —
+# this file is committed, so any literal ends up in git history permanently.
+if [[ -z "${PGPASSWORD:-}" ]]; then
+    echo "[$DATE] ERROR: PGPASSWORD is not set. Export it before running this script." >&2
+    exit 1
+fi
+
 # Function to log messages
 log_message() {
     echo "[$DATE] $1" | tee -a "$LOG_FILE"
@@ -35,7 +42,7 @@ check_service() {
 
 # Function to check PostgreSQL connection
 check_postgresql() {
-    if PGPASSWORD="IAmGod1622#" psql -h localhost -p 5432 -U postgres -d imagine_this_printed -c "SELECT 1;" > /dev/null 2>&1; then
+    if psql -h localhost -p 5432 -U postgres -d imagine_this_printed -c "SELECT 1;" > /dev/null 2>&1; then
         log_message "✓ PostgreSQL connection successful"
         return 0
     else
@@ -155,7 +162,7 @@ log_message "=== System Statistics ==="
 log_message "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
 log_message "Memory: $(free -h | grep 'Mem:' | awk '{print $3 "/" $2 " (" $7 " available)"}')"
 log_message "Disk Usage: $(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 " used)"}')"
-log_message "Database Size: $(PGPASSWORD="IAmGod1622#" psql -h localhost -p 5432 -U postgres -d imagine_this_printed -t -c "SELECT pg_size_pretty(pg_database_size('imagine_this_printed'));" | xargs)"
+log_message "Database Size: $(psql -h localhost -p 5432 -U postgres -d imagine_this_printed -t -c "SELECT pg_size_pretty(pg_database_size('imagine_this_printed'));" | xargs)"
 
 # Log recent errors from NGINX
 log_message "=== Recent NGINX Errors ==="

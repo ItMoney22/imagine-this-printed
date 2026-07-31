@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import axios from 'axios'
+import { API_BASE } from '../lib/api'
 
 interface DesignSession {
   id: string
@@ -54,7 +55,7 @@ export const DesignHistorySidebar = ({
         return
       }
 
-      const { data } = await axios.get('/api/user-products/design-sessions', {
+      const { data } = await axios.get(`${API_BASE}/api/user-products/design-sessions`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
@@ -73,7 +74,7 @@ export const DesignHistorySidebar = ({
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
 
-      await axios.delete(`/api/user-products/design-sessions/${sessionId}`, {
+      await axios.delete(`${API_BASE}/api/user-products/design-sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
@@ -89,7 +90,7 @@ export const DesignHistorySidebar = ({
       const token = authSession?.access_token
 
       const { data } = await axios.post(
-        `/api/user-products/design-sessions/${session.id}/remix`,
+        `${API_BASE}/api/user-products/design-sessions/${session.id}/remix`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )

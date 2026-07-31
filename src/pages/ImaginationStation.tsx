@@ -20,7 +20,14 @@ import type {
 } from '../types';
 import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal, MakeProductModal } from '../components/imagination';
 import type { Layer as SimpleLayer } from '../types';
-import { calculateDpi, getDpiQualityDisplay, type DpiInfo } from '../utils/dpi-calculator';
+import {
+  calculateDpi,
+  getDpiQualityDisplay,
+  isBelowMinDpi,
+  resolveDpiInfo,
+  DEFAULT_MIN_DPI,
+  type DpiInfo,
+} from '../utils/dpi-calculator';
 import {
   Sparkles,
   Upload,
@@ -62,7 +69,9 @@ import {
   Expand,
   X,
   Download,
-  ChevronLeft
+  ChevronLeft,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 // Sheet preset configurations
@@ -95,7 +104,11 @@ const PRESET_UI_CONFIG: Record<string, any> = {
 // Canvas constants
 const PIXELS_PER_INCH = 96;
 const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 3;
+// Reconciled with SheetCanvas.tsx's ctrl+scroll/pinch zoom bound — this used
+// to be 3 here while the canvas's own wheel handler hardcoded 4, so which
+// max applied depended on whether you used the +button or ctrl+scroll
+// (Watchtower task 6890cf54).
+const MAX_ZOOM = 4;
 
 const DTF_PRINT_SIZE_OPTIONS = [
   { label: 'Pocket 4"', width: 4 },
@@ -190,11 +203,54 @@ const ImaginationStation: React.FC = () => {
   const [mirrorForSublimation, setMirrorForSublimation] = useState(false);
   const [showSafeMargin, setShowSafeMargin] = useState(false);
 
+  // Full-screen canvas (Watchtower task 6890cf54) — mainly for mobile/tablet,
+  // where the sheet otherwise renders inside a ~288-384px drawer. Fullscreens
+  // canvasRef (the wrapper around SheetCanvas + the zoom controls), so the
+  // controls go fullscreen along with the canvas rather than being left
+  // behind in the collapsed drawer. Must be triggered by a user gesture (the
+  // button below) — the Fullscreen API rejects a programmatic call outside
+  // one, so there's no "auto-enter on mobile" option here.
+  const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsCanvasFullscreen(document.fullscreenElement === canvasRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleCanvasFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      canvasRef.current?.requestFullscreen?.().catch(() => {
+        // Fullscreen API unsupported/blocked (e.g. iOS Safari on some
+        // versions) — silently no-op rather than surfacing an error for a
+        // purely cosmetic convenience feature.
+      });
+    } else {
+      document.exitFullscreen?.();
+    }
+  }, []);
+
   // Loading states
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [presets, setPresets] = useState<any>(null); // State for dynamic presets
+
+  // Print-type minDPI from loaded presets (falls back to DEFAULT_MIN_DPI = 300).
+  // DPI quality must be graded against the print type's real requirement
+  // (backend/config/imagination-presets.ts rules.minDPI), never a hardcoded number.
+  const getSheetMinDpi = useCallback((printType?: PrintType | string | null): number => {
+    const type = printType || sheet?.print_type;
+    if (!type || !presets) return DEFAULT_MIN_DPI;
+    const preset = presets[type as PrintType];
+    const fromRules = preset?.rules?.minDPI;
+    if (Number.isFinite(fromRules) && fromRules > 0) return fromRules as number;
+    const fromRoot = preset?.minDpi ?? preset?.minDPI;
+    if (Number.isFinite(fromRoot) && fromRoot > 0) return fromRoot as number;
+    return DEFAULT_MIN_DPI;
+  }, [presets, sheet?.print_type]);
 
   // Pricing
   const [pricing, setPricing] = useState<ImaginationPricing[]>([]);
@@ -415,8 +471,14 @@ const ImaginationStation: React.FC = () => {
           widthInches = maxSizeInches * aspectRatio;
         }
 
-        // Calculate DPI for the layer size in inches
-        const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+        // Calculate DPI for the layer size in inches (graded against this sheet's print-type minDPI)
+        const dpiInfo = calculateDpi(
+          originalWidth,
+          originalHeight,
+          widthInches * PIXELS_PER_INCH,
+          heightInches * PIXELS_PER_INCH,
+          getSheetMinDpi(sheet.print_type)
+        );
 
         // Center the image on the sheet
         const centerX = (sheet.sheet_width - widthInches) / 2;
@@ -489,14 +551,28 @@ const ImaginationStation: React.FC = () => {
         if (presetData) {
           merged = {};
           Object.keys(presetData).forEach(key => {
+            const raw = presetData[key] || {};
+            // Normalize minDPI onto rules so grading always has one source of
+            // truth (API may surface it on rules.minDPI, product.minDpi, or
+            // neither if the DB rules JSON predates this field).
+            const minDPI =
+              (Number.isFinite(raw.rules?.minDPI) && raw.rules.minDPI > 0 && raw.rules.minDPI) ||
+              (Number.isFinite(raw.minDpi) && raw.minDpi > 0 && raw.minDpi) ||
+              (Number.isFinite(raw.minDPI) && raw.minDPI > 0 && raw.minDPI) ||
+              DEFAULT_MIN_DPI;
             merged[key] = {
-              ...presetData[key],
+              ...raw,
               ...(PRESET_UI_CONFIG[key] || {}),
-              name: presetData[key].displayName, // Map displayName to name for compatibility
-              allowMirror: presetData[key].rules?.mirror,
-              allowCutlines: presetData[key].rules?.cutlineOption,
+              name: raw.displayName, // Map displayName to name for compatibility
+              allowMirror: raw.rules?.mirror,
+              allowCutlines: raw.rules?.cutlineOption,
               // API returns heights directly as array of numbers (not sizes array of objects)
-              heights: presetData[key].heights || []
+              heights: raw.heights || [],
+              minDpi: minDPI,
+              rules: {
+                ...(raw.rules || {}),
+                minDPI,
+              },
             };
           });
           setPresets(merged);
@@ -609,62 +685,73 @@ const ImaginationStation: React.FC = () => {
     try {
       for (const file of Array.from(files)) {
         try {
-          // 1. Actually upload to the server first
-          const { data: uploadedLayer } = await imaginationApi.uploadImage(sheet.id, file);
-
-          // 2. Load the image to get dimensions for DPI and initial sizing
-          await new Promise<void>((resolve, reject) => {
+          // 1. Read the image's natural pixel dimensions locally FIRST (no
+          // network round-trip) so we can upload with the REAL position/size
+          // instead of a hardcoded placeholder. The backend used to always
+          // insert position 0,0 / 100x100in regardless of what the file
+          // actually was, relying on a later autosave (or a client-side
+          // "legacy layer" fixup) to correct it — both have been removed.
+          const localUrl = URL.createObjectURL(file);
+          const dims = await new Promise<{ w: number; h: number } | null>((resolve) => {
             const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.onload = () => {
-              const originalWidth = img.width;
-              const originalHeight = img.height;
-
-              const maxSizeInches = Math.max(0.5, Math.min(6, sheet.sheet_width - 0.5, sheet.sheet_height - 0.5));
-              const aspectRatio = originalWidth / originalHeight;
-              let widthInches: number;
-              let heightInches: number;
-
-              if (aspectRatio >= 1) {
-                widthInches = maxSizeInches;
-                heightInches = maxSizeInches / aspectRatio;
-              } else {
-                heightInches = maxSizeInches;
-                widthInches = maxSizeInches * aspectRatio;
-              }
-
-              const dpiInfo = calculateDpi(originalWidth, originalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
-
-              const centerX = (sheet.sheet_width - widthInches) / 2;
-              const centerY = (sheet.sheet_height - heightInches) / 2;
-
-              setLayers(prev => {
-                const newLayer: ImaginationLayer = {
-                  ...uploadedLayer,
-                  position_x: Math.max(0, centerX),
-                  position_y: Math.max(0, centerY),
-                  width: widthInches,
-                  height: heightInches,
-                  z_index: prev.length,
-                  metadata: {
-                    ...uploadedLayer.metadata,
-                    dpiInfo,
-                    originalWidth,
-                    originalHeight,
-                    name: file.name.replace(/\.[^/.]+$/, ''),
-                  }
-                };
-
-                setSelectedLayerIds([newLayer.id]);
-                return [...prev, newLayer];
-              });
-
-              setSaveStatus('unsaved');
-              resolve();
-            };
-            img.onerror = () => reject(new Error('Failed to load image'));
-            img.src = uploadedLayer.source_url;
+            img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+            img.onerror = () => resolve(null);
+            img.src = localUrl;
           });
+          URL.revokeObjectURL(localUrl);
+
+          if (!dims || !dims.w || !dims.h) {
+            toast.error('Upload failed', `Could not read ${file.name} as an image.`);
+            continue;
+          }
+
+          const originalWidth = dims.w;
+          const originalHeight = dims.h;
+          const maxSizeInches = Math.max(0.5, Math.min(6, sheet.sheet_width - 0.5, sheet.sheet_height - 0.5));
+          const aspectRatio = originalWidth / originalHeight;
+          let widthInches: number;
+          let heightInches: number;
+
+          if (aspectRatio >= 1) {
+            widthInches = maxSizeInches;
+            heightInches = maxSizeInches / aspectRatio;
+          } else {
+            heightInches = maxSizeInches;
+            widthInches = maxSizeInches * aspectRatio;
+          }
+
+          const dpiInfo = calculateDpi(
+            originalWidth,
+            originalHeight,
+            widthInches * PIXELS_PER_INCH,
+            heightInches * PIXELS_PER_INCH,
+            getSheetMinDpi(sheet.print_type)
+          );
+
+          const centerX = Math.max(0, (sheet.sheet_width - widthInches) / 2);
+          const centerY = Math.max(0, (sheet.sheet_height - heightInches) / 2);
+          const name = file.name.replace(/\.[^/.]+$/, '');
+
+          // 2. Upload with the real position/size/metadata so the very first
+          // DB row is correct — see backend/routes/imagination-station.ts
+          // POST /sheets/:id/upload.
+          const { data: uploadedLayer } = await imaginationApi.uploadImage(sheet.id, file, {
+            position_x: centerX,
+            position_y: centerY,
+            width: widthInches,
+            height: heightInches,
+            metadata: { dpiInfo, originalWidth, originalHeight, name },
+          });
+
+          setLayers(prev => {
+            const newLayer: ImaginationLayer = {
+              ...uploadedLayer,
+              z_index: prev.length,
+            };
+            setSelectedLayerIds([newLayer.id]);
+            return [...prev, newLayer];
+          });
+          setSaveStatus('unsaved');
         } catch (fileError) {
           console.error(`Failed to upload file ${file.name}:`, fileError);
           toast.error('Upload failed', `Failed to upload ${file.name}. Please try again.`);
@@ -680,8 +767,20 @@ const ImaginationStation: React.FC = () => {
   };
 
   // calculateDpi expects the print size in PIXELS â€” layer width/height are stored in INCHES
-  const calcDpiInches = (originalPxW: number, originalPxH: number, widthInches: number, heightInches: number): DpiInfo =>
-    calculateDpi(originalPxW, originalPxH, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+  const calcDpiInches = (
+    originalPxW: number,
+    originalPxH: number,
+    widthInches: number,
+    heightInches: number,
+    minDPI?: number
+  ): DpiInfo =>
+    calculateDpi(
+      originalPxW,
+      originalPxH,
+      widthInches * PIXELS_PER_INCH,
+      heightInches * PIXELS_PER_INCH,
+      minDPI ?? getSheetMinDpi()
+    );
 
   // Recalculate DPI when layer size changes
   const recalculateDpi = (layer: ImaginationLayer, newWidth?: number, newHeight?: number): DpiInfo | undefined => {
@@ -695,6 +794,42 @@ const ImaginationStation: React.FC = () => {
 
     return calcDpiInches(originalWidth, originalHeight, w, h);
   };
+
+  // Re-grade stored dpiInfo once print-type presets (and therefore minDPI)
+  // are known. Layers reloaded from a sheet may carry a dpiInfo graded under
+  // a different/older minDPI (or none at all) — this corrects the quality
+  // label without waiting for the layer to be transformed again.
+  useEffect(() => {
+    if (!sheet || !presets) return;
+    const minDPI = getSheetMinDpi(sheet.print_type);
+    setLayers(prev => {
+      let changed = false;
+      const next = prev.map(layer => {
+        if (layer.layer_type !== 'image' && layer.layer_type !== 'ai_generated') return layer;
+        const existing = layer.metadata?.dpiInfo as DpiInfo | undefined;
+        if (!existing) return layer;
+
+        const ow = layer.metadata?.originalWidth;
+        const oh = layer.metadata?.originalHeight;
+        const resolved: DpiInfo | null = (ow && oh)
+          ? calcDpiInches(ow, oh, layer.width, layer.height, minDPI)
+          : resolveDpiInfo(existing, minDPI);
+
+        if (
+          !resolved ||
+          (resolved.dpi === existing.dpi &&
+            resolved.quality === existing.quality &&
+            resolved.minDPI === existing.minDPI)
+        ) {
+          return layer;
+        }
+        changed = true;
+        return { ...layer, metadata: { ...layer.metadata, dpiInfo: resolved } };
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet?.id, sheet?.print_type, presets]);
 
   // Layer operations
   const selectLayer = (layerId: string, multi = false) => {
@@ -884,43 +1019,46 @@ const ImaginationStation: React.FC = () => {
       return;
     }
 
-    // Check for critical DPI issues (both uploaded images and AI-generated)
-    const dangerLayers = layers.filter(layer =>
-      (layer.layer_type === 'image' || layer.layer_type === 'ai_generated') &&
-      layer.metadata?.dpiInfo &&
-      layer.metadata.dpiInfo.quality === 'danger'
+    // DPI gate is relative to this print type's minDPI (e.g. DTF = 300), never
+    // a hardcoded number. An undeterminable DPI (image failed to load, or its
+    // resolution couldn't be read) is treated as a hard block too — it must
+    // not silently pass through the gate.
+    const minDPI = getSheetMinDpi(sheet.print_type);
+    const imageLayers = layers.filter(
+      layer => layer.layer_type === 'image' || layer.layer_type === 'ai_generated'
     );
 
-    const warningLayers = layers.filter(layer =>
-      (layer.layer_type === 'image' || layer.layer_type === 'ai_generated') &&
-      layer.metadata?.dpiInfo &&
-      layer.metadata.dpiInfo.quality === 'warning'
-    );
-
-    // Prevent checkout if there are critical DPI issues
-    if (dangerLayers.length > 0) {
-      const layerNames = dangerLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
+    const undeterminedLayers = imageLayers.filter(layer => !layer.metadata?.dpiInfo);
+    if (undeterminedLayers.length > 0) {
+      const layerNames = undeterminedLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
       toast.error(
-        `${dangerLayers.length} design${dangerLayers.length !== 1 ? 's' : ''} too low quality to print`,
-        `${layerNames} — shrink them, upload a higher-resolution version, or use the Upscale tool.`,
+        `${undeterminedLayers.length} design${undeterminedLayers.length !== 1 ? 's' : ''} could not be quality-checked`,
+        `${layerNames} — the image failed to load or its resolution couldn't be read. Re-upload before ordering.`,
         8000
       );
       return;
     }
 
-    // Warn about low quality but allow to proceed
-    if (warningLayers.length > 0) {
-      const layerNames = warningLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
-      const proceed = window.confirm(
-        `Warning: ${warningLayers.length} layer(s) have low DPI (100-150).\n\n` +
-        `Affected layers: ${layerNames}\n\n` +
-        `These images may appear slightly pixelated when printed.\n\n` +
-        `Do you want to continue anyway?`
-      );
+    const belowMinLayers = imageLayers.filter(layer =>
+      isBelowMinDpi(layer.metadata?.dpiInfo as DpiInfo | undefined, minDPI)
+    );
 
-      if (!proceed) {
-        return;
-      }
+    if (belowMinLayers.length > 0) {
+      const layerNames = belowMinLayers.map(l => l.metadata?.name || 'Untitled').join(', ');
+      const hasDanger = belowMinLayers.some(layer => {
+        const info = layer.metadata?.dpiInfo as DpiInfo | undefined;
+        if (!info) return false;
+        if (typeof info.dpi === 'number') return info.dpi < minDPI * 0.5;
+        return info.quality === 'danger';
+      });
+      toast.error(
+        `${belowMinLayers.length} design${belowMinLayers.length !== 1 ? 's' : ''} below ${minDPI} DPI minimum`,
+        hasDanger
+          ? `${layerNames} — far below the ${minDPI} DPI required for ${sheet.print_type}. Shrink them, upload higher-res, or use Upscale.`
+          : `${layerNames} — need at least ${minDPI} DPI for ${sheet.print_type}. Shrink them, upload higher-res, or use Upscale.`,
+        8000
+      );
+      return;
     }
 
     setIsProcessing(true);
@@ -928,7 +1066,45 @@ const ImaginationStation: React.FC = () => {
       // First, save the current sheet state â€” if this fails we abort the add-to-cart
       await persistSheet();
 
-      // Generate a preview thumbnail from the canvas
+      // Render the print-ready 300 DPI composite server-side. This is now the
+      // ONLY source of the file that reaches production — the client canvas
+      // toDataURL() below is kept strictly for the low-res cart/thumbnail
+      // preview and must never be mistaken for a print-resolution export.
+      const imageLayersForRender = layers.filter(
+        l => (l.layer_type === 'image' || l.layer_type === 'ai_generated') && (l.processed_url || l.source_url)
+      );
+      let printReadyUrl: string | undefined;
+      if (imageLayersForRender.length > 0) {
+        try {
+          const { data: renderData } = await imaginationApi.renderPrintFile(sheet.id, {
+            layers: imageLayersForRender.map(l => ({
+              url: (l.processed_url || l.source_url) as string,
+              x: l.position_x,
+              y: l.position_y,
+              width: l.width,
+              height: l.height,
+              rotation: l.rotation || 0,
+            })),
+            mirror: sheet.print_type === 'sublimation' ? mirrorForSublimation : false,
+          });
+          printReadyUrl = renderData?.url;
+          if (!printReadyUrl) throw new Error('Render endpoint returned no URL');
+        } catch (renderError) {
+          console.error('Print-ready render failed:', renderError);
+          toast.error(
+            'Could not prepare print file',
+            'Your design was saved, but the print-ready file failed to generate. Please try again in a moment.',
+            8000
+          );
+          setIsProcessing(false);
+          return; // Block add-to-cart rather than shipping an order with no print file
+        }
+      } else {
+        // Text/shape-only sheet — nothing rasterized to composite server-side yet.
+        console.warn('[ImaginationStation] No raster image layers to render — skipping print-ready file generation.');
+      }
+
+      // Generate a preview thumbnail from the canvas (low-res UI preview only)
       const canvas = canvasRef.current?.querySelector('canvas');
       let thumbnailUrl = '';
       if (canvas) {
@@ -966,18 +1142,22 @@ const ImaginationStation: React.FC = () => {
         }
       };
 
-      // Add to cart with design data
+      // Add to cart with design data. printReadyUrl (5th arg, "customDesign")
+      // flows through to order_items.metadata.custom_design — see
+      // backend/routes/stripe.ts:124 and backend/routes/orders.ts:67/179/205 —
+      // so production gets the real 300 DPI file, not the on-screen thumbnail.
       addToCart(
         imaginationSheetProduct,
         1,
         undefined, // no size selection
         undefined, // no color selection
-        undefined, // no custom design URL
+        printReadyUrl, // print-ready 300 DPI GCS URL (undefined for text/shape-only sheets)
         {
           elements: layers,
           template: 'imagination-sheet',
           mockupUrl: thumbnailUrl,
-          canvasSnapshot: JSON.stringify(canvasState)
+          canvasSnapshot: JSON.stringify(canvasState),
+          printReadyUrl,
         }
       );
 
@@ -1014,9 +1194,14 @@ const ImaginationStation: React.FC = () => {
         padding: 0.25, // 0.25 inch padding between items
       });
 
-      // Update layer positions based on API response
+      // Update layer positions based on API response. A layer whose id is NOT
+      // in data.positions (i.e. it's in data.unplaced) simply has no
+      // `newPosition` match below, so it falls through to `return layer`
+      // unchanged — it stays exactly where it was on the canvas instead of
+      // being silently stacked on top of something else.
       if (data.positions && Array.isArray(data.positions)) {
         const placedCount = data.positions.length;
+        const unplacedCount = Array.isArray(data.unplaced) ? data.unplaced.length : 0;
         setLayers(prev => prev.map(layer => {
           const newPosition = data.positions.find((p: any) => p.id === layer.id);
           if (newPosition) {
@@ -1033,7 +1218,12 @@ const ImaginationStation: React.FC = () => {
         const efficiencyNote = typeof data.efficiency === 'number'
           ? ` - ${Math.round(data.efficiency)}% of sheet used`
           : '';
-        toast.success('Auto-Nest complete', `Arranged ${placedCount} design${placedCount !== 1 ? 's' : ''}${efficiencyNote}`);
+        const placedMsg = `Arranged ${placedCount} design${placedCount !== 1 ? 's' : ''}${efficiencyNote}`;
+        if (unplacedCount > 0) {
+          toast.warning('Auto-Nest complete', `${placedMsg}, ${unplacedCount} design${unplacedCount !== 1 ? 's' : ''} could not be placed`);
+        } else {
+          toast.success('Auto-Nest complete', placedMsg);
+        }
       }
     } catch (error: any) {
       console.error('Auto-Nest failed:', error);
@@ -1056,11 +1246,22 @@ const ImaginationStation: React.FC = () => {
 
     setIsProcessing(true);
     try {
-      // Prepare layer data for API
-      const layerData = layersToFill.map(layer => ({
+      // Prepare layer data for API. This must be EVERY layer on the sheet —
+      // not just the ones selected to duplicate — so the backend's collision
+      // check knows about all real artwork, not only the selection. Each
+      // layer carries its true position_x/position_y/rotation (previously
+      // only width/height were sent, so the collision detector assumed every
+      // layer sat at the origin) and isTemplateCandidate marks which ones are
+      // eligible to be picked as the duplication source.
+      const fillIds = new Set(layersToFill.map(l => l.id));
+      const layerData = layers.map(layer => ({
         id: layer.id,
         width: layer.width,
         height: layer.height,
+        position_x: layer.position_x,
+        position_y: layer.position_y,
+        rotation: layer.rotation || 0,
+        isTemplateCandidate: fillIds.has(layer.id),
       }));
 
       // Call Smart Fill API
@@ -1193,8 +1394,29 @@ const ImaginationStation: React.FC = () => {
 
     // Store original image for comparison
     const originalUrl = imageUrl;
-    const originalWidth = selectedLayer.metadata?.originalWidth || selectedLayer.width;
-    const originalHeight = selectedLayer.metadata?.originalHeight || selectedLayer.height;
+    // originalWidth/Height must be the image's natural PIXEL dimensions, never
+    // selectedLayer.width/height (print-size INCHES) — mixing those units here
+    // used to feed a bogus "8 pixels / 4 inches" style value into the DPI
+    // calc after upscale. Fall back to actually loading the image when
+    // metadata.originalWidth/Height is missing (e.g. a layer created before
+    // this metadata was captured).
+    let originalWidth = selectedLayer.metadata?.originalWidth as number | undefined;
+    let originalHeight = selectedLayer.metadata?.originalHeight as number | undefined;
+    if (!originalWidth || !originalHeight) {
+      const dims = await new Promise<{ w: number; h: number } | null>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve(null);
+        img.src = imageUrl;
+      });
+      if (!dims) {
+        toast.error('Could not read image', 'Please try re-uploading this layer.');
+        return;
+      }
+      originalWidth = dims.w;
+      originalHeight = dims.h;
+    }
     const originalDpi = selectedLayer.metadata?.dpiInfo?.dpi;
 
     // Snapshot for exact revert
@@ -1450,7 +1672,13 @@ const ImaginationStation: React.FC = () => {
         heightInches = aspectRatio >= 1 ? maxSizeInches / aspectRatio : maxSizeInches;
       }
 
-      const dpiInfo = calculateDpi(img.naturalWidth, img.naturalHeight, widthInches * PIXELS_PER_INCH, heightInches * PIXELS_PER_INCH);
+      const dpiInfo = calculateDpi(
+        img.naturalWidth,
+        img.naturalHeight,
+        widthInches * PIXELS_PER_INCH,
+        heightInches * PIXELS_PER_INCH,
+        getSheetMinDpi(sheet.print_type)
+      );
       const newLayer: ImaginationLayer = {
         id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         sheet_id: sheet.id,
@@ -1692,7 +1920,7 @@ const ImaginationStation: React.FC = () => {
         }
       }
 
-      await imaginationApi.saveProject({
+      const { data: saveResult } = await imaginationApi.saveProject({
         sheetId: sheet.id,
         name: sheet.name,
         canvasState: newCanvasState,
@@ -1704,6 +1932,15 @@ const ImaginationStation: React.FC = () => {
           printType: sheet.print_type,
         }
       });
+
+      // Text/shape layers (and any brand-new image layer) are created with a
+      // client-generated placeholder id (not a DB UUID). The backend inserts
+      // them fresh on first save and returns the real id here — adopt it so
+      // the NEXT save updates the same row instead of inserting a duplicate.
+      const layerIdMap = saveResult?.layerIdMap;
+      if (layerIdMap && Object.keys(layerIdMap).length > 0) {
+        setLayers(prev => prev.map(l => (layerIdMap[l.id] ? { ...l, id: layerIdMap[l.id] } : l)));
+      }
 
       setSaveStatus('saved');
       lastAutosaveRef.current = Date.now();
@@ -2563,6 +2800,9 @@ const ImaginationStation: React.FC = () => {
                   showCutLines={showCutLines}
                   mirrorForSublimation={mirrorForSublimation}
                   showSafeMargin={showSafeMargin}
+                  minDPI={getSheetMinDpi(sheet.print_type)}
+                  minZoom={MIN_ZOOM}
+                  maxZoom={MAX_ZOOM}
                 />
 
                 {layers.length === 0 && !isProcessing && (
@@ -2599,6 +2839,10 @@ const ImaginationStation: React.FC = () => {
                   </button>
                   <button onClick={resetCanvas} disabled={layers.length === 0} className="px-1.5 py-0.5 text-xs rounded-full text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50" title="Reset">
                     <RefreshCw className="w-3 h-3" />
+                  </button>
+                  <div className="w-px h-4 bg-text/10 mx-0.5" />
+                  <button onClick={toggleCanvasFullscreen} className="w-6 h-6 flex items-center justify-center text-muted hover:text-primary rounded-full transition-colors" title={isCanvasFullscreen ? 'Exit full screen' : 'Full screen — more room to work on touch'}>
+                    {isCanvasFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>
@@ -2638,7 +2882,7 @@ const ImaginationStation: React.FC = () => {
 
                           {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && selectedLayers[0].metadata?.dpiInfo && selectedLayers[0].metadata.dpiInfo.quality !== 'good' && (
                             <div className={`p-2 rounded-lg border text-xs ${selectedLayers[0].metadata.dpiInfo.quality === 'danger' ? 'bg-red-500/10 border-red-500/40 text-red-500' : 'bg-amber-500/10 border-amber-500/40 text-amber-600'}`}>
-                              Print quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality).label} ({selectedLayers[0].metadata.dpiInfo.dpi} DPI)
+                              Print quality: {getDpiQualityDisplay(selectedLayers[0].metadata.dpiInfo.quality, getSheetMinDpi(sheet.print_type)).label} ({selectedLayers[0].metadata.dpiInfo.dpi} DPI — need {getSheetMinDpi(sheet.print_type)}+)
                             </div>
                           )}
 
@@ -2699,7 +2943,7 @@ const ImaginationStation: React.FC = () => {
                                 const isLocked = layer.metadata?.locked === true;
                                 const layerName = layer.metadata?.name || `Layer ${layer.z_index + 1}`;
                                 const dpiInfo = layer.metadata?.dpiInfo as DpiInfo | undefined;
-                                const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality) : null;
+                                const dpiDisplay = dpiInfo ? getDpiQualityDisplay(dpiInfo.quality, getSheetMinDpi(sheet.print_type)) : null;
                                 return (
                                   <div key={layer.id} onClick={() => selectLayer(layer.id)} className={`p-2 rounded-lg cursor-pointer transition-all flex items-center gap-2 ${selectedLayerIds.includes(layer.id) ? 'bg-primary/15 border border-primary/40' : 'hover:bg-text/5 border border-transparent'}`}>
                                     <div className="w-7 h-7 rounded bg-bg flex items-center justify-center overflow-hidden shrink-0 relative">

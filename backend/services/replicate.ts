@@ -14,7 +14,7 @@ export interface ReplicateImageInput {
   shirtColor?: 'black' | 'white' | 'grey' | 'color'
   printStyle?: 'clean' | 'halftone' | 'grunge'
   // Model selection - defaults to first model if not specified
-  modelId?: 'google/imagen-4-ultra' | 'google/imagen-4' | 'black-forest-labs/flux-1.1-pro-ultra'
+  modelId?: 'google/imagen-4-ultra' | 'google/imagen-4' | 'black-forest-labs/flux-2-pro'
 }
 
 export interface ReplicateTryOnInput {
@@ -70,10 +70,13 @@ const MR_IMAGINE_MOCKUPS: Record<string, Record<string, Record<string, string>>>
 }
 
 // Single model configuration - Flux only (best results for DTF printing)
+// Migrated 2026-07-28 (Watchtower 335a3416) from flux-1.1-pro-ultra, which
+// billed $0.06/image flat. flux-2-pro bills $0.015/MP in + $0.015/MP out, so
+// the 1 MP generations below run ~75% cheaper.
 const MODELS = [
   {
-    id: 'black-forest-labs/flux-1.1-pro-ultra',
-    name: 'Flux 1.1 Pro Ultra',
+    id: 'black-forest-labs/flux-2-pro',
+    name: 'Flux 2 Pro',
     isSynchronous: true,
   },
 ]
@@ -102,11 +105,15 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
       modelInput.safety_filter_level = 'block_only_high'
       modelInput.output_format = 'png'
     }
-    // Flux 1.1 Pro Ultra parameters
-    else if (modelId.includes('flux-1.1-pro-ultra') || modelId.includes('black-forest-labs/')) {
-      modelInput.raw = false
+    // Flux 2 Pro parameters. NOTE: flux-2-pro does NOT accept `raw` (that was
+    // a flux-1.1-pro-ultra-only param) and has no `negative_prompt`.
+    // `output_format` defaults to webp on this model — keep png explicit or
+    // DTF loses the alpha channel. `resolution` defaults to "1 MP"; pinned
+    // here because it is what sets the per-image price.
+    else if (modelId.includes('flux-2-pro') || modelId.includes('black-forest-labs/')) {
       modelInput.aspect_ratio = '1:1'
       modelInput.output_format = 'png'
+      modelInput.resolution = '1 MP'
       modelInput.safety_tolerance = 2
     }
     // Lucid Origin parameters (Leonardo AI)

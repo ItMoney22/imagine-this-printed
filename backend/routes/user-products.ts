@@ -623,7 +623,7 @@ router.post('/:id/variations', requireAuth, async (req: Request, res: Response):
         printPlacement: product.metadata?.print_placement || 'front-center',
         printStyle: product.metadata?.print_style || 'dtf',
         imageStyle: product.metadata?.image_style || 'realistic',
-        modelId: product.metadata?.model_id || 'black-forest-labs/flux-1.1-pro-ultra',
+        modelId: product.metadata?.model_id || 'black-forest-labs/flux-2-pro',
         is_variation: true,
         variation_index: idx,
         variation_type: variationType,

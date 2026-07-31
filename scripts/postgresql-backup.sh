@@ -13,7 +13,14 @@ DB_HOST="localhost"
 DB_PORT="5432"
 DB_NAME="imagine_this_printed"
 DB_USER="postgres"
-DB_PASSWORD="IAmGod1622#"
+
+# Password must come from the environment. Never hardcode it here — this file is
+# committed, so any literal ends up in git history permanently.
+if [[ -z "${PGPASSWORD:-}" ]]; then
+    echo "[$TIMESTAMP] ERROR: PGPASSWORD is not set. Export it before running this script." >&2
+    exit 1
+fi
+DB_PASSWORD="$PGPASSWORD"
 
 # Backup retention (days)
 RETENTION_DAYS=30

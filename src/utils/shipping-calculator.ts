@@ -14,6 +14,12 @@ export interface ShippingRate {
   disabledReason?: string
   // Pickup/delivery options can be upgraded to next-business-day for a flat fee.
   rushEligible?: boolean
+  // Signed HMAC quote for standard carrier rates (Watchtower task 188ead33
+  // GAP 2) — backend/services/shipping-quote.ts. Checkout submits this back
+  // unchanged as `shippingQuoteToken`; the server verifies it instead of
+  // trusting the `amount` above. Absent for pickup/delivery, which are
+  // already fully server-derived without one.
+  token?: string
 }
 
 export interface ShippingCalculation {
@@ -205,7 +211,8 @@ export class ShippingCalculator {
         amount: Number(r.amount),
         currency: r.currency || 'USD',
         estimatedDays: r.estimatedDays || 5,
-        type: 'shipping' as const
+        type: 'shipping' as const,
+        token: typeof r.token === 'string' ? r.token : undefined
       }))
     } catch (error) {
       console.error('[shipping] Failed to fetch carrier rates:', error)

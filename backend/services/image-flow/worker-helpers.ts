@@ -2,11 +2,11 @@
 // a generated image URL. The worker handles its own GCS upload + DB writes.
 
 import { runReplicate } from './providers/replicate.js'
-import { runFal } from './providers/fal.js'
 import { buildInput } from './input-builder.js'
 import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
 import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
+import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
 
 export interface RunGenerateOpts {
   prompt: string
@@ -21,9 +21,7 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
   const input = buildInput(model, { prompt: opts.prompt, extra: opts.extra })
-  const r = model.provider === 'replicate'
-    ? await runReplicate({ modelId: model.id, input })
-    : await runFal({ modelId: model.id, input })
+  const r = await runReplicate({ modelId: model.id, input })
   return { url: r.imageUrls[0], modelId: model.id }
 }
 
@@ -159,9 +157,7 @@ export async function runImageFlowMultiGenerate(opts: {
       const model = getModel(id)
       if (!model) throw new Error(`unknown image-flow model: ${id}`)
       const input = buildInput(model, { prompt: finalPrompts[i], extra: opts.extra })
-      const r = model.provider === 'replicate'
-        ? await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
-        : await runFal({ modelId: model.id, input, timeoutMs: 150_000 })
+      const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
       return { id: model.id, label: model.label, url: r.imageUrls[0] }
     })
   )
@@ -177,7 +173,7 @@ export async function runImageFlowMultiGenerate(opts: {
   })
 }
 
-export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine'
+export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall'
 
 export interface RunMockupOpts {
   template: MockupTemplate
@@ -187,6 +183,8 @@ export interface RunMockupOpts {
   /** For mr_imagine — URL of the Mr. Imagine character base. */
   characterImageUrl?: string
   printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  /** For metal_shelf / metal_wall — physical panel size; drives the scale anchors. */
+  metalSize?: MetalArtSizeKey
   modelId?: string
 }
 
@@ -235,7 +233,7 @@ const PLACEMENT_DESC: Record<string, string> = {
  * ghost slot). flat_lay has no garment form at all, so we can forbid mannequin
  * shapes outright.
  */
-function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: string; negativePrompt: string } {
+export function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: string; negativePrompt: string } {
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
 
@@ -263,13 +261,25 @@ function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: string; neg
   // strictly than abstract ones when they're in the negative_prompt field.
   // (In the positive prompt the same names act as priming, which is why we
   // moved them out.)
-  const noWearerNeg = `real human, person, face, head, hands, arms, legs, skin, model, wearer, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric${darkGarmentNeg}`
+  // Ghost slot ALSO needs anti-flat pressure. Without it this list only said
+  // "no wearer", so Imagen was free to satisfy the prompt with a flat garment —
+  // which is why the ghost and flat_lay slots kept coming back looking like the
+  // same photo (David 2026-07-29: "doesn't look like we got the ghost
+  // mannequin"). The positive asks for volume; nothing was pushing away from
+  // flatness, and Step B then faithfully preserves whatever Step A produced.
+  const flatNeg = 'flat lay, flat garment, laid flat, lying flat, folded garment, folded shirt, top-down view, overhead shot, birds-eye view, flattened fabric, deflated garment, empty limp fabric, creased flat cotton, two-dimensional garment, garment on a table, garment on the floor, hanger, coat hanger, clothes hanger'
+
+  const noWearerNeg = `real human, person, face, head, hands, arms, legs, skin, model, wearer, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric, ${flatNeg}${darkGarmentNeg}`
 
   const noWearerOrFormNeg = `human, body, head, face, hands, arms, legs, skin, model, wearer, mannequin shape, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric, multiple garments${darkGarmentNeg}`
 
   if (opts.template === 'ghost_mannequin') {
     return {
-      prompt: `Professional ghost-mannequin / invisible-mannequin product photograph of a single plain ${fabricColor} ${productName} on ${bgDesc}. The garment holds its 3D shape — shoulders filled, chest rounded, natural torso taper, slight sleeve volume, hollow collar showing the inside fabric — as if a person had been completely removed from the photo. Standard Amazon / Shopify listing photography. Soft grounding shadow, clean even studio e-commerce lighting.${lightAssertion} Just the empty hollow garment, centered, e-commerce catalog quality.`,
+      // Camera angle is stated explicitly and first: a ghost mannequin is shot
+      // STRAIGHT ON at chest height. Leaving the angle unspecified let Imagen
+      // pick a top-down framing, which reads as a flat lay no matter how much
+      // volume language follows.
+      prompt: `Professional ghost-mannequin / invisible-mannequin product photograph of a single plain ${fabricColor} ${productName}, standing upright and photographed STRAIGHT ON at chest height with the camera level — eye-level front view, never from above — on ${bgDesc}. The garment is inflated into a full three-dimensional human torso form and holds that shape in mid-air: shoulders filled out and squared, chest and belly rounded with real internal volume, natural waist taper, sleeves rounded as if arms fill them, and a hollow open collar looking down into the inside of the garment. It must read unmistakably as a solid 3D garment floating with the body removed — clear depth, side planes visible, soft self-shadowing inside the folds. Standard Amazon / Shopify listing photography. Soft grounding shadow beneath, clean even studio e-commerce lighting.${lightAssertion} Just the empty hollow garment, centered, e-commerce catalog quality.`,
       negativePrompt: noWearerNeg,
     }
   }
@@ -300,16 +310,28 @@ function buildCompositePrompt(opts: RunMockupOpts): string {
   // Imagine bug). For flat_lay there is no garment form at all, so we can
   // forbid mannequins outright.
   const forbiddenList = opts.template === 'ghost_mannequin'
-    ? `do NOT add a real human wearer, model, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any face, head, hands, arms, or skin. Keep the invisible-mannequin garment form from INPUT 1 exactly as-is — empty and unworn.`
+    ? `do NOT add a real human wearer, model, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any face, head, hands, arms, or skin. Keep the invisible-mannequin garment form from INPUT 1 exactly as-is — empty and unworn. Do NOT flatten the garment, do NOT turn it into a flat lay, do NOT lay it on a surface, and do NOT change the camera angle: the inflated three-dimensional torso volume, the rounded shoulders and sleeves, and the hollow open collar from INPUT 1 must all survive completely unchanged.`
     : `do NOT add a wearer, model, mannequin, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any body, head, face, hands, arms, or skin. Keep the flat-lay garment from INPUT 1 exactly as-is.`
   return `INPUT 1 is a product photograph of an empty plain ${productName}. INPUT 2 is a flat 2D graphic design (a decal / DTF print artwork). Task: print the graphic from INPUT 2 onto the ${productName} in INPUT 1, ${placement}. Preserve INPUT 1 exactly — same scene, same camera angle, same lighting, same background, same garment shape, same fabric color, no wearer added. Preserve INPUT 2's colors, shapes, and proportions exactly. Make the print look like a realistic DTF transfer on cotton — sized correctly, conforming to the fabric's curvature and folds. STRICTLY FORBIDDEN: ${forbiddenList} The garment stays empty exactly as in INPUT 1 — the only change is that the graphic from INPUT 2 now appears printed on the fabric. Output a single composited photograph: the unchanged empty-garment scene from INPUT 1, with the graphic from INPUT 2 printed on the garment, nothing else added.`
 }
 
-function buildMrImaginePrompt(opts: RunMockupOpts): string {
+/**
+ * Mr. Imagine character mockup.
+ *
+ * ANATOMY GUARD (David 2026-07-29: "mrimagine is missing a whole arm lol"):
+ * the previous prompt only said "keep Mr. Imagine exactly as in the first
+ * image", which nano-banana treats as a soft style hint, not a structural
+ * constraint — so while repainting the garment it routinely dropped the arm
+ * that isn't doing the waving. Nano Banana takes NO `negative_prompt`
+ * parameter (see models.ts — its input is prompt + image_input), so the
+ * exclusions have to be spelled out inside the positive prompt, the same way
+ * buildCompositePrompt carries its STRICTLY FORBIDDEN block.
+ */
+export function buildMrImaginePrompt(opts: RunMockupOpts): string {
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
   const placement = PLACEMENT_DESC[opts.printPlacement ?? 'front-center'] ?? PLACEMENT_DESC['front-center']
-  return `Create a lifestyle mockup featuring Mr. Imagine. The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing a ${fabricColor} ${productName}. The SECOND input image is a graphic design — apply it ${placement} on the ${productName}. Keep Mr. Imagine exactly as in the first image (character, pose, fabric color). Make the print look like a real DTF graphic on cotton. Professional lifestyle photography with natural lighting. Result: Mr. Imagine proudly modeling the custom ${productName}.`
+  return `Create a lifestyle mockup featuring Mr. Imagine. The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing a ${fabricColor} ${productName}. The SECOND input image is a graphic design — apply it ${placement} on the ${productName}. The ONLY change you may make is printing that graphic onto the ${productName}. Keep Mr. Imagine pixel-for-pixel as he appears in the first image: same character, same pose, same fabric color, same face, same eyes, same fur. PRESERVE HIS COMPLETE ANATOMY — both arms present and fully visible with both hands, both legs and both feet present, every limb exactly where it is in the first image and none of them cropped, hidden, shortened, or removed. STRICTLY FORBIDDEN: missing arm, missing limb, only one arm, one-armed character, amputated or stumped limb, arm hidden behind or absorbed into the garment, limb swallowed by the sleeve, extra arms, extra limbs, duplicated or fused limbs, deformed or melted hands, altered face, changed pose. If a sleeve covers part of an arm, the rest of that arm and its hand must still emerge and be clearly visible. Make the print look like a real DTF graphic on cotton. Professional lifestyle photography with natural lighting. Result: the same complete, unaltered Mr. Imagine proudly modeling the custom ${productName}.`
 }
 
 /**
@@ -354,6 +376,34 @@ function buildMrImaginePrompt(opts: RunMockupOpts): string {
  *  behavior (backwards-compatible escape hatch for admin overrides).
  */
 export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: string; modelId: string }> {
+  // Metal art — size-accurate staging (David 2026-07-28: a 4x6 must never be
+  // mocked up looking massive on a wall). Single call to nano-banana with the
+  // artwork as the only input; the prompt carries hard scale anchors from
+  // shared/metal-art.ts for the panel's real physical size.
+  if (opts.template === 'metal_shelf' || opts.template === 'metal_wall') {
+    const sizeKey: MetalArtSizeKey = opts.metalSize ?? '4x6'
+    const scene = opts.template === 'metal_wall'
+      ? (sizeKey === '4x6'
+        ? 'hanging on a wall in a tight close-up vignette beside a door frame and a light switch, a small accent piece'
+        : 'hanging on a small wall spot above a desk, nearby furniture visible for scale')
+      : (sizeKey === '4x6'
+        ? 'standing on a styled desk among everyday objects — next to a coffee mug and a small plant'
+        : 'standing on a wooden shelf leaning against the wall, books and a small plant beside it')
+    const prompt =
+      `The INPUT image is a piece of artwork. Task: a professional interior product photograph of that artwork ` +
+      `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${scene}. ` +
+      `${metalScaleAnchor(sizeKey)} ` +
+      'Photorealistic, tasteful minimal decor, soft natural light. ' +
+      'CRITICAL: reproduce the artwork exactly — do not redraw, restyle, distort, crop, or reinterpret it in any way. ' +
+      'High-resolution ecommerce product photography.'
+    const modelId = 'google/nano-banana'
+    const model = getModel(modelId)
+    if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
+    const input = buildInput(model, { prompt, inputImages: [opts.designImageUrl] })
+    const r = await runReplicate({ modelId: model.id, input })
+    return { url: r.imageUrls[0], modelId: model.id }
+  }
+
   if (opts.template === 'mr_imagine') {
     const modelId = opts.modelId ?? DEFAULT_MOCKUP_MODEL
     const model = getModel(modelId)
@@ -362,9 +412,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
       ? [opts.characterImageUrl, opts.designImageUrl]
       : [opts.designImageUrl]
     const input = buildInput(model, { prompt: buildMrImaginePrompt(opts), inputImages })
-    const r = model.provider === 'replicate'
-      ? await runReplicate({ modelId: model.id, input })
-      : await runFal({ modelId: model.id, input })
+    const r = await runReplicate({ modelId: model.id, input })
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
@@ -376,9 +424,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
       prompt: buildCompositePrompt(opts),
       inputImages: [opts.designImageUrl],
     })
-    const r = model.provider === 'replicate'
-      ? await runReplicate({ modelId: model.id, input })
-      : await runFal({ modelId: model.id, input })
+    const r = await runReplicate({ modelId: model.id, input })
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
@@ -396,9 +442,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     prompt: scenePrompt,
     extra: { negative_prompt: sceneNeg },
   })
-  const sceneRes = sceneModel.provider === 'replicate'
-    ? await runReplicate({ modelId: sceneModel.id, input: sceneInput })
-    : await runFal({ modelId: sceneModel.id, input: sceneInput })
+  const sceneRes = await runReplicate({ modelId: sceneModel.id, input: sceneInput })
   const emptyGarmentUrl = sceneRes.imageUrls[0]
 
   // Step B: composite the design onto the empty garment via Nano Banana 2 Lite.
@@ -410,9 +454,7 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     prompt: buildCompositePrompt(opts),
     inputImages: [emptyGarmentUrl, opts.designImageUrl],
   })
-  const compositeRes = compositeModel.provider === 'replicate'
-    ? await runReplicate({ modelId: compositeModel.id, input: compositeInput })
-    : await runFal({ modelId: compositeModel.id, input: compositeInput })
+  const compositeRes = await runReplicate({ modelId: compositeModel.id, input: compositeInput })
   return { url: compositeRes.imageUrls[0], modelId: compositeModel.id }
 }
 
@@ -434,8 +476,6 @@ export async function runImageFlowEdit(opts: RunEditOpts): Promise<{ url: string
 
   const inputImages = [opts.sourceImageUrl, ...(opts.refImageUrls ?? [])]
   const input = buildInput(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
-  const r = model.provider === 'replicate'
-    ? await runReplicate({ modelId: model.id, input })
-    : await runFal({ modelId: model.id, input })
+  const r = await runReplicate({ modelId: model.id, input })
   return { url: r.imageUrls[0], modelId: model.id }
 }
