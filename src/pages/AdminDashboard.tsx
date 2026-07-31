@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts, adminApi, API_BASE, etsy } from '../lib/api'
+import { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
@@ -815,6 +815,38 @@ const AdminDashboard: React.FC = () => {
     } catch (error: any) {
       console.error('Error saving product:', error)
       toast.error('Failed to save product', error.message)
+    }
+  }
+
+  // Spin hero video push (25¢: $0.05/s × 5s on grok-imagine-video). Kicks the
+  // generation and polls until the mp4 is finalized into metadata.hero_video_url
+  // — from then on the product page opens with the video.
+  const [spinStatus, setSpinStatus] = useState<Record<string, string>>({})
+  const pushSpinVideo = async (productId: string) => {
+    setSpinStatus((s) => ({ ...s, [productId]: 'generating' }))
+    try {
+      await apiFetch('/api/ai/realtime/spin-video', { method: 'POST', body: JSON.stringify({ productId }) })
+      toast.success('Spin video started', 'About 25¢ and a couple of minutes — it goes live on the product page automatically.')
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 8000))
+        const st = await apiFetch(`/api/ai/realtime/spin-video/${productId}/status`) as { status?: string; error?: string }
+        if (st.status === 'ready') {
+          setSpinStatus((s) => ({ ...s, [productId]: 'ready' }))
+          toast.success('Spin video is LIVE', 'The product page now opens with it.')
+          await loadProducts()
+          return
+        }
+        if (st.status === 'failed') {
+          setSpinStatus((s) => ({ ...s, [productId]: 'failed' }))
+          toast.error('Spin video failed', st.error || 'Try again — a different source image sometimes animates better.')
+          return
+        }
+      }
+      setSpinStatus((s) => ({ ...s, [productId]: 'failed' }))
+      toast.error('Spin video timed out', 'Check back — it may still finish.')
+    } catch (error: any) {
+      setSpinStatus((s) => ({ ...s, [productId]: 'failed' }))
+      toast.error('Spin video failed', error?.message)
     }
   }
 
@@ -2434,6 +2466,31 @@ const AdminDashboard: React.FC = () => {
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                   </svg>
+                                </button>
+                                <button
+                                  onClick={() => { void pushSpinVideo(product.id) }}
+                                  disabled={spinStatus[product.id] === 'generating'}
+                                  className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                                    ((product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url || spinStatus[product.id] === 'ready')
+                                      ? 'text-fuchsia-600 hover:text-fuchsia-700 hover:bg-fuchsia-50'
+                                      : 'text-gray-400 hover:text-fuchsia-600 hover:bg-fuchsia-50'
+                                  }`}
+                                  title={
+                                    (product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url
+                                      ? 'Spin video is live — click to regenerate (~25¢)'
+                                      : 'Push a spin hero video (~25¢ — model turns, shirt changes color)'
+                                  }
+                                >
+                                  {spinStatus[product.id] === 'generating' ? (
+                                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
                                 </button>
                                 <button
                                   onClick={async () => {
