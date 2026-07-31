@@ -36,15 +36,6 @@ const PRINT_LOCATION_OPTIONS: { value: TshirtPrintLocation; label: string; hint:
   { value: 'pocket', label: 'Pocket', hint: 'Small left-chest pocket print' },
 ]
 
-// T-shirt print placements offered on a product → products.print_locations.
-// Mirrors the same list in the AI wizard (AdminCreateProductWizard.tsx) and the
-// values allowed by the DB CHECK products_print_locations_valid.
-const PRINT_LOCATION_OPTIONS: { value: TshirtPrintLocation; label: string; hint: string }[] = [
-  { value: 'front_image', label: 'Front Image', hint: 'Design on the chest / full front' },
-  { value: 'back_image', label: 'Back Image', hint: 'Design on the back' },
-  { value: 'pocket', label: 'Pocket', hint: 'Small left-chest pocket print' },
-]
-
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
