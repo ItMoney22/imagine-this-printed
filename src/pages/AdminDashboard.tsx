@@ -2316,7 +2316,7 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Promo</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-16 text-center">Featured</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-32">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-32 sticky right-0 bg-slate-50 z-10">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
@@ -2383,8 +2383,11 @@ const AdminDashboard: React.FC = () => {
                             <td className="px-4 py-4">
                               <div className="flex items-center space-x-2">
                                 <div className="min-w-0">
-                                  <div className="text-sm font-semibold text-slate-900 truncate">{product.name}</div>
-                                  <div className="text-xs text-slate-500 truncate max-w-[180px]">{product.description}</div>
+                                  {/* max-w is load-bearing: without it, truncate + table-auto lets
+                                      prompt-length AI names blow the column out and push Actions
+                                      off-viewport (David hit this live 7/31). */}
+                                  <div className="text-sm font-semibold text-slate-900 truncate max-w-[340px]" title={product.name}>{product.name}</div>
+                                  <div className="text-xs text-slate-500 truncate max-w-[340px]">{product.description}</div>
                                 </div>
                                 {isAIProduct && (
                                   <span className="flex-shrink-0 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-purple-100 text-purple-700">
@@ -2443,7 +2446,7 @@ const AdminDashboard: React.FC = () => {
                                 </svg>
                               </button>
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium sticky right-0 bg-white z-10">
                               <div className="flex items-center space-x-2">
                                 <button
                                   onClick={() => toggleProductExpansion(product.id)}
