@@ -1,0 +1,19 @@
+-- 2026-08-06 SECURITY ROUND 2 (part 3) — cut ANON read of user_profiles
+--
+-- APPLY ONLY after the repointed frontend is live in prod (UserProfile.tsx +
+-- design-showcase-service.ts read public_profiles). Before then, anon
+-- public-profile page loads return empty.
+--
+-- Closes the internet-facing PII leak: the anon key (shipped in the JS bundle)
+-- could read every is_public profile's ENTIRE row — email, full_name, tax_id,
+-- stripe_account_id, full shipping_address_* and phone. Removing anon's
+-- table-level SELECT blocks that; anon gets public data through the safe
+-- public_profiles view instead.
+--
+-- We deliberately KEEP the "Public profiles viewable by all" RLS policy: it is
+-- TO public, so dropping it would also cut AUTHENTICATED cross-user reads that
+-- legit features depend on (e.g. messaging showing the other participant's
+-- name/avatar). Revoking the anon GRANT closes the internet-facing hole while
+-- leaving logged-in behavior intact. (A later pass can move authenticated
+-- cross-user reads onto the view too, then drop the policy entirely.)
+REVOKE SELECT ON public.user_profiles FROM anon;

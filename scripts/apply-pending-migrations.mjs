@@ -112,6 +112,81 @@ const PLAN = [
       const { rows } = await c.query(`SELECT to_regclass('public.landing_page_suggestions') AS t`)
       return { applied: !!rows[0]?.t, detail: rows[0]?.t ? 'table present' : 'table absent' }
     }
+  },
+  {
+    id: 'anon-policy-lockdown',
+    file: 'supabase/migrations/20260805_security_lockdown.sql',
+    title: 'Remove wide-open "public USING(true)" policies exposing tables to the anon key',
+    why: 'Anon key could read/write support_tickets (the bot-spam vector, bypassing the backend rate limit) and read gift_cards/discount_codes/admin_notifications. Frontend never uses the anon client on these; backend access is service-role and bypasses RLS.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(
+        `SELECT count(*)::int AS n
+           FROM pg_policies
+          WHERE schemaname = 'public'
+            AND policyname IN (
+              'Service role full access to support tickets',
+              'Service role full access to ticket messages',
+              'Service role full access to admin notifications',
+              'System can insert notifications',
+              'Service role full access to gift cards',
+              'Service role full access to discount codes',
+              'Service role full access to coupon usage',
+              'Service role full access to chat sessions',
+              'Service role full access to agent status'
+            )`
+      )
+      const n = rows[0].n
+      return { applied: n === 0, detail: n === 0 ? 'wide-open policies removed' : `${n} wide-open policies still present` }
+    }
+  },
+  {
+    id: 'discount-codes-lockdown',
+    file: 'supabase/migrations/20260805_02_discount_codes_lockdown.sql',
+    title: 'Remove the "Anyone can read active discount codes" public policy',
+    why: 'A second permissive policy let the anon key enumerate every active coupon code. Coupon validation is server-side; the frontend never reads this table via the anon client.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(
+        `SELECT count(*)::int AS n FROM pg_policies
+          WHERE schemaname = 'public' AND tablename = 'discount_codes'
+            AND policyname = 'Anyone can read active discount codes'`
+      )
+      return { applied: rows[0].n === 0, detail: rows[0].n === 0 ? 'coupon-code leak closed' : 'public read policy still present' }
+    }
+  },
+  {
+    id: 'security-round2',
+    file: 'supabase/migrations/20260806_security_round2.sql',
+    title: 'Block spam-signature tickets + add safe public_profiles view (both safe/additive)',
+    why: 'Spam bot hits the public contact-form endpoint below the rate limit; a trigger rejects the gibberish mixed-case no-space subject signature. Also adds the public_profiles view the frontend reads. Neither breaks anything.',
+    requires: [],
+    check: async (c) => {
+      const trig = await c.query(
+        `SELECT 1 FROM pg_trigger WHERE tgname = 'reject_spam_support_ticket' AND NOT tgisinternal`
+      )
+      const view = await c.query(`SELECT to_regclass('public.public_profiles') AS v`)
+      const ok = trig.rows.length > 0 && !!view.rows[0].v
+      const missing = []
+      if (!trig.rows.length) missing.push('spam trigger absent')
+      if (!view.rows[0].v) missing.push('public_profiles view absent')
+      return { applied: ok, detail: ok ? 'spam trigger + safe profile view live' : missing.join(', ') }
+    }
+  },
+  {
+    id: 'profiles-cut-anon',
+    file: 'supabase/migrations/20260806_03_profiles_cut_anon.sql',
+    title: 'Revoke anon read of user_profiles (closes PII leak) — APPLY ONLY AFTER repointed frontend is live',
+    why: 'Revokes the anon key\'s table-level SELECT on user_profiles (email/address/tax_id). Anon reads public data via the public_profiles view instead — but ONLY once the repointed frontend has deployed. The RLS policy is kept so authenticated cross-user reads (messaging, etc.) keep working.',
+    requires: ['security-round2'],
+    check: async (c) => {
+      const { rows } = await c.query(
+        `SELECT count(*)::int AS n FROM information_schema.role_table_grants
+          WHERE table_schema='public' AND table_name='user_profiles'
+            AND grantee='anon' AND privilege_type='SELECT'`
+      )
+      return { applied: rows[0].n === 0, detail: rows[0].n === 0 ? 'anon table read revoked' : 'anon still has SELECT grant' }
+    }
   }
 ]
 
@@ -148,7 +223,23 @@ async function main() {
   // Fail fast on a typo'd or empty file BEFORE opening a connection.
   for (const m of PLAN) m.sql = readMigration(m.file)
 
-  const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false }, statement_timeout: 60_000 })
+  // The Supabase pooler presents a cert that Node can't chain to a public
+  // root, and DATABASE_URL carries ?sslmode=require which makes node-postgres
+  // verify it — that overrides the ssl object below and fails with
+  // "self-signed certificate in certificate chain". Strip the libpq ssl/pooler
+  // query params so TLS is driven purely by the explicit ssl object.
+  const cleanUrl = (() => {
+    try {
+      const u = new URL(url)
+      u.searchParams.delete('sslmode')
+      u.searchParams.delete('pgbouncer')
+      return u.toString()
+    } catch {
+      return url
+    }
+  })()
+
+  const client = new pg.Client({ connectionString: cleanUrl, ssl: { rejectUnauthorized: false }, statement_timeout: 60_000 })
   await client.connect()
 
   const { rows: [who] } = await client.query(

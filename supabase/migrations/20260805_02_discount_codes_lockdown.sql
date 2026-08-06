@@ -1,0 +1,12 @@
+-- 2026-08-05 SECURITY LOCKDOWN (2) — discount_codes public read
+--
+-- After 20260805_security_lockdown.sql removed the wide-open ALL policy, a
+-- SECOND permissive policy remained: "Anyone can read active discount codes"
+-- SELECT TO public USING (is_active = true). It let anyone holding the public
+-- anon key enumerate every active coupon code (verified live: anon read back
+-- real codes). Coupon validation is entirely server-side
+-- (backend/routes/coupons.ts, service role) and the frontend never queries
+-- discount_codes with the anon client, so this policy is pure exposure.
+--
+-- Idempotent; safe to re-run.
+DROP POLICY IF EXISTS "Anyone can read active discount codes" ON public.discount_codes;
