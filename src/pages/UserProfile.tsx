@@ -116,7 +116,7 @@ const UserProfilePage = () => {
           throw new Error('Username required')
         }
         const { data: userProfile } = await supabase
-          .from('user_profiles')
+          .from('public_profiles')
           .select('id')
           .eq('username', username)
           .single()
@@ -127,9 +127,11 @@ const UserProfilePage = () => {
         userId = userProfile.id
       }
 
-      // Load profile
+      // Load profile. Own account view reads the full table (all fields, own
+      // row via RLS); a public/other profile reads the safe public_profiles
+      // view (no email/address/tax_id — anon can't read the base table).
       const { data: profileData, error: profileError } = await supabase
-        .from('user_profiles')
+        .from(isAccountRoute ? 'user_profiles' : 'public_profiles')
         .select('*')
         .eq('id', userId)
         .single()

@@ -62,8 +62,8 @@ export class DesignShowcaseService {
           : Promise.resolve({ data: null }),
         allUserIds.length > 0
           ? supabase
-              .from('user_profiles')
-              .select('id, username, first_name, last_name, avatar_url')
+              .from('public_profiles')
+              .select('id, username, display_name, avatar_url')
               .in('id', allUserIds)
           : Promise.resolve({ data: null })
       ])
@@ -80,10 +80,7 @@ export class DesignShowcaseService {
       }, {} as Record<string, any>)
 
       const getCreatorName = (profile: any) =>
-        profile?.username ||
-        (profile?.first_name && profile?.last_name
-          ? `${profile.first_name} ${profile.last_name}`
-          : 'Community Creator')
+        profile?.username || profile?.display_name || 'Community Creator'
 
       // Process products
       if (products && products.length > 0) {
