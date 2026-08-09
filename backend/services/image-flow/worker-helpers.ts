@@ -186,6 +186,12 @@ export interface RunMockupOpts {
   /** For metal_shelf / metal_wall — physical panel size; drives the scale anchors. */
   metalSize?: MetalArtSizeKey
   modelId?: string
+  /**
+   * What QA rejected about the previous attempt (services/mockup-qa.ts). Fed
+   * back into the composite prompt so a retry is a corrective re-render rather
+   * than a blind re-roll of the same prompt that just failed.
+   */
+  retryNote?: string
 }
 
 const PRODUCT_NAMES: Record<string, string> = {
@@ -296,6 +302,16 @@ export function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: stri
  * design graphic (apply as decal). This is the gpt-image-2 sweet spot:
  * multi-image compositing with clearly-roled inputs.
  */
+/**
+ * Corrective clause appended when QA rejected the previous render. Naming the
+ * specific defect is the whole point — re-running an identical prompt that just
+ * failed mostly reproduces the same failure.
+ */
+function retryClause(opts: RunMockupOpts): string {
+  if (!opts.retryNote) return ''
+  return ` CORRECTION — a print-QA inspector rejected the previous attempt for this reason: "${String(opts.retryNote).slice(0, 200)}". Fix exactly that problem in this render while keeping everything else the same.`
+}
+
 function buildCompositePrompt(opts: RunMockupOpts): string {
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const placement = PLACEMENT_DESC[opts.printPlacement ?? 'front-center'] ?? PLACEMENT_DESC['front-center']
@@ -312,7 +328,7 @@ function buildCompositePrompt(opts: RunMockupOpts): string {
   const forbiddenList = opts.template === 'ghost_mannequin'
     ? `do NOT add a real human wearer, model, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any face, head, hands, arms, or skin. Keep the invisible-mannequin garment form from INPUT 1 exactly as-is — empty and unworn. Do NOT flatten the garment, do NOT turn it into a flat lay, do NOT lay it on a surface, and do NOT change the camera angle: the inflated three-dimensional torso volume, the rounded shoulders and sleeves, and the hollow open collar from INPUT 1 must all survive completely unchanged.`
     : `do NOT add a wearer, model, mannequin, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any body, head, face, hands, arms, or skin. Keep the flat-lay garment from INPUT 1 exactly as-is.`
-  return `INPUT 1 is a product photograph of an empty plain ${productName}. INPUT 2 is a flat 2D graphic design (a decal / DTF print artwork). Task: print the graphic from INPUT 2 onto the ${productName} in INPUT 1, ${placement}. Preserve INPUT 1 exactly — same scene, same camera angle, same lighting, same background, same garment shape, same fabric color, no wearer added. Preserve INPUT 2's colors, shapes, and proportions exactly. Make the print look like a realistic DTF transfer on cotton — sized correctly, conforming to the fabric's curvature and folds. STRICTLY FORBIDDEN: ${forbiddenList} The garment stays empty exactly as in INPUT 1 — the only change is that the graphic from INPUT 2 now appears printed on the fabric. Output a single composited photograph: the unchanged empty-garment scene from INPUT 1, with the graphic from INPUT 2 printed on the garment, nothing else added.`
+  return `INPUT 1 is a product photograph of an empty plain ${productName}. INPUT 2 is a flat 2D graphic design (a decal / DTF print artwork). Task: print the graphic from INPUT 2 onto the ${productName} in INPUT 1, ${placement}. Preserve INPUT 1 exactly — same scene, same camera angle, same lighting, same background, same garment shape, same fabric color, no wearer added. Preserve INPUT 2's colors, shapes, and proportions exactly. Make the print look like a realistic DTF transfer on cotton — sized correctly, conforming to the fabric's curvature and folds. STRICTLY FORBIDDEN: ${forbiddenList} The garment stays empty exactly as in INPUT 1 — the only change is that the graphic from INPUT 2 now appears printed on the fabric. Output a single composited photograph: the unchanged empty-garment scene from INPUT 1, with the graphic from INPUT 2 printed on the garment, nothing else added.${retryClause(opts)}`
 }
 
 /**
@@ -331,7 +347,7 @@ export function buildMrImaginePrompt(opts: RunMockupOpts): string {
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
   const placement = PLACEMENT_DESC[opts.printPlacement ?? 'front-center'] ?? PLACEMENT_DESC['front-center']
-  return `Create a lifestyle mockup featuring Mr. Imagine. The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing a ${fabricColor} ${productName}. The SECOND input image is a graphic design — apply it ${placement} on the ${productName}. The ONLY change you may make is printing that graphic onto the ${productName}. Keep Mr. Imagine pixel-for-pixel as he appears in the first image: same character, same pose, same fabric color, same face, same eyes, same fur. PRESERVE HIS COMPLETE ANATOMY — both arms present and fully visible with both hands, both legs and both feet present, every limb exactly where it is in the first image and none of them cropped, hidden, shortened, or removed. STRICTLY FORBIDDEN: missing arm, missing limb, only one arm, one-armed character, amputated or stumped limb, arm hidden behind or absorbed into the garment, limb swallowed by the sleeve, extra arms, extra limbs, duplicated or fused limbs, deformed or melted hands, altered face, changed pose. If a sleeve covers part of an arm, the rest of that arm and its hand must still emerge and be clearly visible. Make the print look like a real DTF graphic on cotton. Professional lifestyle photography with natural lighting. Result: the same complete, unaltered Mr. Imagine proudly modeling the custom ${productName}.`
+  return `Create a lifestyle mockup featuring Mr. Imagine. The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing a ${fabricColor} ${productName}. The SECOND input image is a graphic design — apply it ${placement} on the ${productName}. The ONLY change you may make is printing that graphic onto the ${productName}. Keep Mr. Imagine pixel-for-pixel as he appears in the first image: same character, same pose, same fabric color, same face, same eyes, same fur. PRESERVE HIS COMPLETE ANATOMY — both arms present and fully visible with both hands, both legs and both feet present, every limb exactly where it is in the first image and none of them cropped, hidden, shortened, or removed. STRICTLY FORBIDDEN: missing arm, missing limb, only one arm, one-armed character, amputated or stumped limb, arm hidden behind or absorbed into the garment, limb swallowed by the sleeve, extra arms, extra limbs, duplicated or fused limbs, deformed or melted hands, altered face, changed pose. If a sleeve covers part of an arm, the rest of that arm and its hand must still emerge and be clearly visible. Make the print look like a real DTF graphic on cotton. Professional lifestyle photography with natural lighting. Result: the same complete, unaltered Mr. Imagine proudly modeling the custom ${productName}.${retryClause(opts)}`
 }
 
 /**

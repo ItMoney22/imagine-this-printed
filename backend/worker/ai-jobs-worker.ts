@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase.js'
 import { generateMockup, removeBackgroundSync, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate } from '../services/image-flow/worker-helpers.js'
+import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, COLOR4_CLAUSE, type Style3D } from '../services/nano-banana-3d.js'
@@ -854,6 +855,9 @@ async function startJob(job: any) {
     // Placeholder only — overwritten below by the model the pipeline actually
     // used (mockupResult.modelId). Kept in sync with image-flow's mockup default.
     let mockupModelId: string = 'google/nano-banana-2-lite'
+    // Declared out here (not inside the try) because the QA retry below needs
+    // the same character base to re-render mr_imagine with.
+    let characterImageUrl: string | undefined
 
     try {
       // Template routing (see worker-helpers.runImageFlowMockup):
@@ -863,7 +867,6 @@ async function startJob(job: any) {
       // The 2-step path exists specifically to defeat Money's recurring
       // "all three mockups come back as Mr. Imagine" bug — gpt-image-2 used
       // to handle both halves and kept hallucinating the mascot.
-      let characterImageUrl: string | undefined
       if (template === 'mr_imagine') {
         const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
         const side = printPlacement === 'back-only' ? 'back' : 'front'
@@ -905,7 +908,53 @@ async function startJob(job: any) {
     }
 
     console.log('[worker] ✅ Replicate mockup generated successfully')
-    await updateJobProgress(job.id, `📤 Uploading ${templateName} mockup to cloud storage...`, 2, 3)
+
+    // QA — David 2026-08-09: the shirt must be true to the design, and the
+    // print must not cover the whole shirt unless that was asked for. Compares
+    // the render against the source art and buys ONE corrective re-render.
+    //
+    // A shot that fails twice is KEPT and flagged, never discarded: a flagged
+    // mockup an admin can look at beats a product with no mockup at all. QA
+    // being unavailable is likewise a pass — see services/mockup-qa.ts.
+    let mockupCheck: MockupCheck = { ok: true }
+    if (garmentImageUrl) {
+      await updateJobProgress(job.id, `🔍 Checking the ${templateName} against the design...`, 2, 4)
+      const verified = await verifyWithOneRetry(
+        garmentImageUrl,
+        mockupImageUrl,
+        printPlacement,
+        async (reason) => {
+          console.warn(`[worker] 🔁 re-rendering ${template} mockup — QA said: ${reason}`)
+          await updateJobProgress(job.id, `🔁 Mockup came back wrong (${reason}) — re-rendering...`, 2, 4)
+          try {
+            const retry = await runImageFlowMockup({
+              template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall',
+              designImageUrl: garmentImageUrl!,
+              productType: productType as 'tshirt' | 'hoodie' | 'tank',
+              shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
+              characterImageUrl,
+              printPlacement: printPlacement as any,
+              metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
+              // Tell the model what to fix rather than re-rolling blind.
+              retryNote: reason,
+            } as any)
+            return retry.url || null
+          } catch (e: any) {
+            // A failed retry must not fail the job — we still have shot one.
+            console.error('[worker] ❌ mockup re-render failed:', e?.message)
+            return null
+          }
+        },
+        `${template} (${job.product_id})`
+      )
+      mockupImageUrl = verified.url
+      mockupCheck = verified.check
+      if (!mockupCheck.ok) {
+        console.warn(`[worker] ⚠️ ${template} mockup landing FLAGGED (${mockupCheck.failed}): ${mockupCheck.reason}`)
+      }
+    }
+
+    await updateJobProgress(job.id, `📤 Uploading ${templateName} mockup to cloud storage...`, 3, 4)
 
     // Upload the mockup image to GCS (from Replicate URL)
     const productSlug = await getProductSlug(job.product_id)
@@ -982,6 +1031,13 @@ async function startJob(job: any) {
           generated_with: 'image-flow',
           model_id: mockupModelId,
           generated_at: new Date().toISOString(),
+          printPlacement,
+          // QA verdict rides WITH the asset so a flagged mockup stays
+          // identifiable after the job row is gone. qa_ok:false means it
+          // failed twice and a human should look at it.
+          qa_ok: mockupCheck.ok,
+          ...(mockupCheck.ok ? {} : { qa_failed: mockupCheck.failed, qa_reason: mockupCheck.reason }),
+          ...(mockupCheck.retried ? { qa_retried: true } : {}),
         },
       })
 

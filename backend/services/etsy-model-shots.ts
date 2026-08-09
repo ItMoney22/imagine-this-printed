@@ -894,9 +894,80 @@ async function generateShots(productId: string, userId: string, cast: CastMember
     }
 
     await saveShotsState(productId, { status: 'done', images, checks, stage: undefined, generated_at: new Date().toISOString(), error: undefined })
+    await mirrorShotsToProductAssets(productId, images, checks)
   } catch (err: any) {
     console.error(`[etsy-shots] generation failed for ${productId}:`, err?.message || err)
     await saveShotsState(productId, { status: 'failed', stage: undefined, error: String(err?.message || err).slice(0, 300) })
+  }
+}
+
+/**
+ * Mirror finished model shots into `product_assets` as mockups (David
+ * 2026-08-09: "add the two mockups from the etsy flow" to the builder's three).
+ *
+ * They are stored ONLY on products.metadata.etsy_shots otherwise, which means
+ * nothing that reads mockups — the storefront gallery, the Order Management
+ * download panel, the product card — can see them. Mirroring gives them the
+ * same shape as every other mockup.
+ *
+ * A shot that FAILED QA is deliberately not mirrored: it stays in the Etsy
+ * panel where an admin can see the flag and reshoot it, but it must not quietly
+ * join the product's mockup set. Skips are logged rather than silent.
+ *
+ * Best-effort throughout — the shoot itself already succeeded, so a mirroring
+ * failure must never mark it failed.
+ */
+async function mirrorShotsToProductAssets(productId: string, images: string[], checks: ShotCheck[]): Promise<void> {
+  try {
+    const keep = images
+      .map((url, i) => ({ url, i, ok: checks[i]?.ok !== false }))
+      .filter(s => typeof s.url === 'string' && /^https?:\/\//.test(s.url))
+
+    const denied = keep.filter(s => !s.ok)
+    if (denied.length) {
+      console.warn(`[etsy-shots] ${productId}: ${denied.length} shot(s) failed QA and were NOT added to the product mockups`)
+    }
+
+    // Roles are positional and stable, so a re-shoot replaces its own slot
+    // rather than accumulating duplicates.
+    const roles = keep.filter(s => s.ok).map(s => ({ ...s, role: `mockup_model_${s.i + 1}` }))
+    if (roles.length === 0) return
+
+    await supabase
+      .from('product_assets')
+      .delete()
+      .eq('product_id', productId)
+      .in('asset_role', roles.map(r => r.role))
+
+    const { error } = await supabase.from('product_assets').insert(
+      roles.map(r => ({
+        product_id: productId,
+        kind: 'mockup',
+        // GCS public URLs are .../<bucket>/<path>; keep the object path when we
+        // can so these rows look like every other asset row.
+        path: (() => { try { return new URL(r.url).pathname.split('/').slice(2).join('/') || null } catch { return null } })(),
+        url: r.url,
+        width: 1024,
+        height: 1024,
+        asset_role: r.role,
+        // Never primary: the ghost mannequin owns the hero slot.
+        is_primary: false,
+        display_order: 5 + r.i,
+        metadata: {
+          template: 'etsy_model_shot',
+          generated_with: 'etsy-model-shots',
+          generated_at: new Date().toISOString(),
+          qa_ok: true,
+        },
+      }))
+    )
+    if (error) {
+      console.error(`[etsy-shots] ${productId}: mirroring shots to product_assets failed:`, error.message)
+      return
+    }
+    console.log(`[etsy-shots] ${productId}: mirrored ${roles.length} model shot(s) into product_assets`)
+  } catch (err: any) {
+    console.error(`[etsy-shots] ${productId}: mirroring threw (non-fatal):`, err?.message || err)
   }
 }
 
@@ -951,6 +1022,9 @@ async function reshootOne(productId: string, userId: string, index: number, cast
       generated_at: new Date().toISOString(),
       error: undefined
     })
+    // Keep the mirrored mockups in step with the reshoot, or the product would
+    // keep showing the model the admin just rejected.
+    await mirrorShotsToProductAssets(productId, images, checks)
   } catch (err: any) {
     console.error(`[etsy-shots] reshoot failed for ${productId} #${index + 1}:`, err?.message || err)
     await saveShotsState(productId, { status: 'failed', stage: undefined, error: String(err?.message || err).slice(0, 300) })

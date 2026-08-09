@@ -41,6 +41,8 @@ const ProductPage: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
   const [selectedPrintLocation, setSelectedPrintLocation] = useState<string>('')
+  /** Placement → the mockup rendered at that print scale (currently pocket only). */
+  const [placementShots, setPlacementShots] = useState<Record<string, string>>({})
   const [selectedAddons, setSelectedAddons] = useState<CartAddon[]>([])
   const [uploading, setUploading] = useState(false)
   // Digital download product: deliverables are returned ONLY by the gated
@@ -70,7 +72,7 @@ const ProductPage: React.FC = () => {
         if (productResult.error) throw productResult.error
 
         const assetsResult = productResult.data
-          ? await supabase.from('product_assets').select('url, kind').eq('product_id', productResult.data.id).in('kind', ['source', 'nobg'])
+          ? await supabase.from('product_assets').select('url, kind, asset_role').eq('product_id', productResult.data.id).in('kind', ['source', 'nobg', 'mockup'])
           : { data: null }
 
         if (productResult.data) {
@@ -122,6 +124,12 @@ const ProductPage: React.FC = () => {
             const sourceAsset = assetsData.find(a => a.kind === 'source')
             const nobgAsset = assetsData.find(a => a.kind === 'nobg')
             setSourceImageUrl(sourceAsset?.url || nobgAsset?.url || null)
+
+            // Placement → mockup. A pocket print looks nothing like a chest
+            // print, so picking "Pocket" should show the pocket-scale shot
+            // rather than leaving a full-size chest mockup on screen.
+            const pocketShot = assetsData.find(a => a.kind === 'mockup' && a.asset_role === 'mockup_pocket')?.url
+            setPlacementShots(pocketShot ? { pocket: pocketShot } : {})
           }
         }
       } catch (error) {
@@ -313,7 +321,14 @@ const ProductPage: React.FC = () => {
 
   // Gallery = artwork/photos + the contextual mockup (metadata.mockup_url),
   // which was previously never shown. Falls back to the unsplash placeholder.
-  const galleryImages = getGalleryImages(product)
+  const baseGallery = getGalleryImages(product)
+  // The pocket shot may not be in products.images[] (it is appended to the
+  // gallery contract, and older published rows predate it), so surface it here
+  // rather than silently having nothing to switch to.
+  const pocketShotUrl = placementShots.pocket
+  const galleryImages = pocketShotUrl && !baseGallery.includes(pocketShotUrl)
+    ? [...baseGallery, pocketShotUrl]
+    : baseGallery
   const heroVideoUrl = typeof (product?.metadata as Record<string, unknown> | undefined)?.hero_video_url === 'string'
     ? String((product?.metadata as Record<string, unknown>).hero_video_url)
     : undefined
@@ -671,7 +686,18 @@ const ProductPage: React.FC = () => {
                     return (
                       <button
                         key={loc}
-                        onClick={() => setSelectedPrintLocation(loc)}
+                        onClick={() => {
+                          setSelectedPrintLocation(loc)
+                          // Show the shot that matches what they just picked.
+                          // Only pocket has its own render today; front/back
+                          // keep whatever the shopper was already looking at
+                          // rather than jumping them somewhere arbitrary.
+                          const shot = placementShots[loc === 'pocket' ? 'pocket' : '']
+                          if (shot) {
+                            const at = galleryImages.indexOf(shot)
+                            if (at >= 0) { setSelectedImage(at); setVideoActive(false) }
+                          }
+                        }}
                         className={`px-4 py-2 rounded-md border-2 font-bold transition-all ${isSelected
                           ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
                           : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'

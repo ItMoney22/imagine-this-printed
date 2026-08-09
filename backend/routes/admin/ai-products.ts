@@ -8,6 +8,7 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
 import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
+import { startModelShots } from '../../services/etsy-model-shots.js'
 import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
 import { suggestProductTrends, suggestSimpleWordPhrases, type TrendFamily, type TrendSource } from '../../services/product-trends.js'
@@ -1465,7 +1466,21 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     }
 
     console.log('[ai-products] ✅ Successfully created', createdJobs?.length, 'mockup jobs')
-    req.log?.info({ count: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + ghost_mannequin + mr_imagine)')
+    req.log?.info({ count: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + ghost_mannequin + mr_imagine + pocket)')
+
+    // Two real-person model shots (David 2026-08-09: "add the two mockups from
+    // the etsy flow"). They run on their own async pipeline and mirror
+    // themselves into product_assets when they pass QA, so they join the same
+    // mockup set as the jobs above rather than living only on the Etsy panel.
+    //
+    // Fire-and-forget on purpose: the shoot takes far longer than this request,
+    // and a shoot failure must not fail mockup creation. Garments only — the
+    // shot plan casts people, which makes no sense for metal art.
+    if (productCategory !== 'metal-art') {
+      startModelShots(id, (req as any).user?.id || 'system')
+        .then(() => console.log('[ai-products] 📸 model shots kicked off for', id))
+        .catch((e: any) => console.warn('[ai-products] model shots did not start:', e?.message))
+    }
 
     res.json({ jobs: createdJobs })
   } catch (error: any) {
