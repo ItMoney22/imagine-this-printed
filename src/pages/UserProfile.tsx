@@ -554,7 +554,7 @@ const UserProfilePage = () => {
                     {designs.slice(0, 3).map(design => (
                       <Link
                         key={design.id}
-                        to={`/products/${design.id}`}
+                        to={`/product/${design.id}`}
                         className="aspect-square rounded-xl overflow-hidden bg-slate-100 group"
                       >
                         <img
@@ -777,7 +777,7 @@ const UserProfilePage = () => {
                             Share your experience with this product
                           </p>
                           <Link
-                            to={`/products/${review.product_id}#reviews`}
+                            to={`/product/${review.product_id}#reviews`}
                             className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

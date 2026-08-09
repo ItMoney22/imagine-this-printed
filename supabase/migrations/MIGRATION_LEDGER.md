@@ -7,6 +7,30 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-05/06 — security hardening applied (Zero Nine)
+
+Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
+in-transaction; re-confirmed against the live catalog after). Applied via the
+pg-script path, so NOT tracked in `schema_migrations` (like most of this repo).
+
+- `20260728_fix_get_user_role_ambiguity.sql` + `20260727_prevent_role_self_escalation.sql`
+  — the role self-escalation trigger + its prerequisite (were listed MISSING
+  below; now LIVE). Trigger `enforce_user_profile_role_immutable_trigger`.
+- `20260805_security_lockdown.sql` — dropped the wide-open "Service role full
+  access … TO public USING(true)" policies on support_tickets, ticket_messages,
+  admin_notifications, gift_cards, discount_codes, coupon_usage, chat_sessions,
+  agent_status (they exposed those tables to the anon key).
+- `20260805_02_discount_codes_lockdown.sql` — dropped "Anyone can read active
+  discount codes".
+- `20260806_security_round2.sql` — `reject_spam_support_ticket` BEFORE INSERT
+  trigger (kills the contact-form spam bot) + the `public_profiles` safe view.
+- `20260806_03_profiles_cut_anon.sql` — `REVOKE SELECT ON user_profiles FROM
+  anon` (closes the email/address/tax_id leak). Kept the "Public profiles
+  viewable by all" RLS policy so authenticated cross-user reads still work.
+
+`orders-staff-write` and `landing-page-suggestions` (below) remain PENDING —
+unrelated to the security work, left for a separate decision.
+
 ## Root cause: why nobody could tell what's applied
 
 Migrations in this repo reach production through **three different, disjoint

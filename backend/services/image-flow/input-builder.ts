@@ -54,12 +54,22 @@ export function buildInput(model: ImageModel, opts: BuildInputOpts): Record<stri
       }
       break
     }
-    case 'xai/grok-imagine-image': {
+    case 'xai/grok-imagine-image':
+    case 'xai/grok-imagine-image-quality': {
       base.aspect_ratio = '1:1'
       break
     }
-    case 'google/nano-banana': {
-      // Nano Banana (Gemini 2.5 Flash Image) — uses image_input ARRAY, not image_url.
+    case 'google/nano-banana':
+    case 'google/nano-banana-2-lite': {
+      // Nano Banana (Gemini 2.5 Flash Image) and Nano Banana 2 Lite (Gemini 3.1
+      // Flash-Lite Image) share an identical input contract — uses image_input
+      // ARRAY, not image_url. v1 accepts 2 refs, lite accepts up to 14.
+      //
+      // NOTE: `output_format: 'png'` is honored by v1 but SILENTLY IGNORED by
+      // lite, which always returns JPEG (and Replicate's CDN still serves it
+      // from a .png URL with an `image/png` content-type header). We keep
+      // asking for png so v1 stays lossless; downstream upload paths sniff the
+      // magic bytes rather than trusting the extension or the header.
       base.aspect_ratio = '1:1'
       base.output_format = 'png'
       if (refs.length > 0) base.image_input = refs

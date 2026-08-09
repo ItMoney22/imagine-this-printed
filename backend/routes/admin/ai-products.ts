@@ -385,12 +385,22 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       normalized.image_prompt = imagePromptOverride.trim()
     }
 
-    // The admin's dropdown wins. The category used to be inferred by the model
-    // from prompt prose, sitting next to a block headed "DTF Print Settings" —
-    // so shirts were landing as `dtf-transfers` at random, which then blocked
-    // them at the Etsy taxonomy check. An unrecognized slug also falls back
-    // here rather than upserting a junk category row.
-    if (wizardCategory) {
+    // Photo-template products (Imagine Studio, 2026-07-31): the caller pins the
+    // category instead of letting normalization guess. Whitelisted — this is
+    // the only slug the override may force; absent param = behavior unchanged.
+    // It wins over the wizard dropdown because it is a different caller
+    // entirely (Imagine Studio never sends a wizard category).
+    const isTemplate = req.body.category_slug_override === 'templates'
+
+    // Otherwise the admin's dropdown wins. The category used to be inferred by
+    // the model from prompt prose, sitting next to a block headed "DTF Print
+    // Settings" — so shirts were landing as `dtf-transfers` at random, which
+    // then blocked them at the Etsy taxonomy check. An unrecognized slug also
+    // falls back here rather than upserting a junk category row.
+    if (isTemplate) {
+      normalized.category_slug = 'templates'
+      normalized.category_name = 'Templates'
+    } else if (wizardCategory) {
       if (normalized.category_slug !== wizardCategory) {
         req.log?.warn(
           { model: normalized.category_slug, requested: wizardCategory },
@@ -480,6 +490,9 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           ...(normalized.category_slug === 'metal-art' ? { metal_size: metalSize } : {}),
           // Model used for image generation
           model_id: modelId,
+          // Personalizable template: design ships with an EMPTY photo slot;
+          // staff drop the customer's photo in per order (Etsy flow).
+          ...(isTemplate ? { is_template: true, personalization: 'customer_photo' } : {}),
         },
       })
       .select()

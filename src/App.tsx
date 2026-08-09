@@ -14,6 +14,7 @@ import RoleRoute from './components/RoleRoute'
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
 import FloatingCart from './components/FloatingCart'
+import WatchtowerTaskButton from './components/WatchtowerTaskButton'
 import { MrImagineNotificationProvider } from './components/MrImagineNotification'
 import { ToastContainer } from './components/ToastContainer'
 import { ImaginationErrorBoundary } from './components/imagination'
@@ -116,6 +117,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       {!isFullScreen && <MrImagineChatWidget />}
       <MrImagineCartNotification />
       <FloatingCart />
+      <WatchtowerTaskButton />
       <ToastContainer />
       <CookieConsent />
     </div>

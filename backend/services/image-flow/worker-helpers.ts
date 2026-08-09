@@ -3,7 +3,7 @@
 
 import { runReplicate } from './providers/replicate.js'
 import { buildInput } from './input-builder.js'
-import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
+import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
 import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
 import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
@@ -337,8 +337,9 @@ export function buildMrImaginePrompt(opts: RunMockupOpts): string {
 /**
  * Generate a mockup.
  *
- *  - mr_imagine: single call to nano-banana (Gemini 2.5 Flash Image) with
- *    [character, design]. Nano-banana excels at character + design compositing.
+ *  - mr_imagine: single call to nano-banana-2-lite (Gemini 3.1 Flash-Lite
+ *    Image) with [character, design]. Nano Banana excels at character + design
+ *    compositing; the lite tier holds the mascot and the print equally well.
  *
  *  - flat_lay / ghost_mannequin: 2-step pipeline to defeat Money's recurring
  *    "all three mockups come back as Mr. Imagine" bug.
@@ -347,17 +348,24 @@ export function buildMrImaginePrompt(opts: RunMockupOpts): string {
  *              prior contact with the Mr. Imagine character. Nothing to
  *              preserve, nothing to drift toward.
  *      Step B: multi-image composite [empty_garment, design] via
- *              google/nano-banana — the dedicated mockup model that already
- *              powers the mr_imagine slot reliably; it handles clearly-roled
- *              inputs (scene to preserve + decal to apply) without falling
- *              back to a "person wearing clothing" prior.
+ *              google/nano-banana-2-lite — the dedicated mockup model that
+ *              already powers the mr_imagine slot reliably; it handles
+ *              clearly-roled inputs (scene to preserve + decal to apply)
+ *              without falling back to a "person wearing clothing" prior.
  *
  *  Why these models: previous attempts used openai/gpt-image-2 for both
  *  steps. That model has been the consistent failure point — even with no
  *  input image, it kept producing Mr. Imagine-like wearers in the
  *  empty-garment slot. Swapping both steps to Google models (Imagen + Nano
- *  Banana) eliminates the OpenAI-side drift. Cost drops from ~$0.08 to
- *  ~$0.059 per non-character mockup; latency stays in the same ballpark.
+ *  Banana) eliminates the OpenAI-side drift. Cost dropped from ~$0.08 to
+ *  ~$0.059 per non-character mockup; latency stayed in the same ballpark.
+ *
+ *  2026-07-26: step B moved from google/nano-banana v1 ($0.039) to
+ *  google/nano-banana-2-lite ($0.034), taking the non-character mockup to
+ *  ~$0.054. A 5-shot-per-arm A/B on these exact prompts showed lite is 2.07x
+ *  faster (4.35s vs 9.02s avg predict), never drifted a wearer into the
+ *  empty-garment scene, and reproduced outline strokes / letterform arcs that
+ *  v1 flattened. Its one wart: it ignores output_format and always emits JPEG.
  *
  *  Earlier attempts (in git history): three prompt iterations on single-call
  *  gpt-image-2 edit, then a 2-step pipeline still using gpt-image-2 for
@@ -437,9 +445,9 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
   const sceneRes = await runReplicate({ modelId: sceneModel.id, input: sceneInput })
   const emptyGarmentUrl = sceneRes.imageUrls[0]
 
-  // Step B: composite the design onto the empty garment via Nano Banana.
+  // Step B: composite the design onto the empty garment via Nano Banana 2 Lite.
   // Same model that already drives the mr_imagine slot reliably.
-  const compositeModelId = 'google/nano-banana'
+  const compositeModelId = DEFAULT_MOCKUP_MODEL
   const compositeModel = getModel(compositeModelId)
   if (!compositeModel) throw new Error(`unknown image-flow model: ${compositeModelId}`)
   const compositeInput = buildInput(compositeModel, {
@@ -460,7 +468,9 @@ export interface RunEditOpts {
 
 /** Edit an existing image with a prompt (+ optional refs). Returns a (possibly temporary) URL. */
 export async function runImageFlowEdit(opts: RunEditOpts): Promise<{ url: string; modelId: string }> {
-  const modelId = opts.modelId ?? DEFAULT_MOCKUP_MODEL // gpt-image-2
+  // Edits stay on the premium engine (gpt-image-2) — only mockup COMPOSITING
+  // moved to the cheap Nano Banana 2 Lite lane.
+  const modelId = opts.modelId ?? DEFAULT_EDIT_MODEL
   const model = getModel(modelId)
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 

@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Job names are load-bearing: "typecheck" and "build" are required status checks
+# on the main branch protection rule. Rename them there too if you rename here.
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Typecheck root
+        run: npm run typecheck
+      - name: Typecheck backend
+        run: npm run typecheck
+        working-directory: backend
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      # Root `eslint .` lints the entire repo including backend/** (the flat config
+      # has a node-globals block for backend); backend has no separate lint script.
+      - name: Lint (root config covers backend)
+        run: npm run lint
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Build root
+        run: npm run build
+      - name: Build backend
+        run: npm run build
+        working-directory: backend

@@ -145,7 +145,7 @@ const FeaturedSocialContent: React.FC<FeaturedSocialContentProps> = ({ limit = 8
                   <div className="flex space-x-3">
                     {item.type === 'product' && item.productId && (
                       <Link
-                        to={`/products/${item.productId}`}
+                        to={`/product/${item.productId}`}
                         className="flex-1 btn-primary text-center text-sm"
                       >
                         View Product

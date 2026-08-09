@@ -8,6 +8,11 @@ interface SocialShareButtonsProps {
   // For design completion flow
   designImageUrl?: string
   designName?: string
+  // Where the fallback menu opens. Default 'top-left' preserves the original
+  // design-flow placement (mid-page, room above). Use 'bottom-right' when the
+  // button sits high on the page or flush right, where opening upward would
+  // clip off the top of the viewport and left-align would overflow rightward.
+  menuPlacement?: 'top-left' | 'bottom-right'
 }
 
 export const SocialShareButtons = ({
@@ -16,10 +21,13 @@ export const SocialShareButtons = ({
   productImage,
   creatorUsername,
   designImageUrl,
-  designName
+  designName,
+  menuPlacement = 'top-left'
 }: SocialShareButtonsProps) => {
   const [copied, setCopied] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  const menuPositionClass =
+    menuPlacement === 'bottom-right' ? 'top-full mt-2 right-0' : 'bottom-full mb-2 left-0'
 
   // Determine share content based on context
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://imaginethisprinted.com'
@@ -27,13 +35,21 @@ export const SocialShareButtons = ({
   const name = productName || designName || 'My Custom Design'
 
   const generateShareUrl = (platform: string) => {
-    const path = productId ? `/products/${productId}` : '/create-design'
+    // `/product/<id>` (singular) is the only product route in App.tsx. This read
+    // `/products/<id>` (plural), which matches no route — every link this
+    // component produced landed on the SPA fallback instead of the product.
+    const path = productId ? `/product/${productId}` : '/create-design'
     return `${baseUrl}${path}?utm_source=share&utm_medium=${platform}&utm_campaign=user_design`
   }
 
+  // The "my custom ... design" phrasing belongs to the design-completion flow.
+  // Sharing a catalog product (productName set, no creator) needs neutral copy —
+  // otherwise the store's own products get shared as "my custom design".
   const shareText = creatorUsername
     ? `Check out "${name}" created by @${creatorUsername} on ImagineThisPrinted!`
-    : `Check out my custom "${name}" design on ImagineThisPrinted!`
+    : productName
+      ? `Check out "${name}" on ImagineThisPrinted!`
+      : `Check out my custom "${name}" design on ImagineThisPrinted!`
 
   const handleShare = (_platform: string, url: string) => {
     // Pass noopener,noreferrer so the share-dialog window can't reach
@@ -122,7 +138,7 @@ export const SocialShareButtons = ({
       {showMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-          <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-2xl border border-gray-100 p-2 z-50 min-w-[200px] animate-fade-in">
+          <div className={`absolute ${menuPositionClass} bg-white rounded-xl shadow-2xl border border-gray-100 p-2 z-50 min-w-[200px] animate-fade-in`}>
             <p className="text-xs text-gray-400 px-3 py-1 uppercase tracking-wider">Share to</p>
 
             {platforms.map((platform) => (
@@ -187,13 +203,21 @@ export const SocialShareInline = ({
   const name = productName || designName || 'My Custom Design'
 
   const generateShareUrl = (platform: string) => {
-    const path = productId ? `/products/${productId}` : '/create-design'
+    // `/product/<id>` (singular) is the only product route in App.tsx. This read
+    // `/products/<id>` (plural), which matches no route — every link this
+    // component produced landed on the SPA fallback instead of the product.
+    const path = productId ? `/product/${productId}` : '/create-design'
     return `${baseUrl}${path}?utm_source=share&utm_medium=${platform}&utm_campaign=user_design`
   }
 
+  // The "my custom ... design" phrasing belongs to the design-completion flow.
+  // Sharing a catalog product (productName set, no creator) needs neutral copy —
+  // otherwise the store's own products get shared as "my custom design".
   const shareText = creatorUsername
     ? `Check out "${name}" created by @${creatorUsername} on ImagineThisPrinted!`
-    : `Check out my custom "${name}" design on ImagineThisPrinted!`
+    : productName
+      ? `Check out "${name}" on ImagineThisPrinted!`
+      : `Check out my custom "${name}" design on ImagineThisPrinted!`
 
   const handleCopyLink = async () => {
     try {

@@ -132,7 +132,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({
         </div>
 
         {/* Post Image */}
-        <Link to={post.product_id ? `/products/${post.product_id}` : '#'} className="block">
+        <Link to={post.product_id ? `/product/${post.product_id}` : '#'} className="block">
           <div className="relative aspect-square bg-bg/50 overflow-hidden">
             {!imageError && post.primary_image_url ? (
               <img

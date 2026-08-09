@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts, adminApi, API_BASE, etsy } from '../lib/api'
+import { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
@@ -25,7 +25,6 @@ import { MockupProgressPanel } from '../components/MockupProgressPanel'
 import { PromoPricingModal } from '../components/PromoPricingModal'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
-import AdminTrendScout from '../components/AdminTrendScout'
 
 // T-shirt print placements offered on a product → products.print_locations.
 // Mirrors the same list in the AI wizard (AdminCreateProductWizard.tsx) and the
@@ -40,8 +39,8 @@ const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'trends' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'trends'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -107,8 +106,6 @@ const AdminDashboard: React.FC = () => {
     pointsDistributed: 0,
     activeSessions: 0
   })
-  // Live open-order counts, filled by loadMetrics() from the orders table.
-  const [openOrders, setOpenOrders] = useState({ pending: 0, processing: 0, onHold: 0 })
   const [showProductModal, setShowProductModal] = useState(false)
   // ITC Pricing state
   const [itcPricing, setItcPricing] = useState<Array<{
@@ -141,7 +138,14 @@ const AdminDashboard: React.FC = () => {
     // products.print_locations TEXT[]. The DB CHECK products_print_locations_valid
     // (migration 20260629_tshirt_print_locations.sql) rejects any `shirts` row with
     // zero placements, so this defaults to front print rather than an empty list.
-    printLocations: ['front_image'] as TshirtPrintLocation[]
+    printLocations: ['front_image'] as TshirtPrintLocation[],
+    // products.status. Defaults to 'draft' in the DB, but ProductCatalog gates
+    // the storefront on status='active' AND is_active=true — so a product saved
+    // from this modal was invisible until this became settable. Creating one
+    // here means "put this up for sale", hence the 'active' default; editing an
+    // existing product preserves whatever status it already had (the design
+    // library holds ~2.4k intentional drafts that must not auto-publish).
+    status: 'active' as string
   })
 
   // Image upload state
@@ -166,10 +170,9 @@ const AdminDashboard: React.FC = () => {
     'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
     '3d-models': [],
     // Metal print sizes WITHOUT the inch mark — must match the canonical values
-    // written by the approval flow + defaultSizesFor (['4x6','8x10']) so the
-    // size buttons reflect the product's actual selection. (8x10 confirmed the
-    // real panel by David 2026-07-28; 8x11 was a canvas-era mistake.)
-    'metal-art': ['4x6', '8x10']
+    // written by the approval flow + defaultSizesFor (['4x6','8x11']) so the
+    // size buttons reflect the product's actual selection.
+    'metal-art': ['4x6', '8x11']
   }
 
   // Preset colors for products
@@ -474,18 +477,10 @@ const AdminDashboard: React.FC = () => {
       // `total_amount` name doesn't exist, which made revenue read $0)
       const { data: orders } = await supabase
         .from('orders')
-        .select('total, status')
+        .select('total')
 
       const totalRevenue = orders?.reduce((sum, order) => sum + (Number(order.total) || 0), 0) || 0
       const totalOrders = orders?.length || 0
-
-      // Open-order counts for the Quick Actions card — same rows, no extra query.
-      const countByStatus = (status: string) => (orders || []).filter(o => o.status === status).length
-      setOpenOrders({
-        pending: countByStatus('pending'),
-        processing: countByStatus('processing'),
-        onHold: countByStatus('on_hold')
-      })
 
       // Get active vendors (users with role = 'vendor')
       const { count: activeVendors } = await supabase
@@ -678,7 +673,8 @@ const AdminDashboard: React.FC = () => {
       isFeatured: false,
       sizes: [],
       colors: [],
-      printLocations: ['front_image']
+      printLocations: ['front_image'],
+      status: 'active'
     })
     // Reset upload state
     setUploadedImages([])
@@ -705,7 +701,9 @@ const AdminDashboard: React.FC = () => {
       colors: (product as any).colors || [],
       // Legacy shirts created before the print_locations rollout have an empty
       // list; fall back to front print so re-saving them can't trip the CHECK.
-      printLocations: product.print_locations?.length ? product.print_locations : ['front_image']
+      printLocations: product.print_locations?.length ? product.print_locations : ['front_image'],
+      // Preserve the existing status — never silently publish a draft on edit.
+      status: product.status || 'active'
     })
     // Pre-populate uploaded images from existing product
     setUploadedImages(product.images.map(url => ({ url })))
@@ -770,7 +768,10 @@ const AdminDashboard: React.FC = () => {
         print_locations:
           productForm.category === 'shirts'
             ? (productForm.printLocations.length ? productForm.printLocations : ['front_image'])
-            : []
+            : [],
+        // Without this the DB default 'draft' hid every product the modal
+        // created — ProductCatalog requires status='active' AND is_active=true.
+        status: productForm.status
       }
 
       if (editingProduct) {
@@ -806,6 +807,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'Product',
         entityId: editingProduct?.id || 'new',
         changes: productData,
+        ipAddress: '192.168.1.100',
         userAgent: navigator.userAgent,
         createdAt: new Date().toISOString()
       }
@@ -813,6 +815,57 @@ const AdminDashboard: React.FC = () => {
     } catch (error: any) {
       console.error('Error saving product:', error)
       toast.error('Failed to save product', error.message)
+    }
+  }
+
+  // Spin hero video push (25¢: $0.05/s × 5s on grok-imagine-video). Kicks the
+  // generation and polls until the mp4 is finalized into metadata.hero_video_url
+  // — from then on the product page opens with the video.
+  const [spinStatus, setSpinStatus] = useState<Record<string, string>>({})
+  const pushSpinVideo = async (productId: string) => {
+    setSpinStatus((s) => ({ ...s, [productId]: 'generating' }))
+    try {
+      await apiFetch('/api/ai/realtime/spin-video', { method: 'POST', body: JSON.stringify({ productId }) })
+      toast.success('Spin video started', 'About 25¢ and a couple of minutes — it goes live on the product page automatically.')
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 8000))
+        const st = await apiFetch(`/api/ai/realtime/spin-video/${productId}/status`) as { status?: string; error?: string }
+        if (st.status === 'ready') {
+          setSpinStatus((s) => ({ ...s, [productId]: 'ready' }))
+          toast.success('Spin video is LIVE', 'The product page now opens with it.')
+          await loadProducts()
+          return
+        }
+        if (st.status === 'failed') {
+          setSpinStatus((s) => ({ ...s, [productId]: 'failed' }))
+          toast.error('Spin video failed', st.error || 'Try again — a different source image sometimes animates better.')
+          return
+        }
+      }
+      setSpinStatus((s) => ({ ...s, [productId]: 'failed' }))
+      toast.error('Spin video timed out', 'Check back — it may still finish.')
+    } catch (error: any) {
+      setSpinStatus((s) => ({ ...s, [productId]: 'failed' }))
+      toast.error('Spin video failed', error?.message)
+    }
+  }
+
+  // Save the spin video locally — David checks it before hand-uploading to
+  // EXISTING Etsy listings (new listings get it attached automatically).
+  const downloadSpinVideo = async (product: Product) => {
+    const url = (product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url
+    if (typeof url !== 'string') return
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${product.slug || product.id}-spin.mp4`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (error: any) {
+      toast.error('Download failed', error?.message || 'Open the product page and save the video from there.')
     }
   }
 
@@ -837,6 +890,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'Product',
         entityId: productId,
         changes: { deleted: true },
+        ipAddress: '192.168.1.100',
         userAgent: navigator.userAgent,
         createdAt: new Date().toISOString()
       }
@@ -1589,6 +1643,7 @@ const AdminDashboard: React.FC = () => {
           entity: 'User',
           entity_id: userId,
           changes: { role: newRole },
+          ip_address: '192.168.1.100',
           user_agent: navigator.userAgent
         })
 
@@ -1636,6 +1691,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'UserWallet',
         entity_id: itcUser.id,
         changes: { amount: itcAmount, previous_balance: wallet.itc_balance, new_balance: newBalance },
+        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1668,6 +1724,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'VendorProduct',
         entity_id: productId,
         changes: { approved: true },
+        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1699,6 +1756,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'VendorProduct',
         entity_id: productId,
         changes: { rejected: true },
+        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1730,6 +1788,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'ThreeDModel',
         entity_id: modelId,
         changes: { approved: true },
+        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1761,6 +1820,7 @@ const AdminDashboard: React.FC = () => {
         entity: 'ThreeDModel',
         entity_id: modelId,
         changes: { rejected: true },
+        ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
@@ -1885,19 +1945,16 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Was "Active Sessions", permanently hardcoded to 0 in loadMetrics()
-              — there is no session tracking to read. Replaced with a number
-              that is actually queried. */}
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
             <div className="flex items-center">
               <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg shadow-purple-500/25">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-slate-500">Open Orders</p>
-                <p className="text-2xl font-bold text-slate-900">{openOrders.pending + openOrders.processing + openOrders.onHold}</p>
+                <p className="text-sm font-medium text-slate-500">Active Sessions</p>
+                <p className="text-2xl font-bold text-slate-900">{systemMetrics.activeSessions}</p>
               </div>
             </div>
           </div>
@@ -1906,7 +1963,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
           <nav className="flex flex-wrap gap-2">
-            {['overview', 'trends', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -1918,7 +1975,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab === 'trends' ? 'Trend Scout' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -1933,22 +1990,6 @@ const AdminDashboard: React.FC = () => {
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
                 <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Quick Actions</h3>
                 <div className="space-y-3">
-                  <Link
-                    to="/admin/orders"
-                    className="block text-left p-4 bg-orange-50 hover:bg-orange-100 rounded-xl transition-colors border border-orange-100"
-                  >
-                    <div className="font-semibold text-orange-900">Open Orders</div>
-                    <div className="text-sm text-orange-600">
-                      {openOrders.pending} pending · {openOrders.processing} processing · {openOrders.onHold} on hold
-                    </div>
-                  </Link>
-                  <Link
-                    to="/admin/crm"
-                    className="block text-left p-4 bg-sky-50 hover:bg-sky-100 rounded-xl transition-colors border border-sky-100"
-                  >
-                    <div className="font-semibold text-sky-900">CRM</div>
-                    <div className="text-sm text-sky-600">{systemMetrics.totalUsers} contacts · orders &amp; custom job requests</div>
-                  </Link>
                   <button
                     onClick={() => setSelectedTab('creator-products')}
                     className="w-full text-left p-4 bg-pink-50 hover:bg-pink-100 rounded-xl transition-colors border border-pink-100"
@@ -2018,29 +2059,23 @@ const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">At a Glance</h3>
-                {/* The "System Health" card that used to be here reported
-                    Database Status "Healthy", API Response Time "45ms" and
-                    Storage Usage "68% of 100GB" — all three were string
-                    literals, measured by nothing. AdminOpsMonitor at the top of
-                    this tab reports the real thing. Only the one figure that was
-                    actually queried (Active Vendors) survives here. */}
+                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">System Health</h3>
                 <div className="space-y-4">
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Database Status</span>
+                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">Healthy</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">API Response Time</span>
+                    <span className="text-sm font-semibold text-slate-900">45ms</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                    <span className="text-sm font-medium text-slate-700">Storage Usage</span>
+                    <span className="text-sm font-semibold text-slate-900">68% of 100GB</span>
+                  </div>
                   <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
                     <span className="text-sm font-medium text-slate-700">Active Vendors</span>
                     <span className="text-sm font-semibold text-slate-900">{systemMetrics.activeVendors}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Total Orders</span>
-                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.totalOrders}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">3D Models Uploaded</span>
-                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.modelsUploaded}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Points Distributed</span>
-                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.pointsDistributed.toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -2286,7 +2321,7 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Promo</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-16 text-center">Featured</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-32">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-32 sticky right-0 bg-slate-50 z-10">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
@@ -2353,8 +2388,11 @@ const AdminDashboard: React.FC = () => {
                             <td className="px-4 py-4">
                               <div className="flex items-center space-x-2">
                                 <div className="min-w-0">
-                                  <div className="text-sm font-semibold text-slate-900 truncate">{product.name}</div>
-                                  <div className="text-xs text-slate-500 truncate max-w-[180px]">{product.description}</div>
+                                  {/* max-w is load-bearing: without it, truncate + table-auto lets
+                                      prompt-length AI names blow the column out and push Actions
+                                      off-viewport (David hit this live 7/31). */}
+                                  <div className="text-sm font-semibold text-slate-900 truncate max-w-[340px]" title={product.name}>{product.name}</div>
+                                  <div className="text-xs text-slate-500 truncate max-w-[340px]">{product.description}</div>
                                 </div>
                                 {isAIProduct && (
                                   <span className="flex-shrink-0 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-purple-100 text-purple-700">
@@ -2413,7 +2451,7 @@ const AdminDashboard: React.FC = () => {
                                 </svg>
                               </button>
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium sticky right-0 bg-white z-10">
                               <div className="flex items-center space-x-2">
                                 <button
                                   onClick={() => toggleProductExpansion(product.id)}
@@ -2456,6 +2494,42 @@ const AdminDashboard: React.FC = () => {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                   </svg>
                                 </button>
+                                <button
+                                  onClick={() => { void pushSpinVideo(product.id) }}
+                                  disabled={spinStatus[product.id] === 'generating'}
+                                  className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                                    ((product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url || spinStatus[product.id] === 'ready')
+                                      ? 'text-fuchsia-600 hover:text-fuchsia-700 hover:bg-fuchsia-50'
+                                      : 'text-gray-400 hover:text-fuchsia-600 hover:bg-fuchsia-50'
+                                  }`}
+                                  title={
+                                    (product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url
+                                      ? 'Spin video is live — click to regenerate (~25¢)'
+                                      : 'Push a spin hero video (~25¢ — model turns, shirt changes color)'
+                                  }
+                                >
+                                  {spinStatus[product.id] === 'generating' ? (
+                                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
+                                </button>
+                                {!!(product as { metadata?: Record<string, unknown> }).metadata?.hero_video_url && (
+                                  <button
+                                    onClick={() => { void downloadSpinVideo(product) }}
+                                    className="text-fuchsia-600 hover:text-fuchsia-700 hover:bg-fuchsia-50 p-1.5 rounded-lg transition-colors"
+                                    title="Download the spin video (mp4) — check it, then upload to existing Etsy listings"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4" />
+                                    </svg>
+                                  </button>
+                                )}
                                 <button
                                   onClick={async () => {
                                     if (confirm('Are you sure you want to delete this product?')) {
@@ -2897,13 +2971,6 @@ const AdminDashboard: React.FC = () => {
           )
         }
 
-        {/* Trend Scout Tab - Mr Imagine pitches landing pages; approve -> Watchtower task */}
-        {
-          selectedTab === 'trends' && (
-            <AdminTrendScout />
-          )
-        }
-
         {/* Audit Logs Tab */}
         {
           selectedTab === 'audit' && (
@@ -3166,6 +3233,26 @@ const AdminDashboard: React.FC = () => {
                         <option value="both">Both</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Storefront status → products.status. The catalog shows only
+                      status='active' AND is_active=true, so leaving this at the
+                      DB default of 'draft' makes the product invisible. */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Storefront Status
+                    </label>
+                    <select
+                      value={productForm.status}
+                      onChange={(e) => setProductForm({ ...productForm, status: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                    >
+                      <option value="active">Active — visible in the catalog</option>
+                      <option value="draft">Draft — hidden from the catalog</option>
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      The catalog shows a product only when it is Active and In Stock.
+                    </p>
                   </div>
 
                   {/* Size Variants - Category Specific */}

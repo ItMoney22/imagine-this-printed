@@ -18,6 +18,34 @@ export interface UploadImageResult {
 }
 
 /**
+ * Detect an image's real type from its magic bytes.
+ *
+ * Needed because Replicate's CDN is not trustworthy on this: google/nano-banana-2-lite
+ * ignores `output_format` and always returns JPEG, yet Replicate still serves those
+ * bytes from a `.png` delivery URL WITH an `image/png` content-type header. Trusting
+ * either would write JPEG bytes into GCS labelled as PNG — which Etsy's listing-image
+ * upload validates and can reject. Returns null when the bytes aren't a format we
+ * recognise, so callers can fall back to whatever the server claimed.
+ */
+export function sniffImageContentType(buffer: Buffer): string | null {
+  if (buffer.length >= 8 && buffer.toString('hex', 0, 8) === '89504e470d0a1a0a') return 'image/png'
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) return 'image/webp'
+  return null
+}
+
+/** File extension matching an image content type (defaults to png). */
+export function extForImageContentType(contentType: string | null): string {
+  if (contentType === 'image/jpeg') return 'jpg'
+  if (contentType === 'image/webp') return 'webp'
+  return 'png'
+}
+
+/**
  * Downloads an image from a URL and uploads it to Google Cloud Storage
  * @param imageUrl - The URL of the image to download
  * @param destinationPath - The path in GCS bucket (e.g., 'products/123/source/image.png')
@@ -36,9 +64,11 @@ export async function uploadImageFromUrl(
   }
 
   const buffer = await response.buffer()
-  const contentType = response.headers.get('content-type') || 'image/png'
+  // Magic bytes win over the served header — see sniffImageContentType.
+  const contentType =
+    sniffImageContentType(buffer) || response.headers.get('content-type') || 'image/png'
 
-  console.log('[gcs] 📤 Uploading to GCS:', destinationPath)
+  console.log('[gcs] 📤 Uploading to GCS:', destinationPath, `(${contentType})`)
 
   // Upload to GCS (without metadata to avoid ACL operations with uniform bucket-level access)
   const file = bucket.file(destinationPath)
