@@ -1447,19 +1447,21 @@ export default function AdminCreateProductWizard() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
+    // pb-24 on mobile keeps the last CTA clear of the fixed chat/Watchtower
+    // bubbles, which sit bottom-right and used to cover it.
+    <div className="max-w-5xl mx-auto pb-24 sm:pb-0">
       {/* Progress Steps - Premium Design */}
-      <div className="mb-12">
-        <div className="relative bg-card/40 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl overflow-hidden">
+      <div className="mb-6 sm:mb-12">
+        <div className="relative bg-card/40 backdrop-blur-md rounded-2xl p-4 sm:p-8 border border-white/10 shadow-xl overflow-hidden">
           {/* Glow effect */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent blur-sm" />
 
           <div className="flex items-center justify-between relative z-10">
             {['describe', 'review', 'generate', 'success'].map((step, index) => (
               <React.Fragment key={step}>
-                <div className="flex flex-col items-center z-10 group">
+                <div className="flex min-w-0 flex-col items-center z-10 group">
                   <div
-                    className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg transition-all duration-500 ${currentStep === step
+                    className={`h-11 w-11 shrink-0 rounded-xl text-base sm:h-14 sm:w-14 sm:rounded-2xl sm:text-lg flex items-center justify-center font-bold shadow-lg transition-all duration-500 ${currentStep === step
                       ? 'bg-gradient-to-br from-primary to-secondary text-white scale-110 shadow-[0_0_20px_rgba(168,85,247,0.5)] ring-2 ring-white/20'
                       : index < ['describe', 'review', 'generate', 'success'].indexOf(currentStep)
                         ? 'bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]'
@@ -1467,18 +1469,18 @@ export default function AdminCreateProductWizard() {
                       }`}
                   >
                     {index < ['describe', 'review', 'generate', 'success'].indexOf(currentStep) ? (
-                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                       </svg>
                     ) : (
                       <span className="font-display">{index + 1}</span>
                     )}
                   </div>
-                  <span className={`text-sm mt-4 font-medium capitalize transition-colors duration-300 ${currentStep === step ? 'text-primary drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]' : 'text-muted'
+                  <span className={`mt-2 text-[11px] sm:mt-4 sm:text-sm font-medium capitalize transition-colors duration-300 ${currentStep === step ? 'text-primary drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]' : 'text-muted'
                     }`}>{step}</span>
                 </div>
                 {index < 3 && (
-                  <div className="flex-1 h-1 mx-4 rounded-full overflow-hidden bg-white/5 relative">
+                  <div className="flex-1 h-1 mx-1.5 sm:mx-4 rounded-full overflow-hidden bg-white/5 relative">
                     <div
                       className={`absolute inset-0 h-full rounded-full transition-all duration-700 ease-out ${index < ['describe', 'review', 'generate', 'success'].indexOf(currentStep)
                         ? 'bg-gradient-to-r from-green-500 to-emerald-600 w-full shadow-[0_0_10px_rgba(16,185,129,0.5)]'
@@ -1536,18 +1538,18 @@ export default function AdminCreateProductWizard() {
       )}
 
       {currentStep === 'describe' && (
-        <div className="bg-card/30 rounded-3xl shadow-2xl p-8 border border-white/10 backdrop-blur-sm">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-3 drop-shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+        <div className="bg-card/30 rounded-3xl shadow-2xl p-4 sm:p-8 border border-white/10 backdrop-blur-sm">
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-3 drop-shadow-[0_0_10px_rgba(168,85,247,0.3)]">
               Describe Your Product
             </h2>
-            <p className="text-muted text-lg">
+            <p className="text-muted text-base sm:text-lg">
               Describe your product idea in natural language. Our AI will interpret it and generate everything you need.
             </p>
           </div>
 
-          <div className="space-y-8">
-            <section className="rounded-3xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-purple-500/10 p-6 shadow-xl backdrop-blur-sm">
+          <div className="space-y-6 sm:space-y-8">
+            <section className="rounded-3xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-purple-500/10 p-4 sm:p-6 shadow-xl backdrop-blur-sm">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
                 <div className="min-w-0">
                   <div className="mb-2 flex items-center gap-3">
@@ -1567,7 +1569,7 @@ export default function AdminCreateProductWizard() {
                     <select
                       value={trendSource}
                       onChange={(e) => setTrendSource(e.target.value as ProductTrendSource)}
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-sm text-text outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-base sm:text-sm text-text outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
                     >
                       {TREND_SOURCE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1580,7 +1582,7 @@ export default function AdminCreateProductWizard() {
                     <select
                       value={trendFamily}
                       onChange={(e) => setTrendFamily(e.target.value as ProductTrendFamily)}
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-sm text-text outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-base sm:text-sm text-text outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
                     >
                       {TREND_FAMILY_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1595,7 +1597,7 @@ export default function AdminCreateProductWizard() {
                       value={trendSeed}
                       onChange={(e) => setTrendSeed(e.target.value)}
                       placeholder="school, local pride, funny moms"
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-sm text-text outline-none transition-all placeholder:text-muted/50 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-2.5 text-base sm:text-sm text-text outline-none transition-all placeholder:text-muted/50 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/20"
                     />
                   </label>
 
@@ -1695,7 +1697,7 @@ export default function AdminCreateProductWizard() {
               )}
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-xl backdrop-blur-sm">
+            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:p-6 shadow-xl backdrop-blur-sm">
               <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-xl font-bold text-text">Simple words front print</h3>
@@ -1737,7 +1739,7 @@ export default function AdminCreateProductWizard() {
                         setDesignStyle(SIMPLE_WORD_STYLE_PROMPTS[value])
                         setPrintStyle(value === 'distressed' ? 'grunge' : 'clean')
                       }}
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-base sm:text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
                     >
                       {SIMPLE_WORD_STYLE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1750,7 +1752,7 @@ export default function AdminCreateProductWizard() {
                     <select
                       value={simpleWordLayout}
                       onChange={(e) => setSimpleWordLayout(e.target.value as SimpleWordLayout)}
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-base sm:text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
                     >
                       {SIMPLE_WORD_LAYOUT_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1763,7 +1765,7 @@ export default function AdminCreateProductWizard() {
                     <select
                       value={simpleWordInkColor}
                       onChange={(e) => setSimpleWordInkColor(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-base sm:text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
                     >
                       {SIMPLE_WORD_INK_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1776,7 +1778,7 @@ export default function AdminCreateProductWizard() {
                     <select
                       value={simpleWordAccentColor}
                       onChange={(e) => setSimpleWordAccentColor(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
+                      className="w-full rounded-xl border border-white/10 bg-bg/60 px-3 py-3 text-base sm:text-sm text-text outline-none transition-all focus:border-purple-400/60 focus:ring-2 focus:ring-purple-400/20"
                     >
                       {SIMPLE_WORD_ACCENT_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -1910,7 +1912,7 @@ export default function AdminCreateProductWizard() {
                   : 'Be as detailed as you want. Mention style, colors, themes, target audience, etc.'}
               </p>
               <div className="mt-4 flex flex-col gap-4">
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -1975,13 +1977,13 @@ export default function AdminCreateProductWizard() {
                     <label className="block text-sm font-semibold text-text mb-2">
                       Panel Size *
                     </label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       {(['4x6', '8x10'] as const).map(s => (
                         <button
                           key={s}
                           type="button"
                           onClick={() => setMetalSize(s)}
-                          className={`px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
+                          className={`px-4 py-2 rounded-xl border text-sm font-medium text-left sm:text-center transition-all ${
                             metalSize === s
                               ? 'bg-primary/20 border-primary text-text'
                               : 'bg-bg/50 border-white/10 text-muted hover:border-white/30'
@@ -2121,8 +2123,8 @@ export default function AdminCreateProductWizard() {
             </div>
 
             {/* Web Search Toggle */}
-            <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-2xl p-6 border border-blue-500/20 shadow-lg">
-              <div className="flex items-center justify-between">
+            <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-2xl p-4 sm:p-6 border border-blue-500/20 shadow-lg">
+              <div className="flex items-center justify-between gap-4">
                 <div className="flex-1">
                   <label className="block text-lg font-bold text-text mb-2 flex items-center">
                     <svg className="w-6 h-6 mr-2 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2151,27 +2153,27 @@ export default function AdminCreateProductWizard() {
             </div>
 
             {/* Image Style Selection - Prominent Feature */}
-            <div className="bg-gradient-to-br from-purple-500/10 via-indigo-500/10 to-blue-500/10 rounded-2xl p-8 border border-purple-500/20 shadow-xl backdrop-blur-sm">
-              <label className="block text-xl font-bold text-text mb-2 flex items-center">
+            <div className="bg-gradient-to-br from-purple-500/10 via-indigo-500/10 to-blue-500/10 rounded-2xl p-4 sm:p-8 border border-purple-500/20 shadow-xl backdrop-blur-sm">
+              <label className="block text-lg sm:text-xl font-bold text-text mb-2 flex items-center">
                 <svg className="w-6 h-6 mr-2 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
                 </svg>
                 Image Art Style *
               </label>
-              <p className="text-sm text-muted mb-6">
+              <p className="text-sm text-muted mb-4 sm:mb-6">
                 Choose the artistic style for your product image. This affects how the AI generates the visual artwork.
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5">
                 <button
                   type="button"
                   onClick={() => setImageStyle('realistic')}
-                  className={`p-6 rounded-2xl border transition-all duration-300 transform hover:scale-105 ${imageStyle === 'realistic'
+                  className={`p-4 sm:p-6 rounded-2xl border transition-all duration-300 transform hover:scale-105 ${imageStyle === 'realistic'
                     ? 'border-primary bg-primary/20 shadow-[0_0_15px_rgba(168,85,247,0.3)] ring-1 ring-primary/50'
                     : 'border-white/10 bg-card/50 hover:border-primary/50 hover:shadow-lg'
                     }`}
                 >
                   <div className="text-center">
-                    <div className="text-4xl mb-3">📸</div>
+                    <div className="text-3xl sm:text-4xl mb-2 sm:mb-3">📸</div>
                     <h4 className="font-bold text-text mb-2 text-lg">Realistic</h4>
                     <p className="text-sm text-muted">Photo-realistic, detailed, lifelike imagery</p>
                   </div>
@@ -2179,13 +2181,13 @@ export default function AdminCreateProductWizard() {
                 <button
                   type="button"
                   onClick={() => setImageStyle('semi-realistic')}
-                  className={`p-6 rounded-2xl border transition-all duration-300 transform hover:scale-105 ${imageStyle === 'semi-realistic'
+                  className={`p-4 sm:p-6 rounded-2xl border transition-all duration-300 transform hover:scale-105 ${imageStyle === 'semi-realistic'
                     ? 'border-primary bg-primary/20 shadow-[0_0_15px_rgba(168,85,247,0.3)] ring-1 ring-primary/50'
                     : 'border-white/10 bg-card/50 hover:border-primary/50 hover:shadow-lg'
                     }`}
                 >
                   <div className="text-center">
-                    <div className="text-4xl mb-3">🎭</div>
+                    <div className="text-3xl sm:text-4xl mb-2 sm:mb-3">🎭</div>
                     <h4 className="font-bold text-text mb-2 text-lg">Semi-Realistic</h4>
                     <p className="text-sm text-muted">Balanced blend of realism and artistic style</p>
                   </div>
@@ -2193,13 +2195,13 @@ export default function AdminCreateProductWizard() {
                 <button
                   type="button"
                   onClick={() => setImageStyle('cartoon')}
-                  className={`p-6 rounded-2xl border transition-all duration-300 transform hover:scale-105 ${imageStyle === 'cartoon'
+                  className={`p-4 sm:p-6 rounded-2xl border transition-all duration-300 transform hover:scale-105 ${imageStyle === 'cartoon'
                     ? 'border-primary bg-primary/20 shadow-[0_0_15px_rgba(168,85,247,0.3)] ring-1 ring-primary/50'
                     : 'border-white/10 bg-card/50 hover:border-primary/50 hover:shadow-lg'
                     }`}
                 >
                   <div className="text-center">
-                    <div className="text-4xl mb-3">🎨</div>
+                    <div className="text-3xl sm:text-4xl mb-2 sm:mb-3">🎨</div>
                     <h4 className="font-bold text-text mb-2 text-lg">Cartoon</h4>
                     <p className="text-sm text-muted">Illustrated, stylized, playful artwork</p>
                   </div>
@@ -2208,17 +2210,17 @@ export default function AdminCreateProductWizard() {
             </div>
 
             {/* Process card — GPT Image 2 pipeline */}
-            <div className="bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 rounded-2xl p-6 border border-cyan-500/20 shadow-xl backdrop-blur-sm">
-              <div className="flex items-start space-x-4">
+            <div className="bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 rounded-2xl p-4 sm:p-6 border border-cyan-500/20 shadow-xl backdrop-blur-sm">
+              <div className="flex items-start gap-3 sm:gap-4">
                 <div className="flex-shrink-0">
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-lg">
                     <Sparkles className="w-6 h-6 text-white" />
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-bold text-text mb-2 flex items-center">
+                  <h3 className="text-base sm:text-lg font-bold text-text mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                     Multi-model generation pipeline
-                    <span className="ml-2 px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] font-semibold rounded-full uppercase tracking-wider">4 models in parallel</span>
+                    <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] font-semibold rounded-full uppercase tracking-wider">4 models in parallel</span>
                   </h3>
                   <p className="text-muted text-sm mb-4">
                     Four image models race in parallel — you pick the best result. Edits and mockups run on a separate dedicated edit model (your choice in the next step).
@@ -2263,19 +2265,19 @@ export default function AdminCreateProductWizard() {
             )}
 
             {/* DTF Print Optimization Settings */}
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] dark:bg-white/[0.025] backdrop-blur-2xl p-6 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)]">
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] dark:bg-white/[0.025] backdrop-blur-2xl p-4 sm:p-6 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)]">
               {/* Atmospheric glass orbs + hairline top highlight */}
               <span aria-hidden className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full bg-purple-500/20 blur-3xl" />
               <span aria-hidden className="pointer-events-none absolute -bottom-24 -left-20 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl" />
               <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
               <div className="relative">
-              <h3 className="text-xl font-bold text-text mb-2 flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-[0_8px_22px_-6px_rgba(99,102,241,0.7)] ring-1 ring-white/20">
+              <h3 className="text-lg sm:text-xl font-bold text-text mb-2 flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-[0_8px_22px_-6px_rgba(99,102,241,0.7)] ring-1 ring-white/20">
                   <Shirt className="h-5 w-5" />
                 </span>
                 <span>DTF Print Settings</span>
               </h3>
-              <p className="text-muted text-sm mb-6">
+              <p className="text-muted text-sm mb-4 sm:mb-6">
                 These settings tune the prompt for DTF print quality and shape the three generated mockups.
               </p>
 
@@ -2284,7 +2286,7 @@ export default function AdminCreateProductWizard() {
                 <label className="block text-sm font-semibold text-text mb-3">
                   Product Type
                 </label>
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
                   {([
                     { type: 'tshirt', label: 'T-Shirt' },
                     { type: 'hoodie', label: 'Hoodie' },
@@ -2296,11 +2298,11 @@ export default function AdminCreateProductWizard() {
                         key={type}
                         type="button"
                         onClick={() => setProductType(type)}
-                        className={`${glassTileBase} ${glassTileState(active)} p-3 sm:p-4`}
+                        className={`${glassTileBase} ${glassTileState(active)} p-2 sm:p-4`}
                       >
                         <TileChrome active={active} />
                         <div className="relative flex flex-col items-center">
-                          <div className="relative flex h-24 w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-b from-white/[0.08] to-black/20 ring-1 ring-inset ring-white/10">
+                          <div className="relative flex h-20 w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-b from-white/[0.08] to-black/20 ring-1 ring-inset ring-white/10 sm:h-24">
                             <span
                               aria-hidden
                               className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(255,255,255,0.18),transparent_70%)]"
@@ -2310,10 +2312,10 @@ export default function AdminCreateProductWizard() {
                               alt={`${label} preview`}
                               loading="lazy"
                               draggable={false}
-                              className="relative h-[5.5rem] w-auto object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,0.45)] transition-transform duration-300 group-hover:scale-[1.06]"
+                              className="relative h-full w-full object-contain p-1 drop-shadow-[0_8px_16px_rgba(0,0,0,0.45)] transition-transform duration-300 group-hover:scale-[1.06]"
                             />
                           </div>
-                          <p className="mt-2.5 text-sm font-semibold text-text">{label}</p>
+                          <p className="mt-2 text-xs sm:mt-2.5 sm:text-sm font-semibold text-text">{label}</p>
                         </div>
                       </button>
                     )
@@ -2326,7 +2328,7 @@ export default function AdminCreateProductWizard() {
                 <label className="block text-sm font-semibold text-text mb-3">
                   {productType === 'tshirt' ? 'Shirt' : productType === 'hoodie' ? 'Hoodie' : 'Tank'} Color
                 </label>
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
                   {([
                     { value: 'black', label: 'Black', hint: 'Vibrant colors', sw: 'bg-gray-900 ring-white/25' },
                     { value: 'white', label: 'White', hint: 'High contrast', sw: 'bg-white ring-gray-300' },
@@ -2338,15 +2340,15 @@ export default function AdminCreateProductWizard() {
                         key={value}
                         type="button"
                         onClick={() => setShirtColor(value)}
-                        className={`${glassTileBase} ${glassTileState(active)} p-4`}
+                        className={`${glassTileBase} ${glassTileState(active)} p-2.5 sm:p-4`}
                       >
                         <TileChrome active={active} />
-                        <div className="relative flex flex-col items-center">
+                        <div className="relative flex flex-col items-center text-center">
                           <span
-                            className={`h-10 w-10 rounded-full ring-2 ${sw} shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform duration-300 group-hover:scale-110`}
+                            className={`h-8 w-8 sm:h-10 sm:w-10 rounded-full ring-2 ${sw} shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform duration-300 group-hover:scale-110`}
                           />
-                          <p className="mt-2 text-sm font-semibold text-text">{label}</p>
-                          <p className="text-xs text-muted">{hint}</p>
+                          <p className="mt-2 text-xs sm:text-sm font-semibold text-text">{label}</p>
+                          <p className="text-[11px] sm:text-xs text-muted">{hint}</p>
                         </div>
                       </button>
                     )
@@ -2372,13 +2374,13 @@ export default function AdminCreateProductWizard() {
                         key={value}
                         type="button"
                         onClick={() => setPrintPlacement(value)}
-                        className={`${glassTileBase} ${glassTileState(active)} p-4`}
+                        className={`${glassTileBase} ${glassTileState(active)} p-3 sm:p-4`}
                       >
                         <TileChrome active={active} />
-                        <div className="relative flex flex-col items-center">
+                        <div className="relative flex flex-col items-center text-center">
                           <PlacementGlyph kind={value} active={active} />
-                          <p className="mt-1.5 text-sm font-semibold text-text">{label}</p>
-                          <p className="text-xs text-muted">{hint}</p>
+                          <p className="mt-1.5 text-xs sm:text-sm font-semibold text-text">{label}</p>
+                          <p className="text-[11px] sm:text-xs text-muted">{hint}</p>
                         </div>
                       </button>
                     )
@@ -2419,15 +2421,15 @@ export default function AdminCreateProductWizard() {
               </div>
 
               {/* Mockup preview note — 3 variants from the same design */}
-              <div className="mt-6 bg-primary/10 border border-primary/30 rounded-xl p-4">
-                <div className="flex items-start space-x-3">
+              <div className="mt-6 bg-primary/10 border border-primary/30 rounded-xl p-3 sm:p-4">
+                <div className="flex items-start gap-3">
                   <span className="text-2xl">🖼️</span>
                   <div className="flex-1">
                     <p className="font-semibold text-text">Three mockups, one click</p>
                     <p className="text-sm text-muted mb-3">
                       A {shirtColor} {productType} with the design at the {printPlacement.replace(/-/g, ' ')} position will be rendered as:
                     </p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="bg-bg/40 rounded-lg px-2 py-1.5 border border-white/5 text-center">
                         <p className="text-xs font-semibold text-text">👻 Ghost mannequin</p>
                         <p className="text-[10px] text-muted">primary image</p>
@@ -2451,9 +2453,9 @@ export default function AdminCreateProductWizard() {
               <button
                 onClick={handleDescribe}
                 disabled={loading}
-                className="group relative bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold px-10 py-4 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-2xl hover:shadow-purple-500/50 transform hover:scale-105"
+                className="group relative w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold px-10 py-4 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-2xl hover:shadow-purple-500/50 transform sm:hover:scale-105"
               >
-                <span className="flex items-center space-x-2">
+                <span className="flex items-center justify-center space-x-2">
                   {loading ? (
                     <>
                       <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
@@ -2479,18 +2481,18 @@ export default function AdminCreateProductWizard() {
 
       {/* Step 2: Review */}
       {currentStep === 'review' && normalized && (
-        <div className="bg-gradient-to-br from-white to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-3xl shadow-2xl p-8 border border-purple-200/50 dark:border-purple-800/50 backdrop-blur-sm">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent mb-3">
+        <div className="bg-gradient-to-br from-white to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-3xl shadow-2xl p-4 sm:p-8 border border-purple-200/50 dark:border-purple-800/50 backdrop-blur-sm">
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent mb-3">
               Review AI Interpretation
             </h2>
-            <p className="text-muted text-lg">
+            <p className="text-muted text-base sm:text-lg">
               Here's how our AI interpreted your product. You can proceed with generation or start over to make changes.
             </p>
           </div>
 
           <div className="space-y-6">
-            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-2xl p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
+            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
               <h3 className="font-bold text-text mb-3 text-lg flex items-center">
                 <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -2500,7 +2502,7 @@ export default function AdminCreateProductWizard() {
               <p className="text-text text-xl font-semibold">{normalized.title}</p>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
               <h3 className="font-bold text-text mb-3 text-lg flex items-center">
                 <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
@@ -2511,7 +2513,7 @@ export default function AdminCreateProductWizard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
                 <h3 className="font-bold text-text mb-3 flex items-center">
                   <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -2521,7 +2523,7 @@ export default function AdminCreateProductWizard() {
                 <p className="text-text capitalize text-lg font-semibold">{normalized.category_slug}</p>
               </div>
 
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
                 <h3 className="font-bold text-text mb-3 flex items-center">
                   <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -2532,7 +2534,7 @@ export default function AdminCreateProductWizard() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
               <h3 className="font-bold text-text mb-4 flex items-center">
                 <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -2551,7 +2553,7 @@ export default function AdminCreateProductWizard() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 border border-purple-200 dark:border-purple-700 shadow-lg">
               <h3 className="font-bold text-text mb-4 flex items-center">
                 <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -2577,12 +2579,12 @@ export default function AdminCreateProductWizard() {
               </div>
             </div>
 
-            <div className="flex justify-between pt-4">
+            <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-4">
               <button
                 onClick={handleStartOver}
-                className="group bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-bold px-8 py-4 rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
+                className="group w-full sm:w-auto bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-bold px-8 py-4 rounded-xl transition-all shadow-lg hover:shadow-xl transform sm:hover:scale-105"
               >
-                <span className="flex items-center space-x-2">
+                <span className="flex items-center justify-center space-x-2">
                   <svg className="w-5 h-5 transition-transform group-hover:-translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
                   </svg>
@@ -2591,9 +2593,9 @@ export default function AdminCreateProductWizard() {
               </button>
               <button
                 onClick={handleReview}
-                className="group bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold px-8 py-4 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-purple-500/50 transform hover:scale-105"
+                className="group w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold px-8 py-4 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-purple-500/50 transform sm:hover:scale-105"
               >
-                <span className="flex items-center space-x-2">
+                <span className="flex items-center justify-center space-x-2">
                   <span>Generate Assets</span>
                   <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -2639,24 +2641,24 @@ export default function AdminCreateProductWizard() {
                 ? 'Queued — waiting for worker…'
                 : 'Working…'
         return (
-        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-              <svg className="w-8 h-8 mr-3 text-primary animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-4 sm:p-8 border border-white/10 ring-1 ring-white/5">
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 mr-2 sm:mr-3 text-primary animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Generating Assets
             </h2>
-            <p className="text-muted text-lg">
+            <p className="text-muted text-base sm:text-lg">
               4 models race in parallel for the design (~30–60s), you pick a favorite, then 3 mockups render (~30s).
             </p>
           </div>
 
           {/* Live progress bar — driven by job.output.step / total_steps + mockup completion */}
           <div className="mb-8">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-text">{progressMessage}</span>
-              <span className="text-xs text-muted font-mono">{Math.round(percent)}%</span>
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <span className="min-w-0 text-sm font-semibold text-text">{progressMessage}</span>
+              <span className="shrink-0 text-xs text-muted font-mono">{Math.round(percent)}%</span>
             </div>
             <div className="h-2.5 rounded-full bg-bg/60 border border-white/5 overflow-hidden">
               <div
@@ -2667,7 +2669,7 @@ export default function AdminCreateProductWizard() {
           </div>
 
           {/* Progress Timeline */}
-          <div className="mb-10 bg-bg/40 backdrop-blur-sm rounded-2xl p-8 border border-white/10 shadow-xl relative overflow-hidden">
+          <div className="mb-10 bg-bg/40 backdrop-blur-sm rounded-2xl p-4 sm:p-8 border border-white/10 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
             <h3 className="font-semibold text-text mb-6 flex items-center text-lg">
               <svg className="w-5 h-5 mr-2 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2750,7 +2752,7 @@ export default function AdminCreateProductWizard() {
               jobs.map((job, index) => (
                 <div
                   key={job.id}
-                  className={`relative overflow-hidden flex items-center justify-between p-6 rounded-2xl border transition-all duration-500 shadow-lg ${job.status === 'running'
+                  className={`relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 p-4 sm:p-6 rounded-2xl border transition-all duration-500 shadow-lg ${job.status === 'running'
                     ? 'bg-card/60 border-primary/50 shadow-[0_0_20px_rgba(168,85,247,0.15)] ring-1 ring-primary/30'
                     : job.status === 'succeeded'
                       ? 'bg-card/40 border-green-500/30 shadow-[0_0_15px_rgba(34,197,94,0.1)]'
@@ -2763,12 +2765,12 @@ export default function AdminCreateProductWizard() {
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/5 to-transparent animate-shimmer" style={{ backgroundSize: '200% 100%' }}></div>
                   )}
 
-                  <div className="flex items-center space-x-5 relative z-10">
-                    <div className={`text-4xl transition-transform duration-500 ${job.status === 'running' ? 'animate-pulse scale-110' : ''}`}>
+                  <div className="flex min-w-0 items-center gap-3 sm:gap-5 relative z-10">
+                    <div className={`text-3xl sm:text-4xl shrink-0 transition-transform duration-500 ${job.status === 'running' ? 'animate-pulse scale-110' : ''}`}>
                       {getJobStatusIcon(job.status)}
                     </div>
-                    <div>
-                      <p className="font-bold text-text text-xl mb-1">
+                    <div className="min-w-0">
+                      <p className="font-bold text-text text-base sm:text-xl mb-1">
                         {(job.type === 'replicate_image' || job.type === 'replicate_image_v2') && '🎨 Product Image Generation'}
                         {job.type === 'replicate_rembg' && '✂️ Background Removal'}
                         {job.type === 'ghost_mannequin' && '👻 Ghost Mannequin Mockup'}
@@ -2810,7 +2812,7 @@ export default function AdminCreateProductWizard() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 relative z-10">
+                  <div className="flex shrink-0 items-center gap-3 relative z-10 self-end sm:self-auto">
                     {job.status === 'failed' && (
                       <button
                         onClick={() => handleRetryJob(job.id)}
@@ -2842,9 +2844,9 @@ export default function AdminCreateProductWizard() {
 
           {/* Manual Workflow: Source Image Preview + Remove Background OR Skip Button */}
           {productAssets.some(asset => asset.kind === 'source') && !jobs.some(j => j.type === 'replicate_rembg') && !jobs.some(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2')) && (
-            <div className="mt-10 bg-card/30 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl">
-              <h3 className="font-bold text-text text-2xl mb-4 text-center">Source Image Generated!</h3>
-              <div className="bg-bg/50 rounded-xl p-6 mb-6 border border-white/5">
+            <div className="mt-10 bg-card/30 backdrop-blur-md rounded-2xl p-4 sm:p-8 border border-white/10 shadow-xl">
+              <h3 className="font-bold text-text text-xl sm:text-2xl mb-4 text-center">Source Image Generated!</h3>
+              <div className="bg-bg/50 rounded-xl p-3 sm:p-6 mb-6 border border-white/5">
                 <img
                   src={productAssets.find(asset => asset.kind === 'source')?.url}
                   alt="Source product image"
@@ -2853,13 +2855,13 @@ export default function AdminCreateProductWizard() {
               </div>
               <div className="text-center">
                 <p className="text-muted mb-4">Next step: Remove the background for better mockup quality, or skip to mockups</p>
-                <div className="flex gap-4 justify-center">
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
                   <button
                     onClick={handleRemoveBackground}
                     disabled={removingBackground || creatingMockups}
-                    className="group bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-12 py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="group w-full sm:w-auto bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-6 sm:px-12 py-4 sm:py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <span className="flex items-center space-x-2 text-lg">
+                    <span className="flex items-center justify-center space-x-2 text-base sm:text-lg">
                       <span>{removingBackground ? 'Starting...' : 'Remove Background'}</span>
                       <svg className="w-6 h-6 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -2869,9 +2871,9 @@ export default function AdminCreateProductWizard() {
                   <button
                     onClick={handleCreateMockups}
                     disabled={removingBackground || creatingMockups}
-                    className="group bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold px-12 py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-green-500/50 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="group w-full sm:w-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold px-6 sm:px-12 py-4 sm:py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-green-500/50 transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <span className="flex items-center space-x-2 text-lg">
+                    <span className="flex items-center justify-center space-x-2 text-base sm:text-lg">
                       <span>{creatingMockups ? 'Starting...' : 'Skip to Mockups'}</span>
                       <svg className="w-6 h-6 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -2885,10 +2887,10 @@ export default function AdminCreateProductWizard() {
 
           {/* Manual Workflow: Background Removed Preview + Create Mockups Button */}
           {productAssets.some(asset => asset.kind === 'nobg') && !jobs.some(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2')) && (
-            <div className="mt-10 bg-card/30 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl">
-              <h3 className="font-bold text-text text-2xl mb-4 text-center">Background Removed!</h3>
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                <div className="bg-bg/50 rounded-xl p-4 border border-white/5">
+            <div className="mt-10 bg-card/30 backdrop-blur-md rounded-2xl p-4 sm:p-8 border border-white/10 shadow-xl">
+              <h3 className="font-bold text-text text-xl sm:text-2xl mb-4 text-center">Background Removed!</h3>
+              <div className="grid grid-cols-2 gap-3 sm:gap-6 mb-6">
+                <div className="bg-bg/50 rounded-xl p-2.5 sm:p-4 border border-white/5">
                   <p className="text-sm text-muted text-center mb-2">With Background</p>
                   <img
                     src={selectedImageId
@@ -2898,7 +2900,7 @@ export default function AdminCreateProductWizard() {
                     className="w-full rounded-lg shadow-lg"
                   />
                 </div>
-                <div className="bg-bg/50 rounded-xl p-4 border border-white/5">
+                <div className="bg-bg/50 rounded-xl p-2.5 sm:p-4 border border-white/5">
                   <p className="text-sm text-muted text-center mb-2">Without Background</p>
                   <img
                     src={productAssets.find(asset => asset.kind === 'nobg')?.url}
@@ -2912,9 +2914,9 @@ export default function AdminCreateProductWizard() {
                 <button
                   onClick={handleCreateMockups}
                   disabled={creatingMockups}
-                  className="group bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-12 py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="group w-full sm:w-auto bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-6 sm:px-12 py-4 sm:py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span className="flex items-center space-x-2 text-lg">
+                  <span className="flex items-center justify-center space-x-2 text-base sm:text-lg">
                     <span>{creatingMockups ? 'Starting...' : 'Create Mockups'}</span>
                     <svg className="w-6 h-6 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -2927,14 +2929,14 @@ export default function AdminCreateProductWizard() {
 
           {/* Manual Workflow: Mockups Complete + View Product Button */}
           {jobs.filter(j => (j.type === 'replicate_mockup' || j.type === 'replicate_mockup_v2') && j.status === 'succeeded').length === 2 && (
-            <div className="mt-10 text-center bg-card/30 backdrop-blur-md rounded-2xl p-8 border border-white/10 shadow-xl">
+            <div className="mt-10 text-center bg-card/30 backdrop-blur-md rounded-2xl p-4 sm:p-8 border border-white/10 shadow-xl">
               <svg className="w-16 h-16 mx-auto mb-4 text-green-500 animate-bounce drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <h3 className="font-bold text-text text-2xl mb-4">All Mockups Generated!</h3>
-              <div className="grid grid-cols-2 gap-6 mb-6">
+              <h3 className="font-bold text-text text-xl sm:text-2xl mb-4">All Mockups Generated!</h3>
+              <div className="grid grid-cols-2 gap-3 sm:gap-6 mb-6">
                 {productAssets.filter(asset => asset.kind === 'mockup').map((asset, index) => (
-                  <div key={asset.id} className="bg-bg/50 rounded-xl p-4 border border-white/5">
+                  <div key={asset.id} className="bg-bg/50 rounded-xl p-2.5 sm:p-4 border border-white/5">
                     <p className="text-sm text-muted text-center mb-2">Mockup #{index + 1}</p>
                     <img
                       src={asset.url}
@@ -2946,9 +2948,9 @@ export default function AdminCreateProductWizard() {
               </div>
               <button
                 onClick={handleViewProduct}
-                className="group bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-12 py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform hover:scale-105"
+                className="group w-full sm:w-auto bg-gradient-to-r from-primary to-purple-600 hover:from-purple-500 hover:to-primary text-white font-bold px-6 sm:px-12 py-4 sm:py-5 rounded-xl transition-all shadow-lg hover:shadow-2xl hover:shadow-primary/50 transform sm:hover:scale-105"
               >
-                <span className="flex items-center space-x-2 text-lg">
+                <span className="flex items-center justify-center space-x-2 text-base sm:text-lg">
                   <span>View Product</span>
                   <svg className="w-6 h-6 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -2969,10 +2971,10 @@ export default function AdminCreateProductWizard() {
         const failed = allModelResults.filter(r => r.status === 'failed')
         const totalAttempted = allModelResults.length || sourceImages.length
         return (
-        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-8 border border-white/10 ring-1 ring-white/5">
+        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-4 sm:p-8 border border-white/10 ring-1 ring-white/5">
           <div className="mb-6">
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-              <Sparkles className="w-8 h-8 mr-3 text-primary" />
+            <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-3 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+              <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 mr-2 sm:mr-3 text-primary" />
               Pick your favorite
             </h2>
             <p className="text-muted">
@@ -2999,7 +3001,7 @@ export default function AdminCreateProductWizard() {
             </div>
           )}
 
-          <div className={`grid gap-6 mb-8 ${sourceImages.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : sourceImages.length === 2 ? 'grid-cols-1 md:grid-cols-2' : sourceImages.length === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
+          <div className={`grid gap-4 sm:gap-6 mb-8 ${sourceImages.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : sourceImages.length === 2 ? 'grid-cols-1 md:grid-cols-2' : sourceImages.length === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
             {sourceImages.map((image, index) => {
               const isSelected = selectedImageId === image.id
               const modelLabel = image.metadata?.model_name ?? 'AI Generated'
@@ -3020,8 +3022,8 @@ export default function AdminCreateProductWizard() {
                       className="w-full h-full object-contain"
                     />
                   </div>
-                  <div className="p-5">
-                    <div className="flex items-center justify-between mb-3">
+                  <div className="p-3.5 sm:p-5">
+                    <div className="flex items-center justify-between gap-2 mb-3">
                       <span className="text-xs font-semibold text-primary truncate" title={modelLabel}>{modelLabel}</span>
                       <span className="text-[11px] text-text/70 flex-shrink-0">{image.width}×{image.height}</span>
                     </div>
@@ -3089,18 +3091,18 @@ export default function AdminCreateProductWizard() {
         return (
           <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl border border-white/10 ring-1 ring-white/5 overflow-hidden">
             {/* Header */}
-            <div className="px-8 pt-8 pb-6 border-b border-white/10">
-              <div className="flex items-center justify-between">
+            <div className="px-4 sm:px-8 pt-5 sm:pt-8 pb-4 sm:pb-6 border-b border-white/10">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-2 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-                    <Sparkles className="w-8 h-8 mr-3 text-primary" />
+                  <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-primary via-purple-400 to-secondary bg-clip-text text-transparent mb-2 flex items-center drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+                    <Sparkles className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 mr-2 sm:mr-3 text-primary" />
                     Refine Your Design
                   </h2>
-                  <p className="text-muted">
+                  <p className="text-muted text-sm sm:text-base">
                     Iterate with GPT Image 2 — describe a change in plain English. Each edit becomes a new version.
                   </p>
                 </div>
-                <div className="text-right">
+                <div className="shrink-0 text-left sm:text-right">
                   <p className="text-xs text-muted uppercase tracking-wider mb-1">Step 3 of 4</p>
                   <p className="text-text/70 text-sm">Powered by GPT Image 2</p>
                 </div>
@@ -3110,7 +3112,7 @@ export default function AdminCreateProductWizard() {
             {/* Studio: preview (left) + actions (right) */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-0">
               {/* Preview pane */}
-              <div className="lg:col-span-3 p-8 border-r border-white/10">
+              <div className="lg:col-span-3 p-4 sm:p-8 border-b border-white/10 lg:border-b-0 lg:border-r">
                 <div className="relative aspect-square bg-gradient-to-br from-bg/60 via-bg/40 to-bg/60 rounded-2xl overflow-hidden border border-white/10 shadow-inner">
                   {currentImage ? (
                     <>
@@ -3237,7 +3239,7 @@ export default function AdminCreateProductWizard() {
               </div>
 
               {/* Action panel */}
-              <div className="lg:col-span-2 p-8 bg-bg/20 flex flex-col">
+              <div className="lg:col-span-2 p-4 sm:p-8 bg-bg/20 flex flex-col">
                 {/* Edit-model picker */}
                 <div className="mb-4">
                   <p className="text-xs uppercase tracking-wider text-muted mb-2">Edit model</p>
@@ -3314,7 +3316,7 @@ export default function AdminCreateProductWizard() {
                     value={editPrompt}
                     onChange={(e) => setEditPrompt(e.target.value)}
                     placeholder="e.g., Recolor the lettering to neon teal, keep everything else the same"
-                    className="w-full bg-bg/60 border border-white/10 rounded-xl p-3.5 text-text placeholder-muted/60 resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/40 transition-all text-sm"
+                    className="w-full bg-bg/60 border border-white/10 rounded-xl p-3.5 text-text placeholder-muted/60 resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/40 transition-all text-base sm:text-sm"
                     rows={4}
                     disabled={editing}
                     onKeyDown={(e) => {
@@ -3450,7 +3452,7 @@ export default function AdminCreateProductWizard() {
                         <select
                           value={halftoneFrequency}
                           onChange={(e) => setHalftoneFrequency(Number(e.target.value))}
-                          className="w-full bg-bg/80 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-text"
+                          className="w-full bg-bg/80 border border-white/10 rounded-lg px-2 py-1.5 text-base sm:text-sm text-text"
                         >
                           <option value={25}>25 — chunky retro</option>
                           <option value={35}>35 — classic DTF</option>
@@ -3467,7 +3469,7 @@ export default function AdminCreateProductWizard() {
                             if (v === 'diffusion') { setHalftoneMethod('diffusion') }
                             else { setHalftoneMethod('halftone'); setHalftoneShape(v as 'round' | 'line') }
                           }}
-                          className="w-full bg-bg/80 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-text"
+                          className="w-full bg-bg/80 border border-white/10 rounded-lg px-2 py-1.5 text-base sm:text-sm text-text"
                         >
                           <option value="round">Round dots</option>
                           <option value="line">Line screen</option>
@@ -3526,8 +3528,8 @@ export default function AdminCreateProductWizard() {
             </div>
 
             {/* Footer: back link + error */}
-            <div className="px-8 py-5 border-t border-white/10 bg-bg/20">
-              <div className="flex items-center justify-between">
+            <div className="px-4 sm:px-8 py-4 sm:py-5 border-t border-white/10 bg-bg/20">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <button
                   onClick={() => setCurrentStep('select-image')}
                   className="text-muted hover:text-text transition-colors flex items-center text-sm"
@@ -3551,9 +3553,9 @@ export default function AdminCreateProductWizard() {
 
       {/* Step 4: Success */}
       {currentStep === 'success' && finalProduct && (
-        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-10 border border-white/10 ring-1 ring-white/5">
+        <div className="bg-card/30 backdrop-blur-md rounded-3xl shadow-2xl p-5 sm:p-10 border border-white/10 ring-1 ring-white/5">
           {/* Success Header */}
-          <div className="text-center mb-10">
+          <div className="text-center mb-8 sm:mb-10">
             <div className="relative w-24 h-24 mx-auto mb-6">
               <div className="absolute inset-0 bg-gradient-to-br from-emerald-400 to-green-500 rounded-full animate-pulse shadow-[0_0_30px_rgba(52,211,153,0.5)]"></div>
               <div className="absolute inset-0 flex items-center justify-center">
@@ -3562,17 +3564,17 @@ export default function AdminCreateProductWizard() {
                 </svg>
               </div>
             </div>
-            <h2 className="text-4xl font-bold bg-gradient-to-r from-emerald-400 to-green-500 bg-clip-text text-transparent mb-3 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]">
+            <h2 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-green-500 bg-clip-text text-transparent mb-3 drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]">
               Product Created Successfully!
             </h2>
-            <p className="text-muted text-xl">
+            <p className="text-muted text-base sm:text-xl">
               Your AI-generated product is ready for review
             </p>
           </div>
 
           {/* Product Details Card */}
-          <div className="bg-bg/40 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-white/10 shadow-lg">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="bg-bg/40 backdrop-blur-sm rounded-2xl p-4 sm:p-6 mb-6 border border-white/10 shadow-lg">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted mb-1">Product Name</p>
                 <p className="font-semibold text-text text-lg">{finalProduct.name}</p>

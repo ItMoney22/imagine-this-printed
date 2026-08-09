@@ -1,8 +1,29 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { CheckCircle, Package, Truck, ArrowRight, Sparkles, Gift } from 'lucide-react'
 import Confetti from 'react-confetti'
 import { useWindowSize } from 'react-use'
+import { apiFetch } from '../lib/api'
+
+/** Minimal shape returned by GET /api/orders/:orderId/confirmation. */
+interface ConfirmationOrder {
+  id: string
+  order_number: string | null
+  status: string | null
+  payment_status: string | null
+  fulfillment_status: string | null
+  total: number | null
+  currency: string | null
+  customer_name: string | null
+  created_at: string | null
+}
+
+// How long to keep asking while payment_status is still 'pending'. A card
+// payment is normally recorded within a second or two of the redirect, but the
+// webhook is a separate network hop and can lag; ACH/bank debits can sit in
+// 'processing' far longer, which is why giving up here is not an error state.
+const POLL_INTERVAL_MS = 3000
+const POLL_ATTEMPTS = 10
 
 const OrderSuccess: React.FC = () => {
   const navigate = useNavigate()
@@ -10,9 +31,61 @@ const OrderSuccess: React.FC = () => {
   const { width, height } = useWindowSize()
   const [showConfetti, setShowConfetti] = useState(true)
   const [animateIn, setAnimateIn] = useState(false)
+  const [order, setOrder] = useState<ConfirmationOrder | null>(null)
+  const [lookupFailed, setLookupFailed] = useState(false)
+  const cancelled = useRef(false)
 
   const orderId = searchParams.get('order_id')
-  const orderNumber = orderId ? orderId.slice(0, 8).toUpperCase() : 'ITP' + Date.now().toString(36).toUpperCase()
+
+  // Previously this page NEVER fetched the order: it sliced the raw UUID to
+  // fake an order number (so a customer saw "BF1ABB5F" instead of their real
+  // ITP-… reference) and rendered a hardcoded green "Processing" pill no matter
+  // what had actually happened to the payment. During the 2026-08-07 webhook
+  // outage that pill read "Processing" over an order the database still had at
+  // payment_status=pending. The read-only, guest-safe
+  // GET /api/orders/:orderId/confirmation endpoint already existed for exactly
+  // this purpose and simply had no caller.
+  useEffect(() => {
+    cancelled.current = false
+    if (!orderId) {
+      setLookupFailed(true)
+      return
+    }
+
+    let attempts = 0
+    const poll = async () => {
+      if (cancelled.current) return
+      attempts++
+      try {
+        const result = await apiFetch(`/api/orders/${orderId}/confirmation`)
+        if (cancelled.current) return
+        const fetched: ConfirmationOrder | null = result?.order ?? null
+        if (fetched) {
+          setOrder(fetched)
+          setLookupFailed(false)
+          // Stop as soon as the payment is recorded (or has definitively
+          // failed); keep polling only while it's genuinely still pending.
+          const settled = fetched.payment_status !== 'pending'
+          if (settled || attempts >= POLL_ATTEMPTS) return
+        } else if (attempts >= POLL_ATTEMPTS) {
+          setLookupFailed(true)
+          return
+        }
+      } catch {
+        // Never turn a confirmation screen into an error page — the customer
+        // has already paid. Fall back to the reassuring copy below.
+        if (cancelled.current) return
+        if (attempts >= POLL_ATTEMPTS) {
+          setLookupFailed(true)
+          return
+        }
+      }
+      setTimeout(poll, POLL_INTERVAL_MS)
+    }
+    poll()
+
+    return () => { cancelled.current = true }
+  }, [orderId])
 
   useEffect(() => {
     // Trigger animations after mount
@@ -22,6 +95,31 @@ const OrderSuccess: React.FC = () => {
     const timer = setTimeout(() => setShowConfetti(false), 8000)
     return () => clearTimeout(timer)
   }, [])
+
+  // Real reference when we have it; the sliced UUID only as a last resort so
+  // the customer always has *something* quotable in a support email.
+  const orderNumber = order?.order_number
+    || (orderId ? orderId.slice(0, 8).toUpperCase() : 'ITP' + Date.now().toString(36).toUpperCase())
+
+  // Status pill derived from actual state instead of asserted.
+  const statusPill = (() => {
+    if (!order || lookupFailed) return { label: 'Confirming', tone: 'amber' as const, pulse: true }
+    if (order.payment_status === 'paid') {
+      const fulfilment = (order.fulfillment_status || '').toLowerCase()
+      const status = (order.status || '').toLowerCase()
+      if (status === 'shipped' || fulfilment === 'fulfilled') return { label: 'Shipped', tone: 'green' as const, pulse: false }
+      if (status === 'delivered') return { label: 'Delivered', tone: 'green' as const, pulse: false }
+      return { label: 'Paid — in production', tone: 'green' as const, pulse: true }
+    }
+    if (order.payment_status === 'failed') return { label: 'Payment failed', tone: 'red' as const, pulse: false }
+    return { label: 'Confirming payment', tone: 'amber' as const, pulse: true }
+  })()
+
+  const pillTone = {
+    green: { wrap: 'bg-green-500/20 border-green-500/30', dot: 'bg-green-400', text: 'text-green-400' },
+    amber: { wrap: 'bg-amber-500/20 border-amber-500/30', dot: 'bg-amber-400', text: 'text-amber-300' },
+    red: { wrap: 'bg-red-500/20 border-red-500/30', dot: 'bg-red-400', text: 'text-red-300' }
+  }[statusPill.tone]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black relative overflow-hidden">
@@ -106,9 +204,9 @@ const OrderSuccess: React.FC = () => {
                 <p className="text-white/60 text-sm uppercase tracking-wide">Order Number</p>
                 <p className="text-2xl font-bold text-white font-mono">{orderNumber}</p>
               </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 rounded-full border border-green-500/30">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                <span className="text-green-400 font-medium">Processing</span>
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${pillTone.wrap}`}>
+                <div className={`w-2 h-2 rounded-full ${pillTone.dot} ${statusPill.pulse ? 'animate-pulse' : ''}`} />
+                <span className={`${pillTone.text} font-medium`}>{statusPill.label}</span>
               </div>
             </div>
           </div>

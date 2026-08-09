@@ -10,17 +10,15 @@ import {
 } from '../config/itc-pricing.js'
 import { processRoyaltyPayment, calculateRoyalty } from '../services/user-royalties.js'
 import {
-  sendOrderConfirmationEmail as sendOrderEmail,
   sendOrderShippedEmail,
   sendOrderDeliveredEmail
 } from '../utils/email.js'
-import { decrementBlanksForOrder } from '../services/blank-inventory.js'
-import { accrueCreatorMarginsForOrder } from '../services/creator-margins.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
-import { processOrderCompletion } from '../services/order-reward-service.js'
-import { processReferralFirstPurchase } from '../services/referral-service.js'
-import { findCouponIdByCode, recordCouponUsage } from './coupons.js'
+// The paid-order pipeline (claim → ITC → rewards → emails → inventory →
+// margins → merch ledger) lives in this service so the hourly payment
+// reconciler can run the identical path when a webhook never arrives.
+import { applyPaidCheckoutOrder } from '../services/order-payment.js'
 import { extractImaginationCartItems, findDpiViolations, DEFAULT_MIN_DPI } from '../services/imagination-dpi-guard.js'
 import { imaginationProducts } from '../services/imagination-products.js'
 import {
@@ -79,6 +77,78 @@ function checkRateLimit(userId: string): boolean {
 // in the orders.metadata.items snapshot instead, and product_id is nulled.
 // ---------------------------------------------------------------------------
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// ---------------------------------------------------------------------------
+// Shipping choice snapshot (2026-08-07).
+//
+// The checkout page has always POSTed the customer's shipping selection —
+// `shippingMethod` ("USPS Ground Advantage", "Local Pickup", + " — Rush (Next
+// Business Day)"), `shippingType`, `rush`, and for pickups a
+// `pickupAppointment` of {date, time, notes}. This route destructured only the
+// three fields it needed to PRICE the order and dropped the rest on the floor,
+// and nothing was ever written to the order row. Net effect: Order Management
+// could show a dollar amount but could not say whether the customer was having
+// it shipped, driving over to collect it, or what time they said they'd arrive.
+// A $0 shipping line was indistinguishable between "local pickup" and "free
+// shipping over $50". ITP's first real order landed as a pickup and the
+// appointment the customer picked was unrecoverable.
+//
+// TRUST BOUNDARY: every number here comes from the SERVER's pricing result, not
+// the request. `method` is the one client-supplied value — a display label
+// only, trimmed and length-capped, never used in any calculation. `type` is
+// re-derived from the server-side pricing input so the label can't disagree
+// with what was actually charged.
+// ---------------------------------------------------------------------------
+const SHIPPING_TYPES = ['shipping', 'pickup', 'delivery'] as const
+
+function cleanLabel(value: unknown, max = 120): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().replace(/\s+/g, ' ').slice(0, max)
+  return trimmed.length > 0 ? trimmed : null
+}
+
+// Exported for unit testing — it is the trust boundary between the client's
+// claimed shipping selection and what gets written onto a real order.
+export function snapshotShippingChoice(input: {
+  shippingMethod: unknown
+  shippingType: unknown
+  pickupAppointment: unknown
+  isLocalDelivery: unknown
+  shippingCents: number
+  rushFeeCents: number
+  freeShippingApplied: boolean
+}) {
+  const rawType = typeof input.shippingType === 'string' ? input.shippingType.toLowerCase() : ''
+  const type = (SHIPPING_TYPES as readonly string[]).includes(rawType) ? rawType : 'shipping'
+  const rushFee = Number(input.rushFeeCents) || 0
+
+  const appt = input.pickupAppointment
+  const appointment = type === 'pickup' && appt && typeof appt === 'object'
+    ? {
+        date: cleanLabel((appt as any).date, 40),
+        time: cleanLabel((appt as any).time, 40),
+        notes: cleanLabel((appt as any).notes, 500)
+      }
+    : null
+
+  return {
+    // Human label the fulfilment crew reads. Falls back to the type so this is
+    // never blank — "we don't know" is the one answer this must never give.
+    method: cleanLabel(input.shippingMethod)
+      || (type === 'pickup' ? 'Local Pickup' : type === 'delivery' ? 'Local Delivery' : 'Standard Shipping'),
+    type,
+    // Server-decided: resolveShipping only charges the rush fee for
+    // pickup/delivery, so a client claiming rush on a carrier rate shows false.
+    rush: rushFee > 0,
+    rush_fee: rushFee / 100,
+    amount: (Number(input.shippingCents) || 0) / 100,
+    free_shipping_applied: !!input.freeShippingApplied,
+    is_local_delivery: type === 'delivery' || input.isLocalDelivery === true,
+    // Only ever present on pickups; null on everything else.
+    pickup_appointment: appointment,
+    recorded_at: new Date().toISOString()
+  }
+}
 
 // Per-unit add-on upsell total (metal-art easel stand, wall mount, etc.).
 // Add-ons are priced per unit and were already folded into the charged amount
@@ -182,7 +252,7 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery } = req.body
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
@@ -326,7 +396,19 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           ...(existingOrder?.metadata && typeof existingOrder.metadata === 'object' ? existingOrder.metadata : {}),
           items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
-          itc_credit_usd: itcCreditUSD || 0
+          itc_credit_usd: itcCreditUSD || 0,
+          // Re-snapshotted on every update: a customer who switches from
+          // shipping to pickup mid-checkout must not leave the old choice on
+          // the order for the crew to act on.
+          shipping: snapshotShippingChoice({
+            shippingMethod,
+            shippingType,
+            pickupAppointment,
+            isLocalDelivery,
+            shippingCents: pricing.shippingCents,
+            rushFeeCents: pricing.rushFeeCents,
+            freeShippingApplied: pricing.freeShippingApplied
+          })
         }
 
         // Update the existing order
@@ -428,7 +510,16 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         metadata: {
           items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
-          itc_credit_usd: itcCreditUSD || 0
+          itc_credit_usd: itcCreditUSD || 0,
+          shipping: snapshotShippingChoice({
+            shippingMethod,
+            shippingType,
+            pickupAppointment,
+            isLocalDelivery,
+            shippingCents: pricing.shippingCents,
+            rushFeeCents: pricing.rushFeeCents,
+            freeShippingApplied: pricing.freeShippingApplied
+          })
         }
       })
       .select()
@@ -467,6 +558,13 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         shippingCity: shipping?.city || '',
         shippingState: shipping?.state || '',
         shippingCountry: shipping?.country || 'US',
+        // Mirrored onto the PaymentIntent so the fulfilment choice survives in
+        // Stripe too — that copy is what let the 2026-08-07 webhook outage be
+        // reconstructed at all, and it shows in the Dashboard next to the money.
+        shippingMethod: cleanLabel(shippingMethod) || '',
+        shippingKind: (SHIPPING_TYPES as readonly string[]).includes(String(shippingType).toLowerCase())
+          ? String(shippingType).toLowerCase()
+          : 'shipping',
         itcCreditAmount: itcCreditAmount?.toString() || '0',
         itcCreditUSD: itcCreditUSD?.toString() || '0'
       },
@@ -815,230 +913,17 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent, req: Re
   req.log?.warn({ metadata: paymentIntent.metadata }, 'Payment type could not be determined')
 }
 
-// Handle checkout order payment (from checkout page)
+// Handle checkout order payment (from checkout page).
+//
+// The implementation moved to services/order-payment.ts on 2026-08-07. It used
+// to live here with this webhook as its ONLY caller, which is precisely why a
+// misrouted Stripe endpoint (Dashboard still pointed at /api/webhooks/stripe,
+// deleted 2026-07-27 in f4785ce) left a real paid order stuck at
+// status=pending with the money already captured — nothing else in the system
+// knew how to finish a paid order. The hourly reconciler in
+// services/order-monitor.ts now shares this exact code path.
 async function handleCheckoutOrderPayment(paymentIntent: Stripe.PaymentIntent, req: Request) {
-  const { orderId, orderNumber, userId, itcCreditAmount, itcCreditUSD } = paymentIntent.metadata
-
-  if (!orderId) {
-    req.log?.error({ metadata: paymentIntent.metadata }, 'Missing orderId in checkout order metadata')
-    throw new Error('Missing orderId in metadata')
-  }
-
-  req.log?.info({
-    orderId,
-    orderNumber,
-    amount: paymentIntent.amount,
-    itcCreditAmount,
-    itcCreditUSD
-  }, 'Processing checkout order payment')
-
-  // Idempotency claim — Stripe retries webhook deliveries. Flipping
-  // payment_status is the atomic gate (single UPDATE … WHERE != 'paid'): if
-  // another delivery already claimed this order, skip ALL side effects.
-  // Without this, the ITC deduction below double-charged wallets on retries.
-  const { data: claimedRows, error: orderUpdateError } = await supabase
-    .from('orders')
-    .update({
-      status: 'processing',
-      payment_status: 'paid',
-      payment_intent_id: paymentIntent.id,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', orderId)
-    .neq('payment_status', 'paid')
-    .select('id')
-
-  if (orderUpdateError) {
-    req.log?.error({ err: orderUpdateError, orderId }, 'Failed to update order status')
-    throw new Error('Failed to update order status')
-  }
-  if (!claimedRows || claimedRows.length === 0) {
-    req.log?.info(
-      { orderId, paymentIntentId: paymentIntent.id },
-      'Order already marked paid — duplicate webhook delivery, skipping side effects'
-    )
-    return
-  }
-
-  // Defensive: if the order row lost its user linkage (created while the
-  // session was missing/expired) but the payment intent knows the user,
-  // backfill it so the order shows up in /api/orders/my. Only fills NULL —
-  // never reassigns.
-  if (userId) {
-    await supabase
-      .from('orders')
-      .update({ user_id: userId })
-      .eq('id', orderId)
-      .is('user_id', null)
-  }
-
-  // Process ITC credit deduction if applicable
-  const itcAmount = parseFloat(itcCreditAmount || '0')
-  if (itcAmount > 0 && userId) {
-    try {
-      // Get current wallet balance
-      const { data: wallet, error: walletError } = await supabase
-        .from('user_wallets')
-        .select('itc_balance')
-        .eq('user_id', userId)
-        .single()
-
-      if (walletError || !wallet) {
-        req.log?.error({ err: walletError, userId }, 'Failed to fetch wallet for ITC deduction')
-      } else {
-        const currentBalance = parseFloat(wallet.itc_balance || '0')
-        const newBalance = Math.max(0, currentBalance - itcAmount)
-
-        // Deduct ITC from wallet
-        const { error: updateError } = await supabase
-          .from('user_wallets')
-          .update({
-            itc_balance: newBalance,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', userId)
-
-        if (updateError) {
-          req.log?.error({ err: updateError, userId }, 'Failed to deduct ITC from wallet')
-        } else {
-          // Record the transaction (itc_transactions live schema:
-          // type/amount/balance_after/reference/metadata — the old reason/usd_value
-          // columns don't exist, so this ledger insert silently failed)
-          const { error: creditLedgerError } = await supabase
-            .from('itc_transactions')
-            .insert({
-              user_id: userId,
-              type: 'purchase_payment',
-              amount: -itcAmount, // Negative for deduction
-              balance_after: newBalance,
-              reference: orderId,
-              metadata: {
-                description: `Store credit applied to order ${orderNumber}`,
-                usd_value: parseFloat(itcCreditUSD || '0')
-              },
-              created_at: new Date().toISOString()
-            })
-          if (creditLedgerError) req.log?.error({ err: creditLedgerError, userId }, 'Failed to log ITC store-credit ledger')
-
-          req.log?.info({
-            userId,
-            itcDeducted: itcAmount,
-            newBalance,
-            orderId
-          }, 'ITC store credit deducted successfully')
-        }
-      }
-    } catch (itcError: any) {
-      req.log?.error({ err: itcError, userId, itcAmount }, 'Error processing ITC credit deduction')
-      // Don't throw - order payment succeeded, ITC issue is secondary
-    }
-  }
-
-  // Get order details for notification/email
-  const { data: order, error: orderError } = await supabase
-    .from('orders')
-    .select('*, order_items(*)')
-    .eq('id', orderId)
-    .single()
-
-  if (orderError) {
-    req.log?.error({ err: orderError, orderId }, 'Failed to fetch order details')
-    // Don't throw - order was updated successfully
-  }
-
-  // Award order rewards + first-purchase referral bonus, and record coupon
-  // redemption. Previously NONE of this fired from the paid webhook:
-  // processOrderCompletion/processReferralFirstPurchase were only reachable
-  // from the admin-only POST /api/orders/:orderId/complete (no frontend
-  // caller), and POST /api/coupons/apply had no callers anywhere — so a real
-  // customer checkout never earned points, never triggered a referral bonus,
-  // and never actually enforced a coupon's max_uses/per-user limit. This runs
-  // only once we've won the idempotency claim above (a webhook redelivery
-  // returns before reaching this point), and processOrderCompletion /
-  // processReferralFirstPurchase each have their own internal dedup guard as
-  // a second layer. None of this should ever fail the webhook response — the
-  // payment already succeeded — so every failure here is logged and swallowed.
-  if (order) {
-    try {
-      const rewardsUserId = order.user_id || userId
-      const orderTotalUsd = Number(order.total) || 0
-
-      const rewardResult = await processOrderCompletion({
-        orderId,
-        userId: rewardsUserId,
-        orderTotal: orderTotalUsd,
-        orderNumber
-      })
-      if (!rewardResult.success && rewardResult.error !== 'Duplicate reward attempt') {
-        req.log?.error({ orderId, err: rewardResult.error }, '[rewards] Failed to award order rewards')
-      }
-
-      // Safe to call unconditionally — processReferralFirstPurchase only
-      // actually awards ITC the first time (checks for an existing
-      // 'purchase'-type referral_transactions row for this user first).
-      if (rewardsUserId) {
-        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd)
-        if (referralResult.success) {
-          req.log?.info({ orderId, referrerId: referralResult.referrerId, bonus: referralResult.bonusITC }, '[rewards] Referral first-purchase bonus awarded')
-        }
-      }
-
-      const couponCode = Array.isArray(order.discount_codes) ? order.discount_codes[0] : null
-      if (couponCode && Number(order.discount_amount) > 0) {
-        const couponId = await findCouponIdByCode(couponCode)
-        if (couponId) {
-          await recordCouponUsage({
-            couponId,
-            userId: rewardsUserId,
-            orderId,
-            discountApplied: Number(order.discount_amount) || 0
-          })
-        } else {
-          req.log?.warn({ orderId, couponCode }, '[coupons] Could not resolve coupon id for redemption recording')
-        }
-      }
-    } catch (rewardsError: any) {
-      req.log?.error({ err: rewardsError, orderId }, '[rewards] Reward/referral/coupon post-processing error')
-    }
-  }
-
-  // Send order confirmation email
-  if (order?.customer_email) {
-    try {
-      await sendOrderConfirmationEmail(order)
-    } catch (emailError) {
-      req.log?.error({ err: emailError, orderId }, 'Failed to send order confirmation email')
-      // Don't throw - this is non-critical
-    }
-  }
-
-  // Decrement blank-shirt inventory for shirt line items (idempotent — the
-  // webhooks.ts fallback path calls this too; the DB unique index dedupes).
-  await decrementBlanksForOrder(orderId)
-
-  // Pay the creators: for each user-generated product on the order, accrue
-  // margin (D1: retail − cost_price − fee share; legacy designs: 15% royalty)
-  // to the creator's ITC wallet. Idempotent per (order, product) — safe on
-  // webhook retries and across both paid paths. This used to be a dead branch
-  // for storefront checkouts (no productId in payment metadata), so external
-  // storefront sales never paid creators.
-  await accrueCreatorMarginsForOrder(orderId, req.log)
-
-  // Notify Darrell V2's merch sales ledger (docs/merch-orders-webhook.md
-  // there). Emitted AFTER margins accrue so creatorMarginCents can be read
-  // back rather than recomputed. Fail-soft: sendMerchOrderEvent never throws,
-  // and this catch is a second belt-and-suspenders guard — a delivery
-  // failure must never break checkout.
-  await sendMerchOrderEvent({ orderId, type: 'order.paid', log: req.log }).catch((err) => {
-    req.log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
-  })
-
-  req.log?.info({
-    orderId,
-    orderNumber,
-    paymentIntentId: paymentIntent.id,
-    customerEmail: order?.customer_email
-  }, '✅ Checkout order payment processed successfully')
+  await applyPaidCheckoutOrder(paymentIntent, req.log, 'webhook')
 }
 
 // Resolve a Stripe charge/dispute back to an ITP order. Primary key is
@@ -1413,28 +1298,8 @@ async function handleChargeDispute(dispute: Stripe.Dispute, eventType: string, r
   }, '[stripe-webhook] Dispute open — order frozen')
 }
 
-// Send order confirmation email using Resend
-async function sendOrderConfirmationEmail(order: any) {
-  if (!order.customer_email) {
-    console.log('[Email] No customer email, skipping order confirmation')
-    return
-  }
-
-  // Format items for email
-  const items = order.order_items?.map((item: any) => ({
-    name: item.product_name || 'Product',
-    quantity: item.quantity || 1,
-    price: item.price || 0
-  })) || []
-
-  await sendOrderEmail(
-    order.customer_email,
-    order.id,
-    items,
-    order.total || 0
-  )
-  console.log(`[Email] Order confirmation sent to ${order.customer_email}: Order #${order.order_number}`)
-}
+// The customer order-confirmation sender moved to services/order-payment.ts
+// along with the rest of the paid-order pipeline.
 
 // Handle ITC token purchase
 async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Request) {

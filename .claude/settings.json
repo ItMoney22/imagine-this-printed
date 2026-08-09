@@ -1,11 +1,16 @@
 {
+  "enabledPlugins": {
+    "commit-commands@claude-code-plugins": true
+  },
   "mcpServers": {
     "supabase": {
       "type": "http",
       "url": "https://mcp.supabase.com/mcp?project_ref=czzyrmizvjqlifcivrhn"
     }
   },
-  "enabledPlugins": {
-    "commit-commands@claude-code-plugins": true
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/merge-train.mjs:*)"
+    ]
   }
 }

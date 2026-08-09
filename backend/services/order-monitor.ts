@@ -264,10 +264,127 @@ async function sendDailySummaryIfDue(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Payment reconciler (2026-08-07).
+//
+// Why this exists: ITP's first real order ($26, ITP-MSJK1K3I-8GDG) was captured
+// by Stripe and then sat at status=pending/payment_status=pending, with no
+// customer email, no rewards, no inventory movement and no team alert — because
+// the Stripe Dashboard endpoint still pointed at /api/webhooks/stripe, a route
+// deleted on 2026-07-27 in f4785ce. Every delivery 404'd for eleven days and
+// NOTHING in the system noticed: the stall alert waits 3 days, and the daily
+// digest counts only payment_status='paid', so it cheerfully reported
+// "0 orders / $0.00 last 24h" on a day money came in.
+//
+// So the webhook can no longer be the only thing that knows a payment
+// succeeded. Every hour this asks Stripe the direct question — "is this
+// PaymentIntent succeeded?" — for orders we still believe are unpaid, and heals
+// any it finds through applyPaidCheckoutOrder, the exact same function the
+// webhook calls. Stripe is the source of truth for money; this makes the DB
+// eventually agree with it no matter what happens to webhook delivery.
+// ---------------------------------------------------------------------------
+
+// How far back to look. Stripe retries a failed webhook for ~3 days, so a
+// window wider than that catches orders whose retries have been exhausted, and
+// RECONCILE_LOOKBACK_HOURS lets a longer outage be swept manually.
+const RECONCILE_LOOKBACK_HOURS = Number(process.env.RECONCILE_LOOKBACK_HOURS || 24 * 14)
+// Cap per run so one sweep can't spend the whole hour hitting Stripe.
+const RECONCILE_MAX_PER_RUN = Number(process.env.RECONCILE_MAX_PER_RUN || 25)
+
+export async function reconcileUnrecordedPayments(): Promise<{ checked: number; healed: number }> {
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (!stripeKey) {
+    console.warn('[reconciler] STRIPE_SECRET_KEY not set — skipping payment reconciliation')
+    return { checked: 0, healed: 0 }
+  }
+
+  // Candidates: we think they're unpaid, but they have a PaymentIntent, so the
+  // customer at least reached Stripe. Cancelled/refunded orders are excluded —
+  // a cancelled order whose intent shows succeeded is a refund question, not a
+  // "mark it paid" one, and quietly flipping it to paid would be wrong.
+  const { data: candidates, error } = await supabase
+    .from('orders')
+    .select('id, order_number, payment_intent_id, total, created_at, status, payment_status')
+    .neq('payment_status', 'paid')
+    .not('payment_intent_id', 'is', null)
+    .not('status', 'in', '(cancelled,refunded)')
+    .gt('created_at', hoursAgoIso(RECONCILE_LOOKBACK_HOURS))
+    .order('created_at', { ascending: false })
+    .limit(RECONCILE_MAX_PER_RUN)
+
+  if (error) {
+    console.error('[reconciler] Candidate query failed:', error.message)
+    return { checked: 0, healed: 0 }
+  }
+  if (!candidates || candidates.length === 0) return { checked: 0, healed: 0 }
+
+  const { default: Stripe } = await import('stripe')
+  const stripe = new Stripe(stripeKey, { apiVersion: '2025-02-24.acacia' })
+  const { applyPaidCheckoutOrder } = await import('./order-payment.js')
+
+  let healed = 0
+  const healedOrders: string[] = []
+
+  for (const order of candidates) {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(order.payment_intent_id!)
+      // Anything other than 'succeeded' is a legitimately unpaid order: an
+      // abandoned checkout sits at requires_payment_method forever and must be
+      // left exactly as it is.
+      if (pi.status !== 'succeeded') continue
+
+      console.warn(
+        `[reconciler] 🚨 ${order.order_number || order.id.slice(0, 8)} is SUCCEEDED in Stripe but ` +
+        `payment_status=${order.payment_status} in the DB — webhook delivery missed it. Healing.`
+      )
+      const result = await applyPaidCheckoutOrder(pi, undefined, 'reconciler')
+      if (result.claimed) {
+        healed++
+        healedOrders.push(order.order_number || order.id.slice(0, 8))
+      }
+    } catch (err: any) {
+      // A single unreadable intent (deleted, wrong account, network blip) must
+      // not stop the sweep from healing the rest.
+      console.error(`[reconciler] Check failed for order ${order.id}:`, err?.message || err)
+    }
+  }
+
+  if (healed > 0) {
+    // The per-order team alert already fired inside applyPaidCheckoutOrder with
+    // its "recovered by the reconciler" banner. This row is the separate,
+    // louder signal that the DELIVERY PIPELINE is broken — the thing to fix so
+    // the reconciler stops being needed.
+    await supabase.from('admin_notifications').insert({
+      type: 'health_alert',
+      title: `⚠️ Stripe webhook missed ${healed} payment${healed === 1 ? '' : 's'}`,
+      message:
+        `Recovered ${healedOrders.join(', ')} by polling Stripe directly. The payment(s) were captured but ` +
+        `never delivered to POST /api/stripe/webhook. Check the endpoint URL, status and signing secret in ` +
+        `the Stripe Dashboard.`
+    }).then(({ error: e }) => {
+      if (e) console.error('[reconciler] Alert insert failed:', e.message)
+    })
+    await supabase.from('audit_logs').insert({
+      action: 'payments_reconciled',
+      metadata: { healed, orders: healedOrders, checked: candidates.length }
+    })
+  }
+
+  console.log(`[reconciler] Checked ${candidates.length} unpaid order(s) against Stripe, healed ${healed}`)
+  return { checked: candidates.length, healed }
+}
+
 // Entry point for the worker's hourly loop.
 export async function monitorHealthAndOrders(): Promise<void> {
   try {
     await supabase.from('audit_logs').insert({ action: 'worker_heartbeat', metadata: { at: new Date().toISOString() } })
+    // Reconcile FIRST: an order healed here should be counted as paid by the
+    // stall check and the daily digest in the same run, not an hour later.
+    try {
+      await reconcileUnrecordedPayments()
+    } catch (err: any) {
+      console.error('[order-monitor] reconcileUnrecordedPayments threw:', err?.message || err)
+    }
     await alertStalledOrders()
     await alertAiJobFailureSpike()
     await sendDailySummaryIfDue()

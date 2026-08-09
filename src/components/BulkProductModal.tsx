@@ -257,21 +257,21 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
   const failures = results ? results.filter((r): r is BulkFail => !r.ok) : []
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={close}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200" onClick={close}>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
 
       <div
-        className="relative z-10 w-full max-w-4xl max-h-[90vh] flex flex-col bg-card border border-primary/30 rounded-2xl shadow-[0_0_60px_rgba(168,85,247,0.4)] overflow-hidden"
+        className="relative z-10 w-full max-w-4xl max-h-[92vh] flex flex-col bg-card border border-primary/30 rounded-2xl shadow-[0_0_60px_rgba(168,85,247,0.4)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-white/10 bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10 shrink-0">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.5)]">
               <Wand2 className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-text">Bulk Product Generation</h2>
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-text">Bulk Product Generation</h2>
               <p className="text-xs text-muted">Imagen 4 Ultra · DTF · up to {MAX_PROMPTS} designs in parallel</p>
             </div>
           </div>
@@ -286,7 +286,7 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {!results && (
             <>
               <div>
@@ -302,9 +302,9 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
                   disabled={isGenerating}
                   rows={8}
                   placeholder={`A wolf howling at a neon moon, retro 80s synthwave\nA skull with roses, traditional tattoo style\nA vintage muscle car silhouette at sunset\nA cosmic astronaut riding a whale through stars\n...`}
-                  className="w-full bg-bg/60 border border-white/10 rounded-xl px-4 py-3 text-text placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all resize-y font-mono text-sm leading-relaxed disabled:opacity-60"
+                  className="w-full bg-bg/60 border border-white/10 rounded-xl px-4 py-3 text-text placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all resize-y font-mono text-base sm:text-sm leading-relaxed disabled:opacity-60"
                 />
-                <div className="flex items-center justify-between mt-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-1.5">
                   <p className="text-xs text-muted">
                     Numbers / dashes are stripped automatically — paste a list straight from a doc.
                   </p>
@@ -459,7 +459,7 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-text mb-2">Product Type (applied to all)</label>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -508,7 +508,7 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-4 pt-2 border-t border-white/5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pt-2 border-t border-white/5">
                 <div className="text-xs text-muted">
                   Estimated:{' '}
                   <span className="text-text font-semibold">
@@ -521,7 +521,7 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({ open, onClos
                 <button
                   onClick={handleGenerate}
                   disabled={isGenerating || parsedPrompts.length === 0 || overLimit}
-                  className="py-2.5 px-6 rounded-xl font-bold text-white bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_25px_rgba(168,85,247,0.6)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                  className="w-full sm:w-auto py-3 sm:py-2.5 px-6 rounded-xl font-bold text-white bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_25px_rgba(168,85,247,0.6)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                 >
                   {isGenerating ? (
                     <>

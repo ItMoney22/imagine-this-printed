@@ -116,23 +116,24 @@ export const OneShotProductModal: React.FC<OneShotProductModalProps> = ({ open, 
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={close}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200" onClick={close}>
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
 
-      {/* Modal */}
+      {/* Modal — capped at the viewport with its own scrolling body, or the
+          Generate button ends up below the fold and unreachable on a phone. */}
       <div
-        className="relative z-10 w-full max-w-2xl bg-card border border-primary/30 rounded-2xl shadow-[0_0_60px_rgba(168,85,247,0.4)] overflow-hidden"
+        className="relative z-10 flex max-h-[92vh] w-full max-w-2xl flex-col bg-card border border-primary/30 rounded-2xl shadow-[0_0_60px_rgba(168,85,247,0.4)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+        <div className="flex shrink-0 items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-white/10 bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.5)]">
               <Wand2 className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-text">1-Shot Product</h2>
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-text">1-Shot Product</h2>
               <p className="text-xs text-muted">GPT Image 2 (OpenAI direct) · DTF print-ready</p>
             </div>
           </div>
@@ -147,7 +148,7 @@ export const OneShotProductModal: React.FC<OneShotProductModalProps> = ({ open, 
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {!result && (
             <>
               <div>
@@ -228,7 +229,7 @@ export const OneShotProductModal: React.FC<OneShotProductModalProps> = ({ open, 
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-text mb-2">Product Type</label>
                   <div className="grid grid-cols-2 gap-1.5">

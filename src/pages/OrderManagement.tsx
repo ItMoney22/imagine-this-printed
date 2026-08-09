@@ -27,25 +27,92 @@ interface DBOrder {
   internal_notes: string | null
   created_at: string
   updated_at: string
+  metadata: any
+  // PRODUCTION SCHEMA (see the header comment in backend/routes/stripe.ts):
+  // order_items is (id, order_id, product_id, product_name, variant_id,
+  // variant_name, quantity, unit_price, subtotal, metadata jsonb, created_at).
+  // This interface used to declare `price`, `total`, `variations` and
+  // `personalization` — four columns that do not exist — so the mapping below
+  // read undefined for the unit price and the design URL on every single line.
   order_items: {
     id: string
     product_id: string | null
     product_name: string
+    variant_name: string | null
     quantity: number
-    price: number
-    total: number
-    variations: any
-    personalization: any
+    unit_price: number
+    subtotal: number
+    metadata: {
+      client_product_id?: string | null
+      image_url?: string | null
+      size?: string | null
+      color?: string | null
+      print_location?: string | null
+      custom_design?: string | null
+      design_url?: string | null
+      print_files?: Record<string, string> | null
+      addons?: { id?: string; name?: string; price?: number }[] | null
+      addons_total?: number | null
+    } | null
   }[]
+}
+
+/**
+ * Everything the print floor needs to actually MAKE one line of an order.
+ * The Manage Order modal previously showed a line-item COUNT and nothing else —
+ * no design, no size, no colour, no print location, no artwork link — so the
+ * crew could not work an order from it at all.
+ */
+interface FulfilmentLine {
+  id: string
+  name: string
+  variant: string | null
+  quantity: number
+  unitPrice: number
+  subtotal: number
+  size: string | null
+  color: string | null
+  printLocation: string | null
+  /** Mockup/product image — what it should look like. */
+  previewUrl: string | null
+  /** Press-ready artwork. `print_files` (per placement) wins over a single design. */
+  designUrl: string | null
+  printFiles: { placement: string; url: string }[]
+  addons: { name: string; price: number }[]
+}
+
+/**
+ * What the customer picked at checkout, as written to orders.metadata.shipping
+ * by snapshotShippingChoice() in backend/routes/stripe.ts. Absent on orders
+ * placed before 2026-08-07 — before that the backend received the selection and
+ * discarded it, so a $0 shipping line was ambiguous between "local pickup" and
+ * "free shipping over $50" and no pickup appointment was ever stored.
+ */
+interface ShippingChoice {
+  method?: string | null
+  type?: 'shipping' | 'pickup' | 'delivery' | string | null
+  rush?: boolean
+  rush_fee?: number
+  amount?: number
+  free_shipping_applied?: boolean
+  pickup_appointment?: { date?: string | null; time?: string | null; notes?: string | null } | null
+}
+
+type AdminOrder = Order & {
+  shippingChoice?: ShippingChoice | null
+  /** Production detail per line — see FulfilmentLine. */
+  fulfilmentLines?: FulfilmentLine[]
+  /** orders.metadata.print, mirrored by the Watchtower print bridge. */
+  printStatus?: { status?: string; railStatus?: string; printer?: string; updatedAt?: string } | null
 }
 
 const OrderManagement: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [selectedTab, setSelectedTab] = useState<'pending' | 'processing' | 'shipped' | 'on_hold' | 'all'>('pending')
-  const [orders, setOrders] = useState<Order[]>([])
+  const [orders, setOrders] = useState<AdminOrder[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
   const [isGeneratingLabel, setIsGeneratingLabel] = useState(false)
@@ -82,13 +149,14 @@ const OrderManagement: React.FC = () => {
             id: item.product_id || '',
             name: item.product_name,
             description: '',
-            price: item.price,
-            images: [] as string[],
+            // Real columns — `price` and `personalization` never existed.
+            price: Number(item.unit_price) || 0,
+            images: item.metadata?.image_url ? [item.metadata.image_url] : ([] as string[]),
             category: 'shirts' as const, // Default to shirts for type compatibility
             inStock: true
           },
           quantity: item.quantity,
-          customDesign: item.personalization?.designUrl
+          customDesign: item.metadata?.custom_design || item.metadata?.design_url || undefined
         })),
         total: dbOrder.total || 0,
         status: dbOrder.status as Order['status'],
@@ -108,7 +176,50 @@ const OrderManagement: React.FC = () => {
           phone: dbOrder.shipping_address.phone
         } : undefined,
         customerNotes: dbOrder.notes || '',
-        internalNotes: dbOrder.internal_notes || ''
+        internalNotes: dbOrder.internal_notes || '',
+        shippingChoice: (dbOrder.metadata?.shipping as ShippingChoice | undefined) ?? null,
+        printStatus: dbOrder.metadata?.print ?? null,
+        // Prefer the order_items rows; fall back to the orders.metadata.items
+        // snapshot, which is the ONLY record for orders placed while the
+        // order_items insert was silently failing against the wrong columns.
+        fulfilmentLines: (dbOrder.order_items || []).length > 0
+          ? (dbOrder.order_items || []).map(item => {
+              const m = item.metadata || {}
+              return {
+                id: item.id,
+                name: item.product_name,
+                variant: item.variant_name || null,
+                quantity: Number(item.quantity) || 1,
+                unitPrice: Number(item.unit_price) || 0,
+                subtotal: Number(item.subtotal) || 0,
+                size: m.size || null,
+                color: m.color || null,
+                printLocation: m.print_location || null,
+                previewUrl: m.image_url || null,
+                designUrl: m.custom_design || m.design_url || null,
+                printFiles: Object.entries(m.print_files || {})
+                  .filter(([, url]) => typeof url === 'string' && url)
+                  .map(([placement, url]) => ({ placement, url: String(url) })),
+                addons: (m.addons || [])
+                  .filter(Boolean)
+                  .map(a => ({ name: a?.name || 'Add-on', price: Number(a?.price) || 0 }))
+              } as FulfilmentLine
+            })
+          : ((dbOrder.metadata?.items as any[]) || []).map((snap, i) => ({
+              id: `snap-${i}`,
+              name: snap?.name || snap?.product?.name || 'Product',
+              variant: null,
+              quantity: Number(snap?.quantity) || 1,
+              unitPrice: Number(snap?.price ?? snap?.product?.price) || 0,
+              subtotal: (Number(snap?.price ?? snap?.product?.price) || 0) * (Number(snap?.quantity) || 1),
+              size: snap?.size ?? null,
+              color: snap?.color ?? null,
+              printLocation: snap?.printLocation ?? null,
+              previewUrl: snap?.image ?? null,
+              designUrl: snap?.customDesign ?? null,
+              printFiles: [],
+              addons: []
+            } as FulfilmentLine))
       }))
 
       setOrders(transformedOrders)
@@ -483,6 +594,30 @@ const OrderManagement: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-text">{order.items.length} item(s)</div>
                         <div className="text-xs text-muted truncate max-w-[150px]">{order.items[0]?.product.name}</div>
+                        {/* Pickup vs ship, visible without opening the order —
+                            the difference decides whether it goes on a truck. */}
+                        {order.shippingChoice && (
+                          <div className="mt-1 flex items-center gap-1 flex-wrap">
+                            <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                              order.shippingChoice.type === 'pickup'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                : order.shippingChoice.type === 'delivery'
+                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                            }`}>
+                              {order.shippingChoice.type === 'pickup'
+                                ? '🏪 Pickup'
+                                : order.shippingChoice.type === 'delivery'
+                                  ? '🚗 Local delivery'
+                                  : '📦 Ship'}
+                            </span>
+                            {order.shippingChoice.rush && (
+                              <span className="text-[11px] px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                ⚡ RUSH
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-bold text-text">${order.total.toFixed(2)}</div>
@@ -587,7 +722,7 @@ const OrderManagement: React.FC = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
-                    Shipping Address
+                    {selectedOrder.shippingChoice?.type === 'pickup' ? 'Customer Address (pickup order)' : 'Shipping Address'}
                   </h4>
                   <div className="text-sm text-text space-y-1">
                     <p className="font-medium">{selectedOrder.shippingAddress?.name}</p>
@@ -601,6 +736,207 @@ const OrderManagement: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* PRODUCTION — what to actually make. This modal used to show a
+                  line-item COUNT and nothing else: no design, no size, no
+                  colour, no print location, no artwork link. The crew could not
+                  work an order from it, which is why orders sat untouched. */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-text mb-3 flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  Production — what to make
+                </h4>
+
+                {(selectedOrder.fulfilmentLines || []).length === 0 ? (
+                  <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
+                    No line items recorded on this order. Check the customer's confirmation email
+                    or the Stripe payment description before producing anything.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {(selectedOrder.fulfilmentLines || []).map(line => (
+                      <div key={line.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/40 p-4">
+                        <div className="flex gap-4">
+                          {line.previewUrl ? (
+                            <a href={line.previewUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                              <img
+                                src={line.previewUrl}
+                                alt={line.name}
+                                className="w-24 h-24 object-contain rounded-lg bg-gray-100 dark:bg-gray-800"
+                              />
+                            </a>
+                          ) : (
+                            <div className="w-24 h-24 shrink-0 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-muted text-center px-1">
+                              No image
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3 flex-wrap">
+                              <p className="font-semibold text-text">{line.name}</p>
+                              <p className="text-sm font-bold text-text whitespace-nowrap">
+                                {line.quantity} × ${line.unitPrice.toFixed(2)}
+                                {line.subtotal > 0 && (
+                                  <span className="text-muted font-normal"> = ${line.subtotal.toFixed(2)}</span>
+                                )}
+                              </p>
+                            </div>
+
+                            {/* The specs. Quantity is repeated as a chip because
+                                it is the single most expensive thing to get
+                                wrong on a press run. */}
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                              <span className="px-2 py-1 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 font-bold">
+                                QTY {line.quantity}
+                              </span>
+                              <span className={`px-2 py-1 rounded font-medium ${line.size
+                                ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
+                                Size: {line.size || 'NOT SET'}
+                              </span>
+                              <span className="px-2 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 font-medium inline-flex items-center gap-1">
+                                Colour:
+                                {line.color && /^#[0-9a-f]{3,8}$/i.test(line.color) && (
+                                  <span
+                                    className="inline-block w-3 h-3 rounded-full border border-gray-400"
+                                    style={{ backgroundColor: line.color }}
+                                  />
+                                )}
+                                <span>{line.color || '—'}</span>
+                              </span>
+                              <span className={`px-2 py-1 rounded font-medium ${line.printLocation
+                                ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
+                                Print: {line.printLocation ? line.printLocation.replace(/_/g, ' ') : 'NOT SET'}
+                              </span>
+                              {line.variant && (
+                                <span className="px-2 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 font-medium">
+                                  {line.variant}
+                                </span>
+                              )}
+                            </div>
+
+                            {line.addons.length > 0 && (
+                              <p className="mt-2 text-xs text-muted">
+                                Add-ons: {line.addons.map(a => `${a.name} ($${a.price.toFixed(2)})`).join(', ')}
+                              </p>
+                            )}
+
+                            {/* Press-ready artwork. Without this the crew has a
+                                mockup and no file to actually print. */}
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {line.printFiles.length > 0 ? (
+                                line.printFiles.map(pf => (
+                                  <a
+                                    key={pf.placement}
+                                    href={pf.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
+                                  >
+                                    ⬇ Print file — {pf.placement.replace(/_/g, ' ')}
+                                  </a>
+                                ))
+                              ) : line.designUrl ? (
+                                <a
+                                  href={line.designUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
+                                >
+                                  ⬇ Download design
+                                </a>
+                              ) : (
+                                <span className="px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-xs font-semibold">
+                                  No print-ready file on this line — use the product artwork
+                                </span>
+                              )}
+                              {line.previewUrl && (
+                                <a
+                                  href={line.previewUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-text text-xs font-medium"
+                                >
+                                  View mockup
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedOrder.printStatus?.status && (
+                  <p className="mt-3 text-xs text-muted">
+                    3D print status (from the print factory): <span className="font-semibold text-text">{selectedOrder.printStatus.status}</span>
+                    {selectedOrder.printStatus.printer ? ` · ${selectedOrder.printStatus.printer}` : ''}
+                  </p>
+                )}
+              </div>
+
+              {/* Fulfilment method. Sits above Status Management because it
+                  decides what the crew physically does: a pickup treated as a
+                  shipment is a customer waiting in the lobby for a box already
+                  on a truck. */}
+              {(() => {
+                const c = selectedOrder.shippingChoice
+                const type = String(c?.type || '').toLowerCase()
+                const isPickup = type === 'pickup'
+                const isDelivery = type === 'delivery'
+                const appt = c?.pickup_appointment
+                const apptLine = [appt?.date, appt?.time].filter(Boolean).join(' at ')
+                const tone = isPickup
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700'
+                  : isDelivery
+                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700'
+                    : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+                return (
+                  <div className={`mb-6 rounded-xl p-4 border ${tone}`}>
+                    <h4 className="font-semibold text-text mb-2 flex items-center">
+                      <svg className="w-5 h-5 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                      </svg>
+                      Fulfilment Method
+                    </h4>
+                    {c ? (
+                      <>
+                        <p className="text-lg font-bold text-text">
+                          {isPickup ? '🏪 ' : isDelivery ? '🚗 ' : '📦 '}{c.method || 'Standard Shipping'}
+                        </p>
+                        <p className="text-sm text-muted mt-1">
+                          {Number(c.amount) > 0
+                            ? `Customer paid $${Number(c.amount).toFixed(2)} shipping`
+                            : 'No shipping charge'}
+                          {c.free_shipping_applied ? ' · free-shipping applied' : ''}
+                        </p>
+                        {c.rush && (
+                          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
+                            ⚡ RUSH — next business day{Number(c.rush_fee) > 0 ? ` (+$${Number(c.rush_fee).toFixed(2)})` : ''}
+                          </p>
+                        )}
+                        {isPickup && (
+                          <p className="text-sm mt-2 text-emerald-700 dark:text-emerald-300 font-medium">
+                            {apptLine ? `Pickup: ${apptLine}` : 'Pickup — no appointment time chosen'}
+                            {appt?.notes && (
+                              <span className="block font-normal text-muted mt-1">Note: {appt.notes}</span>
+                            )}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted">
+                        Not recorded — this order predates fulfilment-choice tracking (2026-08-07).
+                        Check with the customer before shipping.
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
 
               <div className="mb-6">
                 <h4 className="font-semibold text-text mb-3 flex items-center">

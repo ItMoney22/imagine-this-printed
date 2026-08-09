@@ -348,6 +348,148 @@ export const sendNewSupportTicketEmail = async (
 }
 
 /**
+ * Tell the team a real order just landed and is ready to fulfil (2026-08-07).
+ *
+ * This did not exist before. The paid-order path emailed only the CUSTOMER, so
+ * the only team-facing order signals in the whole system were the stalled-order
+ * alert (which waits ORDER_STALL_DAYS = 3 days) and the 8am daily digest. ITP's
+ * first real order came in and no one on staff was notified.
+ *
+ * Recipients: PRINT_WORKER_EMAILS (the crew who actually print — same list
+ * routes/print-bridge.ts uses) if set, else ADMIN_ALERT_EMAIL / SUPPORT_EMAIL /
+ * wecare@, matching the convention of every other alert in this file.
+ */
+export const sendNewOrderTeamEmail = async (opts: {
+  orderId: string
+  orderNumber: string
+  total: number
+  customerName?: string | null
+  customerEmail?: string | null
+  shippingAddress?: Record<string, any> | null
+  /** orders.metadata.shipping — the customer's fulfilment choice. */
+  shippingChoice?: Record<string, any> | null
+  items: Array<{ name: string; quantity: number; size?: string | null; color?: string | null }>
+  recoveredByReconciler?: boolean
+}): Promise<boolean> => {
+  const recipients = (
+    process.env.PRINT_WORKER_EMAILS ||
+    process.env.ADMIN_ALERT_EMAIL ||
+    process.env.SUPPORT_EMAIL ||
+    'wecare@imaginethisprinted.com'
+  )
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const a = opts.shippingAddress || {}
+  const shipLines = [
+    [a.firstName, a.lastName].filter(Boolean).join(' '),
+    a.address,
+    [a.city, a.state, a.zipCode].filter(Boolean).join(', '),
+    a.country
+  ].filter(Boolean)
+
+  const itemRows = opts.items.map(i => `
+        <tr>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">${i.name}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${i.quantity}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">${[i.size, i.color].filter(Boolean).join(' / ') || '—'}</td>
+        </tr>`).join('')
+
+  // Fulfilment method. This is the first thing the crew needs — a pickup they
+  // treat as a shipment is a customer standing in the lobby waiting for a box
+  // that's already on a truck. Pickups get the appointment inline and a loud
+  // colour; carrier orders get the method name.
+  const choice = opts.shippingChoice || null
+  const shipType = String(choice?.type || '').toLowerCase()
+  const isPickup = shipType === 'pickup'
+  const isDelivery = shipType === 'delivery'
+  const appt = choice?.pickup_appointment || null
+  const apptLine = [appt?.date, appt?.time].filter(Boolean).join(' at ')
+
+  const fulfilmentBlock = choice
+    ? `<div style="background: ${isPickup ? '#ecfdf5' : isDelivery ? '#eff6ff' : '#f9fafb'}; border: 1px solid ${isPickup ? '#a7f3d0' : isDelivery ? '#bfdbfe' : '#e5e7eb'}; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+         <p style="color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px 0;">Fulfilment</p>
+         <p style="color: #111827; font-size: 17px; font-weight: bold; margin: 0;">
+           ${isPickup ? '🏪 ' : isDelivery ? '🚗 ' : '📦 '}${choice.method || 'Standard Shipping'}
+         </p>
+         <p style="color: #4b5563; font-size: 14px; margin: 6px 0 0 0;">
+           ${Number(choice.amount) > 0 ? `Customer paid $${Number(choice.amount).toFixed(2)}` : 'No shipping charge'}
+           ${choice.rush ? ` · <strong style="color: #b45309;">RUSH — next business day</strong>` : ''}
+           ${choice.free_shipping_applied ? ' · free-shipping applied' : ''}
+         </p>
+         ${isPickup ? `<p style="color: #065f46; font-size: 14px; margin: 8px 0 0 0;">
+           <strong>Pickup${apptLine ? `: ${apptLine}` : ' — no appointment time chosen'}</strong>
+           ${appt?.notes ? `<br><span style="color: #4b5563;">Note: ${appt.notes}</span>` : ''}
+         </p>` : ''}
+       </div>`
+    // Orders created before 2026-08-07 have no shipping snapshot; say so rather
+    // than implying a method nobody recorded.
+    : `<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin-bottom: 20px;">
+         <p style="color: #6b7280; font-size: 14px; margin: 0;">Fulfilment method not recorded on this order — check with the customer.</p>
+       </div>`
+
+  // A reconciler-recovered order means Stripe's webhook never landed. That is an
+  // infrastructure alarm, not a sales notification, so it gets its own banner.
+  const warning = opts.recoveredByReconciler
+    ? `<div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+         <p style="color: #991b1b; margin: 0; font-weight: bold;">⚠️ Recovered by the payment reconciler</p>
+         <p style="color: #991b1b; margin: 6px 0 0 0; font-size: 14px;">
+           Stripe's webhook did NOT deliver this payment — the hourly sweep caught it. The money is
+           captured and the order is now correct, but webhook delivery needs checking in the Stripe
+           Dashboard before the next order.
+         </p>
+       </div>`
+    : ''
+
+  // One email per send, but the crew list can hold several addresses; Resend
+  // takes a single `to` per call here, so fan out and succeed if any landed.
+  const results = await Promise.all(recipients.map(to => sendEmail({
+    to,
+    subject: `${opts.recoveredByReconciler ? '⚠️ ' : '💰 '}New order ${opts.orderNumber} — $${opts.total.toFixed(2)}`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+        <h1 style="color: #7c3aed; margin: 0 0 20px 0;">New order — ready to fulfil 💰</h1>
+        ${warning}
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 24px; margin-bottom: 20px;">
+          <p style="color: #6b7280; font-size: 13px; margin: 0 0 4px 0;">Order</p>
+          <h2 style="color: #374151; margin: 0 0 12px 0; font-family: monospace;">${opts.orderNumber}</h2>
+          <p style="color: #111827; font-size: 22px; font-weight: bold; margin: 0;">$${opts.total.toFixed(2)}</p>
+          <p style="color: #6b7280; font-size: 14px; margin: 10px 0 0 0;">
+            ${opts.customerName || 'Customer'}${opts.customerEmail ? ` &lt;${opts.customerEmail}&gt;` : ''}
+          </p>
+        </div>
+
+        <h3 style="color: #374151; margin-bottom: 8px;">Items</h3>
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px;">
+          <thead><tr style="background: #f9fafb; text-align: left;">
+            <th style="padding: 8px 12px;">Product</th>
+            <th style="padding: 8px 12px; text-align: center;">Qty</th>
+            <th style="padding: 8px 12px;">Size / Colour</th>
+          </tr></thead>
+          <tbody>${itemRows || '<tr><td colspan="3" style="padding: 8px 12px; color: #9ca3af;">No line items recorded</td></tr>'}
+          </tbody>
+        </table>
+
+        ${fulfilmentBlock}
+
+        ${shipLines.length ? `
+        <h3 style="color: #374151; margin: 24px 0 8px 0;">${isPickup ? 'Customer address (on file)' : 'Ship to'}</h3>
+        <p style="color: #4b5563; line-height: 1.6; margin: 0;">${shipLines.join('<br>')}</p>` : ''}
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/admin/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold;">
+            Open Order Management
+          </a>
+        </div>
+      </div>
+    `
+  })))
+
+  return results.some(Boolean)
+}
+
+/**
  * Send notification email to admins when a new wholesale application is
  * submitted (Watchtower task 0af32316). Mirrors sendNewSupportTicketEmail's
  * shape/recipient convention (ADMIN_ALERT_EMAIL, falling back to SUPPORT_EMAIL,

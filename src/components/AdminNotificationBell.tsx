@@ -8,9 +8,14 @@ const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 interface AdminNotificationBellProps {
   onNotificationClick?: (ticketId: string) => void
+  /** Override the bell button styling — the default muted tone disappears on dark/saturated headers. */
+  buttonClassName?: string
 }
 
-export default function AdminNotificationBell({ onNotificationClick }: AdminNotificationBellProps) {
+export default function AdminNotificationBell({
+  onNotificationClick,
+  buttonClassName = 'text-muted hover:text-text',
+}: AdminNotificationBellProps) {
   const { user } = useAuth()
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<AdminNotification[]>([])
@@ -158,7 +163,7 @@ export default function AdminNotificationBell({ onNotificationClick }: AdminNoti
       {/* Bell Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-muted hover:text-text transition-colors"
+        className={`relative p-2 rounded-lg transition-colors ${buttonClassName}`}
         aria-label="Notifications"
       >
         <Bell className="w-5 h-5" />

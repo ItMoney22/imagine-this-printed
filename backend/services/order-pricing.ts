@@ -266,6 +266,11 @@ export interface OrderPricingResult {
   wholesaleDiscountCents: number
   wholesaleTier: 'bronze' | 'silver' | 'gold' | 'platinum' | null
   shippingCents: number
+  /** The rush surcharge inside shippingCents, server-decided (0 when the
+   *  chosen method isn't rush-eligible or rush wasn't asked for). Surfaced so
+   *  the order row can record what the customer actually bought without the
+   *  route re-deriving the rule. */
+  rushFeeCents: number
   taxCents: number
   taxRate: number
   /** Which tax source produced taxCents/taxRate — ops visibility for GAP 3. */
@@ -829,6 +834,7 @@ export async function calculateOrderPricing(
     wholesaleDiscountCents,
     wholesaleTier,
     shippingCents: shippingResult.shippingCents,
+    rushFeeCents: shippingResult.rushFeeCents,
     taxCents,
     taxRate,
     taxSource: taxResult.source,

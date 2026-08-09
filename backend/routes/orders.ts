@@ -52,21 +52,45 @@ router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async
     // Attach items to orders, parse metadata for items if no order_items
     const ordersWithItems = (orders || []).map(order => {
       const items = orderItemsMap[order.id] || []
-      // If no items in order_items table, try to get from metadata
+      // If no items in order_items table, try to get from metadata.
+      // This fallback used to emit a DIFFERENT shape from the real table —
+      // price/total/variations/personalization/image_url, i.e. the four columns
+      // that don't exist plus a flattened image — so any consumer had to handle
+      // two contracts and the admin UI silently read undefined for size,
+      // colour, print location and artwork. It now emits the SAME shape
+      // order_items actually has (unit_price/subtotal/metadata), which is what
+      // replaceOrderItems in routes/stripe.ts writes.
       if (items.length === 0 && order.metadata?.items) {
         return {
           ...order,
-          order_items: order.metadata.items.map((item: any) => ({
-            id: item.product?.id || 'unknown',
-            product_id: item.product?.id,
-            product_name: item.product?.name || item.name || 'Unknown Product',
-            quantity: item.quantity || 1,
-            price: item.product?.price || item.price || 0,
-            total: (item.product?.price || item.price || 0) * (item.quantity || 1),
-            image_url: item.product?.images?.[0] || item.imageUrl || item.image_url || null,
-            variations: { size: item.selectedSize, color: item.selectedColor },
-            personalization: item.customDesign ? { designUrl: item.customDesign } : {}
-          }))
+          order_items: order.metadata.items.map((item: any, i: number) => {
+            const unitPrice = Number(item.product?.price ?? item.price) || 0
+            const quantity = Number(item.quantity) || 1
+            return {
+              id: `snapshot-${order.id}-${i}`,
+              order_id: order.id,
+              product_id: item.product?.id ?? item.id ?? null,
+              product_name: item.product?.name || item.name || 'Unknown Product',
+              variant_id: null,
+              variant_name: null,
+              quantity,
+              unit_price: unitPrice,
+              subtotal: unitPrice * quantity,
+              metadata: {
+                client_product_id: item.product?.id ?? item.id ?? null,
+                image_url: item.product?.images?.[0] || item.image || item.imageUrl || item.image_url || null,
+                size: item.selectedSize ?? item.size ?? null,
+                color: item.selectedColor ?? item.color ?? null,
+                print_location: item.printLocation ?? item.print_location ?? null,
+                custom_design: item.customDesign ?? item.custom_design ?? null,
+                addons: item.selectedAddons ?? item.addons ?? null,
+                addons_total: 0,
+                // Marks a reconstruction, so nothing downstream mistakes this
+                // for a real order_items row.
+                from_snapshot: true
+              }
+            }
+          })
         }
       }
       return { ...order, order_items: items }
