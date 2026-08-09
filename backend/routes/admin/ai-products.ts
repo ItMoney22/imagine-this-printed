@@ -1427,6 +1427,29 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
           template: 'mr_imagine',
         },
       })
+
+      // Pocket shot (David 2026-08-09): customers can pick a left-chest pocket
+      // print, and a front-scale mockup badly misrepresents what that looks
+      // like. Same flat_lay template, rendered at pocket scale — the worker
+      // gives it asset_role 'mockup_pocket' so it does NOT evict the front
+      // flat_lay via the delete-by-role. Skipped when the product is ALREADY a
+      // pocket print (the front shots are pocket-scale in that case) and when
+      // the design is back-only.
+      const alreadyPocketScale = resolvedPrintPlacement === 'left-pocket'
+      const backOnly = resolvedPrintPlacement === 'back-only'
+      if (!alreadyPocketScale && !backOnly) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'flat_lay',
+            printPlacement: 'left-pocket',
+          },
+        })
+        console.log('[ai-products] 👕 Adding pocket-scale mockup job')
+      }
     }
 
     console.log('[ai-products] 🎨 Creating mockup jobs:', jobs.map(j => ({ type: j.type, template: j.input?.template || j.type })))

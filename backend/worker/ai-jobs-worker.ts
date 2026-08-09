@@ -921,16 +921,27 @@ async function startJob(job: any) {
 
     // Determine asset_role and display_order based on template
     // Ghost mannequin is PRIMARY (display first), then flat_lay, mr_imagine
-    // Order: ghost_mannequin(1) PRIMARY -> flat_lay(2) -> mr_imagine(3)
-    const assetRole = template === 'flat_lay' ? 'mockup_flat_lay' :
+    // Order: ghost_mannequin(1) PRIMARY -> flat_lay(2) -> mr_imagine(3) -> pocket(4)
+    //
+    // A pocket shot is the SAME template rendered at a smaller print scale, so
+    // it must NOT inherit the template's role: the delete-by-role below would
+    // make the pocket shot evict the front shot (and then the next front run
+    // evict the pocket), leaving one survivor forever. Placement is part of the
+    // identity of a mockup, not just its prompt.
+    const isPocketShot = printPlacement === 'left-pocket'
+    const assetRole = isPocketShot ? 'mockup_pocket' :
+                      template === 'flat_lay' ? 'mockup_flat_lay' :
                       template === 'mr_imagine' ? 'mockup_mr_imagine' :
                       template === 'ghost_mannequin' ? 'mockup_ghost_mannequin' :
                       'mockup_flat_lay'
-    const displayOrder = template === 'ghost_mannequin' ? 1 :
+    const displayOrder = isPocketShot ? 4 :
+                         template === 'ghost_mannequin' ? 1 :
                          template === 'flat_lay' ? 2 :
                          template === 'mr_imagine' ? 3 :
                          2
-    const isPrimary = template === 'ghost_mannequin' // Ghost mannequin is the primary/main product image
+    // Never let a pocket render become the hero image — it is the small-print
+    // variant, not the product's main shot.
+    const isPrimary = !isPocketShot && template === 'ghost_mannequin'
 
     // If this is the primary image (ghost mannequin), unset any existing primary images first
     if (isPrimary) {
