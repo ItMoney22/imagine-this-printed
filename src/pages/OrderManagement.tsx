@@ -54,8 +54,25 @@ interface DBOrder {
       addons?: { id?: string; name?: string; price?: number }[] | null
       addons_total?: number | null
     } | null
+    /**
+     * Production files resolved from the PRODUCT, attached by
+     * backend/services/product-files.ts. Not a DB column — order_items has no
+     * knowledge of mockups, clean art, DTF or halftone.
+     */
+    product_files?: ProductFiles | null
   }[]
 }
+
+/** Mirrors ProductFiles in backend/services/product-files.ts. */
+interface ProductFiles {
+  design: string | null
+  halftone: string | null
+  dtf: string | null
+  mockups: { role: string; url: string }[]
+  designAssetId: string | null
+}
+
+const EMPTY_FILES: ProductFiles = { design: null, halftone: null, dtf: null, mockups: [], designAssetId: null }
 
 /**
  * Everything the print floor needs to actually MAKE one line of an order.
@@ -79,6 +96,10 @@ interface FulfilmentLine {
   designUrl: string | null
   printFiles: { placement: string; url: string }[]
   addons: { name: string; price: number }[]
+  /** Product id, needed to generate a halftone against the right product. */
+  productId: string | null
+  /** Mockups / clean PNG / DTF / halftone, resolved from the product. */
+  files: ProductFiles
 }
 
 /**
@@ -104,6 +125,23 @@ type AdminOrder = Order & {
   fulfilmentLines?: FulfilmentLine[]
   /** orders.metadata.print, mirrored by the Watchtower print bridge. */
   printStatus?: { status?: string; railStatus?: string; printer?: string; updatedAt?: string } | null
+}
+
+/** One download chip. Renders nothing when the file doesn't exist. */
+const FileButton: React.FC<{ url: string | null; label: string; tone?: 'solid' | 'outline' }> = ({ url, label, tone = 'outline' }) => {
+  if (!url) return null
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className={tone === 'solid'
+        ? 'px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold'
+        : 'px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-text text-xs font-medium'}
+    >
+      ⬇ {label}
+    </a>
+  )
 }
 
 const OrderManagement: React.FC = () => {
@@ -202,7 +240,9 @@ const OrderManagement: React.FC = () => {
                   .map(([placement, url]) => ({ placement, url: String(url) })),
                 addons: (m.addons || [])
                   .filter(Boolean)
-                  .map(a => ({ name: a?.name || 'Add-on', price: Number(a?.price) || 0 }))
+                  .map(a => ({ name: a?.name || 'Add-on', price: Number(a?.price) || 0 })),
+                productId: item.product_id || m.client_product_id || null,
+                files: item.product_files || EMPTY_FILES
               } as FulfilmentLine
             })
           : ((dbOrder.metadata?.items as any[]) || []).map((snap, i) => ({
@@ -218,7 +258,11 @@ const OrderManagement: React.FC = () => {
               previewUrl: snap?.image ?? null,
               designUrl: snap?.customDesign ?? null,
               printFiles: [],
-              addons: []
+              addons: [],
+              // This branch only runs when the order has no order_items rows at
+              // all, so the backend had nothing to hang product files off.
+              productId: snap?.product?.id ?? snap?.id ?? null,
+              files: EMPTY_FILES
             } as FulfilmentLine))
       }))
 
@@ -358,6 +402,54 @@ const OrderManagement: React.FC = () => {
       toast.error('Label generation failed', 'Please try again. If it keeps failing, check the order shipping address.')
     } finally {
       setIsGeneratingLabel(false)
+    }
+  }
+
+  // Lines currently having a halftone generated, keyed by line id.
+  const [halftoning, setHalftoning] = useState<Record<string, boolean>>({})
+
+  /**
+   * Run the local halftone engine for a line and splice the result into state.
+   * The endpoint is admin-only (requireAdmin in routes/image-flow.ts) even
+   * though this page is open to manager/founder, so the button is gated to
+   * admins rather than letting them click into a 403.
+   */
+  const generateHalftone = async (orderId: string, line: FulfilmentLine) => {
+    const source = line.files.design || line.designUrl
+    if (!line.productId || !source) return
+    setHalftoning(prev => ({ ...prev, [line.id]: true }))
+    try {
+      const res = await apiFetch('/api/image-flow/halftone', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: line.productId,
+          // Prefer the asset id: it lets the API resolve the product itself and
+          // record the parent, so the halftone is traceable to its source.
+          ...(line.files.designAssetId ? { parentAssetId: line.files.designAssetId } : { imageUrl: source }),
+          assetRole: 'design_halftone'
+        })
+      })
+      const url = res?.url
+      if (!url) throw new Error('halftone returned no url')
+
+      // Patch every line sharing this product — one product, one halftone.
+      setOrders(prev => prev.map(o => o.id !== orderId ? o : {
+        ...o,
+        fulfilmentLines: (o.fulfilmentLines || []).map(l =>
+          l.productId === line.productId ? { ...l, files: { ...l.files, halftone: url } } : l
+        )
+      }))
+      setSelectedOrder(prev => !prev || prev.id !== orderId ? prev : {
+        ...prev,
+        fulfilmentLines: (prev.fulfilmentLines || []).map(l =>
+          l.productId === line.productId ? { ...l, files: { ...l.files, halftone: url } } : l
+        )
+      })
+      toast.success('Halftone generated')
+    } catch (err: any) {
+      toast.error(err?.message || 'Halftone generation failed')
+    } finally {
+      setHalftoning(prev => ({ ...prev, [line.id]: false }))
     }
   }
 
@@ -863,6 +955,57 @@ const OrderManagement: React.FC = () => {
                                   View mockup
                                 </a>
                               )}
+                            </div>
+
+                            {/* PRODUCT FILES — mockups, the clean PNG and the
+                                press files. These live on the product, not the
+                                order line, so before this the floor could see a
+                                thumbnail and nothing downloadable. */}
+                            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                              <p className="text-[11px] uppercase tracking-wide text-muted mb-2">Product files</p>
+                              <div className="flex flex-wrap gap-2">
+                                <FileButton url={line.files.design} label="Design PNG" tone="solid" />
+                                <FileButton url={line.files.dtf} label="DTF print file" tone="solid" />
+                                <FileButton url={line.files.halftone} label="Halftone PNG" tone="solid" />
+
+                                {/* Halftone is generated on demand: nothing in
+                                    the pipeline makes one, so every product
+                                    starts without it. Local + deterministic, $0. */}
+                                {!line.files.halftone && (line.files.design || line.designUrl) && line.productId && (
+                                  user?.role === 'admin' ? (
+                                    <button
+                                      onClick={() => generateHalftone(selectedOrder.id, line)}
+                                      disabled={!!halftoning[line.id]}
+                                      className="px-3 py-1.5 rounded-lg border border-purple-400 text-purple-700 dark:text-purple-300 text-xs font-semibold disabled:opacity-50"
+                                    >
+                                      {halftoning[line.id] ? 'Generating…' : '✨ Generate halftone'}
+                                    </button>
+                                  ) : (
+                                    <span className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-muted text-xs">
+                                      No halftone yet — an admin can generate one
+                                    </span>
+                                  )
+                                )}
+
+                                {line.files.mockups.map((mk, i) => (
+                                  <a
+                                    key={`${mk.role}-${i}`}
+                                    href={mk.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-text text-xs font-medium"
+                                  >
+                                    ⬇ {mk.role.replace(/^mockup_/, '').replace(/_/g, ' ')}
+                                  </a>
+                                ))}
+
+                                {!line.files.design && !line.files.dtf && !line.files.halftone
+                                  && line.files.mockups.length === 0 && (
+                                  <span className="px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-xs font-semibold">
+                                    No product files — this product has no generated assets
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>

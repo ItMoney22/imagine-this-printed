@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js'
 import { checkOrderTransition } from '../lib/order-status.js'
 import { processOrderCompletion, retryFailedRewards, scheduleRewardProcessing } from '../services/order-reward-service.js'
 import { processReferralFirstPurchase } from '../services/referral-service.js'
+import { attachProductFiles } from '../services/product-files.js'
 
 const router = Router()
 
@@ -96,7 +97,13 @@ router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async
       return { ...order, order_items: items }
     })
 
-    return res.json({ orders: ordersWithItems })
+    // Production files (mockups / clean PNG / DTF / halftone) live on the
+    // PRODUCT, not the order line, so the floor cannot see them without this.
+    // One batched query for the whole page; a failure inside degrades to empty
+    // bundles rather than failing the order list.
+    const ordersWithFiles = await attachProductFiles(ordersWithItems)
+
+    return res.json({ orders: ordersWithFiles })
   } catch (error: any) {
     console.error('[orders] Error:', error)
     return res.status(500).json({ error: error.message })
