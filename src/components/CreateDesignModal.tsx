@@ -1144,12 +1144,27 @@ export function CreateDesignModal({
               <p className="text-xs sm:text-sm text-purple-300/70 hidden sm:block">Tell Mr. Imagine what you want to create</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-white/10 transition-colors flex-shrink-0"
-          >
-            <X className="w-5 h-5 sm:w-6 sm:h-6 text-white/70" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* The voice-first flow is the flagship — offer the escape hatch
+                from typing right where typing starts (David 2026-08-09:
+                "made me type like a commoner"). */}
+            <button
+              onClick={() => {
+                onClose()
+                navigate('/creator/studio')
+              }}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500/30 to-pink-500/30 border border-purple-400/40 hover:border-purple-300 text-purple-100 text-xs font-semibold transition-colors"
+              title="Build live by voice with Mr. Imagine"
+            >
+              🎙️ Talk it instead
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl hover:bg-white/10 transition-colors"
+            >
+              <X className="w-5 h-5 sm:w-6 sm:h-6 text-white/70" />
+            </button>
+          </div>
         </div>
 
         {/* Main Content */}
