@@ -30,7 +30,7 @@ export interface ProductNormalizationInput {
   // DTF Print Settings
   productType?: 'tshirt' | 'hoodie' | 'tank'
   shirtColor?: 'black' | 'white' | 'gray'
-  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
 }
 
 export interface NormalizedProduct {

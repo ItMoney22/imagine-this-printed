@@ -23,7 +23,7 @@ export interface ReplicateTryOnInput {
   product_type?: 'shirts' | 'hoodies' | 'tumblers' | 'dtf-transfers'
   shirtColor?: 'black' | 'white' | 'gray' | 'color' // DTF shirt color for mockup matching
   productType?: 'tshirt' | 'hoodie' | 'tank' // Product type for Mr. Imagine mockups
-  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
 }
 
 export interface GhostMannequinInput {

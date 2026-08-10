@@ -51,17 +51,30 @@ describe('buildProductGallery', () => {
     expect(out[out.length - 1]).toBe('wm.png')
   })
 
-  it('orders the full set ghost → flat → mr imagine → models → pocket → watermark', () => {
+  it('orders the full set ghost → flat → back → mr imagine → models → pocket → watermark', () => {
     const out = buildProductGallery([
       asset('mockup_pocket', 'pocket.png'),
       asset('design_watermarked', 'wm.png', { kind: 'design_preview' }),
       asset('mockup_mr_imagine', 'mri.png'),
       asset('mockup_model_2', 'model2.png'),
+      asset('mockup_back', 'back.png'),
       asset('mockup_flat_lay', 'flat.png'),
       asset('mockup_model_1', 'model1.png'),
       asset('mockup_ghost_mannequin', 'ghost.png'),
     ])
-    expect(out).toEqual(['ghost.png', 'flat.png', 'mri.png', 'model1.png', 'model2.png', 'pocket.png', 'wm.png'])
+    expect(out).toEqual(['ghost.png', 'flat.png', 'back.png', 'mri.png', 'model1.png', 'model2.png', 'pocket.png', 'wm.png'])
+  })
+
+  it('shows the back view of a two-sided product right after the front, never as hero', () => {
+    // The back render (front-back placement) is a paid asset — a ROLE_ORDER
+    // omission would make it invisible forever, the exact silent-invisibility
+    // trap this whitelist keeps producing.
+    const out = buildProductGallery([
+      asset('mockup_back', 'back.png'),
+      asset('mockup_ghost_mannequin', 'ghost.png'),
+      asset('mockup_flat_lay', 'flat.png'),
+    ])
+    expect(out).toEqual(['ghost.png', 'flat.png', 'back.png'])
   })
 
   it('still takes only the newest asset per role', () => {

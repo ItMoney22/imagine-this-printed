@@ -490,7 +490,29 @@ function buildShotPlan(category: string, cast: CastMember[] = []): ShotPlan[] {
 // see (re-drawn lettering, invented extra text, the graphic half-hidden behind
 // an arm), and the shot is verified against the source art after it renders.
 // ---------------------------------------------------------------------------
-const DESIGN_FIDELITY_RULES =
+// Rule 7 (placement/scale) is derived from the product's ACTUAL print
+// placement and size — it was a hardcoded "11-inch front print" for every
+// garment, which mis-briefed pocket and back products and ignored the size
+// the admin picked (David 2026-08-09).
+const shotPlacementRule = (placement: string, sizeInches: number): string => {
+  const inches = Math.min(16, Math.max(3, Math.round(Number(sizeInches) || 11)))
+  switch (placement) {
+    case 'left-pocket':
+      return 'Placement: a small pocket-scale print about 4 inches wide, high on the LEFT chest like a pocket ' +
+        'logo — the rest of the shirt stays blank.'
+    case 'back-only':
+      return `Placement: printed LARGE across the upper back, about ${inches} inches wide, centered between the ` +
+        'shoulder blades.'
+    case 'pocket-front-back-full':
+      return 'Placement: a small pocket print about 4 inches wide on the left chest (this product also has a ' +
+        'large back print, but only the front is visible in this photo).'
+    default: // front-center, front-back (front side shown)
+      return `Placement: centered on the chest, top edge about two inches below the collar, sized like a standard ` +
+        `${inches}-inch adult front print — never enlarged into an all-over print.`
+  }
+}
+
+const designFidelityRules = (placement: string, sizeInches: number): string =>
   'DESIGN FIDELITY — this outranks every aesthetic choice in this brief:\n' +
   '1. Reproduce the INPUT artwork EXACTLY. Every letter, word, number and punctuation mark keeps its spelling, ' +
   'its typeface, its weight, its letter spacing and its line breaks.\n' +
@@ -502,8 +524,7 @@ const DESIGN_FIDELITY_RULES =
   '5. The whole graphic stays visible: nothing covers it — not hands, hair, arms, bag straps, jackets or shadow.\n' +
   '6. The ONLY permitted deformation is real fabric behavior — the print follows the shirt\'s folds and the ' +
   'curve of the body like a genuine DTF transfer, slightly matte, ink sitting on the weave.\n' +
-  '7. Placement: centered on the chest, top edge about two inches below the collar, sized like a standard ' +
-  '11-inch adult front print.\n' +
+  `7. ${shotPlacementRule(placement, sizeInches)}\n` +
   'If any part of the artwork is ambiguous, reproduce it as-is. Never invent a cleaner version.'
 
 const METAL_FIDELITY_RULES =
@@ -525,12 +546,27 @@ const EVERYDAY_REALISM =
   'jawline. The PHOTOGRAPH, by contrast, is professional: correctly exposed, sharp focus on the model, clean ' +
   'color, no motion blur and no noise. Everyday person, expert photography.'
 
-const PROMPT_TAIL =
+const promptTail = (placement: string, sizeInches: number): string =>
   'Show the full torso from shoulders to waist with realistic fabric texture, natural drape and true-to-life ' +
   'lighting. The model is clearly an adult. High-resolution product photography suitable for an online ' +
   'marketplace listing.\n' +
   EVERYDAY_REALISM + '\n' +
-  DESIGN_FIDELITY_RULES
+  designFidelityRules(placement, sizeInches)
+
+// How the "wearing a shirt with the graphic printed …" clause reads per
+// placement — a back-only product is shot FROM BEHIND, which the old
+// hardcoded "printed on the chest" made impossible.
+const wearingClause = (placement: string): string => {
+  switch (placement) {
+    case 'left-pocket':
+    case 'pocket-front-back-full':
+      return 'printed small at pocket scale on the left chest'
+    case 'back-only':
+      return 'printed large across the upper back — the model is photographed from behind so the back print is clearly visible'
+    default:
+      return 'printed on the chest'
+  }
+}
 
 const METAL_PROMPT_TAIL =
   'Natural perspective, tasteful minimal decor, photorealistic interior-design photography. ' +
@@ -556,7 +592,7 @@ const castingSlate = (plan: ShotPlan): string =>
 // gpt-image-2 casts the model straight from the persona text — the only image
 // input is the design itself, so casting variety is unlimited (no stock-photo
 // library required). Metal art gets a room scene instead of a person.
-function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
+function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, sizeInches: number): string {
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -570,9 +606,9 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
     retryPreamble(plan) +
     `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
     `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck t-shirt ` +
-    `with the graphic from the INPUT printed on the chest, ${plan.scene}.\n` +
+    `with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
     `${castingSlate(plan)}\n` +
-    PROMPT_TAIL
+    promptTail(placement, sizeInches)
   )
 }
 
@@ -582,7 +618,7 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string): string {
 // instruction to discard the reference identity every fallback shot came back
 // wearing one of the same two faces, which is exactly what the casting rework
 // exists to kill. Metal art needs no anchor — design only.
-function buildNanoPrompt(plan: ShotPlan, shirtColor: string): string {
+function buildNanoPrompt(plan: ShotPlan, shirtColor: string, placement: string, sizeInches: number): string {
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -596,11 +632,11 @@ function buildNanoPrompt(plan: ShotPlan, shirtColor: string): string {
     retryPreamble(plan) +
     `INPUT 1 is a framing reference only. INPUT 2 is a flat 2D graphic design (a DTF print artwork). ` +
     `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck ` +
-    `t-shirt with the graphic from INPUT 2 printed on the chest, ${plan.scene}.\n` +
+    `t-shirt with the graphic from INPUT 2 ${wearingClause(placement)}, ${plan.scene}.\n` +
     `Use INPUT 1 ONLY for camera distance, crop and body angle. DISCARD the person in INPUT 1 entirely — their ` +
     `face, hair, skin tone, age and build must NOT carry over. The subject is the person described above.\n` +
     `${castingSlate(plan)}\n` +
-    PROMPT_TAIL
+    promptTail(placement, sizeInches)
   )
 }
 
@@ -611,12 +647,14 @@ async function generateOneShot(
   designUrl: string,
   shirtColor: string,
   productId: string,
-  userId: string
+  userId: string,
+  placement: string = 'front-center',
+  sizeInches: number = 11
 ): Promise<string> {
   const viaGptImage = async (): Promise<string> => {
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
-      prompt: buildGptPrompt(plan, shirtColor),
+      prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches),
       size: '1024x1536', // portrait, matches the 3:4 listing crop
       quality: 'high',
       userId,
@@ -633,7 +671,7 @@ async function generateOneShot(
       : [designUrl] // metal art: no human anchor, just the artwork
     const output = await replicate.run(NANO_BANANA as any, {
       input: {
-        prompt: buildNanoPrompt(plan, shirtColor),
+        prompt: buildNanoPrompt(plan, shirtColor, placement, sizeInches),
         image_input: inputImages,
         output_format: 'png',
         aspect_ratio: '3:4'
@@ -733,6 +771,10 @@ interface ShotContext {
   designUrl: string
   productId: string
   userId: string
+  /** The product's print placement — drives the pose and fidelity rule 7. */
+  placement: string
+  /** Physical print width in inches (garments). */
+  sizeInches: number
   onStage: (stage: string) => Promise<void>
 }
 
@@ -741,7 +783,7 @@ interface ShotContext {
  * it didn't. Returns whichever render we're keeping plus its verdict.
  */
 async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck }> {
-  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId)
+  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches)
   const verdict = await verifyDesignFidelity(ctx.designUrl, url)
   if (!verdict || verdict.ok) return { url, check: { ok: true } }
 
@@ -751,7 +793,7 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
   // Fresh slate id so the retry is a genuinely different roll, plus the note
   // telling the model what to fix.
   const retryPlan: ShotPlan = { ...plan, variant: slateId(), retryNote: verdict.reason }
-  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId)
+  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches)
   const retryVerdict = await verifyDesignFidelity(ctx.designUrl, retryUrl)
   if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true } }
 
@@ -861,6 +903,8 @@ async function loadShotContext(productId: string, userId: string) {
       designUrl,
       productId,
       userId,
+      placement: String((product as any).metadata?.print_placement || 'front-center'),
+      sizeInches: Number((product as any).metadata?.print_size_inches) || 11,
       onStage: (stage: string) => saveShotsState(productId, { stage })
     } as ShotContext
   }

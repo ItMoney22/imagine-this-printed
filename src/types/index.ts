@@ -1148,7 +1148,10 @@ export interface AIProductCreationRequest {
   // DTF Print Settings
   productType?: 'tshirt' | 'hoodie' | 'tank'
   shirtColor?: 'black' | 'white' | 'gray'
-  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
+  // Physical print width in inches (garments). Drives the mockup scale
+  // language + QA coverage gate → metadata.print_size_inches. Default 11.
+  printSizeInches?: number
   // Multi-select print placements for T-shirts (front/back/pocket). Persisted to
   // products.print_locations. Distinct from printPlacement, which drives the
   // single AI mockup composition.
@@ -1198,7 +1201,7 @@ export interface ProductTrendIdea {
   imageStyle: 'realistic' | 'cartoon' | 'semi-realistic'
   productType: 'tshirt' | 'hoodie' | 'tank'
   shirtColor: 'black' | 'white' | 'gray'
-  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
   printStyle: 'clean' | 'halftone' | 'grunge'
   whyItMaySell: string
   evidence: string[]

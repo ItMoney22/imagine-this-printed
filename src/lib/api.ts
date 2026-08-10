@@ -326,7 +326,9 @@ export const aiProducts = {
     return response.json()
   },
 
-  selectImage: async (productId: string, selectedAssetId: string) => {
+  // Pass extra asset ids to build one sibling product per additional pick —
+  // the first id keeps the current product, each extra gets a cloned draft.
+  selectImage: async (productId: string, selectedAssetId: string, extraAssetIds: string[] = []) => {
     const { data } = await supabase.auth.getSession()
     const token = data.session?.access_token
 
@@ -336,7 +338,11 @@ export const aiProducts = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ selectedAssetId }),
+      body: JSON.stringify(
+        extraAssetIds.length > 0
+          ? { selectedAssetId, selectedAssetIds: [selectedAssetId, ...extraAssetIds] }
+          : { selectedAssetId }
+      ),
     })
 
     if (!response.ok) {

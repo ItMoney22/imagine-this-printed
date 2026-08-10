@@ -313,6 +313,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       shirtColor = 'black',
       printPlacement = 'front-center',
       printStyle = 'clean',
+      printSizeInches = 11,
       // Model Selection - defaults to GPT Image 2 (image-flow)
       modelId = 'openai/gpt-image-2',
       forceSingleModel = false,
@@ -449,11 +450,19 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     const uniqueSlug = generateUniqueSlug(baseSlug, existingSlugs)
 
     // Resolve print_locations against the final category. The DB CHECK requires
-    // >= 1 placement for 'shirts'; front print is the universal default so an
-    // empty selection never breaks a shirt insert.
+    // >= 1 placement for 'shirts'. When the admin didn't pick locations
+    // explicitly, derive them from the print placement so a back or pocket
+    // product doesn't ship advertising only a front print.
+    const PLACEMENT_DEFAULT_LOCATIONS: Record<string, string[]> = {
+      'front-center': ['front_image'],
+      'left-pocket': ['pocket'],
+      'back-only': ['back_image'],
+      'front-back': ['front_image', 'back_image'],
+      'pocket-front-back-full': ['pocket', 'back_image'],
+    }
     const printLocations =
       normalized.category_slug === 'shirts' && requestedPrintLocations.length === 0
-        ? ['front_image']
+        ? (PLACEMENT_DEFAULT_LOCATIONS[printPlacement] || ['front_image'])
         : requestedPrintLocations
 
     // Step 4: Create product (draft) with AI metadata
@@ -487,6 +496,11 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           shirt_color: shirtColor,
           print_placement: printPlacement,
           print_style: printStyle,
+          // Physical print width (inches) — drives explicit scale language in
+          // the mockup prompts and the QA coverage gate. Garments only.
+          ...(normalized.category_slug === 'metal-art'
+            ? {}
+            : { print_size_inches: Math.min(16, Math.max(3, Math.round(Number(printSizeInches) || 11))) }),
           // Metal art: physical panel size (drives size-accurate mockups)
           ...(normalized.category_slug === 'metal-art' ? { metal_size: metalSize } : {}),
           // Model used for image generation
@@ -1358,12 +1372,14 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     const resolvedProductType = meta.product_type || imageJob?.input?.productType || 'tshirt'
     const resolvedShirtColor = meta.shirt_color || imageJob?.input?.shirtColor || 'black'
     const resolvedPrintPlacement = meta.print_placement || imageJob?.input?.printPlacement || 'front-center'
+    const resolvedPrintSize = Number(meta.print_size_inches) || Number(imageJob?.input?.printSizeInches) || 11
 
     const baseInput = {
       product_type: product.category || 'shirts',
       productType: resolvedProductType,
       shirtColor: resolvedShirtColor,
       printPlacement: resolvedPrintPlacement,
+      printSizeInches: resolvedPrintSize,
       selected_asset_id: selectedAssetId, // Pass selected asset to worker
     }
 
@@ -1392,6 +1408,11 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
       }
       console.log(`[ai-products] 🖼️ Metal-art mockup jobs (size ${metalSize}): metal_shelf + metal_wall`)
     } else {
+      // Two-sided products render each side as its OWN job (mirrors the
+      // /select-image fan-out — keep the two in lockstep).
+      const isTwoSided = resolvedPrintPlacement === 'front-back'
+      const frontPlacement = isTwoSided ? 'front-center' : resolvedPrintPlacement
+
       jobs.push({
         product_id: id,
         type: 'replicate_mockup_v2',
@@ -1399,6 +1420,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         input: {
           ...baseInput,
           template: 'flat_lay',
+          printPlacement: frontPlacement,
         },
       })
 
@@ -1413,6 +1435,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
           input: {
             ...baseInput,
             template: 'ghost_mannequin',  // Template determines the mockup style
+            printPlacement: frontPlacement,
           },
         })
         console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
@@ -1426,8 +1449,26 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         input: {
           ...baseInput,
           template: 'mr_imagine',
+          printPlacement: frontPlacement,
         },
       })
+
+      // Back view for two-sided products — mockupRole pins the asset role so
+      // it never fights the front flat lay for the mockup_flat_lay slot.
+      if (isTwoSided) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'flat_lay',
+            printPlacement: 'back-only',
+            mockupRole: 'mockup_back',
+          },
+        })
+        console.log('[ai-products] 🔄 Adding back-view mockup job (two-sided product)')
+      }
 
       // Pocket shot (David 2026-08-09): customers can pick a left-chest pocket
       // print, and a front-scale mockup badly misrepresents what that looks
@@ -1604,31 +1645,44 @@ router.post('/jobs/:jobId/retry', requireAuth, requireAdmin, async (req: Request
 })
 
 // POST /api/admin/products/ai/:id/select-image
-// Select an image from the 3 generated options and trigger mockup generation
+// Select one or more of the generated candidates and trigger mockup generation.
+// Multi-pick (David 2026-08-09: "sometimes i like more then 1 … do products
+// for each"): `selectedAssetIds` (primary first) builds one product per pick —
+// the first pick keeps THIS product, every extra pick gets a cloned draft that
+// runs the same mockup fan-out. Legacy single `selectedAssetId` still works.
 router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
-    const { selectedAssetId } = req.body
+    const { selectedAssetId, selectedAssetIds } = req.body
 
-    if (!selectedAssetId) {
-      return res.status(400).json({ error: 'selectedAssetId is required' })
+    const pickedIds: string[] = Array.from(new Set(
+      (Array.isArray(selectedAssetIds) && selectedAssetIds.length > 0
+        ? selectedAssetIds
+        : [selectedAssetId]
+      ).filter((v: unknown): v is string => typeof v === 'string' && v.length > 0)
+    ))
+
+    if (pickedIds.length === 0) {
+      return res.status(400).json({ error: 'selectedAssetId (or selectedAssetIds) is required' })
     }
+    const primaryAssetId = pickedIds[0]
+    const extraAssetIds = pickedIds.slice(1)
 
-    req.log?.info({ productId: id, selectedAssetId }, '[ai-products] 🎨 User selected image')
+    req.log?.info({ productId: id, pickedIds }, '[ai-products] 🎨 User selected image(s)')
 
-    // Get the selected asset
-    const { data: selectedAsset, error: assetError } = await supabase
+    // Get every picked asset, scoped to this product
+    const { data: pickedAssets, error: assetError } = await supabase
       .from('product_assets')
       .select('*')
-      .eq('id', selectedAssetId)
+      .in('id', pickedIds)
       .eq('product_id', id)
-      .single()
 
-    if (assetError || !selectedAsset) {
+    const selectedAsset = (pickedAssets || []).find(a => a.id === primaryAssetId)
+    if (assetError || !selectedAsset || (pickedAssets || []).length !== pickedIds.length) {
       return res.status(404).json({ error: 'Selected asset not found' })
     }
 
-    // Mark the selected asset as primary with explicit fields
+    // Mark the primary pick with explicit fields
     await supabase
       .from('product_assets')
       .update({
@@ -1641,19 +1695,22 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
           selected_at: new Date().toISOString()
         }
       })
-      .eq('id', selectedAssetId)
+      .eq('id', primaryAssetId)
 
     // Watermarked design copy for the storefront gallery (fire-and-forget —
     // it's ready long before the admin reaches Approve).
     void createWatermarkedDesignAsset(id, { id: selectedAsset.id, url: selectedAsset.url })
 
     // DELETE non-selected source and DTF images
-    // Keep: selected source asset + its corresponding DTF asset (matching model_id)
-    // Delete: other source assets + their DTF assets
-    console.log('[ai-products] 🗑️ Deleting non-selected assets for product:', id, '(keeping selected:', selectedAssetId, ')')
+    // Keep: EVERY picked source asset + their corresponding DTF assets
+    // (matching model_id) — extra picks are re-homed onto cloned products
+    // below, so deleting them here would destroy the sibling builds.
+    console.log('[ai-products] 🗑️ Deleting non-selected assets for product:', id, '(keeping picks:', pickedIds.join(', '), ')')
 
-    // Get the model_id from the selected asset to match with DTF
-    const selectedModelId = selectedAsset.metadata?.model_id
+    // The model_ids of every picked asset, to match their DTF twins
+    const pickedModelIds = new Set(
+      (pickedAssets || []).map(a => a.metadata?.model_id).filter(Boolean)
+    )
 
     // Get all source and DTF assets for this product
     const { data: allAssets } = await supabase
@@ -1662,13 +1719,13 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       .eq('product_id', id)
       .in('kind', ['source', 'dtf'])
 
-    // Find IDs to delete (not selected source, and not DTF matching selected model)
+    // Find IDs to delete (not a picked source, and not a DTF matching a picked model)
     const idsToDelete = (allAssets || [])
       .filter(asset => {
-        // Keep the selected source asset
-        if (asset.id === selectedAssetId) return false
-        // Keep the DTF asset that matches the selected source's model
-        if (asset.kind === 'dtf' && asset.metadata?.model_id === selectedModelId) return false
+        // Keep every picked source asset
+        if (pickedIds.includes(asset.id)) return false
+        // Keep DTF assets that match any picked source's model
+        if (asset.kind === 'dtf' && asset.metadata?.model_id && pickedModelIds.has(asset.metadata.model_id)) return false
         // Delete everything else
         return true
       })
@@ -1735,10 +1792,11 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
       .limit(1)
       .maybeSingle()
 
-    // Get product category + the DTF settings saved at creation time.
+    // Get the full product row — needed both for DTF settings AND for cloning
+    // sibling products from the extra picks below.
     const { data: product } = await supabase
       .from('products')
-      .select('category, metadata')
+      .select('*')
       .eq('id', id)
       .single()
 
@@ -1749,81 +1807,134 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
     const resolvedProductType = meta.product_type || imageJob?.input?.productType || 'tshirt'
     const resolvedShirtColor = meta.shirt_color || imageJob?.input?.shirtColor || 'black'
     const resolvedPrintPlacement = meta.print_placement || imageJob?.input?.printPlacement || 'front-center'
+    const resolvedPrintSize = Number(meta.print_size_inches) || Number(imageJob?.input?.printSizeInches) || 11
 
     console.log('[ai-products] 🎯 select-image mockup DTF settings:', JSON.stringify({
       shirtColor: resolvedShirtColor,
       productType: resolvedProductType,
       printPlacement: resolvedPrintPlacement,
+      printSizeInches: resolvedPrintSize,
       meta_shirt_color: meta.shirt_color ?? null,
       imageJob_shirtColor: imageJob?.input?.shirtColor ?? null,
     }))
 
-    // Create THREE mockup jobs:
-    // 1. Flat lay mockup (shirt on surface)
-    // 2. Ghost mannequin mockup (invisible mannequin) - only for garments
-    // 3. Mr. Imagine mockup (mascot wearing shirt)
-    const baseInput = {
-      product_type: product?.category || 'shirts',
-      productType: resolvedProductType,
-      shirtColor: resolvedShirtColor,
-      printPlacement: resolvedPrintPlacement,
-      selected_asset_id: selectedAssetId,
-    }
-
     const productCategory = product?.category || 'shirts'
-    const mockupJobs: any[] = []
-    if (productCategory === 'metal-art') {
-      // Metal art: size-accurate scenes, no garment/mascot templates.
-      const metalSize = meta.metal_size === '8x10' ? '8x10' : '4x6'
-      for (const template of ['metal_shelf', 'metal_wall']) {
-        mockupJobs.push({
-          product_id: id,
-          type: 'replicate_mockup_v2',
-          status: 'queued',
-          input: { ...baseInput, template, metalSize },
-        })
+
+    // Build the full mockup fan-out for ONE product. Parameterized because the
+    // same fan-out now runs for this product AND for each sibling clone built
+    // from an extra pick. NOTE: there are TWO mockup fan-outs in this file and
+    // THIS is the one the wizard's "Continue to mockups" actually calls, so a
+    // change made only to /create-mockups silently never runs.
+    const buildMockupJobs = (targetProductId: string, designAssetId: string): any[] => {
+      const baseInput = {
+        product_type: productCategory,
+        productType: resolvedProductType,
+        shirtColor: resolvedShirtColor,
+        printPlacement: resolvedPrintPlacement,
+        printSizeInches: resolvedPrintSize,
+        selected_asset_id: designAssetId,
       }
-      console.log(`[ai-products] 🖼️ Metal-art mockup jobs (size ${metalSize}): metal_shelf + metal_wall`)
-    } else {
-      mockupJobs.push({
-        product_id: id,
+      const jobs: any[] = []
+
+      if (productCategory === 'metal-art') {
+        // Metal art: size-accurate scenes, no garment/mascot templates.
+        const metalSize = meta.metal_size === '8x10' ? '8x10' : '4x6'
+        for (const template of ['metal_shelf', 'metal_wall']) {
+          jobs.push({
+            product_id: targetProductId,
+            type: 'replicate_mockup_v2',
+            status: 'queued',
+            input: { ...baseInput, template, metalSize },
+          })
+        }
+        console.log(`[ai-products] 🖼️ Metal-art mockup jobs (size ${metalSize}): metal_shelf + metal_wall`)
+        return jobs
+      }
+
+      // Two-sided products render each side as its OWN job: a single image
+      // can't show front and back at once, so the front shots override to
+      // front-center and a dedicated back shot carries mockupRole so the
+      // worker files it as mockup_back instead of evicting the front flat lay.
+      const isTwoSided = resolvedPrintPlacement === 'front-back'
+      const frontPlacement = isTwoSided ? 'front-center' : resolvedPrintPlacement
+
+      jobs.push({
+        product_id: targetProductId,
         type: 'replicate_mockup_v2',
         status: 'queued',
         input: {
           ...baseInput,
           template: 'flat_lay',
+          printPlacement: frontPlacement,
         },
       })
 
       // Add ghost mannequin job only for supported garment types
-      const productType = resolvedProductType
       if (GHOST_MANNEQUIN_SUPPORTED_CATEGORIES.includes(productCategory) ||
-          GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
-        mockupJobs.push({
-          product_id: id,
+          GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES.includes(resolvedProductType)) {
+        jobs.push({
+          product_id: targetProductId,
           type: 'replicate_mockup_v2',  // Unified type - all mockups use replicate_mockup
           status: 'queued',
           input: {
             ...baseInput,
             template: 'ghost_mannequin',  // Template determines the mockup style
+            printPlacement: frontPlacement,
           },
         })
-        console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
+        console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', resolvedProductType)
       }
 
       // Always add Mr. Imagine mockup (garment paths only)
-      mockupJobs.push({
-        product_id: id,
+      jobs.push({
+        product_id: targetProductId,
         type: 'replicate_mockup_v2',
         status: 'queued',
         input: {
           ...baseInput,
           template: 'mr_imagine',
+          printPlacement: frontPlacement,
         },
       })
+
+      // Back view for two-sided products
+      if (isTwoSided) {
+        jobs.push({
+          product_id: targetProductId,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'flat_lay',
+            printPlacement: 'back-only',
+            mockupRole: 'mockup_back',
+          },
+        })
+        console.log('[ai-products] 🔄 Adding back-view mockup job (two-sided product)')
+      }
+
+      // Extra pocket-scale merchandising shot
+      const alreadyPocketScale = resolvedPrintPlacement === 'left-pocket'
+      const backOnly = resolvedPrintPlacement === 'back-only'
+      if (!alreadyPocketScale && !backOnly) {
+        jobs.push({
+          product_id: targetProductId,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'flat_lay',
+            printPlacement: 'left-pocket',
+          },
+        })
+        console.log('[ai-products] 👕 Adding pocket-scale mockup job')
+      }
+      return jobs
     }
 
-    console.log('[ai-products] 🎨 Creating mockup jobs:', mockupJobs.map(j => ({ type: j.type, template: j.input?.template || j.type })))
+    const mockupJobs = buildMockupJobs(id, primaryAssetId)
+
+    console.log('[ai-products] 🎨 Creating mockup jobs:', mockupJobs.map(j => ({ type: j.type, template: j.input?.template || j.type, placement: j.input?.printPlacement })))
 
     const { data: createdJobs, error: jobError } = await supabase
       .from('ai_jobs')
@@ -1837,12 +1948,130 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
     }
 
     console.log('[ai-products] ✅ Successfully created', createdJobs?.length, 'mockup jobs:', createdJobs?.map(j => ({ id: j.id, type: j.type, template: j.input?.template })))
-    req.log?.info({ jobCount: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + ghost_mannequin + mr_imagine)')
+    req.log?.info({ jobCount: createdJobs?.length }, '[ai-products] ✅ Mockup jobs created (flat_lay + ghost_mannequin + mr_imagine + pocket)')
+
+    // Two real-person model shots, mirrored into product_assets when they pass
+    // QA (services/etsy-model-shots.ts). Fire-and-forget: the shoot outlives
+    // this request and a shoot failure must not fail mockup creation.
+    if (productCategory !== 'metal-art') {
+      startModelShots(id, (req as any).user?.id || 'system')
+        .then(() => console.log('[ai-products] 📸 model shots kicked off for', id))
+        .catch((e: any) => console.warn('[ai-products] model shots did not start:', e?.message))
+    }
+
+    // EXTRA PICKS → one sibling product each. Clone the draft (row + variants
+    // + tags, NOT assets), re-home the picked candidate and its DTF twin onto
+    // the clone, then run the identical mockup fan-out + model shoot for it.
+    // A sibling failure never fails the primary selection — it logs and moves
+    // on, and the response names only the siblings that actually built.
+    const siblings: Array<{ productId: string; assetId: string; name: string }> = []
+    if (product && extraAssetIds.length > 0) {
+      for (const [i, extraId] of extraAssetIds.entries()) {
+        const pickNumber = i + 2
+        const extraAsset = (pickedAssets || []).find(a => a.id === extraId)
+        if (!extraAsset) continue
+        try {
+          const altName = `${product.name} — Alt ${pickNumber}`
+          const baseSlug = slugify(`${product.name} alt ${pickNumber}`)
+          const { data: slugRows } = await supabase
+            .from('products')
+            .select('slug')
+            .like('slug', `${baseSlug}%`)
+          const altSlug = generateUniqueSlug(baseSlug, (slugRows || []).map((r: any) => r.slug))
+
+          const { id: _pid, created_at: _pc, updated_at: _pu, ...productRest } = product
+          const { data: clone, error: cloneErr } = await supabase
+            .from('products')
+            .insert({
+              ...productRest,
+              name: altName,
+              slug: altSlug,
+              status: 'draft',
+              is_active: false,
+              images: [],
+              metadata: {
+                ...(product.metadata || {}),
+                sibling_of: id,
+                sibling_pick: pickNumber,
+                sibling_created_at: new Date().toISOString(),
+              },
+            })
+            .select()
+            .single()
+          if (cloneErr || !clone) {
+            console.warn('[ai-products] ⚠️ sibling clone insert failed for pick', pickNumber, cloneErr?.message)
+            continue
+          }
+
+          for (const table of ['product_variants', 'product_tags']) {
+            const { data: rows } = await supabase.from(table).select('*').eq('product_id', id)
+            if (rows && rows.length > 0) {
+              const rowClones = rows.map(({ id: _i, created_at: _cc, updated_at: _uu, ...r }: any) => ({
+                ...r,
+                product_id: clone.id,
+              }))
+              const { error: cErr } = await supabase.from(table).insert(rowClones)
+              if (cErr) console.warn(`[ai-products] ⚠️ sibling ${table} copy failed:`, cErr.message)
+            }
+          }
+
+          // Re-home the picked candidate onto the clone as its design
+          await supabase
+            .from('product_assets')
+            .update({
+              product_id: clone.id,
+              is_primary: true,
+              asset_role: 'design',
+              display_order: 1,
+              metadata: {
+                ...extraAsset.metadata,
+                is_selected: true,
+                selected_at: new Date().toISOString(),
+              },
+            })
+            .eq('id', extraId)
+
+          // …and its DTF twin, if one exists
+          const extraModelId = extraAsset.metadata?.model_id
+          if (extraModelId) {
+            await supabase
+              .from('product_assets')
+              .update({ product_id: clone.id })
+              .eq('product_id', id)
+              .eq('kind', 'dtf')
+              .eq('metadata->>model_id', extraModelId)
+          }
+
+          void createWatermarkedDesignAsset(clone.id, { id: extraAsset.id, url: extraAsset.url })
+
+          const cloneJobs = buildMockupJobs(clone.id, extraId)
+          const { error: cloneJobErr } = await supabase.from('ai_jobs').insert(cloneJobs)
+          if (cloneJobErr) {
+            console.warn('[ai-products] ⚠️ sibling mockup jobs failed for', clone.id, cloneJobErr.message)
+          }
+
+          if (productCategory !== 'metal-art') {
+            startModelShots(clone.id, (req as any).user?.id || 'system')
+              .then(() => console.log('[ai-products] 📸 model shots kicked off for sibling', clone.id))
+              .catch((e: any) => console.warn('[ai-products] sibling model shots did not start:', e?.message))
+          }
+
+          siblings.push({ productId: clone.id, assetId: extraId, name: altName })
+          console.log('[ai-products] 👯 Sibling product built from pick', pickNumber, '→', clone.id)
+        } catch (e: any) {
+          console.warn('[ai-products] ⚠️ sibling build failed for pick', pickNumber, e?.message)
+        }
+      }
+      req.log?.info({ requested: extraAssetIds.length, built: siblings.length }, '[ai-products] 👯 Sibling products from extra picks')
+    }
 
     res.json({
-      message: 'Image selected and mockup generation started',
+      message: siblings.length > 0
+        ? `Image selected — building this product plus ${siblings.length} more from your other pick${siblings.length > 1 ? 's' : ''}`
+        : 'Image selected and mockup generation started',
       selectedAsset,
-      mockupJobs: createdJobs
+      mockupJobs: createdJobs,
+      siblings,
     })
   } catch (error: any) {
     req.log?.error({ error }, '[ai-products] ❌ Error')

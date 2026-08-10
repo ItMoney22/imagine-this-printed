@@ -54,6 +54,10 @@ interface Brief {
   tone?: string
   shirtColor: 'black' | 'white' | 'gray'
   printLocations: TshirtPrintLocation[]
+  /** Where the design prints — drives the mockup composition server-side. */
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
+  /** Physical print width in inches (garments). */
+  printSizeInches?: number
 }
 
 interface BuildState {
@@ -208,7 +212,7 @@ const TOOLS: MrImagineToolDef[] = [
   {
     type: 'function',
     name: 'set_design_brief',
-    description: 'Lock the creative brief once the admin confirms it. prompt is the full design description in your polished words (subject, style, colors, any text). Include shirt_color and print_locations for shirts when discussed.',
+    description: 'Lock the creative brief once the admin confirms it. prompt is the full design description in your polished words (subject, style, colors, any text). Include shirt_color and print_locations for shirts when discussed. Ask where the print goes — front, pocket, back, or front AND back — and pass print_placement; pass print_size_inches if they name a size (11 is the adult standard).',
     parameters: {
       type: 'object',
       properties: {
@@ -217,6 +221,12 @@ const TOOLS: MrImagineToolDef[] = [
         tone: { type: 'string', description: 'Mood/tone, e.g. playful, elegant.' },
         shirt_color: { type: 'string', enum: ['black', 'white', 'gray'] },
         print_locations: { type: 'array', items: { type: 'string', enum: ['front_image', 'back_image', 'pocket'] } },
+        print_placement: {
+          type: 'string',
+          enum: ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'],
+          description: 'Where the design prints. front-back = same design on both sides (renders a front and a back mockup).',
+        },
+        print_size_inches: { type: 'integer', description: 'Print width in inches: 8 youth, 11 adult standard, 13 XL. Default 11.' },
       },
       required: ['prompt'],
     },
@@ -251,11 +261,13 @@ const TOOLS: MrImagineToolDef[] = [
   {
     type: 'function',
     name: 'select_design',
-    description: 'Pick the winning design by its on-screen number (1-based). Shirt/metal art lane only.',
+    description: 'Pick the winning design(s) by on-screen number (1-based). Shirt/metal art lane only. If the admin loves MORE than one, pass all of them in indexes — the first is the main build and every extra becomes its OWN sibling product automatically.',
     parameters: {
       type: 'object',
-      properties: { index: { type: 'integer', description: 'The number shown under the chosen candidate.' } },
-      required: ['index'],
+      properties: {
+        index: { type: 'integer', description: 'The number under the chosen candidate (single pick).' },
+        indexes: { type: 'array', items: { type: 'integer' }, description: 'Multiple picks — first is the main product, the rest each become their own product.' },
+      },
     },
   },
   {
@@ -588,6 +600,10 @@ const AdminAIProductBuilder: React.FC = () => {
         const locations = Array.isArray(args.print_locations)
           ? args.print_locations.filter((v): v is TshirtPrintLocation => ['front_image', 'back_image', 'pocket'].includes(String(v)))
           : []
+        const placement = ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'].includes(String(args.print_placement))
+          ? String(args.print_placement) as Brief['printPlacement']
+          : undefined
+        const sizeInches = Number(args.print_size_inches)
         dispatch({
           type: 'SET_BRIEF',
           brief: {
@@ -596,6 +612,8 @@ const AdminAIProductBuilder: React.FC = () => {
             tone: args.tone ? String(args.tone) : undefined,
             shirtColor: (['black', 'white', 'gray'].includes(String(args.shirt_color)) ? String(args.shirt_color) : 'black') as Brief['shirtColor'],
             printLocations: locations.length ? locations : ['front_image'],
+            printPlacement: placement,
+            printSizeInches: Number.isFinite(sizeInches) && sizeInches > 0 ? Math.round(sizeInches) : undefined,
           },
         })
         return { ok: true, note: 'Brief locked on the board. Confirm they are ready, then generate.' }
@@ -636,6 +654,10 @@ const AdminAIProductBuilder: React.FC = () => {
           productType: 'tshirt',
           shirtColor: brief.shirtColor,
           print_locations: isMetal ? undefined : brief.printLocations,
+          // Placement + size used to be silently dropped in studio mode, so
+          // every voice-built product rendered front-center at default scale.
+          printPlacement: isMetal ? undefined : brief.printPlacement,
+          printSizeInches: isMetal ? undefined : brief.printSizeInches,
           metal_size: isMetal ? buildRef.current.metalSize : undefined,
           category_slug_override: isTemplate ? 'templates' : undefined,
           ...(castModel ? { modelId: castModel, forceSingleModel: true } : {}),
@@ -651,14 +673,28 @@ const AdminAIProductBuilder: React.FC = () => {
       }
 
       case 'select_design': {
-        const idx = Number(args.index)
         const b = buildRef.current
         if (!b.productId) throw new Error('Nothing generated yet.')
-        if (!Number.isFinite(idx) || idx < 1 || idx > b.candidates.length) throw new Error(`Pick a number between 1 and ${b.candidates.length}.`)
-        const chosen = b.candidates[idx - 1]
-        await aiProducts.selectImage(b.productId, chosen.id)
-        dispatch({ type: 'DESIGN_SELECTED', assetId: chosen.id })
-        return { ok: true, note: `Design ${idx} locked as the winner. Offer the polish moves: background removal and mockups.` }
+        // Multi-pick: first index is the main build, every extra becomes its
+        // own sibling product server-side.
+        const rawIdxs: number[] = Array.isArray(args.indexes) && args.indexes.length > 0
+          ? args.indexes.map(Number)
+          : [Number(args.index)]
+        const idxs = Array.from(new Set(rawIdxs))
+        if (idxs.some(i => !Number.isFinite(i) || i < 1 || i > b.candidates.length)) {
+          throw new Error(`Pick numbers between 1 and ${b.candidates.length}.`)
+        }
+        const [primary, ...extras] = idxs.map(i => b.candidates[i - 1])
+        const response = await aiProducts.selectImage(b.productId, primary.id, extras.map(c => c.id))
+        dispatch({ type: 'DESIGN_SELECTED', assetId: primary.id })
+        const siblings: Array<{ name: string }> = Array.isArray(response?.siblings) ? response.siblings : []
+        return {
+          ok: true,
+          siblings: siblings.map(s => s.name),
+          note: extras.length > 0
+            ? `Design ${idxs[0]} locked as the main build, and ${siblings.length || extras.length} more product${(siblings.length || extras.length) > 1 ? 's' : ''} spinning up from the other pick${extras.length > 1 ? 's' : ''} — they build themselves in the background. Offer the polish moves for the main one.`
+            : `Design ${idxs[0]} locked as the winner. Offer the polish moves: background removal and mockups.`,
+        }
       }
 
       case 'remove_background': {

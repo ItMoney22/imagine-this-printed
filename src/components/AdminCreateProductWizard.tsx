@@ -100,7 +100,7 @@ function PlacementGlyph({
   kind,
   active,
 }: {
-  kind: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  kind: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
   active: boolean
 }) {
   const shirt = 'M18 5 L10 10 L13 19 L17 17 L17 43 L31 43 L31 17 L35 19 L38 10 L30 5 C28 8 20 8 18 5 Z'
@@ -125,6 +125,16 @@ function PlacementGlyph({
         )}
         {kind === 'back-only' && (
           <rect x="18" y="18" width="12" height="18" rx="1.5" fill="currentColor" fillOpacity={zoneOpacity} />
+        )}
+        {kind === 'front-back' && (
+          <>
+            <rect x="19" y="21" width="10" height="12" rx="1.5" fill="currentColor" fillOpacity={zoneOpacity} />
+            <rect
+              x="17.5" y="19.5" width="13" height="15" rx="1.5"
+              fill="none" stroke="currentColor" strokeOpacity={active ? 0.7 : 0.35}
+              strokeWidth={1.1} strokeDasharray="2.4 2"
+            />
+          </>
         )}
         {kind === 'pocket-front-back-full' && (
           <>
@@ -263,9 +273,10 @@ interface WizardDraft {
   useSearch: boolean
   productType: 'tshirt' | 'hoodie' | 'tank'
   shirtColor: 'black' | 'white' | 'gray'
-  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
   printLocations: TshirtPrintLocation[]
   printStyle: 'clean' | 'halftone' | 'grunge'
+  printSizeInches?: number
   normalized: NormalizedProduct | null
   productId: string | null
   selectedImageId: string | null
@@ -593,10 +604,13 @@ export default function AdminCreateProductWizard() {
   // DTF Print Optimization Settings
   const [productType, setProductType] = useState<'tshirt' | 'hoodie' | 'tank'>('tshirt')
   const [shirtColor, setShirtColor] = useState<'black' | 'white' | 'gray'>('black')
-  const [printPlacement, setPrintPlacement] = useState<'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'>('front-center')
+  const [printPlacement, setPrintPlacement] = useState<'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'>('front-center')
   // Multi-select print placements offered for T-shirts → products.print_locations.
   const [printLocations, setPrintLocations] = useState<TshirtPrintLocation[]>(['front_image'])
   const [printStyle, setPrintStyle] = useState<'clean' | 'halftone' | 'grunge'>('clean')
+  // Physical print width (inches) → metadata.print_size_inches. Anchors the
+  // mockup scale so an 11" front print never renders as an all-over print.
+  const [printSizeInches, setPrintSizeInches] = useState<number>(11)
   // Metal art panel size → metadata.metal_size; mockups scale-anchor to it so
   // a 4x6 never gets staged looking like massive wall art.
   const [metalSize, setMetalSize] = useState<'4x6' | '8x10'>('4x6')
@@ -615,6 +629,12 @@ export default function AdminCreateProductWizard() {
   // Step 3.5: Select Image (for multi-model)
   const [sourceImages, setSourceImages] = useState<any[]>([])
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
+  // Extra candidate picks beyond the refined one — each becomes its OWN
+  // sibling product when mockups kick off (David: "sometimes i like more
+  // then 1 … do products for each").
+  const [extraImageIds, setExtraImageIds] = useState<string[]>([])
+  // Siblings the backend actually built, for the success/generate banners.
+  const [siblingProducts, setSiblingProducts] = useState<Array<{ productId: string; name: string }>>([])
   const [imageWaitCount, setImageWaitCount] = useState(0) // Track polling cycles while waiting for 3rd image
   const mockupsTriggeredRef = useRef(false) // Prevent duplicate mockup API calls
 
@@ -769,7 +789,7 @@ export default function AdminCreateProductWizard() {
       currentStep, prompt, priceTarget, mockupStyle, background, tone, imageStyle,
       category, targetAudience, primaryColors, designStyle, numImages,
       uploadedImageUrl, useSearch, productType, shirtColor, printPlacement,
-      printLocations, printStyle, normalized, productId, selectedImageId,
+      printLocations, printStyle, printSizeInches, normalized, productId, selectedImageId,
     }
     try {
       window.localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(draft))
@@ -778,8 +798,8 @@ export default function AdminCreateProductWizard() {
     }
   }, [currentStep, prompt, priceTarget, mockupStyle, background, tone, imageStyle,
     category, targetAudience, primaryColors, designStyle, numImages, uploadedImageUrl,
-    useSearch, productType, shirtColor, printPlacement, printLocations, printStyle, normalized,
-    productId, selectedImageId])
+    useSearch, productType, shirtColor, printPlacement, printLocations, printStyle, printSizeInches,
+    normalized, productId, selectedImageId])
 
   const handleDiscardDraft = () => {
     clearWizardDraft()
@@ -811,6 +831,7 @@ export default function AdminCreateProductWizard() {
     setPrintPlacement(d.printPlacement)
     setPrintLocations(d.printLocations?.length ? d.printLocations : ['front_image'])
     setPrintStyle(d.printStyle)
+    setPrintSizeInches(d.printSizeInches || 11)
     setNormalized(d.normalized)
 
     if (!d.productId) {
@@ -1045,6 +1066,8 @@ export default function AdminCreateProductWizard() {
         print_locations: category === 'shirts' ? printLocations : undefined,
         // Metal art: physical panel size for size-accurate mockups.
         metal_size: category === 'metal-art' ? metalSize : undefined,
+        // Physical print width — anchors mockup scale + QA (garments only).
+        printSizeInches: category !== 'metal-art' && category !== 'tumblers' ? printSizeInches : undefined,
         printStyle,
         skipImageGeneration: Boolean(simpleTextPngDataUrl),
         sourceImageDataUrl: simpleTextPngDataUrl,
@@ -1100,6 +1123,8 @@ export default function AdminCreateProductWizard() {
     setError(null)
     setSourceImages([])
     setSelectedImageId(null)
+    setExtraImageIds([])
+    setSiblingProducts([])
     setImageWaitCount(0)
     mockupsTriggeredRef.current = false // Reset mockup trigger flag
   }
@@ -1199,7 +1224,17 @@ export default function AdminCreateProductWizard() {
     // Just store the selection and go to enhance-image step
     // DON'T trigger mockup yet - let user choose Remove BG / Upscale first
     setSelectedImageId(imageId)
+    // The refined pick can't also be an extra pick.
+    setExtraImageIds(prev => prev.filter(x => x !== imageId))
     setCurrentStep('enhance-image')
+  }
+
+  // Toggle a candidate as an ADDITIONAL product build ("I like this one too").
+  const handleToggleExtraImage = (imageId: string) => {
+    if (imageId === selectedImageId) return
+    setExtraImageIds(prev =>
+      prev.includes(imageId) ? prev.filter(x => x !== imageId) : [...prev, imageId]
+    )
   }
 
   // Called when user clicks "Generate Mockups" from enhance-image step
@@ -1209,12 +1244,16 @@ export default function AdminCreateProductWizard() {
     setLoading(true)
     setError(null)
     try {
-      debugLog('[Wizard] 🎭 Generating mockups for image:', selectedImageId)
+      const extras = extraImageIds.filter(x => x !== selectedImageId)
+      debugLog('[Wizard] 🎭 Generating mockups for image:', selectedImageId, 'extras:', extras)
 
-      // Call the backend API to select image and trigger mockup generation
-      const response = await aiProducts.selectImage(productId, selectedImageId)
+      // Select image(s) + trigger mockup generation — every extra pick becomes
+      // its own sibling product server-side.
+      const response = await aiProducts.selectImage(productId, selectedImageId, extras)
 
-      debugLog('[Wizard] ✅ Mockup job created:', response.mockupJob?.id)
+      debugLog('[Wizard] ✅ Mockup jobs created:', response.mockupJobs?.length, 'siblings:', response.siblings?.length)
+      setSiblingProducts(Array.isArray(response.siblings) ? response.siblings : [])
+      setExtraImageIds([])
 
       setCurrentStep('generate') // Go back to generation step to monitor mockup progress
     } catch (error: any) {
@@ -2361,11 +2400,12 @@ export default function AdminCreateProductWizard() {
                 <label className="block text-sm font-semibold text-text mb-3">
                   Print Placement
                 </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                   {([
                     { value: 'front-center', label: 'Front Center', hint: 'Classic placement' },
                     { value: 'left-pocket', label: 'Left Pocket', hint: 'Small logo/icon' },
                     { value: 'back-only', label: 'Back Only', hint: 'Full back print' },
+                    { value: 'front-back', label: 'Front + Back', hint: 'Same design, both sides' },
                     { value: 'pocket-front-back-full', label: 'Pocket + Back', hint: 'Front pocket + back' },
                   ] as const).map(({ value, label, hint }) => {
                     const active = printPlacement === value
@@ -2387,6 +2427,45 @@ export default function AdminCreateProductWizard() {
                   })}
                 </div>
               </div>
+
+              {/* Print Size — physical width in inches; anchors the mockup scale
+                  so a standard front print never renders edge-to-edge. Hidden for
+                  pocket-only placement (pocket is always ~4") and metal art
+                  (which has its own panel-size control). */}
+              {category !== 'metal-art' && category !== 'tumblers' && printPlacement !== 'left-pocket' && (
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-text mb-3">
+                    Print Size
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                    {([
+                      { value: 8, label: '8″ Youth', hint: 'Smaller chest print' },
+                      { value: 10, label: '10″ Compact', hint: 'Between youth & adult' },
+                      { value: 11, label: '11″ Standard', hint: 'Classic adult print' },
+                      { value: 13, label: '13″ XL', hint: 'Oversized statement' },
+                    ] as const).map(({ value, label, hint }) => {
+                      const active = printSizeInches === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setPrintSizeInches(value)}
+                          className={`${glassTileBase} ${glassTileState(active)} p-3 sm:p-4`}
+                        >
+                          <TileChrome active={active} />
+                          <div className="relative flex flex-col items-center text-center">
+                            <p className="text-sm sm:text-base font-semibold text-text">{label}</p>
+                            <p className="text-[11px] sm:text-xs text-muted">{hint}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-muted mt-2">
+                    The width the design actually prints at — mockups are scaled to match it.
+                  </p>
+                </div>
+              )}
 
               {/* Print Locations (T-shirt multi-select) — persisted to products.print_locations */}
               {category === 'shirts' && (
@@ -2978,7 +3057,7 @@ export default function AdminCreateProductWizard() {
               Pick your favorite
             </h2>
             <p className="text-muted">
-              {sourceImages.length} of {totalAttempted} models delivered. Pick one to refine — your edits will use GPT Image 2 from there.
+              {sourceImages.length} of {totalAttempted} models delivered. Pick one to refine — and if you love more than one, hit “Also build this one” on the others to get a product for each.
             </p>
           </div>
 
@@ -3004,6 +3083,7 @@ export default function AdminCreateProductWizard() {
           <div className={`grid gap-4 sm:gap-6 mb-8 ${sourceImages.length === 1 ? 'grid-cols-1 max-w-lg mx-auto' : sourceImages.length === 2 ? 'grid-cols-1 md:grid-cols-2' : sourceImages.length === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'}`}>
             {sourceImages.map((image, index) => {
               const isSelected = selectedImageId === image.id
+              const isExtra = extraImageIds.includes(image.id)
               const modelLabel = image.metadata?.model_name ?? 'AI Generated'
               return (
                 <div
@@ -3011,7 +3091,9 @@ export default function AdminCreateProductWizard() {
                   className={`relative bg-bg/40 backdrop-blur-sm rounded-2xl border transition-all duration-300 overflow-hidden animate-fade-in hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(168,85,247,0.25)] ${
                     isSelected
                       ? 'border-primary/70 ring-2 ring-primary/50 shadow-[0_0_30px_rgba(168,85,247,0.3)]'
-                      : 'border-white/10 hover:border-primary/40'
+                      : isExtra
+                        ? 'border-secondary/60 ring-2 ring-secondary/40'
+                        : 'border-white/10 hover:border-primary/40'
                   }`}
                   style={{ animationDelay: `${index * 140}ms`, animationFillMode: 'backwards' }}
                 >
@@ -3053,6 +3135,19 @@ export default function AdminCreateProductWizard() {
                         <Download className="w-4 h-4" />
                       </button>
                     </div>
+                    {/* Multi-pick: love more than one? Each extra pick becomes
+                        its own product alongside the refined one. */}
+                    <button
+                      onClick={() => handleToggleExtraImage(image.id)}
+                      disabled={loading}
+                      className={`mt-2 w-full text-xs font-semibold px-3 py-2 rounded-xl border transition-all ${
+                        isExtra
+                          ? 'bg-secondary/20 border-secondary/50 text-secondary'
+                          : 'bg-bg/40 border-white/10 text-muted hover:border-secondary/40 hover:text-text'
+                      }`}
+                    >
+                      {isExtra ? '✓ Building as its own product' : '+ Also build this one'}
+                    </button>
                   </div>
                 </div>
               )
@@ -3506,6 +3601,14 @@ export default function AdminCreateProductWizard() {
                 {/* Spacer */}
                 <div className="flex-1" />
 
+                {/* Extra picks reminder — those builds kick off with this one */}
+                {extraImageIds.length > 0 && (
+                  <div className="mt-4 bg-secondary/10 border border-secondary/30 rounded-xl p-3 text-sm text-muted">
+                    <span className="text-text font-semibold">{extraImageIds.length} more pick{extraImageIds.length > 1 ? 's' : ''}</span> from
+                    the image grid will each become their own product when mockups start.
+                  </div>
+                )}
+
                 {/* Continue CTA */}
                 <button
                   onClick={handleGenerateMockups}
@@ -3519,7 +3622,9 @@ export default function AdminCreateProductWizard() {
                     </>
                   ) : (
                     <>
-                      Continue to mockups
+                      {extraImageIds.length > 0
+                        ? `Continue to mockups (+${extraImageIds.length} sibling product${extraImageIds.length > 1 ? 's' : ''})`
+                        : 'Continue to mockups'}
                       <ArrowRight className="w-5 h-5 ml-2" />
                     </>
                   )}
@@ -3571,6 +3676,26 @@ export default function AdminCreateProductWizard() {
               Your AI-generated product is ready for review
             </p>
           </div>
+
+          {/* Sibling products built from the extra picks */}
+          {siblingProducts.length > 0 && (
+            <div className="bg-secondary/10 border border-secondary/30 rounded-2xl p-4 sm:p-5 mb-6">
+              <p className="text-text font-semibold mb-2">
+                {siblingProducts.length} more product{siblingProducts.length > 1 ? 's' : ''} building from your other pick{siblingProducts.length > 1 ? 's' : ''}
+              </p>
+              <ul className="text-sm text-muted space-y-1">
+                {siblingProducts.map(s => (
+                  <li key={s.productId} className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+                    <span>{s.name}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted mt-2">
+                Their mockups are rendering in the background — find them as drafts in the Products tab.
+              </p>
+            </div>
+          )}
 
           {/* Product Details Card */}
           <div className="bg-bg/40 backdrop-blur-sm rounded-2xl p-4 sm:p-6 mb-6 border border-white/10 shadow-lg">

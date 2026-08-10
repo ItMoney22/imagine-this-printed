@@ -8,11 +8,11 @@
 // looking at the finished image. So these assertions guard behaviour, not style.
 
 import { describe, it, expect } from 'vitest'
-import { buildEmptyGarmentPromptPair, buildMrImaginePrompt, type RunMockupOpts } from './worker-helpers.js'
+import { buildEmptyGarmentPromptPair, buildMrImaginePrompt, buildSizeClause, type RunMockupOpts } from './worker-helpers.js'
 
 const PRODUCT_TYPES = ['tshirt', 'hoodie', 'tank'] as const
 const SHIRT_COLORS = ['black', 'white', 'gray', 'grey'] as const
-const PLACEMENTS = ['front-center', 'left-pocket', 'back-only', 'pocket-front-back-full'] as const
+const PLACEMENTS = ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'] as const
 
 function opts(over: Partial<RunMockupOpts> = {}): RunMockupOpts {
   return {
@@ -129,5 +129,48 @@ describe('buildEmptyGarmentPromptPair — ghost_mannequin must not read as a fla
 
     const black = buildEmptyGarmentPromptPair(opts({ shirtColor: 'black' }))
     expect(black.negativePrompt).not.toMatch(/dark garment/i)
+  })
+})
+
+describe('buildSizeClause — the print never balloons into an all-over print', () => {
+  // David 2026-08-09: "some of them cover the shirts when we do 11 inch". The
+  // composite prompts said only "sized correctly", which image models resolve
+  // by blowing the graphic up edge to edge. The size clause anchors scale two
+  // redundant ways: physical inches AND a fraction of the garment's width.
+  it('anchors the default front print at 11 inches, about half the garment width', () => {
+    const clause = buildSizeClause(opts({ printPlacement: 'front-center' }))
+    expect(clause).toMatch(/11-inch-wide/)
+    expect(clause).toMatch(/about half/)
+    expect(clause).toMatch(/NEVER enlarge/i)
+    expect(clause).toMatch(/edge-to-edge|all-over/i)
+  })
+
+  it('scales the language with the chosen size', () => {
+    expect(buildSizeClause(opts({ printPlacement: 'front-center', printSizeInches: 8 }))).toMatch(/8-inch-wide/)
+    expect(buildSizeClause(opts({ printPlacement: 'front-center', printSizeInches: 8 }))).toMatch(/about a third/)
+    expect(buildSizeClause(opts({ printPlacement: 'front-center', printSizeInches: 13 }))).toMatch(/about two-thirds/)
+  })
+
+  it('clamps absurd sizes instead of parroting them', () => {
+    expect(buildSizeClause(opts({ printPlacement: 'front-center', printSizeInches: 100 }))).toMatch(/16-inch-wide/)
+    expect(buildSizeClause(opts({ printPlacement: 'front-center', printSizeInches: 0 }))).toMatch(/11-inch-wide/)
+  })
+
+  it('pins pocket placement at pocket scale regardless of the product size', () => {
+    const clause = buildSizeClause(opts({ printPlacement: 'left-pocket', printSizeInches: 13 }))
+    expect(clause).toMatch(/pocket-scale/)
+    expect(clause).toMatch(/4 inches/)
+    expect(clause).not.toMatch(/13/)
+  })
+
+  it('keeps a back print large but still bounded', () => {
+    const clause = buildSizeClause(opts({ printPlacement: 'back-only' }))
+    expect(clause).toMatch(/back/)
+    expect(clause).toMatch(/NEVER enlarge/i)
+  })
+
+  it('rides along inside the Mr. Imagine prompt', () => {
+    const p = buildMrImaginePrompt(opts({ template: 'mr_imagine', printPlacement: 'front-center', printSizeInches: 11 }))
+    expect(p).toMatch(/11-inch-wide/)
   })
 })

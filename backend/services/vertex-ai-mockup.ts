@@ -40,7 +40,7 @@ export interface GeminiMockupInput {
   template?: 'flat_lay' | 'mr_imagine' | 'lifestyle'
   productType?: 'tshirt' | 'hoodie' | 'tank'
   shirtColor?: 'black' | 'white' | 'gray'
-  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
 }
 
 export interface GeminiMockupResult {

@@ -29,7 +29,7 @@ const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
 // gpt-5.x/o-series reject a non-default temperature and want max_completion_tokens.
 const isReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
 
-export type PrintPlacement = 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+export type PrintPlacement = 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
 
 export interface MockupCheck {
   ok: boolean
@@ -59,6 +59,14 @@ const COVERAGE_RULE: Record<string, string> = {
   'back-only':
     'The print belongs LARGE on the BACK of the garment. A big back print is CORRECT here — do ' +
     'not fail it for being large. FAIL it only if the print appears on the front instead.',
+  // Two-sided product. Per-side mockup jobs override their placement to
+  // 'front-center' / 'back-only' at fan-out, so this rule only fires when a
+  // front-back render arrives without the per-side override — judge it like a
+  // front print, since the single visible side in that case is the front.
+  'front-back':
+    'This product is printed on BOTH sides; this photo shows one side. A centered chest print ' +
+    'OR a large back print are both CORRECT. FAIL it only if the artwork is blown up so large ' +
+    'it spans essentially the entire garment edge to edge like an all-over print.',
   'pocket-front-back-full':
     'This design is specified as a small front-left pocket print AND a large back print, so ' +
     'both a small front print and a large back print are CORRECT. Do not fail it for either.',
@@ -70,8 +78,20 @@ export function coverageIsExempt(placement?: string | null): boolean {
   return p.includes('all-over') || p.includes('all_over') || p.includes('full-print') || p.includes('fullprint')
 }
 
-function coverageRuleFor(placement?: string | null): string {
-  return COVERAGE_RULE[String(placement ?? 'front-center')] ?? COVERAGE_RULE['front-center']
+function coverageRuleFor(placement?: string | null, sizeInches?: number | null): string {
+  const p = String(placement ?? 'front-center')
+  const base = COVERAGE_RULE[p] ?? COVERAGE_RULE['front-center']
+  // A concrete size sharpens the judgement for chest/back prints. Pocket and
+  // pocket+back carry their own scale in the base rule already.
+  if (!sizeInches || p === 'left-pocket' || p === 'pocket-front-back-full') return base
+  const inches = Math.round(sizeInches)
+  const ratio = inches / 21
+  const fraction = ratio <= 0.28 ? 'about a quarter' : ratio <= 0.45 ? 'about a third' : ratio <= 0.58 ? 'about half' : 'about two-thirds'
+  return (
+    base +
+    ` The design was specified as a ${inches}-inch-wide print — on an adult garment that is ` +
+    `${fraction} of the garment's width. FAIL it if the print is rendered dramatically larger than that.`
+  )
 }
 
 /**
@@ -81,13 +101,14 @@ function coverageRuleFor(placement?: string | null): string {
 export async function checkMockup(
   designUrl: string,
   mockupUrl: string,
-  placement?: string | null
+  placement?: string | null,
+  sizeInches?: number | null
 ): Promise<MockupCheck | null> {
   if (!openai) return null
 
   const judgeCoverage = !coverageIsExempt(placement)
   const coverageBlock = judgeCoverage
-    ? `\nSIZE / PLACEMENT — judge this SEPARATELY from whether the artwork matches:\n${coverageRuleFor(placement)}\n`
+    ? `\nSIZE / PLACEMENT — judge this SEPARATELY from whether the artwork matches:\n${coverageRuleFor(placement, sizeInches)}\n`
     : '\nSIZE / PLACEMENT: this product is an intentional all-over print. Do NOT judge the print size at all.\n'
 
   try {
@@ -172,9 +193,10 @@ export async function verifyWithOneRetry(
   firstUrl: string,
   placement: string | null | undefined,
   rerender: (reason: string) => Promise<string | null>,
-  label = 'mockup'
+  label = 'mockup',
+  sizeInches?: number | null
 ): Promise<{ url: string; check: MockupCheck }> {
-  const verdict = await checkMockup(designUrl, firstUrl, placement)
+  const verdict = await checkMockup(designUrl, firstUrl, placement, sizeInches)
   if (!verdict || verdict.ok) return { url: firstUrl, check: { ok: true } }
 
   console.warn(`[mockup-qa] ${label} failed ${verdict.failed} QA: ${verdict.reason} — one retry`)
@@ -183,7 +205,7 @@ export async function verifyWithOneRetry(
   // Re-render refused or failed: keep the original, flagged with why.
   if (!retryUrl) return { url: firstUrl, check: { ...verdict, retried: true } }
 
-  const retryVerdict = await checkMockup(designUrl, retryUrl, placement)
+  const retryVerdict = await checkMockup(designUrl, retryUrl, placement, sizeInches)
   if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true } }
 
   console.warn(`[mockup-qa] ${label} still failing after retry: ${retryVerdict.reason}`)

@@ -4,10 +4,11 @@
  *
  *   1. Ghost mannequin mockup (primary)
  *   2. Flat lay mockup
- *   3. Mr. Imagine mockup — exactly ONE
- *   4. Real-person model shots (2), mirrored from the Etsy shoot
- *   5. Pocket-scale shot, when the design is also offered as a pocket print
- *   6. The design itself, WATERMARKED (never the raw design)
+ *   3. Back view, when the product is printed on both sides (front-back)
+ *   4. Mr. Imagine mockup — exactly ONE
+ *   5. Real-person model shots (2), mirrored from the Etsy shoot
+ *   6. Pocket-scale shot, when the design is also offered as a pocket print
+ *   7. The design itself, WATERMARKED (never the raw design)
  *
  * Used by the wizard Approve step and every AdminDashboard publish path so the
  * storefront can't end up with duplicate mockups or an unprotected design.
@@ -29,6 +30,9 @@ export interface GalleryAsset {
 const ROLE_ORDER = [
   'mockup_ghost_mannequin',
   'mockup_flat_lay',
+  // Back view right after the front flat lay so a two-sided product reads
+  // front-then-back, before the lifestyle shots.
+  'mockup_back',
   'mockup_mr_imagine',
   'mockup_model_1',
   'mockup_model_2',
@@ -40,6 +44,8 @@ const ROLE_ORDER = [
 
 /** Gallery index of the pocket-scale shot, so a placement pick can jump to it. */
 export const POCKET_ROLE = 'mockup_pocket'
+/** Gallery role of the back-side render on two-sided (front-back) products. */
+export const BACK_ROLE = 'mockup_back'
 
 export function buildProductGallery(assets: GalleryAsset[]): string[] {
   const images: string[] = []

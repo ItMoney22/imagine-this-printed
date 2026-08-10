@@ -182,7 +182,14 @@ export interface RunMockupOpts {
   shirtColor: 'black' | 'white' | 'gray' | 'grey'
   /** For mr_imagine — URL of the Mr. Imagine character base. */
   characterImageUrl?: string
-  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
+  /**
+   * Physical print width in inches (garments). Drives the explicit scale
+   * language in the composite prompts — without it the only size instruction
+   * is "sized correctly", which is how 11-inch front prints kept rendering as
+   * all-over coverage. Defaults to 11 (standard adult front print).
+   */
+  printSizeInches?: number
   /** For metal_shelf / metal_wall — physical panel size; drives the scale anchors. */
   metalSize?: MetalArtSizeKey
   modelId?: string
@@ -209,7 +216,41 @@ const PLACEMENT_DESC: Record<string, string> = {
   'front-center': 'centered on the chest area',
   'left-pocket': 'small, positioned on the left chest pocket area',
   'back-only': 'large, centered on the back of the shirt',
+  // A single render can only show one side, so the two-sided product's own
+  // placement reads front-biased. The back view is produced by a SEPARATE
+  // mockup job whose input.printPlacement is overridden to 'back-only' at
+  // fan-out (routes/admin/ai-products.ts), so this string is only reached if
+  // a front-back job was queued without the per-side override.
+  'front-back': 'centered on the chest area (this product is also printed on the back, but this photo shows the front)',
   'pocket-front-back-full': 'small on the front-left pocket and large on the back',
+}
+
+/**
+ * Explicit physical-scale language for the print. The composite prompts used
+ * to say only "sized correctly", and image models resolved that ambiguity by
+ * blowing the graphic up until it covered the whole garment (David 2026-08-09:
+ * "some of them cover the shirts when we do 11 inch"). Anchoring the size to
+ * inches AND a fraction of the garment's width gives the model two redundant
+ * constraints it actually respects.
+ */
+export function buildSizeClause(opts: RunMockupOpts): string {
+  const placement = opts.printPlacement ?? 'front-center'
+  if (placement === 'left-pocket') {
+    return ' The graphic is a small pocket-scale print about 4 inches (10 cm) wide — roughly a fifth of the garment\'s width — sitting on the left chest, with the rest of the garment completely blank.'
+  }
+  const inches = Math.min(16, Math.max(3, Math.round(opts.printSizeInches || 11)))
+  const cm = Math.round(inches * 2.54)
+  // Adult garment chest width ≈ 21in; the fraction is prose, not a number,
+  // because models follow "about half the width" better than "52%".
+  const ratio = inches / 21
+  const fraction = ratio <= 0.28 ? 'about a quarter' : ratio <= 0.45 ? 'about a third' : ratio <= 0.58 ? 'about half' : 'about two-thirds'
+  if (placement === 'pocket-front-back-full') {
+    return ` The front pocket graphic is about 4 inches wide; the back graphic is about ${inches} inches (${cm} cm) wide — ${fraction} of the garment's width.`
+  }
+  const where = placement === 'back-only'
+    ? 'centered high on the back, top edge a few inches below the collar'
+    : 'centered on the chest, top edge a couple of inches below the collar'
+  return ` The printed graphic is scaled true to a real ${inches}-inch-wide (${cm} cm) DTF transfer on an adult garment — ${fraction} of the garment's width, ${where}, with clear blank fabric visible above, below, and on both sides of the print. NEVER enlarge the graphic into an edge-to-edge or all-over print; most of the garment's fabric must remain blank.`
 }
 
 /**
@@ -328,7 +369,7 @@ function buildCompositePrompt(opts: RunMockupOpts): string {
   const forbiddenList = opts.template === 'ghost_mannequin'
     ? `do NOT add a real human wearer, model, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any face, head, hands, arms, or skin. Keep the invisible-mannequin garment form from INPUT 1 exactly as-is — empty and unworn. Do NOT flatten the garment, do NOT turn it into a flat lay, do NOT lay it on a surface, and do NOT change the camera angle: the inflated three-dimensional torso volume, the rounded shoulders and sleeves, and the hollow open collar from INPUT 1 must all survive completely unchanged.`
     : `do NOT add a wearer, model, mannequin, mascot, character, cartoon character, animal, furry creature, purple character, or "Mr. Imagine" into the scene. Do NOT add any body, head, face, hands, arms, or skin. Keep the flat-lay garment from INPUT 1 exactly as-is.`
-  return `INPUT 1 is a product photograph of an empty plain ${productName}. INPUT 2 is a flat 2D graphic design (a decal / DTF print artwork). Task: print the graphic from INPUT 2 onto the ${productName} in INPUT 1, ${placement}. Preserve INPUT 1 exactly — same scene, same camera angle, same lighting, same background, same garment shape, same fabric color, no wearer added. Preserve INPUT 2's colors, shapes, and proportions exactly. Make the print look like a realistic DTF transfer on cotton — sized correctly, conforming to the fabric's curvature and folds. STRICTLY FORBIDDEN: ${forbiddenList} The garment stays empty exactly as in INPUT 1 — the only change is that the graphic from INPUT 2 now appears printed on the fabric. Output a single composited photograph: the unchanged empty-garment scene from INPUT 1, with the graphic from INPUT 2 printed on the garment, nothing else added.${retryClause(opts)}`
+  return `INPUT 1 is a product photograph of an empty plain ${productName}. INPUT 2 is a flat 2D graphic design (a decal / DTF print artwork). Task: print the graphic from INPUT 2 onto the ${productName} in INPUT 1, ${placement}. Preserve INPUT 1 exactly — same scene, same camera angle, same lighting, same background, same garment shape, same fabric color, no wearer added. Preserve INPUT 2's colors, shapes, and proportions exactly. Make the print look like a realistic DTF transfer on cotton, conforming to the fabric's curvature and folds.${buildSizeClause(opts)} STRICTLY FORBIDDEN: ${forbiddenList} The garment stays empty exactly as in INPUT 1 — the only change is that the graphic from INPUT 2 now appears printed on the fabric. Output a single composited photograph: the unchanged empty-garment scene from INPUT 1, with the graphic from INPUT 2 printed on the garment, nothing else added.${retryClause(opts)}`
 }
 
 /**
@@ -347,7 +388,7 @@ export function buildMrImaginePrompt(opts: RunMockupOpts): string {
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
   const placement = PLACEMENT_DESC[opts.printPlacement ?? 'front-center'] ?? PLACEMENT_DESC['front-center']
-  return `Create a lifestyle mockup featuring Mr. Imagine. The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing a ${fabricColor} ${productName}. The SECOND input image is a graphic design — apply it ${placement} on the ${productName}. The ONLY change you may make is printing that graphic onto the ${productName}. Keep Mr. Imagine pixel-for-pixel as he appears in the first image: same character, same pose, same fabric color, same face, same eyes, same fur. PRESERVE HIS COMPLETE ANATOMY — both arms present and fully visible with both hands, both legs and both feet present, every limb exactly where it is in the first image and none of them cropped, hidden, shortened, or removed. STRICTLY FORBIDDEN: missing arm, missing limb, only one arm, one-armed character, amputated or stumped limb, arm hidden behind or absorbed into the garment, limb swallowed by the sleeve, extra arms, extra limbs, duplicated or fused limbs, deformed or melted hands, altered face, changed pose. If a sleeve covers part of an arm, the rest of that arm and its hand must still emerge and be clearly visible. Make the print look like a real DTF graphic on cotton. Professional lifestyle photography with natural lighting. Result: the same complete, unaltered Mr. Imagine proudly modeling the custom ${productName}.${retryClause(opts)}`
+  return `Create a lifestyle mockup featuring Mr. Imagine. The FIRST input image shows Mr. Imagine (a friendly purple furry character) wearing a ${fabricColor} ${productName}. The SECOND input image is a graphic design — apply it ${placement} on the ${productName}. The ONLY change you may make is printing that graphic onto the ${productName}. Keep Mr. Imagine pixel-for-pixel as he appears in the first image: same character, same pose, same fabric color, same face, same eyes, same fur. PRESERVE HIS COMPLETE ANATOMY — both arms present and fully visible with both hands, both legs and both feet present, every limb exactly where it is in the first image and none of them cropped, hidden, shortened, or removed. STRICTLY FORBIDDEN: missing arm, missing limb, only one arm, one-armed character, amputated or stumped limb, arm hidden behind or absorbed into the garment, limb swallowed by the sleeve, extra arms, extra limbs, duplicated or fused limbs, deformed or melted hands, altered face, changed pose. If a sleeve covers part of an arm, the rest of that arm and its hand must still emerge and be clearly visible. Make the print look like a real DTF graphic on cotton.${buildSizeClause(opts)} Professional lifestyle photography with natural lighting. Result: the same complete, unaltered Mr. Imagine proudly modeling the custom ${productName}.${retryClause(opts)}`
 }
 
 /**

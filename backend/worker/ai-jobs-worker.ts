@@ -828,7 +828,24 @@ async function startJob(job: any) {
 
     const shirtColor = productMeta.shirt_color || job.input?.shirtColor || imageJob?.input?.shirtColor || 'black'
     const productType = productMeta.product_type || job.input?.productType || imageJob?.input?.productType || 'tshirt'
-    const printPlacement = productMeta.print_placement || job.input?.printPlacement || imageJob?.input?.printPlacement || 'front-center'
+    // Placement is the ONE setting where THIS JOB outranks the product default.
+    // The product's print_placement describes what the product IS; a mockup job
+    // that names a placement is asking for a specific RENDER of it — that is how
+    // the pocket-scale shot is requested for a front-center product.
+    //
+    // Metadata-first here silently discarded that: the pocket job rendered at
+    // front scale, was therefore tagged mockup_flat_lay, and DELETED the real
+    // front flat_lay via the replace-by-role write. Caught on a live build
+    // 2026-08-09 — the job was created, ran, cost a render, and left no trace.
+    //
+    // Safe for every other job: baseInput.printPlacement is itself derived from
+    // productMeta.print_placement at fan-out, so the two agree unless a job
+    // deliberately overrode it.
+    const printPlacement = job.input?.printPlacement || productMeta.print_placement || imageJob?.input?.printPlacement || 'front-center'
+    // Physical print width in inches — feeds the explicit scale language in
+    // the mockup prompt and the QA coverage gate. Job-first for the same
+    // reason as placement above.
+    const printSizeInches = Number(job.input?.printSizeInches) || Number(productMeta.print_size_inches) || 11
     const productCategory = job.input?.product_type || 'shirts'
 
     console.log('[worker] 🎨 MOCKUP COLOR RESOLVE:', JSON.stringify({
@@ -887,6 +904,7 @@ async function startJob(job: any) {
         shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
         characterImageUrl,
         printPlacement: printPlacement as any,
+        printSizeInches,
         // Metal templates: physical panel size for the scale anchors.
         metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
       })
@@ -934,6 +952,7 @@ async function startJob(job: any) {
               shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
               characterImageUrl,
               printPlacement: printPlacement as any,
+              printSizeInches,
               metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
               // Tell the model what to fix rather than re-rolling blind.
               retryNote: reason,
@@ -945,7 +964,8 @@ async function startJob(job: any) {
             return null
           }
         },
-        `${template} (${job.product_id})`
+        `${template} (${job.product_id})`,
+        printSizeInches
       )
       mockupImageUrl = verified.url
       mockupCheck = verified.check
@@ -978,19 +998,27 @@ async function startJob(job: any) {
     // evict the pocket), leaving one survivor forever. Placement is part of the
     // identity of a mockup, not just its prompt.
     const isPocketShot = printPlacement === 'left-pocket'
-    const assetRole = isPocketShot ? 'mockup_pocket' :
+    // A fan-out can pin the role explicitly (input.mockupRole) — that is how
+    // the two-sided product's back view lands as mockup_back instead of
+    // fighting the front flat lay for the mockup_flat_lay slot.
+    const explicitRole = typeof job.input?.mockupRole === 'string' && job.input.mockupRole.startsWith('mockup_')
+      ? job.input.mockupRole
+      : null
+    const assetRole = explicitRole ??
+                      (isPocketShot ? 'mockup_pocket' :
                       template === 'flat_lay' ? 'mockup_flat_lay' :
                       template === 'mr_imagine' ? 'mockup_mr_imagine' :
                       template === 'ghost_mannequin' ? 'mockup_ghost_mannequin' :
-                      'mockup_flat_lay'
-    const displayOrder = isPocketShot ? 4 :
+                      'mockup_flat_lay')
+    const displayOrder = assetRole === 'mockup_back' ? 4 :
+                         isPocketShot ? 4 :
                          template === 'ghost_mannequin' ? 1 :
                          template === 'flat_lay' ? 2 :
                          template === 'mr_imagine' ? 3 :
                          2
-    // Never let a pocket render become the hero image — it is the small-print
-    // variant, not the product's main shot.
-    const isPrimary = !isPocketShot && template === 'ghost_mannequin'
+    // Never let a pocket render (or an explicitly-roled extra view like the
+    // back shot) become the hero image — the hero stays the front ghost.
+    const isPrimary = !isPocketShot && !explicitRole && template === 'ghost_mannequin'
 
     // If this is the primary image (ghost mannequin), unset any existing primary images first
     if (isPrimary) {
@@ -2248,8 +2276,18 @@ async function checkJobStatus(job: any) {
       legacyDisplayOrder = 99
     } else if (assetKind === 'mockup') {
       const template = job.input?.template || 'flat_lay'
-      legacyAssetRole = template === 'mr_imagine' ? 'mockup_mr_imagine' : 'mockup_flat_lay'
-      legacyDisplayOrder = template === 'mr_imagine' ? 3 : 2
+      // Placement is part of a mockup's identity here too — this is the path
+      // flat_lay and mr_imagine actually take (the handler above only sees
+      // ghost_mannequin). Without this, the pocket render is written as
+      // mockup_flat_lay and the delete-by-role below EVICTS the real front
+      // flat_lay. Observed on a live build 2026-08-09: the pocket job ran,
+      // succeeded, cost a render, and the only visible effect was the front
+      // mockup being silently replaced.
+      const legacyIsPocket = job.input?.printPlacement === 'left-pocket'
+      legacyAssetRole = legacyIsPocket ? 'mockup_pocket'
+        : template === 'mr_imagine' ? 'mockup_mr_imagine'
+        : 'mockup_flat_lay'
+      legacyDisplayOrder = legacyIsPocket ? 4 : template === 'mr_imagine' ? 3 : 2
     } else {
       legacyAssetRole = 'auxiliary'
       legacyDisplayOrder = 99
@@ -2262,6 +2300,38 @@ async function checkJobStatus(job: any) {
         .delete()
         .eq('product_id', job.product_id)
         .eq('asset_role', legacyAssetRole)
+    }
+
+    // QA this path too — it produces flat_lay and mr_imagine, i.e. MOST
+    // mockups. It cannot buy a retry (a re-render here means submitting a whole
+    // new Replicate prediction, which this polling handler has no way to await),
+    // so the rerender hook returns null and verifyWithOneRetry keeps the shot
+    // FLAGGED instead. A verdict with no retry still beats no verdict.
+    let legacyCheck: MockupCheck = { ok: true }
+    if (assetKind === 'mockup') {
+      const { data: designAsset } = await supabase
+        .from('product_assets')
+        .select('url')
+        .eq('product_id', job.product_id)
+        .eq('kind', 'source')
+        .neq('asset_role', 'design_halftone')
+        .order('display_order', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      const designUrl = (designAsset as any)?.url
+      if (designUrl) {
+        const verified = await verifyWithOneRetry(
+          designUrl,
+          publicUrl,
+          job.input?.printPlacement,
+          async () => null,
+          `${job.input?.template ?? 'mockup'} (legacy path, ${job.product_id})`
+        )
+        legacyCheck = verified.check
+        if (!legacyCheck.ok) {
+          console.warn(`[worker] ⚠️ legacy mockup FLAGGED (${legacyCheck.failed}): ${legacyCheck.reason}`)
+        }
+      }
     }
 
     // Save to product_assets with GCS URL
@@ -2277,6 +2347,16 @@ async function checkJobStatus(job: any) {
         asset_role: legacyAssetRole,
         is_primary: false,
         display_order: legacyDisplayOrder,
+        ...(assetKind === 'mockup' ? {
+          metadata: {
+            template: job.input?.template ?? null,
+            generated_with: 'replicate-prediction',
+            generated_at: new Date().toISOString(),
+            printPlacement: job.input?.printPlacement ?? null,
+            qa_ok: legacyCheck.ok,
+            ...(legacyCheck.ok ? {} : { qa_failed: legacyCheck.failed, qa_reason: legacyCheck.reason }),
+          },
+        } : {}),
       })
 
     if (assetError) {

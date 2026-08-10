@@ -88,6 +88,27 @@ describe('checkMockup', () => {
     expect(promptText()).toContain('belongs on the CHEST')
   })
 
+  it('accepts either side of a two-sided (front-back) product', async () => {
+    reply({ matches: true, sizeOk: true })
+    await checkMockup('d', 'm', 'front-back')
+    expect(promptText()).toContain('BOTH sides')
+    expect(promptText()).toContain('are both CORRECT')
+  })
+
+  it('sharpens the rule with the physical size when one is known', async () => {
+    reply({ matches: true, sizeOk: true })
+    await checkMockup('d', 'm', 'front-center', 11)
+    expect(promptText()).toContain('11-inch-wide print')
+    expect(promptText()).toContain('about half')
+    expect(promptText()).toContain('dramatically larger')
+  })
+
+  it('never bolts the size sentence onto pocket rules — pocket scale is fixed', async () => {
+    reply({ matches: true, sizeOk: true })
+    await checkMockup('d', 'm', 'left-pocket', 13)
+    expect(promptText()).not.toContain('13-inch-wide')
+  })
+
   it('returns null (pass) when the vision call throws', async () => {
     create.mockRejectedValueOnce(new Error('429 rate limited'))
     expect(await checkMockup('d', 'm', 'front-center')).toBeNull()
@@ -155,5 +176,13 @@ describe('verifyWithOneRetry', () => {
     const out = await verifyWithOneRetry('d', 'first', 'front-center', rerender)
     expect(out).toEqual({ url: 'first', check: { ok: true } })
     expect(rerender).not.toHaveBeenCalled()
+  })
+
+  it('carries the physical size into both the first check and the re-check', async () => {
+    reply({ matches: true, sizeOk: false, issue: 'too big' })
+    reply({ matches: true, sizeOk: true })
+    await verifyWithOneRetry('d', 'first', 'front-center', async () => 'second', 'mockup', 13)
+    expect(promptText(0)).toContain('13-inch-wide print')
+    expect(promptText(1)).toContain('13-inch-wide print')
   })
 })

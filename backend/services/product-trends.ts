@@ -28,7 +28,7 @@ export interface ProductTrendIdea {
   imageStyle: 'realistic' | 'cartoon' | 'semi-realistic'
   productType: 'tshirt' | 'hoodie' | 'tank'
   shirtColor: 'black' | 'white' | 'gray'
-  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'pocket-front-back-full'
+  printPlacement: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
   printStyle: 'clean' | 'halftone' | 'grunge'
   whyItMaySell: string
   evidence: string[]
@@ -120,7 +120,7 @@ function coerceIdea(raw: any, index: number, fallbackSource: ProductTrendIdea['s
   const shirtColor: ProductTrendIdea['shirtColor'] = ['black', 'white', 'gray'].includes(raw?.shirtColor)
     ? raw.shirtColor
     : 'black'
-  const printPlacement: ProductTrendIdea['printPlacement'] = ['front-center', 'left-pocket', 'back-only', 'pocket-front-back-full'].includes(raw?.printPlacement)
+  const printPlacement: ProductTrendIdea['printPlacement'] = ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'].includes(raw?.printPlacement)
     ? raw.printPlacement
     : 'front-center'
   const printStyle: ProductTrendIdea['printStyle'] = ['clean', 'halftone', 'grunge'].includes(raw?.printStyle)
@@ -340,7 +340,7 @@ Each idea needs:
 - imageStyle: realistic, cartoon, or semi-realistic
 - productType: tshirt, hoodie, or tank
 - shirtColor: black, white, or gray
-- printPlacement: front-center, left-pocket, back-only, or pocket-front-back-full
+- printPlacement: front-center, left-pocket, back-only, front-back (same design front and back), or pocket-front-back-full
 - printStyle: clean, halftone, or grunge
 - whyItMaySell
 - evidence: 1-3 short evidence bullets from the snippets
