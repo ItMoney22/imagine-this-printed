@@ -66,6 +66,8 @@ import wholesaleRouter from './routes/wholesale.js'
 import imageFlowRouter from './routes/image-flow.js'
 import watchtowerRouter from './routes/watchtower.js'
 import aiRealtimeRouter from './routes/ai/realtime.js'
+import creatorsRouter from './routes/creators.js'
+import creatorStudioRouter from './routes/creator-studio.js'
 import kioskRouter from './routes/kiosk.js'
 import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
 import messagingRouter from './routes/messaging.js'
@@ -211,6 +213,8 @@ app.use('/api/ai/design-assistant', designAssistantRouter)
 app.use('/api/ai/voice-chat', voiceChatRouter)
 app.use('/api/ai/mr-imagine', mrImagineChatRouter)
 app.use('/api/ai/realtime', aiRealtimeRouter)
+app.use('/api/creators', creatorsRouter)
+app.use('/api/creator/studio', creatorStudioRouter)
 app.use('/api/watchtower', watchtowerRouter)
 // imageToolsRouter retired on the hardening branch (8f6e7a2: unbilled AI route)
 app.use('/api/user-products', userProductsRouter)

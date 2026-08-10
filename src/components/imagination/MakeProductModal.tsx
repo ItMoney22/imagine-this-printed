@@ -149,11 +149,18 @@ const MakeProductModal: React.FC<MakeProductModalProps> = ({ isOpen, onClose, de
       });
       setSaved(true);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Could not submit for approval. Please try again.');
+      // Selling requires the (free, instant) creator opt-in.
+      const detail = err.response?.data;
+      if (detail?.code === 'creator_signup_required' || String(err?.message || '').includes('creator_signup_required')) {
+        navigate('/become-creator');
+        onClose();
+        return;
+      }
+      setError(detail?.error || 'Could not submit for approval. Please try again.');
     } finally {
       setSubmitting(false);
     }
-  }, [designUrl, generationId, template, mockupUrl, garmentColor, gender]);
+  }, [designUrl, generationId, template, mockupUrl, garmentColor, gender, navigate, onClose]);
 
   if (!isOpen) return null;
 

@@ -210,6 +210,14 @@ export function Sidebar() {
               isActive={isActive('/account/designs') || isActive('/my-designs')}
               onClick={closeMobile}
             />
+            <NavItem
+              to="/creator/studio"
+              icon={<Sparkles className="w-5 h-5" />}
+              label="Creator Studio"
+              isCollapsed={isCollapsed}
+              isActive={isActive('/creator/studio') || isActive('/become-creator')}
+              onClick={closeMobile}
+            />
           </Section>
         )}
 

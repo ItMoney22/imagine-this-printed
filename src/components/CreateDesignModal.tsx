@@ -1079,6 +1079,13 @@ export function CreateDesignModal({
         getMrImagineResponse('tool_complete', 'design submitted for approval')
       } else {
         const errorData = await response.json().catch(() => ({}))
+        // Selling requires the (free, instant) creator opt-in — route them
+        // to the signup pitch instead of dead-ending on a 403.
+        if (errorData.code === 'creator_signup_required') {
+          navigate('/become-creator')
+          onClose()
+          return
+        }
         setError(errorData.error || 'Failed to save design. Please try again.')
       }
     } catch (err) {

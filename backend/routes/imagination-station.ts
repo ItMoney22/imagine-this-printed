@@ -17,6 +17,7 @@ import { layoutService } from '../services/imagination-layout.js';
 import gcsStorage from '../services/gcs-storage.js';
 import { uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { partitionLayersForSave, rotatedBoundingBox, RENDER_DPI } from '../services/imagination-layer-save.js';
+import { requireCreator } from '../middleware/requireCreator.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
@@ -1594,8 +1595,13 @@ router.post('/ai/use-upload', requireAuth, async (req: Request, res: Response): 
  * POST /api/imagination-station/designs/submit
  * Submit a design created in CreateDesignModal for admin approval
  * This is a simpler flow than the full Imagination Station sheet workflow
+ *
+ * requireCreator (David 2026-08-09): GENERATING art stays open to every
+ * signed-in user (it's ITC-metered), but SELLING a design on the store
+ * requires the instant creator opt-in. 403 code 'creator_signup_required'
+ * routes the frontends to /become-creator.
  */
-router.post('/designs/submit', requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.post('/designs/submit', requireAuth, requireCreator, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
     const {

@@ -34,7 +34,7 @@ import React, {
   useEffect,
   type ChangeEvent,
 } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Upload,
   Sparkles,
@@ -275,6 +275,7 @@ export default function MetalArtStudio() {
   const { addToCart } = useCart()
   const { user } = useAuth()
   const toast = useToast()
+  const navigate = useNavigate()
 
   // ----- Artwork state -----
   const [artworkUrl, setArtworkUrl] = useState<string | null>(null)
@@ -612,11 +613,16 @@ export default function MetalArtStudio() {
       })
       setSubmitted(true)
     } catch (err: unknown) {
+      // Selling requires the (free, instant) creator opt-in.
+      if (err instanceof Error && err.message.includes('creator_signup_required')) {
+        navigate('/become-creator')
+        return
+      }
       toast.error('Submission failed', err instanceof Error ? err.message : 'Please try again.')
     } finally {
       setSubmitting(false)
     }
-  }, [artworkUrl, designName, roomMockupUrl, toast])
+  }, [artworkUrl, designName, roomMockupUrl, toast, navigate])
 
   // ----- Derived -----
   // Free trial covers the FIRST image; remaining images cost itcCost each.

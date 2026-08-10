@@ -380,6 +380,31 @@ export default function UserDesignDashboard() {
             </div>
           </div>
 
+          {/* Creator Studio — the flagship live voice build flow */}
+          <div className="mt-10 sm:mt-12">
+            <button
+              onClick={() => navigate('/creator/studio')}
+              className="w-full text-left relative rounded-2xl overflow-hidden border border-primary/30 hover:border-primary/60 transition-colors shadow-lg bg-gradient-to-r from-primary/15 via-purple-500/10 to-secondary/15 p-5 sm:p-6 group"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center border border-primary/40 flex-shrink-0 group-hover:scale-110 transition-transform">
+                  <Sparkles className="w-6 h-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-lg sm:text-xl font-display font-bold text-text mb-1">
+                    NEW — build LIVE with Mr. Imagine
+                  </h2>
+                  <p className="text-sm text-muted">
+                    Talk your idea out loud and watch designs, mockups, and real model photos appear. Shirts, metal art, 3D prints — pick every design you love and each becomes its own product.
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary/80 group-hover:bg-primary text-white font-semibold rounded-xl transition-colors text-sm flex-shrink-0">
+                  Enter the studio
+                </span>
+              </div>
+            </button>
+          </div>
+
           {/* Creator Hub — three earn tracks */}
           <div className="mt-10 sm:mt-12">
             <div className="mb-5">

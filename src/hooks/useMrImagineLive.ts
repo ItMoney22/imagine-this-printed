@@ -45,6 +45,10 @@ export interface UseMrImagineLiveOptions {
   /** Execute a tool call from Mr. Imagine; the resolved value is sent back to
    *  the model as the tool output. Throw to report failure. */
   onToolCall: (name: string, args: Record<string, unknown>) => Promise<unknown>
+  /** Backend route that mints the realtime token. Defaults to the admin
+   *  builder's admin/manager-gated mint; the creator studio passes its own
+   *  creator-gated endpoint, which also swaps in the creator persona. */
+  tokenEndpoint?: string
 }
 
 interface RealtimeTokenResponse {
@@ -57,7 +61,7 @@ interface RealtimeTokenResponse {
   instructions: string
 }
 
-export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions) {
+export function useMrImagineLive({ tools, onToolCall, tokenEndpoint = '/api/ai/realtime/token' }: UseMrImagineLiveOptions) {
   const [status, setStatus] = useState<MrImagineStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [agentTranscript, setAgentTranscript] = useState('')
@@ -207,7 +211,7 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
         await audioCtxRef.current.resume().catch(() => {})
       }
 
-      const tok = await apiFetch('/api/ai/realtime/token', { method: 'POST', body: '{}' }) as RealtimeTokenResponse
+      const tok = await apiFetch(tokenEndpoint, { method: 'POST', body: '{}' }) as RealtimeTokenResponse
       if (!tok?.token) throw new Error('Could not start the live line.')
       pitchRef.current = Math.min(2, Math.max(0.5, Number(tok.pitch) || 1))
 
@@ -378,7 +382,7 @@ export function useMrImagineLive({ tools, onToolCall }: UseMrImagineLiveOptions)
       teardown()
       setStatus('error')
     }
-  }, [float32ToPcm16Base64, pcm16ToFloat32, playChunk, interruptPlayback, teardown])
+  }, [float32ToPcm16Base64, pcm16ToFloat32, playChunk, interruptPlayback, teardown, tokenEndpoint])
 
   useEffect(() => () => { teardown() }, [teardown])
 
