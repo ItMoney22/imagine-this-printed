@@ -535,6 +535,14 @@ router.post('/token', requireAuth, requireRole(['admin', 'manager']), async (req
       return res.status(502).json({ error: 'xAI returned no token.' })
     }
 
+    // Realtime bills per wall-clock minute and the browser holds the socket
+    // directly, so this log line is the ONLY record that a billable session
+    // was started and by whom. Without it a spend spike is unattributable.
+    req.log?.info(
+      { userId: req.user?.id, model: XAI_REALTIME_MODEL, expiresAt: data.expires_at || 0 },
+      '[ai-realtime] 🎙️ voice session token minted (admin lane, billed per minute)'
+    )
+
     return res.json({
       token: data.value,
       expires_at: data.expires_at || 0,

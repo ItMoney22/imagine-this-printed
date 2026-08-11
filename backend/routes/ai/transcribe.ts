@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import multer from 'multer'
 import { transcribeAudio } from '../../services/transcribe.js'
@@ -6,7 +6,29 @@ import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import crypto from 'crypto'
 
 const router = Router()
-const upload = multer({ storage: multer.memoryStorage() })
+
+// Every call here pays Replicate for a transcription, and the upload lands in
+// GCS. Unbounded before (no size cap, no rate limit), so a single account could
+// post giant files in a loop. 12 MB is ~10 minutes of webm/opus speech.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+})
+
+const buckets = new Map<string, number[]>()
+const PER_MINUTE = Number(process.env.TRANSCRIBE_LIMIT_PER_MIN) || 20
+function rateLimit(req: Request, res: Response, next: NextFunction): void {
+  const key = String((req as any).user?.id || req.ip)
+  const windowStart = Date.now() - 60_000
+  const hits = (buckets.get(key) || []).filter((t) => t > windowStart)
+  if (hits.length >= PER_MINUTE) {
+    res.status(429).json({ error: 'Slow down a moment — too many transcriptions in a row.' })
+    return
+  }
+  hits.push(Date.now())
+  buckets.set(key, hits)
+  next()
+}
 
 // Context prompt to help the transcription model understand the domain
 const TRANSCRIPTION_PROMPT = `This is a conversation about custom t-shirt and apparel design. Common topics include: design styles like streetwear, vintage, minimal, bold graphics; themes like nature, sports, abstract, floral, geometric; colors; mockup preferences; and text or typography on shirts. The speaker is describing their creative vision for a custom shirt design.`
@@ -23,7 +45,7 @@ const TRANSCRIPTION_PROMPT = `This is a conversation about custom t-shirt and ap
  * - language: ISO-639-1 language code (e.g., 'en')
  * - temperature: Sampling temperature 0-1 (default: 0.2)
  */
-router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: Response): Promise<any> => {
+router.post('/', requireAuth, rateLimit, upload.single('audio'), async (req: Request, res: Response): Promise<any> => {
   try {
     const file = (req as any).file
     if (!file) {

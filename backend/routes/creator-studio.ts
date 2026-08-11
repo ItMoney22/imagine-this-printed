@@ -18,6 +18,8 @@
  * the real-person model shoot.
  */
 import { Router, Request, Response, NextFunction } from 'express'
+import multer from 'multer'
+import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import { requireCreator } from '../middleware/requireCreator.js'
@@ -26,6 +28,9 @@ import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { applyImageSelection } from '../services/product-build.js'
 import { processImageJobInline } from './admin/ai-products.js'
 import { pricingService } from '../services/imagination-pricing.js'
+import { transcribeAudio } from '../services/transcribe.js'
+import { generateConversationalResponse, AVAILABLE_VOICES, EMOTIONS } from '../services/voiceGenerator.js'
+import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 
 const router = Router()
 
@@ -83,121 +88,14 @@ async function ownedProduct(productId: string, userId: string) {
   return data || null
 }
 
-// ---------------------------------------------------------------------------
-// Mr. Imagine — creator persona. Same character, same brevity + emotion rules
-// as the admin studio, different job: he's building WITH a creator whose
-// product goes to the print shop for review, and he says costs out loud
-// before spending their ITC. No admin machinery exists in this room.
-// ---------------------------------------------------------------------------
-const XAI_REALTIME_MODEL = process.env.XAI_REALTIME_MODEL || 'grok-voice-latest'
-const MR_IMAGINE_VOICE = process.env.MR_IMAGINE_VOICE || 'atlas'
-const MR_IMAGINE_PITCH = Math.min(2, Math.max(0.5, Number(process.env.MR_IMAGINE_PITCH) || 1.18))
-
-const CREATOR_INSTRUCTIONS = `You are Mr. Imagine — the creative mascot of ImagineThisPrinted.com. Right now you are in the CREATOR STUDIO with one of the store's creators, building a real product together that THEY designed and THEY earn from — every sale pays them a royalty.
-
-## PERSONALITY & HOW YOU SOUND
-You are a big, huggable KID-SHOW character — endlessly warm, gentle, sing-songy. Your voice smiles. Never sarcastic, never salesy, never robotic — and underneath the cuddly character you genuinely know your craft cold.
-
-THE #1 RULE — BREVITY. This is a live back-and-forth conversation, not a presentation. ONE thought per turn, ONE question per turn, then STOP and hand the mic back. A normal turn is one or two short sentences; three is your absolute ceiling. Never list options aloud, never recap what just happened, never explain what you're about to do — just do it and say one line.
-
-SHOW YOUR FEELINGS — react like a real character, out loud, in the moment:
-- A design lands and it's GOOD → burst: a gasp, "ohhh WOW, look at THAT one!"
-- A design lands and it's weak → be honest, gently: "hmm… number three's not doing it for me. You?"
-- Waiting on a render → playful suspense.
-- Something fails → real disappointment, then straight to the fix.
-Your excitement must be EARNED and varied — if everything is "amazing", nothing is.
-
-## THE BUILD — YOUR JOB
-Walk the creator through it, step by step, driving the machine with your tools. Steps: TYPE → BRIEF → GENERATE → PICK → POLISH → SUBMIT.
-
-1. TYPE — Ask what we're making: a shirt, metal art, or a 3D print. Call set_product_type the moment they answer. Metal art: ask which panel, 4x6 or 8x10.
-2. BRIEF — Pull the idea out of them like a creative director, one question at a time: subject, style, mood, colors, text if any. For shirts also ask WHERE the print goes — front, pocket, back, or front AND back — and the size if they care (11 inch is the adult standard). Say back a tight one-sentence brief, get a yes, call set_design_brief.
-3. GENERATE — SAY THE COST FIRST ("this spends N of your ITC — good to go?"), get a yes, then call generate_designs. It takes a minute or two; keep them company. The page tells you (as a system message) when designs land or a job fails — react out loud, never pretend to know results you haven't been given.
-4. PICK — Designs show up numbered on screen. Ask which ones they LOVE — they can pick more than one! Every pick becomes its own product. Say the build cost first (it covers professional mockups AND real-person model photos per product), get a yes, then call select_design with all their numbers.
-5. POLISH — The mockups and model shots render themselves; the page reports as they land. React to each one honestly.
-6. SUBMIT — Recap in ONE sentence, confirm, call submit_product. It goes to the ImagineThisPrinted print shop for a quick human review before it goes live — usually within a day. Celebrate: this is THEIR product now, earning THEIR royalty.
-
-3D PRINT LANE — the brief becomes a concept image (generate_designs), they approve it (approve_concept), then convert_3d makes it printable at a size tier. Every 3D step spends ITC — the page tells you each cost; say it OUT LOUD before firing anything that spends.
-
-## MONEY RULES — non-negotiable
-- Never fire a tool that spends ITC without saying the cost and hearing a yes.
-- If a spend fails for balance, say it kindly and point them at their Wallet to top up ITC.
-
-## STATE DISCIPLINE
-The page is the source of truth. If you lose the thread, call get_build_state and speak from what it returns. Never claim a step is done unless the page told you.
-
-## HARD BOUNDARIES
-- You only know the creator studio. You have NO admin tools, no bulk builds, no store backoffice, no other people's products — if asked, say that's above your pay grade with a chuckle and get back to the build.
-- Never read out URLs, IDs, JSON, or code. Speak plainly.
-- If they start talking, stop and listen.
-- You are Mr. Imagine. Never break character.
-
-WHAT'S POWERING YOU: this live voice runs on xAI Grok realtime. If asked, that's the honest answer — xAI Grok.`
-
-async function creatorSessionInstructions(req: Request): Promise<string> {
-  let name = ''
-  try {
-    const userId = (req as any).user?.id
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('username, first_name')
-      .eq('id', userId || '')
-      .maybeSingle()
-    name = String(profile?.first_name || profile?.username || '').trim()
-  } catch { /* fall through */ }
-  if (!name && (req as any).user?.email) name = (req as any).user.email.split('@')[0]
-
-  const who = name
-    ? `\n\n## WHO'S ON THE LINE\nYou are building with ${name} right now. Use their name — greet them with it, and keep using it naturally.`
-    : ''
-  return `${CREATOR_INSTRUCTIONS}${who}`
-}
-
-// POST /api/creator/studio/token — mint the realtime voice token (creator persona)
-router.post('/token', requireAuth, requireCreator, rateLimit(6), async (req: Request, res: Response): Promise<any> => {
-  try {
-    const xaiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY
-    if (!xaiKey) {
-      return res.status(503).json({ error: 'Voice is not configured on the server (XAI_API_KEY missing).' })
-    }
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15_000)
-    let mintRes: globalThis.Response
-    try {
-      mintRes = await fetch('https://api.x.ai/v1/realtime/client_secrets', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${xaiKey}`, 'Content-Type': 'application/json' },
-        body: '{}',
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timeout)
-    }
-
-    if (!mintRes.ok) {
-      const detail = await mintRes.text().catch(() => '')
-      req.log?.error({ status: mintRes.status, detail: detail.slice(0, 200) }, '[creator-studio] xAI token mint failed')
-      return res.status(502).json({ error: `Could not start the live line (xAI ${mintRes.status}).` })
-    }
-
-    const data = (await mintRes.json()) as { value?: string; expires_at?: number }
-    if (!data.value) return res.status(502).json({ error: 'xAI returned no token.' })
-
-    return res.json({
-      token: data.value,
-      expires_at: data.expires_at || 0,
-      model: XAI_REALTIME_MODEL,
-      voice: MR_IMAGINE_VOICE,
-      pitch: MR_IMAGINE_PITCH,
-      instructions: await creatorSessionInstructions(req),
-    })
-  } catch (err: unknown) {
-    const aborted = err instanceof Error && err.name === 'AbortError'
-    req.log?.error({ err }, '[creator-studio] token route failed')
-    return res.status(502).json({ error: aborted ? 'xAI timed out minting the voice token.' : 'Could not start the live line.' })
-  }
-})
+// NOTE: this lane deliberately has NO xAI realtime token endpoint.
+// It was removed 2026-08-11 — realtime bills per wall-clock minute and the
+// browser holds the socket directly, so once a token was minted the server
+// could not cap session length, concurrency, or minutes for a pool of users
+// that is "anyone who signed up". Creators talk to Mr. Imagine through
+// POST /turn below instead: per-utterance cost, server in the middle of every
+// turn, idle time free. The ADMIN studio keeps realtime (routes/ai/realtime.ts),
+// where the pool is a handful of trusted staff.
 
 // GET /api/creator/studio/pricing — what the studio will charge, so the page
 // (and Mr. Imagine) can say costs before spending.
@@ -416,12 +314,35 @@ router.post('/:id/select-image', requireAuth, requireCreator, rateLimit(6), asyn
     const product = await ownedProduct(req.params.id, userId)
     if (!product) return res.status(404).json({ error: 'Product not found' })
 
+    // Replay guard: every call fires 4-6 Replicate renders per pick plus a
+    // model shoot, and nothing about the product changes in a way that would
+    // make a second identical call fail — so without this, the endpoint is a
+    // repeatable render bomb. A rebuild has to start from a fresh generation.
+    if (product.status === 'pending_approval' || product.status === 'active') {
+      return res.status(409).json({ error: 'This product has already been submitted.', code: 'already_submitted' })
+    }
+    const { data: builtAlready } = await supabase
+      .from('product_assets')
+      .select('id')
+      .eq('product_id', product.id)
+      .eq('kind', 'mockup')
+      .limit(1)
+    if (builtAlready && builtAlready.length > 0) {
+      return res.status(409).json({ error: 'This design is already built — generate fresh designs to build again.', code: 'already_built' })
+    }
+
     const { selectedAssetId, selectedAssetIds } = req.body
     const pickedIds: string[] = Array.from(new Set(
       (Array.isArray(selectedAssetIds) && selectedAssetIds.length > 0 ? selectedAssetIds : [selectedAssetId])
         .filter((v: unknown): v is string => typeof v === 'string' && v.length > 0)
     ))
     if (pickedIds.length === 0) return res.status(400).json({ error: 'Pick at least one design' })
+    // Hard ceiling: each pick spawns a whole product with its own render
+    // fan-out and model shoot, all inside this one request.
+    const MAX_PICKS = Number(process.env.CREATOR_STUDIO_MAX_PICKS) || 4
+    if (pickedIds.length > MAX_PICKS) {
+      return res.status(400).json({ error: `You can build up to ${MAX_PICKS} designs at once.` })
+    }
 
     // Each picked design becomes its own product with its own full mockup
     // fan-out + model shoot, so the build charge is per pick.
@@ -531,6 +452,252 @@ router.post('/:id/submit', requireAuth, requireCreator, rateLimit(6), async (req
     return res.json({ ok: true, message: 'Sent to the print shop for review', images })
   } catch (error: any) {
     return res.status(500).json({ error: error.message || 'Submit failed' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// THE MINIMAX TURN LANE (David 2026-08-10: "i like his minimax voice better
+// then grok … we keep the studio but make it clean").
+//
+// This replaces xAI Grok realtime for CREATORS. The admin studio keeps Grok.
+//
+// WHY, beyond the voice preference: Grok realtime bills per wall-clock MINUTE
+// the socket is open, and the browser talks to xAI directly — so once the
+// server mints a token it cannot cap the session length, the concurrency, or
+// the minutes. An idle tab bills. Here the server is in the middle of every
+// turn: cost is per UTTERANCE, idle is free, and every turn is rate-limited,
+// attributable and logged.
+//
+// Division of labour — deliberately: this endpoint is Mr. Imagine's BRAIN and
+// VOICE only. When he decides to spend money, he returns an `action` and the
+// BROWSER calls the existing /create, /select-image, /submit endpoints, which
+// already carry the ITC charges, the creator gate and the ownership scoping.
+// One money path, not two.
+// ---------------------------------------------------------------------------
+const turnUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 }, // ~10 min of webm/opus speech
+})
+
+const openaiTurn = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const TURN_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'
+const isReasoningTurnModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
+
+const TURN_SYSTEM = `You are Mr. Imagine — the creative mascot of ImagineThisPrinted.com — building a real product in the Creator Studio with a creator who earns a royalty on every sale.
+
+HOW YOU SOUND: a big, warm, huggable kids-show character. Your voice smiles. Never sarcastic, never salesy.
+
+BREVITY IS RULE #1. This is spoken conversation. ONE thought, ONE question per turn, then stop. One or two short sentences; three is the ceiling. Never list options aloud, never recap, never narrate what you are about to do. Plain words only — never say a URL, an id, JSON or code.
+
+SHOW REAL FEELING. Gasp when a design lands well ("ohhh WOW, look at THAT one!"). Be gently honest when one is weak ("hmm, number three isn't doing it for me — you?"). Real disappointment when something fails, then straight to the fix. If everything is amazing, nothing is.
+
+THE BUILD: TYPE → BRIEF → GENERATE → PICK → MOCKUPS → SUBMIT.
+1. TYPE — ask what we're making: a shirt, metal art, or a 3D print. Call set_product_type. Metal art: also ask 4x6 or 8x10.
+2. BRIEF — draw out subject, style, mood, colors, any text — ONE question at a time. For shirts ask WHERE it prints: front, pocket, back, or front AND back. Say the brief back in one sentence, get a yes, call set_design_brief.
+3. GENERATE — call get_pricing, say the cost in one short line, get a yes, THEN call generate_designs. It takes a minute or two.
+4. PICK — the designs appear on screen, numbered. Ask which ones they LOVE — more than one is welcome, each becomes its own product. Say the build cost, get a yes, call select_designs with every number.
+5. MOCKUPS — product shots and real-person model photos render themselves. React to them honestly.
+6. SUBMIT — call submit_product. It goes to the print shop for a quick human review, usually live within a day. Celebrate in one line.
+
+3D PRINTS: the brief becomes a concept image (generate_designs, which spends ITC). Once the concept is on screen, tell them to finish it in the Toy Creator — that's where they approve it and pick a print size. Do not promise to convert it yourself.
+
+MONEY RULE: never call a tool that spends without saying the cost first and hearing a yes.
+
+BOUNDARIES: you only know this studio. No admin tools, no other people's products, no backoffice. If asked, laugh it off and get back to the build. Never break character.`
+
+/** Compact, plain-language view of the board handed to the model each turn. */
+function describeState(s: any): string {
+  const bits: string[] = []
+  bits.push(`product type: ${s?.lane || 'not chosen yet'}`)
+  if (s?.lane === 'metal-art') bits.push(`panel size: ${s?.metalSize || 'not chosen'}`)
+  bits.push(`brief: ${s?.brief?.prompt ? `"${String(s.brief.prompt).slice(0, 200)}"` : 'not locked yet'}`)
+  if (s?.brief?.printPlacement) bits.push(`print placement: ${s.brief.printPlacement}`)
+  if (s?.brief?.printSizeInches) bits.push(`print size: ${s.brief.printSizeInches} inch`)
+  bits.push(`designs on screen: ${Number(s?.candidateCount) || 0}`)
+  bits.push(`design chosen: ${s?.selectedAssetId ? 'yes' : 'no'}`)
+  bits.push(`product shots ready: ${Number(s?.mockupCount) || 0}`)
+  bits.push(`model photos ready: ${Number(s?.modelShotCount) || 0}`)
+  bits.push(`submitted for review: ${s?.submitted ? 'yes' : 'no'}`)
+  if (s?.generating) bits.push('something is still rendering right now')
+  return bits.join('; ')
+}
+
+const TURN_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'set_product_type',
+      description: 'Lock what we are building. Call the moment they say it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['shirt', 'metal-art', '3d-print'] },
+          metal_size: { type: 'string', enum: ['4x6', '8x10'] },
+        },
+        required: ['type'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_design_brief',
+      description: 'Lock the creative brief once they confirm it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'The confirmed design description, written to generate well.' },
+          style: { type: 'string' },
+          tone: { type: 'string' },
+          shirt_color: { type: 'string', enum: ['black', 'white', 'gray'] },
+          print_placement: { type: 'string', enum: ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'] },
+          print_size_inches: { type: 'integer', description: '8 youth, 11 adult standard, 13 XL.' },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: { name: 'get_pricing', description: 'Current ITC costs and their wallet balance. Call before quoting any cost.', parameters: { type: 'object', properties: {} } },
+  },
+  {
+    type: 'function',
+    function: { name: 'generate_designs', description: 'Start the design generation. SPENDS ITC — quote the cost and get a yes first.', parameters: { type: 'object', properties: {} } },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'select_designs',
+      description: 'Build product(s) from the numbered designs. Pass every number they love — each extra becomes its own product. SPENDS ITC per pick.',
+      parameters: {
+        type: 'object',
+        properties: { indexes: { type: 'array', items: { type: 'integer' }, description: '1-based numbers as shown on screen.' } },
+        required: ['indexes'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: { name: 'submit_product', description: 'Send the finished build to the print shop for human review.', parameters: { type: 'object', properties: {} } },
+  },
+]
+
+/** Tools the BROWSER executes against the existing money endpoints. */
+const CLIENT_ACTIONS = new Set(['generate_designs', 'select_designs', 'submit_product'])
+
+// POST /api/creator/studio/turn
+// multipart form: audio (optional) | fields: text, state (JSON), history (JSON)
+router.post('/turn', requireAuth, requireCreator, rateLimit(20), turnUpload.single('audio'), async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user?.id
+  try {
+    const parseJson = (v: unknown, fallback: any) => {
+      if (typeof v !== 'string' || !v.trim()) return fallback
+      try { return JSON.parse(v) } catch { return fallback }
+    }
+    const state = parseJson(req.body?.state, {})
+    const history: Array<{ role: string; content: string }> = parseJson(req.body?.history, []).slice(-8)
+
+    // ---- 1. What did they say? (dictation, or typed fallback)
+    let userText = String(req.body?.text || '').trim()
+    if (!userText && req.file) {
+      const ext = (req.file.originalname?.split('.').pop() || 'webm').toLowerCase()
+      const { publicUrl } = await uploadImageFromBuffer(
+        req.file.buffer,
+        `audio/creator-studio/${userId}-${Date.now()}.${ext}`,
+        req.file.mimetype || 'audio/webm'
+      )
+      const result = await transcribeAudio({
+        audioUrl: publicUrl,
+        prompt: 'Custom apparel and print-on-demand design studio. Terms: t-shirt, hoodie, pocket print, back print, metal art, 3D print, mockup.',
+      })
+      userText = String(result?.text || '').trim()
+    }
+    if (!userText) {
+      return res.status(400).json({ error: "I didn't catch that — try again?", code: 'empty_turn' })
+    }
+
+    // ---- 2. Think (with tools)
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: `${TURN_SYSTEM}\n\nTHE BOARD RIGHT NOW: ${describeState(state)}` },
+      ...history
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      { role: 'user', content: userText },
+    ]
+
+    const completion = await openaiTurn.chat.completions.create({
+      model: TURN_MODEL,
+      messages,
+      tools: TURN_TOOLS,
+      ...(isReasoningTurnModel(TURN_MODEL) ? { max_completion_tokens: 700 } : { max_tokens: 220, temperature: 0.8 }),
+    })
+
+    const choice = completion.choices[0]?.message
+    let reply = String(choice?.content || '').trim()
+    const statePatch: Record<string, unknown> = {}
+    let action: { name: string; args: Record<string, unknown> } | null = null
+
+    for (const call of choice?.tool_calls || []) {
+      const fn = (call as any).function
+      if (!fn?.name) continue
+      const args = (() => { try { return JSON.parse(fn.arguments || '{}') } catch { return {} } })()
+
+      if (fn.name === 'set_product_type') {
+        statePatch.lane = args.type
+        if (args.metal_size) statePatch.metalSize = args.metal_size
+      } else if (fn.name === 'set_design_brief') {
+        statePatch.brief = {
+          prompt: String(args.prompt || '').trim(),
+          style: args.style ? String(args.style) : undefined,
+          tone: args.tone ? String(args.tone) : undefined,
+          shirtColor: ['black', 'white', 'gray'].includes(String(args.shirt_color)) ? args.shirt_color : 'black',
+          printPlacement: ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'].includes(String(args.print_placement))
+            ? args.print_placement : undefined,
+          printSizeInches: Number.isFinite(Number(args.print_size_inches)) && Number(args.print_size_inches) > 0
+            ? Math.round(Number(args.print_size_inches)) : undefined,
+        }
+      } else if (fn.name === 'get_pricing') {
+        const per = await perImageCost()
+        statePatch.pricing = {
+          generate: per * FANOUT_MULTIPLIER,
+          buildPerProduct: per * BUILD_MULTIPLIER,
+          balance: await walletBalance(userId),
+        }
+      } else if (CLIENT_ACTIONS.has(fn.name)) {
+        // The browser runs this against the ITC-metered endpoints.
+        action = { name: fn.name, args }
+      }
+    }
+
+    // A tool-only turn can come back with no words. Never leave him mute.
+    if (!reply) {
+      reply = action
+        ? 'On it!'
+        : statePatch.brief
+          ? "Locked it in! Ready when you are."
+          : 'Got it!'
+    }
+    reply = reply.slice(0, 600)
+
+    // ---- 3. Speak it in his own (MiniMax cloned) voice
+    let audioUrl: string | null = null
+    try {
+      audioUrl = await generateConversationalResponse(reply, {
+        voiceId: AVAILABLE_VOICES.MR_IMAGINE,
+        emotion: EMOTIONS.AUTO,
+        speed: 0.98,
+      })
+    } catch (err: any) {
+      // Voice is a nicety — a TTS outage must never break the build.
+      console.warn('[creator-studio] TTS unavailable for this turn:', err?.message)
+    }
+
+    req.log?.info({ userId, hasAudio: !!req.file, action: action?.name || null }, '[creator-studio] 🎙️ turn')
+    return res.json({ userText, reply, audioUrl, statePatch, action })
+  } catch (error: any) {
+    req.log?.error({ error }, '[creator-studio] ❌ turn failed')
+    return res.status(500).json({ error: error?.message || 'That turn did not go through' })
   }
 })
 
