@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
+import { signShippingQuote, type ShippingQuoteTokenPayload } from '../services/shipping-token.js'
 
 const router = Router()
 
@@ -95,6 +96,8 @@ router.post('/rates', async (req: Request, res: Response) => {
     const token = process.env.SHIPPO_API_TOKEN
     const destZip = addressTo?.zip || addressTo?.postal_code
 
+    let rates: CarrierRate[]
+
     if (token && destZip) {
       try {
         const shipmentData = {
@@ -128,7 +131,7 @@ router.post('/rates', async (req: Request, res: Response) => {
 
         if (shippoRes.ok) {
           const shipment = await shippoRes.json() as { rates?: any[] }
-          const rates: CarrierRate[] = (shipment.rates || [])
+          rates = (shipment.rates || [])
             .filter((rate: any) => {
               const svc = rate?.servicelevel?.token?.toLowerCase() || ''
               const provider = rate?.provider?.toLowerCase() || ''
@@ -146,6 +149,25 @@ router.post('/rates', async (req: Request, res: Response) => {
             }))
 
           if (rates.length > 0) {
+            // Sign each rate so the checkout engine can verify it without
+            // re-quoting Shippo. The token binds rate + carrier + service +
+            // cartHash + expiry.
+            const secret = process.env.SHIPPING_TOKEN_SECRET
+            if (secret) {
+              const cartHash = computeCartHashFromItems(items)
+              const exp = Date.now() + 15 * 60 * 1000 // 15 min
+              rates = rates.map(r => {
+                const payload: ShippingQuoteTokenPayload = {
+                  rate: r.amount,
+                  carrier: r.provider,
+                  service: r.name,
+                  cartHash,
+                  exp
+                }
+                const signed = signShippingQuote(payload, secret)
+                return { ...r, quoteToken: signed.token }
+              })
+            }
             return res.json({ rates, source: 'shippo', weightLb: round2(weightLb) })
           }
           console.warn('[shipping] Shippo returned no USPS/UPS rates, using estimates')
@@ -160,12 +182,48 @@ router.post('/rates', async (req: Request, res: Response) => {
     }
 
     // Fallback: weight-aware USPS + UPS estimates
-    return res.json({ rates: estimateCarrierRates(weightLb), source: 'estimate', weightLb: round2(weightLb) })
+    rates = estimateCarrierRates(weightLb)
+    const secret = process.env.SHIPPING_TOKEN_SECRET
+    if (secret) {
+      const cartHash = computeCartHashFromItems(items)
+      const exp = Date.now() + 15 * 60 * 1000 // 15 min
+      rates = rates.map(r => {
+        const payload: ShippingQuoteTokenPayload = {
+          rate: r.amount,
+          carrier: r.provider,
+          service: r.name,
+          cartHash,
+          exp
+        }
+        const signed = signShippingQuote(payload, secret)
+        return { ...r, quoteToken: signed.token }
+      })
+    }
+    return res.json({ rates, source: 'estimate', weightLb: round2(weightLb) })
   } catch (error: any) {
     console.error('[shipping] /rates error:', error)
     return res.status(500).json({ rates: estimateCarrierRates(1), source: 'error', error: 'Failed to calculate rates' })
   }
 })
+
+/**
+ * Extract cart items from the /rates request body and compute a stable hash
+ * for binding to shipping quote tokens.
+ */
+function computeCartHashFromItems(items: any): string {
+  if (!Array.isArray(items)) return ''
+  return items
+    .filter((it: any) => it?.weight != null)
+    .map((it: any) => ({
+      weight: Number(it.weight) || 0.5,
+      qty: Math.max(1, Math.floor(Number.isFinite(it.quantity) ? it.quantity : 1))
+    }))
+    .sort((a: any, b: any) => (a.weight - b.weight) || (a.qty - b.qty))
+    .reduce((acc: string[], it: any) => {
+      acc.push(`${it.weight.toFixed(3)}:${it.qty}`)
+      return acc
+    }, []).join(',')
+}
 
 /**
  * Calculate distance from customer address to warehouse using Google Maps Distance Matrix API

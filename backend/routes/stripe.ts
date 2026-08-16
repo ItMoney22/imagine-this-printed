@@ -155,7 +155,7 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken } = req.body
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
@@ -178,22 +178,42 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
     // backend/services/order-pricing.ts for the engine and its documented
     // scope/known gaps.
     // -----------------------------------------------------------------------
-    const pricingItems: PricingCartItem[] = (items || []).map((item: any) => ({
-      productId: item?.product?.id != null ? String(item.product.id) : null,
-      quantity: item?.quantity || 1,
-      selectedSize: item?.selectedSize ?? null,
-      selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
-      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null
-    }))
+    const pricingItems: PricingCartItem[] = (items || []).map((item: any) => {
+      const productId = item?.product?.id != null ? String(item.product.id) : null
+      const metadata = item?.product?.metadata || {}
+
+      // Extract sheet metadata for imagination-sheet-* items.
+      const sheetPrintType = metadata?.printType as 'dtf' | 'uv_dtf' | 'sublimation' | null
+      const sheetWidth = metadata?.sheetWidth != null ? Number(metadata.sheetWidth) : null
+      const sheetHeight = metadata?.sheetHeight != null ? Number(metadata.sheetHeight) : null
+
+      // Extract 3D-print metadata.
+      const colorMode = metadata?.color_mode === 'color4' ? 'color4' : 'grey'
+      const includePaintKit = metadata?.include_paint_kit === true
+
+      return {
+        productId,
+        quantity: item?.quantity || 1,
+        selectedSize: item?.selectedSize ?? null,
+        selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
+        clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null,
+        sheetPrintType,
+        sheetWidth,
+        sheetHeight,
+        colorMode,
+        includePaintKit
+      }
+    })
 
     let pricing
     try {
       pricing = await calculateOrderPricing({
         items: pricingItems,
-        shippingAddress: { state: shipping?.state, postalCode: shipping?.zipCode, country: shipping?.country },
+        shippingAddress: { state: shipping?.state, postalCode: shipping?.zipCode, country: shipping?.country, city: shipping?.city },
         shipping: {
           type: shippingType,
-          clientAmountCents: Math.round((Number(shippingCost) || 0) * 100),
+          quoteToken: shippingQuoteToken || null,
+          clientAmountCents: shippingCost != null ? Math.round((Number(shippingCost) || 0) * 100) : undefined,
           rush: !!rush
         },
         couponCode: couponCode || null,
