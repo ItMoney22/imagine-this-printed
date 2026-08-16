@@ -10,6 +10,7 @@ import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tri
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
+import { sweepAbandonedCarts } from '../services/abandoned-cart.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
 import { claimOnce } from '../lib/webhook-helpers.js'
@@ -2524,6 +2525,11 @@ async function runCleanupSweeps() {
     await sweepLowStockBlanks()
   } catch (error) {
     console.error('[worker] ❌ sweepLowStockBlanks threw:', error)
+  }
+  try {
+    await sweepAbandonedCarts()
+  } catch (error) {
+    console.error('[worker] ❌ sweepAbandonedCarts threw:', error)
   }
   await monitorHealthAndOrders()
   try {

@@ -12,6 +12,7 @@
 
 import { Router, Request, Response } from 'express'
 import { requireAuth, optionalAuth } from '../middleware/supabaseAuth.js'
+import { requireAdmin } from '../middleware/requireAdmin.js'
 import { supabase } from '../lib/supabase.js'
 import {
   PURCHASED_ORDER_STATUSES,
@@ -239,6 +240,89 @@ router.post('/product/:productId', requireAuth, async (req: Request, res: Respon
   } catch (error: any) {
     console.error('[reviews] Failed to save review:', error)
     res.status(500).json({ error: 'Failed to save review' })
+  }
+})
+
+/**
+ * GET /api/reviews/admin
+ * Admin moderation list. Every review (any status), newest first, filterable by
+ * status and paginated. Runs on the service-role connection, so RLS does not
+ * apply — which is exactly why this is gated behind requireAdmin.
+ */
+router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1)
+    const offset = (page - 1) * PAGE_SIZE
+    const status = req.query.status === 'hidden' ? 'hidden' : (req.query.status === 'published' ? 'published' : null)
+
+    let query = supabase
+      .from('product_reviews')
+      .select('id, product_id, user_id, order_id, rating, title, body, status, created_at, updated_at', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (status) query = query.eq('status', status)
+
+    const { data, error, count } = await query
+    if (error) throw error
+
+    const rows = (data || []) as Array<ReviewRow & { product_id: string; status: string; updated_at: string }>
+    const names = await loadReviewerNames([...new Set(rows.map((r) => r.user_id))])
+
+    res.json({
+      reviews: rows.map((r) => ({
+        id: r.id,
+        productId: r.product_id,
+        rating: r.rating,
+        title: r.title,
+        body: r.body,
+        status: r.status,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        authorName: names[r.user_id] || 'Verified buyer'
+      })),
+      page,
+      pageSize: PAGE_SIZE,
+      total: count ?? rows.length,
+      hasMore: rows.length === PAGE_SIZE
+    })
+  } catch (error: any) {
+    console.error('[reviews] Failed to load admin review list:', error)
+    res.status(500).json({ error: 'Failed to load reviews' })
+  }
+})
+
+/**
+ * PATCH /api/reviews/:reviewId/status
+ * Admin moderation: hide a review (status='hidden') or restore it
+ * (status='published'). The storefront read query only ever selects
+ * status='published', so a hidden review disappears from the product page the
+ * instant this lands.
+ */
+router.patch('/:reviewId/status', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { reviewId } = req.params
+    if (!UUID_RE.test(reviewId)) {
+      return res.status(400).json({ error: 'Invalid review id' })
+    }
+    const { status } = req.body as { status?: unknown }
+    if (status !== 'hidden' && status !== 'published') {
+      return res.status(400).json({ error: "status must be 'hidden' or 'published'" })
+    }
+
+    const { data, error } = await supabase
+      .from('product_reviews')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', reviewId)
+      .select('id, status')
+      .single()
+
+    if (error) throw error
+
+    res.json({ review: { id: data.id, status: data.status } })
+  } catch (error: any) {
+    console.error('[reviews] Failed to moderate review:', error)
+    res.status(500).json({ error: 'Failed to moderate review' })
   }
 })
 

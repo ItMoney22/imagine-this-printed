@@ -9,6 +9,7 @@ import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
 import { SocialShareButtons } from '../components/SocialShareButtons'
+import ProductReviews from '../components/ProductReviews'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch } from '../lib/api'
@@ -913,6 +914,9 @@ const ProductPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Customer reviews + ratings (verified-buyer gated) */}
+      <ProductReviews productId={product.id} />
 
       {/* Similar Products Recommendations */}
       <div className="mt-16">
