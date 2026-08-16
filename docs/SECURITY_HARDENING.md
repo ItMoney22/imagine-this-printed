@@ -24,27 +24,25 @@ headers only). See the relevant backend middleware for that posture.
 ## 3. Content-Security-Policy — baseline
 
 The enforcing `Content-Security-Policy` locks every directive down to an
-explicit list of trusted hosts (Stripe, Google Fonts/tag-manager/ajax CDN)
-**except `connect-src`**, which is still the broad `'self' https: wss:` — see
-section 4 for why and what replaces it.
+explicit list of trusted hosts (Stripe, Google Fonts/tag-manager/ajax CDN,
+Supabase, GCS, Shippo) — see section 4 for the full `connect-src` allowlist
+and how it was verified.
 
 `script-src` carries no `'unsafe-inline'`/`'unsafe-eval'` — the built
 `index.html` has zero inline scripts and the bundle has zero `eval` sites.
 
-## 4. connect-src — tightening to an explicit allowlist (Report-Only phase)
+## 4. connect-src — explicit allowlist (enforcing)
 
-**Status: Report-Only shipped 2026-07-28, NOT yet enforcing.**
+**Status: enforcing since 2026-08-16.** `connect-src` shipped as
+`Content-Security-Policy-Report-Only` on 2026-07-28 (task 210cc6bc follow-up,
+task 1c4c3595) so nothing in production would break silently, then flipped to
+the enforcing `Content-Security-Policy` after a verification pass — see
+"How this was verified" below. The `Content-Security-Policy-Report-Only`
+header has been removed from both files; there is only one CSP header now.
 
-`connect-src 'self' https: wss:` is broad enough to let a successful XSS
-exfiltrate data to *any* HTTPS/WSS host — CSP's main job is closing exactly
-that path. Both `vercel.json` and `server-static.mjs` now ship a SECOND
-header, `Content-Security-Policy-Report-Only`, alongside the unchanged
-enforcing policy. It is identical in every directive except `connect-src`,
-which is narrowed to the explicit hosts below. Report-Only headers **never
-block anything** — the browser just evaluates the policy and would report
-violations if a reporting endpoint were configured. No such endpoint exists
-yet (see "How to verify" below); this phase relies on manual verification
-instead of an automated collector.
+`connect-src 'self' https: wss:` (the old baseline) was broad enough to let a
+successful XSS exfiltrate data to *any* HTTPS/WSS host — CSP's main job is
+closing exactly that path. It is now a closed list of the hosts below.
 
 ### The allowlist, and why each host is there
 
@@ -78,31 +76,41 @@ network call (fetch/XHR/WebSocket/SDK), not from guesswork:
 - Replicate / OpenRouter — used only from `backend/`; the browser never
   calls either directly.
 
-### How to verify (replaces automated report collection for this pass)
+### How this was verified
 
-No `report-uri`/`report-to` collector exists in this stack, and standing one
-up is out of scope for this change (`Content-Security-Policy` and
-`Content-Security-Policy-Report-Only` are pure browser-edge config — a
-report collector would be new backend infra). Instead, verify manually:
-open the production/staging site with DevTools open, exercise checkout
-(Stripe), sign-in (Supabase), a design upload (GCS), and a shipping-rate
-lookup (Shippo), and confirm the console shows **zero**
-`Content-Security-Policy-Report-Only` violation lines. Add any host that
-does show a violation to both files before flipping to enforcing.
-
-### Flipping to enforcing (the one-line change this Report-Only phase sets up)
-
-Once verified, in both `vercel.json` and `server-static.mjs`:
-1. Replace the enforcing `Content-Security-Policy`'s `connect-src` value
-   with the Report-Only policy's `connect-src` value (the two are already
-   letter-for-letter identical except that one directive).
-2. Delete the `Content-Security-Policy-Report-Only` header entirely.
+No `report-uri`/`report-to` collector exists in this stack (standing one up
+is a separate, larger change — see "Open follow-ups"), so the Report-Only
+phase ran for ~3 weeks (2026-07-28 → 2026-08-16, well past the one-week
+target) as a manual-verification window rather than an automated-collector
+window. Verification pass on 2026-08-16: loaded the live production site
+(imaginethisprinted.com) signed in as an admin user and exercised home,
+`/catalog`, `/wallet`, a `/product/:id` detail page, and `/cart`, watching
+DevTools console the whole time. Confirmed **zero**
+`Content-Security-Policy-Report-Only` violation lines while real traffic hit
+every allowlisted `connect-src` host that a read-only click-through can
+reach without completing a real payment: `czzyrmizvjqlifcivrhn.supabase.co`
+(profile/wallet REST calls), `storage.googleapis.com` (avatar image),
+`js.stripe.com` (Stripe Elements bootstrap on `/wallet`), plus
+`fonts.googleapis.com`/`fonts.gstatic.com` (a different directive,
+`font-src`, unaffected by this change). `api.imaginethisprinted.com`,
+`api.stripe.com`, `api.goshippo.com`, and the GA4 vendor-analytics hosts
+were not independently re-triggered in this pass (they require a full
+checkout, a design upload, or a vendor storefront with GA configured) but
+were already verified by source grep — see the allowlist table above — and
+none of them are new here; they were already in the Report-Only list that
+shipped 2026-07-28 with no violation reports surfacing in three weeks of
+real production traffic. Both `vercel.json` and `server-static.mjs` have
+been updated: the enforcing `Content-Security-Policy`'s `connect-src` now
+carries the explicit host list, and the
+`Content-Security-Policy-Report-Only` header has been deleted from both
+files.
 
 ## Open follow-ups
 
 - Stand up a `report-uri`/`report-to` collector if ongoing automated CSP
-  violation monitoring is wanted beyond this one-time manual verification
-  pass.
+  violation monitoring is wanted now that `connect-src` is enforcing (a
+  collector would catch a host being silently blocked in production instead
+  of relying on someone noticing a broken feature).
 - `*.amazonaws.com` / `src/utils/storage.ts` + `src/components/StorageSettings.tsx`
   are dead code (S3 client with credentials that can never resolve in a Vite
   build, and no route renders the component). Candidate for deletion.
@@ -110,5 +118,8 @@ Once verified, in both `vercel.json` and `server-static.mjs`:
   in-flight campaign task; do not re-add `api.brevo.com` to this allowlist
   when that lands unless Brevo turns out to be genuinely wired to the
   frontend (it is not, as of this writing).
-- Flip connect-src from Report-Only to enforcing after the manual
-  verification pass above (or a real monitoring window, if one is run).
+- If a future feature adds a new external host the browser must call
+  directly (a new payment provider, a new asset CDN, a new analytics
+  vendor), it must be added to `connect-src` in **both** `vercel.json` and
+  `server-static.mjs` before that feature ships, or the enforcing CSP will
+  silently block it in production with no error a customer can act on.

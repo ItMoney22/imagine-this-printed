@@ -19,34 +19,7 @@ const BUILD_TIME = new Date().toISOString();
 // Security headers. Vercel serves the SPA from vercel.json's `headers` block;
 // this server is the Railway/VPS path to the same bundle, so the policy is
 // mirrored here. Keep the two in sync — see docs/SECURITY_HARDENING.md.
-//
-// connect-src ships TWO policies right now: the enforcing one stays broad
-// (`https: wss:`) so nothing in production breaks, while
-// Content-Security-Policy-Report-Only carries the tightened, explicit host
-// allowlist. Once a monitoring window confirms the allowlist is complete,
-// fold it into the enforcing CSP and delete the Report-Only header — see
-// docs/SECURITY_HARDENING.md section 4 for the exact host list and why each
-// entry is there.
 const CSP = [
-  "default-src 'self'",
-  "script-src 'self' https://js.stripe.com https://unpkg.com https://ajax.googleapis.com https://www.googletagmanager.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https:",
-  "media-src 'self' data: blob: https:",
-  "connect-src 'self' https: wss:",
-  "worker-src 'self' blob:",
-  "child-src 'self' blob:",
-  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://m.stripe.network https://www.tiktok.com https://www.youtube.com https://www.instagram.com",
-  "manifest-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "upgrade-insecure-requests"
-].join("; ");
-
-const CSP_REPORT_ONLY = [
   "default-src 'self'",
   "script-src 'self' https://js.stripe.com https://unpkg.com https://ajax.googleapis.com https://www.googletagmanager.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -70,7 +43,6 @@ app.disable("x-powered-by");
 app.use((_req, res, next) => {
   res.set({
     "Content-Security-Policy": CSP,
-    "Content-Security-Policy-Report-Only": CSP_REPORT_ONLY,
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
