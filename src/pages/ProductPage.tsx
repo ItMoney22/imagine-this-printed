@@ -12,7 +12,8 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch } from '../lib/api'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, productKindOf } from '../lib/product-kind'
+import { variantQtyFrom, variantStockStatus, type ProductAvailability } from '../lib/variant-stock'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 
 // Customer-facing labels for products.print_locations values. Mirrors the
@@ -50,6 +51,7 @@ const ProductPage: React.FC = () => {
   const [digitalDeliverables, setDigitalDeliverables] = useState<{ kind: string; label: string; url: string }[] | null>(null)
   const [ownsDigital, setOwnsDigital] = useState(false)
   const [buyingDigital, setBuyingDigital] = useState(false)
+  const [availability, setAvailability] = useState<ProductAvailability | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load product and source image from database
@@ -241,6 +243,31 @@ const ProductPage: React.FC = () => {
     }
   }, [product])
 
+  // Per-size/per-color stock hints — apparel only, additive on top of the
+  // existing is_active `inStock` flag. The endpoint itself encodes the
+  // fallback contract (non-apparel categories, or apparel with no
+  // blank_inventory mapping, come back as mode:'product-level' with no
+  // byVariant), so a failed fetch or an unmapped product both resolve to
+  // "render nothing extra" here rather than needing special-casing.
+  useEffect(() => {
+    if (!product || productKindOf(product) !== 'apparel') {
+      setAvailability(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetch(`/api/product-availability/${product.id}`)
+        if (!cancelled) setAvailability(data ?? null)
+      } catch {
+        // Availability is a UI enhancement, not a hard dependency — silently
+        // fall back to is_active rather than surfacing an error.
+        if (!cancelled) setAvailability(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [product])
+
   // Track product view for recommendations
   useEffect(() => {
     if (product && user) {
@@ -298,14 +325,21 @@ const ProductPage: React.FC = () => {
   // Determine product kind so the page renders type-appropriate options:
   // apparel (shirt sizes + DTF tools), metal wall art (print sizes + finish),
   // or 3D prints (size tiers). Mirrors AdminCreatorProductsTab.productKind.
-  const productKind: 'metal' | '3d' | 'apparel' = (() => {
-    const c = (product.category || '').toLowerCase()
-    const t = String(product.metadata?.product_template || '').toLowerCase()
-    if (c.includes('metal') || t.includes('metal') || t.includes('wall')) return 'metal'
-    if (c.includes('3d') || c.includes('toy') || t.includes('3d') || t.includes('toy')) return '3d'
-    return 'apparel'
-  })()
+  const productKind = productKindOf(product)
   const isApparel = productKind === 'apparel'
+
+  // Looks up per-variant qty from the availability fetch above. Returns null
+  // when there's no blank-backed data for this color/size combo (product
+  // isn't a shirt/hoodie category, or blank_inventory has no mapping) — the
+  // caller treats null as "say nothing, defer to is_active" per the task's
+  // fallback requirement. See src/lib/variant-stock.ts for the unit tests.
+  const variantQty = (color: string, size: string): number | null => variantQtyFrom(availability, color, size)
+  // The exact combo the shopper currently has selected — used to disable
+  // Add to Cart / Buy Now when blank_inventory confirms it's unfulfillable
+  // (qty <= 0), not just to render a hint.
+  const selectedComboQty = selectedColor && selectedSize ? variantQty(selectedColor, selectedSize) : null
+  const selectedComboStatus = variantStockStatus(selectedComboQty)
+  const selectedComboOutOfStock = selectedComboStatus === 'out'
 
   // Optional add-on upsells configured at approval (metal-art easel stand,
   // wall mount, etc.). Empty for products without any.
@@ -388,6 +422,10 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
+    if (selectedComboOutOfStock) {
+      toast.warning('Out of stock', `${selectedSize} / ${getColorName(selectedColor)} is currently out of stock`)
+      return
+    }
     if (product) {
       addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
       toast.success('Added to cart', product.name)
@@ -406,6 +444,10 @@ const ProductPage: React.FC = () => {
     }
     if (requiresPrintLocation && !selectedPrintLocation) {
       toast.warning('Selection required', 'Please select a print placement')
+      return
+    }
+    if (selectedComboOutOfStock) {
+      toast.warning('Out of stock', `${selectedSize} / ${getColorName(selectedColor)} is currently out of stock`)
       return
     }
     if (product) {
@@ -599,20 +641,37 @@ const ProductPage: React.FC = () => {
                     {displaySizes.map(size => {
                       const isPlusSize = isApparel && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
+                      // Only meaningful once a color is picked — a size alone
+                      // doesn't identify a blank_inventory row.
+                      const qty = isApparel && selectedColor ? variantQty(selectedColor, size) : null
+                      const stockStatus = variantStockStatus(qty)
+                      const isSoldOut = stockStatus === 'out'
+                      const isLowStock = stockStatus === 'low'
                       return (
                         <button
                           key={size}
-                          onClick={() => setSelectedSize(size)}
+                          onClick={() => !isSoldOut && setSelectedSize(size)}
+                          disabled={isSoldOut}
                           className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
                             ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
                             : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
-                            } ${isPlusSize ? 'pr-6' : ''}`}
-                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
+                            } ${isPlusSize ? 'pr-6' : ''} ${isSoldOut ? 'opacity-40 cursor-not-allowed hover:border-slate-300 hover:bg-card' : ''}`}
+                          title={isSoldOut ? `Out of stock in ${getColorName(selectedColor)}` : isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
                         >
                           {size}
                           {isPlusSize && (
                             <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-amber-400'}`}>
                               +$
+                            </span>
+                          )}
+                          {isLowStock && (
+                            <span className={`ml-1 text-[10px] font-normal align-top ${isSelected ? 'text-amber-200' : 'text-amber-500'}`}>
+                              {qty} left
+                            </span>
+                          )}
+                          {isSoldOut && (
+                            <span className="ml-1 text-[10px] font-normal align-top text-red-400">
+                              Sold out
                             </span>
                           )}
                         </button>
@@ -644,17 +703,24 @@ const ProductPage: React.FC = () => {
                   {product.colors.map(color => {
                     const label = getColorName(color)
                     const isSelected = selectedColor === color
+                    // Only meaningful once a size is picked — a color alone
+                    // doesn't identify a blank_inventory row.
+                    const qty = isApparel && selectedSize ? variantQty(color, selectedSize) : null
+                    const stockStatus = variantStockStatus(qty)
+                    const isSoldOut = stockStatus === 'out'
+                    const isLowStock = stockStatus === 'low'
                     return (
                       <button
                         key={color}
-                        onClick={() => setSelectedColor(color)}
-                        title={label}
+                        onClick={() => !isSoldOut && setSelectedColor(color)}
+                        disabled={isSoldOut}
+                        title={isSoldOut ? `${label} — out of stock in ${selectedSize}` : label}
                         aria-label={`Select ${label}`}
                         className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all ${
                           isSelected
                             ? 'border-primary bg-primary/10 text-text ring-2 ring-primary/30'
                             : 'border-slate-300 hover:border-slate-400 text-text'
-                        }`}
+                        } ${isSoldOut ? 'opacity-40 cursor-not-allowed hover:border-slate-300' : ''}`}
                       >
                         <span
                           className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center shrink-0"
@@ -665,10 +731,24 @@ const ProductPage: React.FC = () => {
                           )}
                         </span>
                         <span className="text-sm">{label}</span>
+                        {isLowStock && <span className="text-[10px] font-normal text-amber-500">({qty} left)</span>}
+                        {isSoldOut && <span className="text-[10px] font-normal text-red-400">(Sold out)</span>}
                       </button>
                     )
                   })}
                 </div>
+                {/* Combined hint once both dimensions are picked — the exact
+                    "Only 2 left in XL / Black" phrasing from the spec. */}
+                {isApparel && selectedSize && selectedComboStatus === 'low' && (
+                  <p className="text-sm text-amber-500 font-medium mt-2">
+                    Only {selectedComboQty} left in {selectedSize} / {getColorName(selectedColor)}
+                  </p>
+                )}
+                {isApparel && selectedSize && selectedComboOutOfStock && (
+                  <p className="text-sm text-red-500 font-medium mt-2">
+                    Out of stock in {selectedSize} / {getColorName(selectedColor)}
+                  </p>
+                )}
               </div>
             )}
 
@@ -823,16 +903,16 @@ const ProductPage: React.FC = () => {
 
               <button
                 onClick={handleAddToCart}
-                disabled={!product.inStock}
+                disabled={!product.inStock || selectedComboOutOfStock}
                 className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <ShoppingCart className="w-4 h-4" />
-                {product.inStock ? 'Add to Cart' : 'Out of Stock'}
+                {!product.inStock || selectedComboOutOfStock ? 'Out of Stock' : 'Add to Cart'}
               </button>
 
               <button
                 onClick={handleBuyNow}
-                disabled={!product.inStock}
+                disabled={!product.inStock || selectedComboOutOfStock}
                 className="w-full btn-secondary disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Zap className="w-4 h-4" />
