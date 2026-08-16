@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'imagine-this-printed-api',
       script: 'dist/index.js',
-      cwd: '/var/www/imagine-this-printed/backend',
+      cwd: '.',
       instances: 1,
       autorestart: true,
       watch: false,
@@ -25,7 +25,7 @@ module.exports = {
     {
       name: 'imagine-this-printed-worker',
       script: 'dist/worker/index.js',
-      cwd: '/var/www/imagine-this-printed/backend',
+      cwd: '.',
       instances: 1,
       autorestart: true,
       watch: false,
