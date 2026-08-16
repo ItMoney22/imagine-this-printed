@@ -494,8 +494,54 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       return res.status(400).json({ error: 'retailPrice (dollars) is required' })
     }
 
+    const garmentType = (typeof req.body.garmentType === 'string' && req.body.garmentType.trim())
+      ? req.body.garmentType.trim()
+      : null
+    const garmentLabel = (typeof req.body.garmentLabel === 'string' && req.body.garmentLabel.trim())
+      ? req.body.garmentLabel.trim()
+      : null
+    const categorySlug = (typeof req.body.categorySlug === 'string' && req.body.categorySlug.trim())
+      ? req.body.categorySlug.trim()
+      : null
+
+    const rawExpectedCost = req.body.expectedCostUsd
+    const expectedCostUsd = (rawExpectedCost !== undefined && rawExpectedCost !== null && rawExpectedCost !== '')
+      ? Number(rawExpectedCost)
+      : null
+
+    if (expectedCostUsd !== null && (isNaN(expectedCostUsd) || !Number.isFinite(expectedCostUsd))) {
+      return res.status(400).json({ error: 'expectedCostUsd must be a valid number' })
+    }
+
     // D1 cost: base + extra-location upcharge when a back print ships.
-    const costUsd = BASE_COST_USD + (backPrint ? BACK_PRINT_UPCHARGE_USD : 0)
+    // Base cost is resolved from environment variables based on garmentType, falling back to BASE_COST_USD.
+    let baseCost = BASE_COST_USD
+    if (garmentType) {
+      const envVarName = `STOREFRONT_${garmentType.toUpperCase().replace(/[- ]/g, '_')}_BASE_COST_USD`
+      const envValue = process.env[envVarName]
+      if (envValue) {
+        const parsedCost = Number(envValue)
+        if (Number.isFinite(parsedCost) && parsedCost > 0) {
+          baseCost = parsedCost
+        }
+      }
+    }
+
+    const costUsd = baseCost + (backPrint ? BACK_PRINT_UPCHARGE_USD : 0)
+
+    // Verify expectedCostUsd matches calculated cost if provided (compare in cents to avoid floats)
+    if (expectedCostUsd !== null) {
+      const expectedCents = Math.round(expectedCostUsd * 100)
+      const calculatedCents = Math.round(costUsd * 100)
+      if (expectedCents !== calculatedCents) {
+        return res.status(400).json({
+          error: `Expected cost ($${expectedCostUsd.toFixed(2)}) does not match calculated cost ($${costUsd.toFixed(2)})`,
+          calculatedCostUsd: costUsd,
+          expectedCostUsd
+        })
+      }
+    }
+
     if (retailUsd <= costUsd) {
       return res.status(400).json({
         error: `Retail price must exceed base cost ($${costUsd.toFixed(2)})`,
@@ -552,20 +598,25 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       mockupUrls.push(uploaded.publicUrl)
     }
 
-    // Resolve the shirts category WITHOUT clobbering its display name (the
-    // AI-flow upsert pattern overwrites `name`; a select-then-insert doesn't).
+    // Resolve the category dynamically. Fall back to 'shirts' if not specified.
+    const resolvedCategorySlug = (categorySlug && categorySlug.toLowerCase()) || 'shirts'
+    const resolvedCategoryName = resolvedCategorySlug
+      .split('-')
+      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+
     let categoryId: string | null = null
     const { data: existingCategory } = await supabase
       .from('product_categories')
       .select('id')
-      .eq('slug', 'shirts')
+      .eq('slug', resolvedCategorySlug)
       .maybeSingle()
     if (existingCategory) {
       categoryId = existingCategory.id
     } else {
       const { data: newCategory } = await supabase
         .from('product_categories')
-        .insert({ slug: 'shirts', name: 'Shirts' })
+        .insert({ slug: resolvedCategorySlug, name: resolvedCategoryName })
         .select('id')
         .single()
       categoryId = newCategory?.id ?? null
@@ -590,13 +641,13 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         category_id: categoryId,
         name,
         slug: uniqueSlug,
-        description: description || `${name} — custom shirt`,
+        description: description || `${name} — custom ${garmentLabel || 'shirt'}`,
         price: retailUsd,
         cost_price: costUsd,
         status: 'pending_approval', // lands in the existing admin approval queue
         is_active: true, // sellable gate is status+is_active; status holds it back until approval
         images: mockupUrls.length ? mockupUrls : [frontUpload.publicUrl],
-        category: 'shirts',
+        category: resolvedCategorySlug,
         print_locations: printLocations,
         ...(sizes.length ? { sizes } : {}),
         ...(colors.length ? { colors } : {}),
@@ -626,10 +677,12 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
             mockups: mockupUrls,
           },
           cost_breakdown: {
-            base_usd: BASE_COST_USD,
+            base_usd: baseCost,
             back_upcharge_usd: backUpload ? BACK_PRINT_UPCHARGE_USD : 0,
           },
           submitted_at: new Date().toISOString(),
+          garment_type: garmentType,
+          garment_label: garmentLabel,
         },
       })
       .select('id, slug, status')
