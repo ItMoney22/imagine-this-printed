@@ -285,6 +285,28 @@ Windows (PowerShell):
 
 **Usage:** Powers the AI Product Builder feature for automated product creation with GPT normalization and Replicate image generation.
 
+### AI Model Selection — Chat & AI Features (Optional)
+
+The backend's AI-powered routes (support chatbot, product builder, marketing, SEO tools, etc.) resolve their OpenAI model ID from two shared, env-configurable defaults instead of hardcoding a model id per file. This exists because OpenAI periodically retires model ids (the `gpt-4` family hard-shuts-down 2026-10-23) — bumping one env var re-points every consumer without a code deploy.
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `OPENAI_TEXT_MODEL` | Default text-completion model for direct-OpenAI calls (used whenever a route calls OpenAI directly, including the support chatbot's OpenAI-fallback path) | `gpt-5.4-nano` | No |
+| `OPENAI_VISION_MODEL` | Default vision-capable model for direct-OpenAI calls that need image understanding | `gpt-5.6-terra` | No |
+
+**Where it's used:** `backend/routes/ai/chat.ts` (the support chatbot at `POST /api/ai/chat`) and roughly 15 other AI service/route files (`services/ai-product.ts`, `services/designAssistant.ts`, `services/emailAI.ts`, `services/product-trends.ts`, `services/serpapi-search.ts`, `services/seo-pack.ts`, `services/etsy-seo-composer.ts`, `routes/admin/products.ts`, `routes/marketing.ts`, `routes/ai/mr-imagine-chat.ts`, `scripts/import-designs.mjs`, and more) each read `process.env.OPENAI_TEXT_MODEL` / `OPENAI_VISION_MODEL` directly. This is a naming **convention** established by an audit (task `e881523b`) — there is no shared TypeScript config module to import; each file declares its own `process.env.OPENAI_TEXT_MODEL || 'gpt-5.4-nano'` fallback.
+
+**Per-feature overrides layered on top:** a few features additionally support their own narrower override before falling back to the shared default — e.g. `ETSY_SEO_MODEL`, `SEO_PACK_MODEL` — check the specific service file for its exact fallback chain.
+
+**Chatbot-specific routing (`backend/routes/ai/chat.ts`):**
+- If `OPENROUTER_API_KEY` is set, chat requests route through OpenRouter (`https://openrouter.ai/api/v1`) using model `google/gemini-2.5-flash`. OpenRouter model ids are intentionally **hardcoded, not env-configurable** (see `backend/lib/chat-model-routing.ts`'s design note) — OpenRouter aggregates many providers/aliases and doesn't retire ids the way OpenAI does, so the env-var escape hatch is reserved for the direct-OpenAI fallback ids that actually need it.
+- If `OPENROUTER_API_KEY` is unset, chat falls back to direct OpenAI using `OPENAI_TEXT_MODEL`.
+- The client can never pick its own model. `chat.ts` maintains a server-side `ALLOWED_MODELS` allowlist and silently resolves any unrecognized or missing client-supplied model hint to the provider's default — this closes a cost-vector where a stale or malicious client value could route every request to an expensive model.
+
+**Note on `CHAT_MODEL_OPENAI` / `CHAT_MODEL_OPENROUTER` naming:** an earlier branch (task `fa2e6ff8`) prototyped those two env var names for this same purpose, but it never merged to `main`. `main` instead landed the `e881523b` sweep using `OPENAI_TEXT_MODEL` / `OPENAI_VISION_MODEL`, so use those names — `CHAT_MODEL_OPENAI` / `CHAT_MODEL_OPENROUTER` are not read anywhere in the current codebase.
+
+**Where to set in production:** Render dashboard > backend service > Environment — both variables have safe code-level defaults, so setting them is optional and only needed to bump a model without a full deploy.
+
 ### AWS S3 / File Storage (Optional but Recommended)
 
 | Variable | Description | Example | Required |
