@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # Email/Password Authentication - Google OAuth Disabled
 
 ## Date: 2025-11-03

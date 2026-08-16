@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # 🚀 Imagine This Printed - Launch Plan
 
 ## Current Status: ⚠️ Supabase Setup Required

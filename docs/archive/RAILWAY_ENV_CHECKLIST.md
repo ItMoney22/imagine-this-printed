@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # Railway Environment Variables Checklist
 
 ## Production Deployment - Complete Environment Setup

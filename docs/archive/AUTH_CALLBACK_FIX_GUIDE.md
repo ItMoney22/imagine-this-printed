@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # Auth Callback Fix Guide
 
 ## Problem Summary

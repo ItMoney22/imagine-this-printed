@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # Deployment Status & Agent Notes
 **Last Updated:** 2025-10-13 19:05 UTC by Claude (MetaDev)
 

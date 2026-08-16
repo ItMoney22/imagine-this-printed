@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # Supabase Dashboard Authentication Checklist
 
 This checklist ensures your Supabase project is configured correctly for multi-domain OAuth authentication.

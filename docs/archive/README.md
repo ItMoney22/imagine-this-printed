@@ -1,3 +1,8 @@
+> [!WARNING]
+> **SUPERSEDED**: This document belongs to the Railway deployment era and is no longer current.
+
+---
+
 # Archived Documentation
 
 This directory contains outdated documentation that is no longer current but preserved for historical reference.
