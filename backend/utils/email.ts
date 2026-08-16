@@ -185,50 +185,79 @@ export const sendLowStockAlertEmail = async (
 export const sendProductApprovalEmail = async (
   email: string,
   productName: string,
-  productId: string
+  productId: string,
+  creatorName?: string
 ): Promise<boolean> => {
+  // Try AI-powered email first
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'design_approved',
+        customerEmail: email,
+        customerName: creatorName,
+        productName,
+        productId
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI design approved email failed, using fallback:', error)
+    }
+  }
+
+  // Fallback to static template (the production copy — 15% royalty, /product/:id route)
   return sendEmail({
     to: email,
-    subject: `🎉 Your Design "${productName}" Has Been Approved!`,
+    subject: '🎉 Your Design Has Been Approved! - Imagine This Printed',
     htmlContent: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #7c3aed; margin: 0;">Congratulations! 🎨</h1>
+          <img src="${FRONTEND_URL}/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" style="height: 60px;">
         </div>
 
-        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px;">
-          <h2 style="color: #374151; margin-top: 0;">Your design has been approved!</h2>
-          <p style="color: #6b7280; font-size: 16px; line-height: 1.6;">
-            Great news! Your product <strong>"${productName}"</strong> has been reviewed and approved by our team.
-            It's now live on the marketplace and ready to earn you royalties!
-          </p>
+        <h1 style="color: #9333EA; text-align: center;">Congratulations! 🎨</h1>
+
+        <p>Hey ${creatorName || 'Creator'},</p>
+
+        <p>Great news! Your design <strong>"${productName}"</strong> has been approved and is now live on our marketplace!</p>
+
+        <div style="background: linear-gradient(135deg, #9333EA 0%, #EC4899 100%); border-radius: 12px; padding: 20px; margin: 20px 0; color: white;">
+          <h3 style="margin: 0 0 10px 0;">💰 Start Earning!</h3>
+          <p style="margin: 0;">You'll earn <strong>15% royalty</strong> on every sale of your design!</p>
         </div>
 
-        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
-          <h3 style="color: #374151; margin-top: 0;">💰 Start Earning 10% on Every Sale!</h3>
-          <p style="color: #6b7280; font-size: 15px; line-height: 1.6;">
-            To receive your royalty payments, you'll need to set up your wallet:
-          </p>
-          <ol style="color: #6b7280; font-size: 15px; line-height: 1.8;">
-            <li>Go to your <a href="${FRONTEND_URL}/wallet" style="color: #7c3aed; text-decoration: underline;">Wallet Settings</a></li>
-            <li>Add your payment details (PayPal or bank account)</li>
-            <li>Verify your identity</li>
-            <li>Watch your earnings grow!</li>
-          </ol>
-        </div>
+        <h3>Next Steps:</h3>
+        <ol>
+          <li><strong>Set up your wallet</strong> - Add your payout details to receive earnings</li>
+          <li><strong>Share your design</strong> - Get the word out to maximize sales</li>
+          <li><strong>Create more</strong> - The more designs, the more you can earn!</li>
+        </ol>
 
         <div style="text-align: center; margin: 30px 0;">
-          <a href="${FRONTEND_URL}/products/${productId}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            View Your Product
+          <a href="${FRONTEND_URL}/wallet"
+             style="display: inline-block; background: linear-gradient(135deg, #9333EA 0%, #EC4899 100%); color: white; text-decoration: none; padding: 15px 30px; border-radius: 25px; font-weight: bold;">
+            Set Up Your Wallet
           </a>
         </div>
 
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
-          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
-            Share your creation with friends and family to maximize your earnings!<br>
-            Every sale earns you 10% royalty automatically.
-          </p>
+        <div style="text-align: center; margin: 20px 0;">
+          <a href="${FRONTEND_URL}/product/${productId}"
+             style="color: #9333EA; text-decoration: none; font-weight: bold;">
+            View Your Live Product →
+          </a>
         </div>
+
+        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+        <p style="color: #666; font-size: 14px; text-align: center;">
+          Keep creating amazing designs!<br>
+          - The ITP Team
+        </p>
       </div>
     `
   })
@@ -545,6 +574,28 @@ export const sendTicketConfirmationEmail = async (
   ticketId: string,
   subject: string
 ): Promise<boolean> => {
+  // Try AI-powered email first
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'ticket_confirmation',
+        customerEmail: email,
+        ticketId,
+        ticketSubject: subject
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI ticket confirmation email failed, using fallback:', error)
+    }
+  }
+
+  // Fallback to static template
   return sendEmail({
     to: email,
     subject: `✅ Your Support Request Has Been Received - ${subject}`,
@@ -1034,6 +1085,29 @@ export const sendOrderShippedEmail = async (
   const name = greetingName(options.customerName)
   const statusUrl = buildOrderStatusUrl(options.orderId)
 
+  // Try AI-powered email first, retaining the guest-status-link fallback below.
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'order_shipped',
+        customerEmail: email,
+        customerName: name,
+        orderNumber: orderRef,
+        trackingNumber,
+        carrier
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI order shipped email failed, using fallback:', error)
+    }
+  }
+
   return sendEmail({
     to: email,
     subject: `📦 Your Order Has Shipped! - ${orderRef}`,
@@ -1091,6 +1165,27 @@ export const sendOrderDeliveredEmail = async (
   const name = greetingName(options.customerName)
   const statusUrl = buildOrderStatusUrl(options.orderId)
 
+  // Try AI-powered email first, retaining the guest-status-link fallback below.
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'order_delivered',
+        customerEmail: email,
+        customerName: name,
+        orderNumber: orderRef
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI order delivered email failed, using fallback:', error)
+    }
+  }
+
   return sendEmail({
     to: email,
     subject: `✅ Your Order Has Been Delivered! - ${orderRef}`,
@@ -1134,6 +1229,84 @@ export const sendOrderDeliveredEmail = async (
         <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
           <p style="color: #9ca3af; font-size: 13px; text-align: center;">
             Questions about your order? Just reply to this email!<br>
+            - The Imagine This Printed Team
+          </p>
+        </div>
+      </div>
+    `
+  })
+}
+
+// ===============================
+// ITC PURCHASE CONFIRMATION
+// ===============================
+
+/**
+ * Send ITC purchase confirmation email to customer
+ */
+export const sendItcPurchaseEmail = async (
+  email: string,
+  itcAmount: number,
+  usdAmount: number,
+  newBalance: number,
+  username?: string
+): Promise<boolean> => {
+  // Try AI-powered email first
+  if (AI_EMAIL_ENABLED && generateAIEmail) {
+    try {
+      const aiEmail = await generateAIEmail({
+        templateKey: 'itc_purchase',
+        customerEmail: email,
+        customerName: username,
+        itcAmount,
+        usdAmount,
+        newBalance
+      })
+
+      return sendEmail({
+        to: email,
+        subject: aiEmail.subject,
+        htmlContent: aiEmail.htmlContent,
+        textContent: aiEmail.textContent
+      })
+    } catch (error) {
+      console.error('[Email] AI ITC purchase email failed, using fallback:', error)
+    }
+  }
+
+  // Fallback to static template
+  return sendEmail({
+    to: email,
+    subject: `💰 ITC Purchase Confirmed - ${itcAmount} ITC Added!`,
+    htmlContent: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #7c3aed; margin: 0;">Powered Up! 💰</h1>
+        </div>
+
+        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0 0 10px 0;">ITC Purchased</p>
+          <p style="color: #7c3aed; font-size: 28px; font-weight: bold; margin: 0;">${itcAmount} ITC</p>
+          <p style="color: #9ca3af; font-size: 13px; margin: 10px 0 0 0;">for $${usdAmount.toFixed(2)}</p>
+        </div>
+
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px; text-align: center;">
+          <h3 style="color: #374151; margin-top: 0;">Your New Balance</h3>
+          <p style="color: #059669; font-size: 24px; font-weight: bold; margin: 0;">${newBalance} ITC</p>
+          <p style="color: #6b7280; font-size: 14px; margin-top: 10px;">
+            Time to create something amazing! Use your ITC on custom designs, premium features, and more.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${FRONTEND_URL}/wallet" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            Use My ITC
+          </a>
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+            Questions about your purchase? Just reply to this email!<br>
             - The Imagine This Printed Team
           </p>
         </div>

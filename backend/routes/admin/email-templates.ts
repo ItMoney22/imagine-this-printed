@@ -12,13 +12,16 @@ router.use(requireRole(['admin', 'manager']))
 
 /**
  * GET /api/admin/email-templates
- * List all email templates
+ * List all ACTIVE email templates. Rows with is_active = false have no
+ * corresponding sender wired to the email_templates system, so they're
+ * excluded — editing them there would have no effect on real mail.
  */
 router.get('/', async (req: Request, res: Response): Promise<any> => {
   try {
     const { data: templates, error } = await supabase
       .from('email_templates')
       .select('*')
+      .eq('is_active', true)
       .order('category', { ascending: true })
       .order('name', { ascending: true })
 

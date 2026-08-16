@@ -11,7 +11,8 @@ import {
 import { processRoyaltyPayment, calculateRoyalty } from '../services/user-royalties.js'
 import {
   sendOrderShippedEmail,
-  sendOrderDeliveredEmail
+  sendOrderDeliveredEmail,
+  sendItcPurchaseEmail
 } from '../utils/email.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
@@ -1381,10 +1382,9 @@ async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Reque
     // Don't throw - wallet was updated successfully
   }
 
-  // Send confirmation email (optional - sendPurchaseConfirmationEmail below is
-  // currently a log-only stub; see its body)
+  // Send confirmation email (non-critical — wallet was already credited above)
   try {
-    await sendPurchaseConfirmationEmail(userId, itcAmountNum, usdAmount)
+    await sendPurchaseConfirmationEmail(userId, itcAmountNum, usdAmount, newBalance)
   } catch (emailError) {
     req.log?.error({ err: emailError }, 'Failed to send confirmation email')
     // Don't throw - this is non-critical
@@ -1638,7 +1638,7 @@ async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice, req: Re
 }
 
 // Send purchase confirmation email
-async function sendPurchaseConfirmationEmail(userId: string, itcAmount: number, usdAmount: number) {
+async function sendPurchaseConfirmationEmail(userId: string, itcAmount: number, usdAmount: number, newBalance: number) {
   // Get user email
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -1650,9 +1650,7 @@ async function sendPurchaseConfirmationEmail(userId: string, itcAmount: number, 
     throw new Error('User email not found')
   }
 
-  // TODO: Implement via Resend (backend/utils/email.ts's sendEmailWithTracking)
-  // For now, just log
-  console.log(`[Email] Would send confirmation to ${profile.email}: ${itcAmount} ITC for $${usdAmount}`)
+  await sendItcPurchaseEmail(profile.email, itcAmount, usdAmount, newBalance, profile.username)
 }
 
 // PATCH /api/stripe/orders/:orderId/status - Update order status and send emails
