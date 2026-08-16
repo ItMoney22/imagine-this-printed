@@ -356,7 +356,7 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
     welcome: `${FRONTEND_URL}/create-design`,
     order_shipped: `${FRONTEND_URL}/orders`,
     order_delivered: `${FRONTEND_URL}/catalog`,
-    design_approved: context.productId ? `${FRONTEND_URL}/products/${context.productId}` : `${FRONTEND_URL}/my-products`,
+    design_approved: context.productId ? `${FRONTEND_URL}/product/${context.productId}` : `${FRONTEND_URL}/my-products`,
     ticket_confirmation: FRONTEND_URL,
     itc_purchase: `${FRONTEND_URL}/wallet`
   }

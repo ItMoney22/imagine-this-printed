@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
-import { sendEmail } from '../../utils/email.js'
+import { sendEmail, sendProductApprovalEmail } from '../../utils/email.js'
 import { generateSeoPackForProduct } from '../../services/seo-pack.js'
 
 const router = Router()
@@ -246,59 +246,12 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
         .eq('id', creatorId)
         .single()
 
-      // Send approval email
+      // Send approval email (routed through the email_templates system — see
+      // sendProductApprovalEmail in backend/utils/email.ts for the AI branch
+      // and the static fallback, which carries this template's exact copy)
       if (creator?.email) {
         try {
-          await sendEmail({
-            to: creator.email,
-            subject: '🎉 Your Design Has Been Approved! - Imagine This Printed',
-            htmlContent: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                <div style="text-align: center; margin-bottom: 30px;">
-                  <img src="https://imaginethisprinted.com/mr-imagine/mr-imagine-waist-up.png" alt="Mr. Imagine" style="height: 60px;">
-                </div>
-
-                <h1 style="color: #9333EA; text-align: center;">Congratulations! 🎨</h1>
-
-                <p>Hey ${creator.username || 'Creator'},</p>
-
-                <p>Great news! Your design <strong>"${product.name}"</strong> has been approved and is now live on our marketplace!</p>
-
-                <div style="background: linear-gradient(135deg, #9333EA 0%, #EC4899 100%); border-radius: 12px; padding: 20px; margin: 20px 0; color: white;">
-                  <h3 style="margin: 0 0 10px 0;">💰 Start Earning!</h3>
-                  <p style="margin: 0;">You'll earn <strong>15% royalty</strong> on every sale of your design!</p>
-                </div>
-
-                <h3>Next Steps:</h3>
-                <ol>
-                  <li><strong>Set up your wallet</strong> - Add your payout details to receive earnings</li>
-                  <li><strong>Share your design</strong> - Get the word out to maximize sales</li>
-                  <li><strong>Create more</strong> - The more designs, the more you can earn!</li>
-                </ol>
-
-                <div style="text-align: center; margin: 30px 0;">
-                  <a href="https://imaginethisprinted.com/wallet"
-                     style="display: inline-block; background: linear-gradient(135deg, #9333EA 0%, #EC4899 100%); color: white; text-decoration: none; padding: 15px 30px; border-radius: 25px; font-weight: bold;">
-                    Set Up Your Wallet
-                  </a>
-                </div>
-
-                <div style="text-align: center; margin: 20px 0;">
-                  <a href="https://imaginethisprinted.com/product/${id}"
-                     style="color: #9333EA; text-decoration: none; font-weight: bold;">
-                    View Your Live Product →
-                  </a>
-                </div>
-
-                <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-
-                <p style="color: #666; font-size: 14px; text-align: center;">
-                  Keep creating amazing designs!<br>
-                  - The ITP Team
-                </p>
-              </div>
-            `,
-          })
+          await sendProductApprovalEmail(creator.email, product.name, id, creator.username)
           console.log('[admin-approvals] ✅ Approval email sent to:', creator.email)
         } catch (emailErr: any) {
           console.error('[admin-approvals] ⚠️ Failed to send approval email:', emailErr.message)
