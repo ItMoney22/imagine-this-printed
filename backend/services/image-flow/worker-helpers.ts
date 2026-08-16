@@ -216,9 +216,22 @@ export interface RunMockupOpts {
   singleCallFlux2?: boolean
 }
 
-/** Prototype flag — see SINGLE_CALL_FLUX2_MODEL below. Off unless explicitly enabled. */
+/**
+ * Defaulted ON 2026-08-16 (Watchtower task 6456344b) after grading a real
+ * 40-job batch (20 flat_lay + 20 ghost_mannequin, real production designs,
+ * all 3 garment colors) with the flag forced true: 0/40 wearer/Mr. Imagine
+ * hallucinations, 0/40 E005-sensitive refusals (the earlier n=13 prototype
+ * bench saw 1 E005; combined ~1.9%, and the fallback below means a refusal
+ * only costs latency, never a failed job). See
+ * docs/FLUX2_SINGLE_CALL_GRADING_REPORT.md for the full data and rubric.
+ *
+ * Kill switch preserved: MOCKUP_FLUX2_SINGLE_CALL=false (or 0/no/off) forces
+ * the 2-step chain with no code change or redeploy needed.
+ */
 function flux2SingleCallEnabled(): boolean {
-  return /^(1|true|yes|on)$/i.test(process.env.MOCKUP_FLUX2_SINGLE_CALL ?? '')
+  const raw = process.env.MOCKUP_FLUX2_SINGLE_CALL
+  if (raw === undefined || raw === '') return true
+  return !/^(0|false|no|off)$/i.test(raw)
 }
 
 const SINGLE_CALL_FLUX2_MODEL = 'black-forest-labs/flux-2-pro'
@@ -507,15 +520,18 @@ export function buildMrImaginePrompt(opts: RunMockupOpts): string {
  *  Callers can pass opts.modelId to force a single-call path with the legacy
  *  behavior (backwards-compatible escape hatch for admin overrides).
  *
- *  PROTOTYPE (opt-in): MOCKUP_FLUX2_SINGLE_CALL=true / opts.singleCallFlux2
- *  collapses the flat_lay + ghost_mannequin chain into ONE
- *  black-forest-labs/flux-2-pro call that takes the design — and optionally a
- *  blank-garment photo via opts.garmentRefImageUrl — as reference images
- *  (~$0.03 vs ~$0.059, one round-trip vs two). It falls back to the 2-step
- *  chain on any error. It is off by default because flux-2-pro has no
- *  `negative_prompt`, and that field is precisely what stopped the mascot
- *  hallucination; see buildFlux2SingleCallPrompt for how the constraints are
- *  re-expressed positively, and TASK_NOTES.md for the graded A/B results.
+ *  DEFAULT (2026-08-16): the single-call flux-2-pro path collapses the
+ *  flat_lay + ghost_mannequin chain into ONE black-forest-labs/flux-2-pro
+ *  call that takes the design — and optionally a blank-garment photo via
+ *  opts.garmentRefImageUrl — as reference images (~$0.03 vs ~$0.054, one
+ *  round-trip vs two). It falls back to the 2-step chain on any error.
+ *  flux-2-pro has no `negative_prompt` — the field that originally stopped
+ *  the mascot hallucination — so this stayed opt-in until graded on a real
+ *  batch; that grade (40 real jobs, 0 wearer/mascot hallucinations, 0 E005
+ *  refusals) is why it is now the default. Set MOCKUP_FLUX2_SINGLE_CALL=false
+ *  to force the 2-step chain. See buildFlux2SingleCallPrompt for why the
+ *  constraints are re-expressed positively, and
+ *  docs/FLUX2_SINGLE_CALL_GRADING_REPORT.md for the full data.
  */
 export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: string; modelId: string }> {
   // Metal art — size-accurate staging (David 2026-07-28: a 4x6 must never be
@@ -570,18 +586,21 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
-  // PROTOTYPE — single-call flux-2-pro for flat_lay / ghost_mannequin.
+  // DEFAULT PATH — single-call flux-2-pro for flat_lay / ghost_mannequin.
   //
   // One flux-2-pro call replaces the Imagen 4 Fast → Nano Banana chain, taking
   // the design (and optionally a blank-garment photo) as reference images.
-  // Cost: ~$0.03 with one 1 MP reference vs ~$0.059 for the 2-step chain, and
+  // Cost: ~$0.03 with one 1 MP reference vs ~$0.054 for the 2-step chain, and
   // one round-trip instead of two.
   //
-  // Gated OFF by default and reachable only via MOCKUP_FLUX2_SINGLE_CALL=true
-  // or opts.singleCallFlux2. The 2-step chain below is the product of several
-  // failed single-call attempts (see the doc comment on this function), and
-  // flux-2-pro cannot use the `negative_prompt` field that finally fixed it —
-  // so this path stays opt-in until it has been graded on real jobs.
+  // On by default; MOCKUP_FLUX2_SINGLE_CALL=false (or opts.singleCallFlux2
+  // explicitly false via the opts.modelId escape hatch above) forces the
+  // 2-step chain below, which is the product of several failed single-call
+  // attempts (see the doc comment on this function) and remains the fallback
+  // on ANY flux-2-pro error — flux-2-pro cannot use the `negative_prompt`
+  // field that originally fixed the mascot-hallucination bug, so this path
+  // stayed opt-in until a 40-job real-batch grade (2026-08-16, Watchtower
+  // task 6456344b) showed 0 hallucinations and 0 E005 refusals.
   if (opts.singleCallFlux2 ?? flux2SingleCallEnabled()) {
     const model = getModel(SINGLE_CALL_FLUX2_MODEL)
     if (!model) throw new Error(`unknown image-flow model: ${SINGLE_CALL_FLUX2_MODEL}`)

@@ -885,16 +885,17 @@ async function startJob(job: any) {
       // "all three mockups come back as Mr. Imagine" bug — gpt-image-2 used
       // to handle both halves and kept hallucinating the mascot.
       //
-      // PROTOTYPE (opt-in, off by default): setting MOCKUP_FLUX2_SINGLE_CALL=true
-      // in the worker env collapses flat_lay + ghost_mannequin into ONE
-      // black-forest-labs/flux-2-pro call that takes the design (and optionally a
-      // blank-garment photo) as reference images — ~$0.03/mockup vs ~$0.059, and
-      // one round-trip instead of two. It falls back to the 2-step chain on any
-      // error, so flipping the flag cannot fail a job outright. It stays off
-      // until graded on real jobs: flux-2-pro has no `negative_prompt`, which is
-      // the exact mechanism that stopped the mascot hallucination above.
-      // mockupResult.modelId records which path actually produced the image, so
-      // product_assets.metadata.model_id is the audit trail for A/B grading.
+      // DEFAULT (2026-08-16): a single black-forest-labs/flux-2-pro call
+      // collapses flat_lay + ghost_mannequin into ONE call that takes the
+      // design (and optionally a blank-garment photo) as reference images —
+      // ~$0.03/mockup vs ~$0.054, one round-trip instead of two. It falls
+      // back to the 2-step chain on any error, so a refusal costs latency,
+      // never a failed job. It stayed opt-in until a 40-job real-batch grade
+      // (Watchtower task 6456344b) showed 0 wearer/mascot hallucinations and
+      // 0 E005 refusals — see docs/FLUX2_SINGLE_CALL_GRADING_REPORT.md.
+      // Set MOCKUP_FLUX2_SINGLE_CALL=false on the worker to force the old
+      // chain. mockupResult.modelId records which path actually produced the
+      // image, so product_assets.metadata.model_id is the audit trail.
       if (template === 'mr_imagine') {
         const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
         const side = printPlacement === 'back-only' ? 'back' : 'front'
