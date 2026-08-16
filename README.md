@@ -125,7 +125,7 @@ A modern web application for custom printing services built with React, TypeScri
 - **Build Tool**: Vite
 - **Backend**: Express.js with TypeScript
 - **Background Jobs**: Custom worker process for async AI tasks
-- **Deployment**: Railway (backend + worker), Vercel (frontend)
+- **Deployment**: Render (backend web service + background worker), Vercel (frontend)
 
 ## Quick Start
 
@@ -159,7 +159,7 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
 ```
 
-### Railway Environment Variables
+### Production Environment Variables
 
 For the **frontend service** (`imagine-this-printed`), ensure these variables are set:
 ```env
@@ -215,7 +215,7 @@ Expected: All green checkmarks ✅
 
 ### Supabase Dashboard Configuration
 
-**CRITICAL**: For OAuth authentication to work across all domains (production, Railway, localhost), you MUST configure your Supabase project correctly.
+**CRITICAL**: For OAuth authentication to work across all domains (production, Vercel/Render, localhost), you MUST configure your Supabase project correctly.
 
 See the detailed checklist in: [`SUPABASE_AUTH_CHECKLIST.md`](./SUPABASE_AUTH_CHECKLIST.md)
 
@@ -232,8 +232,8 @@ See the detailed checklist in: [`SUPABASE_AUTH_CHECKLIST.md`](./SUPABASE_AUTH_CH
    ```
    https://imaginethisprinted.com/auth/callback
    https://imaginethisprinted.com/auth/reset-password
-   https://your-railway-domain.up.railway.app/auth/callback
-   https://your-railway-domain.up.railway.app/auth/reset-password
+   https://your-vercel-domain.vercel.app/auth/callback
+   https://your-vercel-domain.vercel.app/auth/reset-password
    http://localhost:5173/auth/callback
    http://localhost:5173/auth/reset-password
    ```
@@ -317,7 +317,7 @@ See the detailed checklist in: [`SUPABASE_AUTH_CHECKLIST.md`](./SUPABASE_AUTH_CH
 **Cause:** Missing domain in Supabase redirect URLs
 **Solution:**
 - Add ALL domains to Supabase redirect URLs
-- Include both production domain AND Railway domain
+- Include both production domain AND Vercel/Render domains
 - Don't forget `/auth/callback` path for each domain
 
 ### Debugging Authentication
@@ -350,53 +350,35 @@ The app has comprehensive logging. Open browser console and filter by:
 2. **Test OAuth:** Click "Sign in with Google" and verify flow
 3. **Check Console:** Look for any `❌` error logs
 4. **Verify Persistence:** Refresh page, check if user stays logged in
-5. **Test on All Domains:** Verify auth works on localhost, Railway, and production
+5. **Test on All Domains:** Verify auth works on localhost, Vercel/Render, and production
 
-### Railway Deployment Notes
+### Render & Vercel Deployment Notes
 
-Railway has two services for this project:
-- **imagine-this-printed** (frontend) - needs VITE_* variables
-- **backend** - needs SUPABASE_* and other backend variables
+The project is hosted on:
+- **Vercel** (frontend) - needs `VITE_*` environment variables.
+- **Render** (backend & worker) - needs `SUPABASE_*` and other backend variables.
 
-To check/update Railway variables:
-```bash
-# List services
-railway service
-
-# Check current variables (select frontend service)
-railway variables
-
-# Add a variable
-railway variables set VITE_SUPABASE_URL=https://...
-```
-
-Make sure the frontend service has all VITE_ prefixed variables!
+To check/update backend variables, use the Render Dashboard for the backend web service and worker service.
+Make sure the frontend service on Vercel has all `VITE_` prefixed variables configured in the Vercel project settings!
 
 ## Email & API Post-Rotation Checklist
 
 ### Resend API Key Rotation
 
-This backend's ONLY email transport is Resend (`backend/utils/email.ts`) — a
-legacy Brevo fallback existed here and was removed 2026-07-28 (it was
-armed-but-unmonitored: a missing/rotated Resend key would have silently
-rerouted mail through Brevo instead of failing loudly). When rotating the
-Resend API key:
+This backend's ONLY email transport is Resend (`backend/utils/email.ts`). The legacy fallback was removed on 2026-07-28. When rotating the Resend API key:
 
 1. **Generate new API key** in the Resend Dashboard:
    - Go to https://resend.com/api-keys
    - Create new API key
    - Copy the full key (starts with `re_`)
 
-2. **Update Railway backend service**:
-   ```bash
-   railway service  # Select "backend"
-   railway variables set RESEND_API_KEY=re_your-new-key-here
-   ```
+2. **Update Render backend and worker services**:
+   - Go to the Render Dashboard (https://dashboard.render.com).
+   - Locate the backend web service and the background worker service.
+   - Update the `RESEND_API_KEY` environment variable in the Settings/Environment section for both services.
 
-3. **Redeploy backend**:
-   ```bash
-   railway up --service backend
-   ```
+3. **Deploy changes**:
+   - Save the environment variables, which will trigger a redeployment on Render.
 
 4. **Test email service** (requires `HEALTH_PROBE_TOKEN` — see docs/ENV_VARIABLES.md):
    ```bash
@@ -406,37 +388,23 @@ Resend API key:
    # { "ok": true, "resendApiKeyConfigured": true, "emailFromConfigured": true }
    ```
 
-### Supabase SMTP Settings — NEEDS VERIFICATION AGAINST THE LIVE SUPABASE DASHBOARD
+### Supabase SMTP Settings — Configured with Resend SMTP
 
-> **Flagging, not deleting, per campaign directive:** this section documents
-> Supabase Auth's OWN SMTP relay setting (Project Settings → Auth → SMTP
-> Settings) — a Supabase dashboard config, NOT anything in this repo's code.
-> If Supabase Auth is *actually* still configured with `smtp-relay.brevo.com`
-> per the instructions below, then password-reset/verification/magic-link
-> emails are STILL flowing through Brevo today, invisibly, even after this
-> backend's own Brevo fallback was removed. This cannot be confirmed from the
-> git repo — someone needs to open the live Supabase dashboard and check.
-> If it's still pointed at Brevo, decide: point it at Resend SMTP instead
-> (Resend supports SMTP, not just the HTTP API), or leave Supabase on its own
-> default mailer, whichever David prefers — but verify which one is actually
-> configured before assuming Brevo is fully gone.
-
-Historical instructions (as originally documented — verify against the live
-dashboard before trusting these are still in effect):
+This documents Supabase Auth's OWN SMTP relay settings (Project Settings → Auth → SMTP Settings) in the Supabase Dashboard, which should be pointed to Resend SMTP to ensure all auth emails (verification, reset password) flow through Resend:
 
 1. **Go to Supabase Dashboard** → Your Project → **Project Settings** → **Auth**
 
-2. **Scroll to "SMTP Settings"** — as documented, this was configured as:
+2. **Scroll to "SMTP Settings"** and configure:
    ```
-   Host: smtp-relay.brevo.com
+   Host: smtp.resend.com
    Port: 587
-   Username: (a Brevo login email)
-   Password: (a Brevo SMTP password - NOT the API key)
+   Username: resend
+   Password: (your Resend API key - starts with re_)
    Sender email: wecare@imaginethisprinted.com
    Sender name: Imagine This Printed
    ```
 
-3. Confirm whether SMTP is still enabled here, and against which provider.
+3. Confirm that SMTP is enabled.
 
 ### Health Endpoints
 
@@ -492,7 +460,7 @@ Both frontend and backend log environment variables on startup (with secrets mas
 }
 ```
 
-**Backend Logs (Railway):**
+**Backend Logs (Render):**
 ```
 [env:api] {
   NODE_ENV: "production",
@@ -512,10 +480,8 @@ After deploying changes:
    - Look for `[env:frontend]` log
    - Verify all VITE_ variables are present
 
-2. **Check backend logs** (Railway):
-   ```bash
-   railway logs --service backend --tail 50
-   ```
+2. **Check backend logs** (Render):
+   - Check the logs in the Render dashboard for the backend service.
    - Look for `[env:api]` log
    - Verify RESEND_API_KEY is `true`
 
@@ -531,10 +497,10 @@ After deploying changes:
 
 ## Current Deployment
 
-🚀 **Successfully deployed on VPS at IP: 168.231.69.85**
-- **URL**: https://www.imaginethisprinted.com
+🚀 **Successfully deployed on Render and Vercel**
+- **Frontend URL**: https://www.imaginethisprinted.com (Vercel)
+- **Backend API URL**: https://api.imaginethisprinted.com (Render)
 - **Status**: ✅ Running with full feature set
-- **Port**: 8080
 
 ## What's Available Now
 
@@ -561,18 +527,16 @@ After deploying changes:
 
 ## Next Steps for Production
 
-1. **Domain Setup**: Connect your domain to point to 168.231.69.85:8080
+1. **Domain Setup**: Configure DNS records pointing your custom domain to Vercel (frontend) and Render (backend).
 2. **Supabase Configuration**: 
    - Set up your Supabase project
-   - Update environment variables
+   - Update environment variables (e.g. use Resend SMTP configuration)
    - Configure authentication settings
 3. **Stripe Integration**:
    - Set up Stripe account
    - Configure webhook endpoints
    - Update checkout flow
 4. **Gang Sheet Builder**: Provide external URL for iframe integration
-5. **SSL Certificate**: Set up HTTPS for production
-6. **Process Management**: Use PM2 or similar for production server management
 
 ## File Structure
 
