@@ -77,6 +77,7 @@ const SocialContentManagement = lazy(() => import('./pages/SocialContentManageme
 const UserMediaGallery = lazy(() => import('./pages/UserMediaGallery'))
 const UserDesignDashboard = lazy(() => import('./pages/UserDesignDashboard'))
 const MyOrders = lazy(() => import('./pages/MyOrders'))
+const OrderStatus = lazy(() => import('./pages/OrderStatus'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
@@ -164,6 +165,8 @@ function App() {
                   <Route path="/cart" element={<Cart />} />
                   <Route path="/checkout" element={<Checkout />} />
                   <Route path="/order-success" element={<OrderSuccess />} />
+                  {/* PUBLIC — tokenized link from order emails; guests have no login */}
+                  <Route path="/order-status/:orderId" element={<OrderStatus />} />
                   <Route path="/founders" element={<FoundersDashboard />} />
                   <Route path="/vendor" element={<VendorDashboard />} />
                   <Route path="/models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />

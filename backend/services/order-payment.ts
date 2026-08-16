@@ -294,7 +294,12 @@ export async function applyPaidCheckoutOrder(
   return { claimed: true }
 }
 
-/** Customer-facing confirmation. Unchanged from routes/stripe.ts. */
+/**
+ * Customer-facing confirmation. Identifies the order by its friendly
+ * order_number (never the uuid) and addresses the buyer by name; order.id
+ * rides along in the options so the email can mint a tokenized, no-login
+ * order-status link.
+ */
 async function sendOrderConfirmation(order: any) {
   if (!order.customer_email) {
     console.log('[Email] No customer email, skipping order confirmation')
@@ -312,11 +317,18 @@ async function sendOrderConfirmation(order: any) {
     price: Number(item.unit_price ?? item.price ?? 0) || 0
   })) || []
 
+  const customerName =
+    order.customer_name ||
+    [order.shipping_address?.firstName, order.shipping_address?.lastName].filter(Boolean).join(' ') ||
+    undefined
+
   await sendOrderEmail(
     order.customer_email,
-    order.id,
+    order.order_number || order.id,
     items,
-    order.total || 0
+    order.total || 0,
+    customerName,
+    { orderId: order.id }
   )
   console.log(`[Email] Order confirmation sent to ${order.customer_email}: Order #${order.order_number}`)
 }

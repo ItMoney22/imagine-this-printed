@@ -16,10 +16,70 @@ strict-origin-when-cross-origin`, `Permissions-Policy` (locks down
 geolocation/usb/interest-cohort, scopes `payment` to Stripe), `Strict-
 Transport-Security: max-age=31536000; includeSubDomains`.
 
-## 2. Rate limiting / role revocation
+## 2. Backend API hardening (helmet, rate limiting, trust proxy)
 
-Handled server-side in `backend/`, not in this doc's scope (CSP/browser-edge
-headers only). See the relevant backend middleware for that posture.
+`backend/middleware/security-headers.ts` (helmet) and
+`backend/middleware/rate-limits.ts` (express-rate-limit), both registered in
+`backend/index.ts`. This is separate infra from the browser-edge headers above
+— the API never serves a document, so its CSP is a full lockdown
+(`default-src 'none'`), not a page policy.
+
+### Trust proxy — hop count, not `true`
+
+`app.set('trust proxy', TRUST_PROXY_HOPS ?? 2)` makes `req.ip` the real client
+address, which the rate limiters key on. **Production topology is Cloudflare
+(orange-clouded, terminates the client's TLS) -> Render's own edge/load
+balancer (terminates again, forwards internally to the container) -> this
+process — two reverse-proxy hops.** `TRUST_PROXY_HOPS` is set explicitly to
+`2` in Render's env for both the API and worker services rather than relying
+on the code fallback.
+
+This is a hop **count**, never `true`: trusting every hop lets a caller spoof
+`X-Forwarded-For` and mint a fresh rate-limit bucket per request. Getting the
+count wrong the other way (too low) is the failure mode this was written to
+avoid — with `TRUST_PROXY_HOPS=1` here, `req.ip` would resolve to Render's
+internal edge address for *every* request, collapsing all real clients into
+one shared bucket and causing random 429s for legitimate users. Verified live
+2026-08-16 (Watchtower task `1828357d`): `curl -sD -` against
+`https://api.imaginethisprinted.com` shows `Server: cloudflare` + `CF-RAY` in
+front of `x-render-origin-server: Render`, confirming the two-hop chain.
+
+If the topology ever changes (e.g. Cloudflare taken out of the path, or an
+additional internal proxy added), update `TRUST_PROXY_HOPS` in Render's env
+first — no code change needed — and confirm with the curl recipe under
+"Verifying" below.
+
+### Rate limiting
+
+Buckets are per-IP and in-memory (one set per process). If the API is ever
+scaled to N replicas the effective limit becomes N × the number below; an
+accepted tradeoff versus putting Redis in the request path for a control that
+should fail open.
+
+| Bucket | Applies to | Limit | Env override |
+| --- | --- | --- | --- |
+| global | everything not exempt | 1000 / 15 min | `RATE_LIMIT_GLOBAL_MAX` |
+| auth | `/api/auth`, `/api/account` | 60 / 15 min | `RATE_LIMIT_AUTH_MAX` |
+| admin | `/api/admin/*` | 300 / 5 min | `RATE_LIMIT_ADMIN_MAX` |
+| ai (writes only) | `/api/ai`, `/api/mockups`, `/api/realistic-mockups`, `/api/image-flow`, `/api/designer`, `/api/imagination-station` | 60 / 10 min | `RATE_LIMIT_AI_MAX` |
+| code-check | `/api/coupons`, `/api/gift-cards` | 40 / 10 min | `RATE_LIMIT_CODE_CHECK_MAX` |
+| public-write (writes only) | `/api/support`, `/api/community` | 30 / 10 min | `RATE_LIMIT_PUBLIC_WRITE_MAX` |
+
+**Never throttled** (`EXEMPT_PREFIXES`): `/api/health`, `/api/webhooks`,
+`/api/stripe/webhook`, `/api/email/webhooks`, `/api/ai/replicate`,
+`/api/print-bridge`. Providers retry webhooks in bursts — a 429 there loses a
+payment record or an inbound email — and uptime monitors poll health on a
+tight interval.
+
+**Kill switch:** `RATE_LIMIT_ENABLED=false` bypasses every limiter (the boot
+log warns when it is set). Reach for it if a proxy misconfiguration ever
+collapses every client onto one apparent IP.
+
+### Role revocation
+
+Handled separately in `backend/lib/role-cache.ts` / `backend/middleware/supabaseAuth.ts`
+(`requireRole` resolves against `user_profiles` via a short-TTL cache, not the
+JWT's role claim) — already live on `main`, unrelated to this hardening pass.
 
 ## 3. Content-Security-Policy — baseline
 
@@ -97,6 +157,19 @@ Once verified, in both `vercel.json` and `server-static.mjs`:
    with the Report-Only policy's `connect-src` value (the two are already
    letter-for-letter identical except that one directive).
 2. Delete the `Content-Security-Policy-Report-Only` header entirely.
+
+## Verifying the backend hardening
+
+```bash
+# Headers + limiter behaviour, no DB or .env required
+cd backend && npm run verify:security
+
+# RateLimit-* headers on a live deploy
+curl -sD - -o /dev/null https://api.imaginethisprinted.com/api/health
+
+# Confirm the two-hop proxy chain (Cloudflare then Render) in front of the API
+curl -sD - -o /dev/null https://api.imaginethisprinted.com/ | grep -i "cf-ray\|render"
+```
 
 ## Open follow-ups
 

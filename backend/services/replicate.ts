@@ -258,33 +258,6 @@ export async function generateProductImage(input: ReplicateImageInput) {
   }
 }
 
-export async function removeBackground(imageUrl: string) {
-  const modelId = process.env.REPLICATE_REMBG_MODEL_ID!
-
-  console.log('[replicate] 🎨 Removing background from image')
-
-  const params: any = {
-    input: {
-      image: imageUrl,
-    },
-    webhook: `${process.env.PUBLIC_URL}/api/ai/replicate/callback`,
-    webhook_events_filter: ['completed'],
-  }
-
-  // Check if modelId is a version hash (contains :)
-  if (modelId.includes(':')) {
-    params.version = modelId.split(':')[1]
-  } else {
-    params.model = modelId
-  }
-
-  const prediction = await replicate.predictions.create(params)
-
-  console.log('[replicate] ✅ Background removal prediction created:', prediction.id)
-
-  return prediction
-}
-
 export async function generateMockup(input: ReplicateTryOnInput) {
   const modelId = process.env.REPLICATE_TRYON_MODEL_ID!
 

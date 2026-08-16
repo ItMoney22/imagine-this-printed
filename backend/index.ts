@@ -45,6 +45,7 @@ import adminDesignLibraryRouter from './routes/admin/design-library.js'
 import adminMonitorRouter from './routes/admin/monitor.js'
 import adminEtsyRouter from './routes/admin/etsy.js'
 import adminTrendScoutRouter from './routes/admin/trend-scout.js'
+import mediaRouter from './routes/media.js'
 import seoRouter from './routes/seo.js'
 import socialOutboxRouter from './routes/social-outbox.js'
 import couponsRouter from './routes/coupons.js'
@@ -75,6 +76,16 @@ import reviewsRouter from './routes/reviews.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
+import { securityHeaders } from './middleware/security-headers.js'
+import {
+  adminLimiter,
+  aiLimiter,
+  authLimiter,
+  codeCheckLimiter,
+  globalLimiter,
+  publicWriteLimiter,
+  rateLimitingEnabled
+} from './middleware/rate-limits.js'
 
 // .env already loaded via ./load-env.js at the top of this file (must run before
 // service imports that construct SDK clients at module-load time).
@@ -123,6 +134,23 @@ const app = express()
 const PORT = process.env.PORT || 4000
 const prisma = new PrismaClient()
 
+// Production topology is Cloudflare (orange-clouded, terminates the client's
+// TLS connection) -> Render's own edge/load balancer (terminates again,
+// forwards internally to this container) -> this process. That is TWO
+// reverse-proxy hops, not one — a hop count of 1 would resolve req.ip to
+// Render's internal edge address for every request, collapsing every real
+// client into one rate-limit bucket (see docs/SECURITY_HARDENING.md). This
+// MUST stay a hop count, never `true` — trusting every hop lets a caller
+// spoof X-Forwarded-For and mint a fresh bucket per request. Verified against
+// TRUST_PROXY_HOPS set explicitly in Render's env for this service; the '2'
+// fallback here only covers a misconfigured env, not a different topology.
+app.set('trust proxy', Number.parseInt(process.env.TRUST_PROXY_HOPS || '2', 10))
+
+// Security response headers (helmet): HSTS, nosniff, frame-deny, no-referrer,
+// and an API-shaped CSP. Registered before everything else so error responses
+// and 404s carry the headers too.
+app.use(securityHeaders())
+
 // Middleware
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -160,6 +188,12 @@ if (!isDevelopment && corsOptions.origin === true) {
 
 app.use(cors(corsOptions))
 
+// Per-IP backstop for the whole API. Sits after CORS (so preflights don't
+// consume budget) and before the body parsers (so a throttled request never
+// costs us a 50mb JSON parse). Webhooks and health probes are exempt — see
+// middleware/rate-limits.ts.
+app.use(globalLimiter)
+
 // Stripe webhook needs raw body, so we apply it before JSON parsing
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }))
 // Resend inbound-email webhook is svix-signed over the exact payload bytes
@@ -184,6 +218,21 @@ app.use(pinoHttp({
     return `${req.method} ${req.url} ${res.statusCode} - ${err.message}`
   }
 }))
+
+// Targeted rate limits, applied per path family before the mounts below.
+// Order matters: the tighter family limiter runs first, then the router.
+app.use(['/api/auth', '/api/account'], authLimiter)
+app.use('/api/admin', adminLimiter)
+app.use(
+  ['/api/ai', '/api/mockups', '/api/realistic-mockups', '/api/image-flow', '/api/designer', '/api/imagination-station'],
+  aiLimiter
+)
+app.use(['/api/coupons', '/api/gift-cards'], codeCheckLimiter)
+app.use(['/api/support', '/api/community'], publicWriteLimiter)
+
+if (!rateLimitingEnabled) {
+  logger.warn('[security] RATE_LIMIT_ENABLED=false — all rate limiters are bypassed')
+}
 
 // Routes
 app.use('/api/auth', accountRoutes)
@@ -231,6 +280,7 @@ app.use('/api/admin/design-library', adminDesignLibraryRouter) // imported desig
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth connect + product posting (draft-first)
 app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task
+app.use('/api/media', mediaRouter) // permanent asset URLs — signs private GCS objects per request so stored URLs never expire
 app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
 app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)
 app.use('/api/coupons', couponsRouter)
