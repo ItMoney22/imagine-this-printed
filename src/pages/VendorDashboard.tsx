@@ -15,7 +15,22 @@ const VendorDashboard: React.FC = () => {
   const [uploadedImages, setUploadedImages] = useState<{ url: string; file?: File }[]>([])
   const [uploadingDigitalFile, setUploadingDigitalFile] = useState(false)
   const [uploadedDigitalFile, setUploadedDigitalFile] = useState<{ url: string; name: string; size: number } | null>(null)
-  
+
+  // Edit Product modal — shows the product's existing images alongside its fields
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<VendorProduct | null>(null)
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    price: 0,
+    digitalPrice: 0,
+    category: '',
+    productType: 'physical' as 'physical' | 'digital' | 'both'
+  })
+  const [editImages, setEditImages] = useState<{ url: string; file?: File }[]>([])
+  const [editUploadingImages, setEditUploadingImages] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
   const [selectedTab, setSelectedTab] = useState<'products' | 'catalog' | 'submit' | 'creator' | 'analytics' | 'payouts'>('products')
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false)
@@ -306,6 +321,112 @@ const VendorDashboard: React.FC = () => {
     }
   }
 
+  const openEditModal = (product: VendorProduct) => {
+    setEditingProduct(product)
+    setEditForm({
+      title: product.title,
+      description: product.description,
+      price: product.price,
+      digitalPrice: product.digitalPrice || 0,
+      category: product.category,
+      productType: product.productType || 'physical'
+    })
+    setEditImages((product.images || []).map(url => ({ url })))
+    setShowEditModal(true)
+  }
+
+  const closeEditModal = () => {
+    setShowEditModal(false)
+    setEditingProduct(null)
+    setEditImages([])
+  }
+
+  const handleEditImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setEditUploadingImages(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Not authenticated', 'Please sign in to upload images.')
+        return
+      }
+
+      const newImages: { url: string; file?: File }[] = []
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) continue
+
+        const formData = new FormData()
+        formData.append('image', file)
+        formData.append('folder', 'products')
+
+        const response = await fetch(`${API_BASE}/api/admin/upload-product-image`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: formData
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          newImages.push({ url: data.url, file })
+        }
+      }
+
+      if (newImages.length > 0) {
+        setEditImages(prev => [...prev, ...newImages])
+        toast.success('Images uploaded', `${newImages.length} image${newImages.length > 1 ? 's' : ''} uploaded successfully.`)
+      }
+    } catch (error) {
+      console.error('Error uploading images:', error)
+      toast.error('Upload failed', 'Failed to upload images.')
+    } finally {
+      setEditUploadingImages(false)
+    }
+  }
+
+  const handleUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingProduct) return
+    if (editImages.length === 0) {
+      toast.error('Missing images', 'A product needs at least one image.')
+      return
+    }
+
+    setSavingEdit(true)
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .update({
+          name: editForm.title,
+          description: editForm.description,
+          price: editForm.price,
+          digital_price: editForm.digitalPrice,
+          category: editForm.category,
+          product_type: editForm.productType,
+          images: editImages.map(img => img.url)
+        })
+        .eq('id', editingProduct.id)
+        .select('id')
+      if (error) throw error
+      // RLS can silently allow-but-affect-zero-rows instead of erroring — don't
+      // tell the vendor it saved when nothing was actually written.
+      if (!data || data.length === 0) {
+        throw new Error('No permission to update this product, or it no longer exists.')
+      }
+
+      toast.success('Product updated', `${editForm.title} has been saved.`)
+      closeEditModal()
+      loadVendorProducts()
+    } catch (error: any) {
+      console.error('Error updating product:', error)
+      toast.error('Update failed', error.message)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   if (user?.role !== 'vendor' && user?.role !== 'admin') {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -464,7 +585,10 @@ const VendorDashboard: React.FC = () => {
                     </div>
 
                     <div className="flex space-x-2">
-                      <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-3 rounded transition-colors">
+                      <button
+                        onClick={() => openEditModal(product)}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-3 rounded transition-colors"
+                      >
                         Edit
                       </button>
                       <button className="flex-1 bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-3 rounded transition-colors">
@@ -809,6 +933,156 @@ const VendorDashboard: React.FC = () => {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {showEditModal && editingProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-card rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border card-border">
+            <div className="px-6 py-4 border-b card-border flex justify-between items-center sticky top-0 bg-card">
+              <h3 className="text-lg font-medium text-text">Edit Product: {editingProduct.title}</h3>
+              <button
+                onClick={closeEditModal}
+                className="text-muted hover:text-text transition-colors p-1"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProduct} className="p-6 space-y-6">
+              {/* Product Images — the whole point of this modal: show what's already on the product */}
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">Product Images</label>
+                {editImages.length > 0 ? (
+                  <div className="grid grid-cols-4 gap-3 mb-3">
+                    {editImages.map((img, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={img.url}
+                          alt={`${editingProduct.title} ${index + 1}`}
+                          className="w-full h-20 object-cover rounded border card-border"
+                        />
+                        {index === 0 && (
+                          <span className="absolute top-1 left-1 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded">
+                            Main
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setEditImages(prev => prev.filter((_, i) => i !== index))}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted mb-3 italic">No images on this product yet — add one below.</p>
+                )}
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleEditImageUpload}
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-bg text-text"
+                />
+                {editUploadingImages && <p className="mt-2 text-sm text-purple-600 animate-pulse">Uploading images...</p>}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-text mb-2">Product Title</label>
+                  <input
+                    type="text"
+                    value={editForm.title}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-bg text-text"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text mb-2">Category</label>
+                  <select
+                    value={editForm.category}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-bg text-text"
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    <option value="gaming">Gaming</option>
+                    <option value="eco">Eco-Friendly</option>
+                    <option value="office">Office</option>
+                    <option value="lifestyle">Lifestyle</option>
+                    <option value="3d-models">3D Models</option>
+                    <option value="tech">Technology</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">Description</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={4}
+                  className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-bg text-text"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {(editForm.productType === 'physical' || editForm.productType === 'both') && (
+                  <div>
+                    <label className="block text-sm font-medium text-text mb-2">Physical Price ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editForm.price}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, price: parseFloat(e.target.value) }))}
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-bg text-text"
+                      required
+                    />
+                  </div>
+                )}
+                {(editForm.productType === 'digital' || editForm.productType === 'both') && (
+                  <div>
+                    <label className="block text-sm font-medium text-text mb-2">Digital (STL) Price ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editForm.digitalPrice}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, digitalPrice: parseFloat(e.target.value) }))}
+                      className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-bg text-text"
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="px-4 py-2 border card-border rounded-md text-text hover:bg-bg/50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit || editUploadingImages}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
