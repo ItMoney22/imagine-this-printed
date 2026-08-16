@@ -381,12 +381,17 @@ const OrderManagement: React.FC = () => {
       // Create label using first rate
       const label = await shippoAPI.createLabel(shipment.rates[0].object_id)
 
-      // Update order with shipping info
+      // The label is bought and postage is already spent — reflect it on
+      // screen unconditionally, then try to persist it. A persist failure
+      // must NOT look like a success: the toast and modal state below make
+      // that distinction explicit instead of silently discarding a paid-for
+      // label the way this flow used to (see 9b87aac's original design,
+      // which this restores after a later refactor dropped the DB write
+      // entirely and left every label local-state-only).
       setOrders(prev => prev.map(o =>
         o.id === order.id
           ? {
             ...o,
-            status: 'shipped',
             shippingLabelUrl: label.labelUrl,
             trackingNumber: label.trackingNumber,
             estimatedDelivery: label.estimatedDelivery
@@ -394,8 +399,37 @@ const OrderManagement: React.FC = () => {
           : o
       ))
 
-      toast.success('Shipping label generated', `Tracking #${label.trackingNumber}`)
-      setShowShippingModal(false)
+      try {
+        const result = await apiFetch(`/api/orders/${dbId(order, order.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: 'shipped',
+            shipping_label_url: label.labelUrl,
+            tracking_number: label.trackingNumber,
+            ...(label.estimatedDelivery ? { estimated_delivery: label.estimatedDelivery } : {})
+          })
+        })
+
+        const persisted = result?.order
+        setOrders(prev => prev.map(o =>
+          o.id === order.id
+            ? { ...o, status: (persisted?.status ?? 'shipped') as Order['status'] }
+            : o
+        ))
+
+        toast.success('Shipping label generated', `Tracking #${label.trackingNumber}`)
+        setShowShippingModal(false)
+      } catch (persistErr) {
+        // Postage is already bought — do not let the UI claim this silently
+        // failed to nothing. Keep the label/tracking number visible (set
+        // above) so staff can still open/print it, but make the save
+        // failure loud so nobody assumes it's durably attached to the order.
+        console.error('Shipping label bought but failed to save to the order:', persistErr)
+        toast.error(
+          'Label created but NOT saved',
+          `Tracking #${label.trackingNumber} was purchased but could not be saved to order ${order.id.slice(0, 8)}: ${extractApiError(persistErr, 'unknown error')}. Retry saving or record it manually.`
+        )
+      }
 
     } catch (error) {
       console.error('Error generating shipping label:', error)

@@ -154,7 +154,7 @@ treat as a lead, not a fact, until someone runs the actual query.
 | `20260727_fix_itc_wallet_schema_drift.sql` | APPLIED | `itc_transactions`/`user_wallets` live columns match the corrected shape this file documents (`itc_transactions`: id/user_id/type/amount/reference/balance_after/metadata/created_at; `user_wallets` has `points`, no `points_balance`). |
 | `20260727_imagination_layers_allow_shape.sql` | APPLIED | `imagination_layers` table live (specific column not isolated, but table-level presence is a strong signal — this file only alters an existing table). |
 | `20260728_fix_get_user_role_ambiguity.sql` | **NOT YET APPLIED — fixes a live-broken function** | Added by a concurrent agent in this session. Verified live: `public.get_user_role(uuid)` currently raises `ERROR: column reference "user_id" is ambiguous` on **every call** — `user_profiles` has both `id` and a drifted `user_id` column, and the original `005_rls_fixes.sql` body (`WHERE id = user_id`) can't tell them apart. This file qualifies every reference (`up.id`, `up.role`, `get_user_role.user_id`) without dropping/renaming the function (a rename or `DROP FUNCTION` would cascade into every RLS policy that calls it). Confirmed correct by direct read. **This is the single highest-priority migration in this ledger** — every RLS policy in this repo that calls `get_user_role()` (there are ~15+) is silently broken until this applies. |
-| `20260728120000_orders_staff_write_access.sql` | **NOT YET APPLIED — new, added by this audit** | See "manager order-write" section below. |
+| `20260728120000_orders_staff_write_access.sql` | **APPLIED — confirmed live 2026-08-16** | Re-verified directly against `pg_policy` for `public.orders` (Iahhm, task `3390cc85` closeout): both `"Admins have full access to all orders"` (admin/founder, FOR ALL) and `"Managers can update orders"` (manager, UPDATE only) exist live, alongside the original `"Users can view their own orders"`. `get_user_role(uuid)` also confirmed callable with no ambiguity error. Applied sometime between the 2026-08-05/06 security-hardening pass (which explicitly left this one PENDING, see above) and 2026-08-16 — by whom/when exactly is not recorded; the live catalog is the source of truth here, not this ledger's prior "PENDING" note. See "manager order-write" section below. |
 
 ## `migrations/` (root, legacy) — file-by-file status
 
@@ -306,6 +306,30 @@ the actual RLS-layer gap task `3390cc85` named in its objective ("ensure UI
 role gates align with database RLS policies"), and is defense-in-depth if a
 browser-side write path to `orders` is ever reintroduced.
 
+**2026-08-16 close-out (Iahhm, task `3390cc85`)**: the migration above is now
+confirmed **live** (see the file-status table). Re-checked every write path
+into `orders` from the frontend — none remain (`grep -r "from('orders')" src/`
+turns up only `CRM.tsx`/`UserProfile.tsx`/`AdminDashboard.tsx`, none of which
+`.update()`); `updateOrderStatus`/`updateOrderNotes` route through
+`PATCH /api/orders/:orderId` as described above, and its `.select(...).single()`
+already gives zero-row detection (`.single()` errors when the `UPDATE …
+RETURNING` matches 0 rows, caught by `updateError` and surfaced via
+`extractApiError`/`toast.error` on the frontend) — deliverable 4 for these two
+functions was already correct. The one real gap found: **shipping-label
+persistence had regressed to nothing at all.** `9b87aac` (2026-07-26)
+originally wrote the purchased label to `orders` directly from the browser
+with its own zero-row check; a later refactor moved `updateOrderStatus`/
+`updateOrderNotes` onto the backend route but never carried the shipping-label
+write along — `generateShippingLabel` in `OrderManagement.tsx` was buying real
+postage via Shippo and only ever writing the result to local React state, with
+no persistence attempt of any kind (not RLS-blocked, not backend-routed —
+simply absent). Fixed by extending the existing `PATCH /api/orders/:orderId`
+handler to also accept `shipping_label_url`/`tracking_number`/
+`estimated_delivery`, and having `generateShippingLabel` call it after the
+Shippo purchase, with an explicit "label created but NOT saved" error toast
+(keeping the tracking number visible) if that persist call fails — no more
+silent success on a paid-for label that never reaches the database.
+
 ## LIVE, GROWING collision — found mid-audit, NOT fixed, needs coordinator routing
 
 This surfaced *while this ledger was being written*, from other agents' concurrent
@@ -387,11 +411,11 @@ same pattern this ledger used for `20260728120000_orders_staff_write_access.sql`
 Nothing below was run by this audit. All of it writes to production; treat as
 a reviewed, deliberate action, not a rubber stamp.
 
-1. **Apply `20260728_fix_get_user_role_ambiguity.sql` first, alone or together
-   with everything below it** — this unblocks every RLS policy in the repo
-   that calls `get_user_role()`, including the two below.
-2. Then `20260727_prevent_role_self_escalation.sql` and
-   `20260728120000_orders_staff_write_access.sql` (both depend on step 1).
+1. ~~Apply `20260728_fix_get_user_role_ambiguity.sql` first~~ — **DONE**, live
+   since the 2026-08-05/06 security-hardening pass.
+2. ~~Then `20260727_prevent_role_self_escalation.sql` and
+   `20260728120000_orders_staff_write_access.sql`~~ — **DONE**, both confirmed
+   live as of 2026-08-16 (see the file-status table above).
 3. Reconcile `schema_migrations` for the untracked-but-live migrations listed
    as "APPLIED, untracked" above, so future `supabase db push` runs stop
    trying to re-apply them. The CLI's own mechanism for this is
