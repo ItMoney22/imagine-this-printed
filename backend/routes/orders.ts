@@ -5,6 +5,11 @@ import { checkOrderTransition } from '../lib/order-status.js'
 import { processOrderCompletion, retryFailedRewards, scheduleRewardProcessing } from '../services/order-reward-service.js'
 import { processReferralFirstPurchase } from '../services/referral-service.js'
 import { attachProductFiles } from '../services/product-files.js'
+import Stripe from 'stripe'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2025-02-24.acacia'
+})
 
 const router = Router()
 
@@ -645,7 +650,7 @@ router.get('/:orderId/confirmation', async (req: Request, res: Response): Promis
 
     const { data: order, error } = await supabase
       .from('orders')
-      .select('id, order_number, status, payment_status, fulfillment_status, total, currency, customer_name, customer_email, created_at')
+      .select('id, order_number, status, payment_status, fulfillment_status, total, currency, customer_name, customer_email, payment_intent_id, created_at')
       .eq('id', orderId)
       .single()
 
@@ -653,7 +658,59 @@ router.get('/:orderId/confirmation', async (req: Request, res: Response): Promis
       return res.status(404).json({ error: 'Order not found' })
     }
 
-    return res.json({ order })
+    let currentPaymentStatus = order.payment_status
+
+    // If payment_status is still 'pending' and we have a payment_intent_id,
+    // fetch the payment intent from Stripe to see if it has settled and sync the DB immediately.
+    // This handles redirect-based payment methods (e.g. bank debits) and webhook lag.
+    if (order.payment_status === 'pending' && order.payment_intent_id) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(order.payment_intent_id)
+        if (paymentIntent.status === 'succeeded') {
+          const { applyPaidCheckoutOrder } = await import('../services/order-payment.js')
+          await applyPaidCheckoutOrder(paymentIntent, req.log, 'reconciler')
+          currentPaymentStatus = 'paid'
+        } else if (paymentIntent.status === 'processing') {
+          await supabase
+            .from('orders')
+            .update({ payment_status: 'processing', updated_at: new Date().toISOString() })
+            .eq('id', orderId)
+            .eq('payment_status', 'pending')
+          currentPaymentStatus = 'processing'
+        } else if (paymentIntent.status === 'requires_action') {
+          await supabase
+            .from('orders')
+            .update({ payment_status: 'requires_action', updated_at: new Date().toISOString() })
+            .eq('id', orderId)
+            .eq('payment_status', 'pending')
+          currentPaymentStatus = 'requires_action'
+        } else if (paymentIntent.status === 'requires_payment_method' || paymentIntent.status === 'canceled') {
+          await supabase
+            .from('orders')
+            .update({ payment_status: 'failed', updated_at: new Date().toISOString() })
+            .eq('id', orderId)
+            .eq('payment_status', 'pending')
+          currentPaymentStatus = 'failed'
+        }
+      } catch (stripeError) {
+        console.error('[orders/confirmation] Stripe fetch/reconcile error:', stripeError)
+      }
+    }
+
+    const responseOrder = {
+      id: order.id,
+      order_number: order.order_number,
+      status: currentPaymentStatus === 'paid' ? 'processing' : order.status,
+      payment_status: currentPaymentStatus,
+      fulfillment_status: order.fulfillment_status,
+      total: order.total,
+      currency: order.currency,
+      customer_name: order.customer_name,
+      customer_email: order.customer_email,
+      created_at: order.created_at
+    }
+
+    return res.json({ order: responseOrder })
   } catch (error: any) {
     console.error('[orders/:orderId/confirmation] Error:', error)
     return res.status(500).json({ error: error.message })

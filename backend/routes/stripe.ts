@@ -1487,13 +1487,30 @@ async function handleProductOrderPayment(paymentIntent: Stripe.PaymentIntent, re
 
 // Handle failed payment
 async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent, req: Request) {
-  const { userId } = paymentIntent.metadata
+  const { userId, orderId } = paymentIntent.metadata
 
   req.log?.warn({
     paymentIntentId: paymentIntent.id,
     userId,
+    orderId,
     lastPaymentError: paymentIntent.last_payment_error
   }, 'Payment failed')
+
+  // If it's a checkout order payment failure, update the order payment status to failed in database
+  if (orderId) {
+    const { error: orderError } = await supabase
+      .from('orders')
+      .update({
+        payment_status: 'failed',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+      .neq('payment_status', 'paid')
+
+    if (orderError) {
+      req.log?.error({ err: orderError, orderId }, 'Failed to update order payment status to failed')
+    }
+  }
 
   // Optionally record failed payment attempt (live schema columns)
   if (userId) {
