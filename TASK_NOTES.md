@@ -1,33 +1,36 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Watchtower `7194f6fe-7f92-40a5-8dee-c41a986aa60a`: finish the real co-purchase recommender and nightly materialization job.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Scout-only handoff prepared; Codex did not edit implementation files because `AGENTS.md` restricts this terminal to `CLAUDE_TASK.md` and `TASK_NOTES.md`.
+- Existing partial work already removed the five named dead collaborative-filtering functions and added a table, TypeScript refresh script/test, and client reader.
+- Remaining gaps: refresh script explicitly has no scheduler, materialization and multi-anchor aggregation run in TypeScript/client memory, fallback remains random, unanchored surfaces do not use co-purchase data, and cache keys omit anchors.
 
 ## File shortlist (approved scope)
 ### Read first
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `AGENTS.md`, `CLAUDE.md`, `CLAUDE_TASK.md`, `TASK_NOTES.md`
+- `src/utils/product-recommender.ts`
+- `src/components/ProductRecommendations.tsx`
+- `backend/scripts/refresh-product-copurchase.ts`
+- `backend/scripts/refresh-product-copurchase.test.ts`
+- `supabase/migrations/20260728_product_copurchase.sql` (historical/read-only)
+- `supabase/migrations/README.md`
+- `package.json`, `backend/package.json`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `src/utils/product-recommender.ts`
+- `src/components/ProductRecommendations.tsx`
+- Delete/supersede `backend/scripts/refresh-product-copurchase.ts` and its focused test once SQL owns the job.
+- One new uniquely timestamped migration under `supabase/migrations/`; never edit the historical `20260728_product_copurchase.sql`.
+- One focused recommender test file if required.
+- `CLAUDE_TASK.md` and `TASK_NOTES.md` for milestone notes only.
+- No page-layout or unrelated implementation changes.
+
+## Work log (append-only) — Watchtower 7194f6fe
+- 2026-08-16: Scouted the existing co-purchase implementation and wrote a strict SQL-native completion brief; only `CLAUDE_TASK.md` and `TASK_NOTES.md` changed.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
