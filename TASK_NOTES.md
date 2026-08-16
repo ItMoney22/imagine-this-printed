@@ -1,33 +1,38 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Watchtower task `2d1f871a-a2bb-4362-8365-dcf9b1e446a4`: remove backend-only direct dependencies and the obsolete static Express server from the root Vite/Vercel package, refresh the lockfile/install, and verify the frontend build.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Scout complete; implementation is ready for Claude in the strict file scope below.
+- Root server-only entries still present: `@prisma/client`, `bcryptjs`, `compression`, `dotenv`, `express`, `pg`, `prisma`, `@types/bcryptjs`, and `@types/pg`.
+- Several packages named by the audit are already absent from the root manifest, including `jsonwebtoken`, `cookie-parser`, `cors`, `openai`, server-side `stripe`, and `@types/puppeteer`.
+- Client Stripe SDKs and AWS SDKs are confirmed frontend imports and must remain; Puppeteer is used by root verification tooling and must remain without the obsolete external type package.
+- No implementation or dependency files have been modified by Codex.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `package.json`
+- `backend/package.json` (comparison only)
+- `server-static.mjs`
+- `vercel.json`
+- `src/utils/storage.ts`
+- `scripts/verify/browser-utils.js`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
 - `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `TASK_NOTES.md` (append concise milestone/result bullets only)
+- `package.json`
+- `package-lock.json` (npm-generated)
+- `server-static.mjs` (delete)
+- No other repo files.
+
+## Work log (append-only) — current request
+- 2026-08-16 (WATCHTOWER `2d1f871a-a2bb-4362-8365-dcf9b1e446a4`, DEPENDENCY-CLEANUP SCOUT): Searched root/client/API dependency usage and read the root/backend manifests, legacy static server, Vercel config, and authoritative npm commands; prepared a strict Claude brief to remove only confirmed backend-only root packages, align the shared Supabase client, delete the obsolete server/start script, regenerate the lockfile with dev tooling included, and verify `npm run build`. Codex changed only `CLAUDE_TASK.md` and `TASK_NOTES.md`.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build

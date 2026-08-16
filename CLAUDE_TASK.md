@@ -1,55 +1,55 @@
 # Claude Task Brief
 
 ## Request
-- Correct the 2026-08-06 weekly Etsy report because the original email omitted its screenshots.
-- Send the four audit screenshots from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Update the weekly heartbeat so every future report includes and verifies its images.
-- Do not edit Etsy or repo implementation code.
+- Watchtower task `2d1f871a-a2bb-4362-8365-dcf9b1e446a4`: strip backend-only dependencies from the root Vite/Vercel package, remove the obsolete static Express server, refresh the lockfile/install, and prove the frontend still builds.
 
 ## Repo detection
-- Vite + React frontend with an Express/TypeScript backend.
-- The in-app email system stores mailboxes/messages in Supabase and delivers mail through Resend.
-- Resend supports CID inline images backed by normal image attachments.
+- Root is a React 19 + TypeScript + Vite client deployed by Vercel; `vercel.json` serves `dist/` and routes supported bot metadata through `api/`.
+- `backend/` is an independent Express/TypeScript package with its own manifest and lockfile.
+- `server-static.mjs` is a legacy Railway/VPS static server reached only by the root `start` script; Vercel does not run it.
 
 ## Relevant files
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/services/email-resend.ts`
-- `backend/routes/email.ts`
-- `C:/Users/David/.codex/automations/weekly-etsy-shop-review/automation.toml`
+- `package.json`
+- `package-lock.json`
+- `backend/package.json` (comparison only)
+- `server-static.mjs`
+- `vercel.json` (deployment confirmation only)
+- `src/utils/storage.ts` (confirms the root AWS SDK packages are client imports)
+- `scripts/verify/browser-utils.js` (confirms root Puppeteer is used by verification tooling)
 
 ## Files to edit (STRICT)
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- Do not edit any repo implementation file.
-- External state in scope: one corrected report email and an update to the existing heartbeat.
+- `package.json`
+- `package-lock.json` (regenerate with npm; do not hand-edit)
+- `server-static.mjs` (delete)
+- `TASK_NOTES.md` (append concise milestone/result bullets only)
+- Do not edit `backend/package.json`, `backend/package-lock.json`, application source, Vercel config, or documentation.
 
-## Completed correction
-- Sent subject: `Corrected: Mr. Imagine's Weekly Etsy Shop Review - August 6, 2026 (Screenshots Included)`.
-- Included all four fresh PNG screenshots inline beside their matching report sections.
-- Included the same four PNGs as attachments for clients that block inline images.
-- Resend reported four inline attachments with distinct content IDs.
-- The `wecare` recipient record received all four images with stored download URLs.
-- The corrected outbound message is logged in Mr. Imagine's Sent folder.
-
-## Future weekly-report requirements
-1. Capture four fresh screenshots: shop home, strongest listing, weaker listing, and About/policies.
-2. Insert each screenshot beside its matching email section using a CID reference.
-3. Attach the same four PNG files to the email.
-4. Verify four attachments in the sending-service record.
-5. Verify four working image attachments in the `wecare` recipient record.
-6. Do not claim completion if any image or verification is missing.
+## Plan
+1. In root `package.json`, remove the `start` script.
+2. Remove confirmed backend-only root dependencies: `@prisma/client`, `bcryptjs`, `compression`, `dotenv`, `express`, `pg`, and `prisma`; remove root dev dependencies `@types/bcryptjs` and `@types/pg`.
+3. Confirm the already-absent direct packages stay absent: `jsonwebtoken`, `cookie-parser`, `cors`, `openai`, server-side `stripe`, their server type packages, and `@types/puppeteer`.
+4. Keep `@stripe/react-stripe-js` and `@stripe/stripe-js` because the client imports them. Keep both AWS SDK packages because `src/utils/storage.ts` imports them. Keep `puppeteer` because root verification tooling imports it and it supplies its own types.
+5. Align the remaining shared runtime dependency `@supabase/supabase-js` in the root to the backend's compatible `^2.87.1`; `axios` is already aligned. Do not force unrelated toolchain versions across the two independent packages.
+6. Delete `server-static.mjs`.
+7. Run the root install to regenerate `package-lock.json`, then build. Review the manifest and lockfile diff to ensure only intended root dependency/script changes occurred.
 
 ## Acceptance criteria
-- [x] Corrected report sent from Mr. Imagine.
-- [x] Four screenshots embedded inline.
-- [x] Four PNG attachments included.
-- [x] Sending-service attachment count verified.
-- [x] Recipient attachment count and stored links verified.
-- [x] Weekly heartbeat updated with mandatory image checks.
-- [x] No Etsy or repo implementation changes made.
+- [ ] Root `package.json` has no `start` script.
+- [ ] Root `package.json` has no direct `express`, `pg`, `bcryptjs`, `jsonwebtoken`, `cookie-parser`, `cors`, `compression`, `prisma`, `@prisma/client`, `openai`, server-side `stripe`, or corresponding server `@types` dependencies.
+- [ ] Root `package.json` has no `@types/puppeteer`; `puppeteer` remains available for verification scripts.
+- [ ] Browser Stripe packages and browser-imported AWS SDK packages remain.
+- [ ] Root and backend use compatible `@supabase/supabase-js` versions; other legitimately shared runtime packages are either aligned or explicitly justified.
+- [ ] `server-static.mjs` is deleted.
+- [ ] `package-lock.json` reflects the cleaned root manifest and was produced by npm.
+- [ ] `npm run build` completes successfully without new errors.
+- [ ] No out-of-scope files are modified.
 
 ## Commands
-- Read-only verification uses Resend attachment metadata and existing Supabase email records.
-- No repo build or test command is required.
+```powershell
+npm install --include=dev
+npm run build
+git diff --check
+git status --short
+```
+
+Note: this machine may export `NODE_ENV=production`; `--include=dev` ensures TypeScript and Vite are present for the required build while still performing the requested root install.
