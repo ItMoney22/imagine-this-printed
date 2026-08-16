@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { costManagementService } from '../utils/cost-management'
-import type { CostVariables, ProductCostBreakdown, GPTCostQuery } from '../types'
+import type { CostVariables, ProductCostBreakdown, GPTCostQuery, CostAnalytics } from '../types'
 
 const ManagerDashboard: React.FC = () => {
   const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState<'variables' | 'calculator' | 'assistant'>('variables')
+  const [activeTab, setActiveTab] = useState<'variables' | 'calculator' | 'assistant' | 'analytics'>('variables')
   const [isLoading, setIsLoading] = useState(true)
   const [costVariables, setCostVariables] = useState<CostVariables | null>(null)
   const [costBreakdown, setCostBreakdown] = useState<ProductCostBreakdown | null>(null)
+  const [savedBreakdowns, setSavedBreakdowns] = useState<ProductCostBreakdown[]>([])
 
   // Cost Variables State
   const [variablesForm, setVariablesForm] = useState({
@@ -23,15 +24,23 @@ const ManagerDashboard: React.FC = () => {
 
   // Cost Calculator State
   const [calculatorForm, setCalculatorForm] = useState({
+    productId: '',
     printTimeHours: 0,
     materialUsageGrams: 0,
     customLaborHours: 0
   })
+  const [isSavingBreakdown, setIsSavingBreakdown] = useState(false)
+  const [breakdownSaveStatus, setBreakdownSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   // Keyword Assistant State
   const [chatQuery, setChatQuery] = useState('')
   const [chatHistory, setChatHistory] = useState<Array<{ query: string; response: string; timestamp: string }>>([])
   const [isQueryLoading, setIsQueryLoading] = useState(false)
+
+  // Cost Analytics Dashboard state
+  const [analytics, setAnalytics] = useState<CostAnalytics | null>(null)
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false)
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'week' | 'month' | 'quarter' | 'year'>('month')
 
   // Persistence state for the cost variables form
   const [isSaving, setIsSaving] = useState(false)
@@ -43,13 +52,20 @@ const ManagerDashboard: React.FC = () => {
     }
   }, [user])
 
+  useEffect(() => {
+    if (user && activeTab === 'analytics' && (user.role === 'manager' || user.role === 'admin' || user.role === 'founder')) {
+      loadAnalytics()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, activeTab, analyticsPeriod])
+
   const loadData = async () => {
     try {
       setIsLoading(true)
-      // Only the cost variables are backed by real storage. getCostBreakdowns()
-      // and getCostAnalytics() still return hardcoded demo rows, so nothing
-      // reads them any more.
-      const variables = await costManagementService.getCostVariables(user?.id || '')
+      const [variables, breakdowns] = await Promise.all([
+        costManagementService.getCostVariables(user?.id || ''),
+        costManagementService.getCostBreakdowns(user?.id || '')
+      ])
 
       if (variables) {
         setCostVariables(variables)
@@ -63,10 +79,25 @@ const ManagerDashboard: React.FC = () => {
           laborRatePerHour: variables.laborRatePerHour
         })
       }
+
+      setSavedBreakdowns(breakdowns)
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadAnalytics = async () => {
+    try {
+      setIsAnalyticsLoading(true)
+      const result = await costManagementService.getCostAnalytics(user?.id || '', analyticsPeriod)
+      setAnalytics(result)
+    } catch (error) {
+      console.error('Error loading cost analytics:', error)
+      setAnalytics(null)
+    } finally {
+      setIsAnalyticsLoading(false)
     }
   }
 
@@ -108,8 +139,38 @@ const ManagerDashboard: React.FC = () => {
       calculatorForm.materialUsageGrams,
       calculatorForm.customLaborHours || undefined
     )
+    breakdown.productId = calculatorForm.productId.trim()
 
     setCostBreakdown(breakdown)
+    setBreakdownSaveStatus(null)
+  }
+
+  const saveBreakdown = async () => {
+    if (!costBreakdown || !user?.id) return
+
+    try {
+      setIsSavingBreakdown(true)
+      setBreakdownSaveStatus(null)
+
+      const persisted = await costManagementService.saveProductCostBreakdown({
+        ...costBreakdown,
+        managerId: user.id
+      })
+
+      setSavedBreakdowns(prev => {
+        const withoutThisProduct = prev.filter(b => b.productId !== persisted.productId)
+        return [persisted, ...withoutThisProduct]
+      })
+      setBreakdownSaveStatus({ type: 'success', message: `Saved "${persisted.productId}" to your breakdown history.` })
+    } catch (error) {
+      console.error('Error saving cost breakdown:', error)
+      setBreakdownSaveStatus({
+        type: 'error',
+        message: `Not saved — ${error instanceof Error ? error.message : 'unknown error'}.`
+      })
+    } finally {
+      setIsSavingBreakdown(false)
+    }
   }
 
   const submitChatQuery = async () => {
@@ -409,6 +470,26 @@ const ManagerDashboard: React.FC = () => {
             </div>
             
             <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">
+                  Product Name
+                </label>
+                <input
+                  type="text"
+                  value={calculatorForm.productId}
+                  onChange={(e) => setCalculatorForm(prev => ({
+                    ...prev,
+                    productId: e.target.value
+                  }))}
+                  className="form-input w-full"
+                  placeholder="e.g. Budget Phone Case"
+                />
+                <p className="text-xs text-muted mt-1">
+                  Names this calculation so you can save and revisit it. Saving again with the same name
+                  updates that product's breakdown instead of creating a duplicate.
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-text mb-2">
@@ -535,13 +616,73 @@ const ManagerDashboard: React.FC = () => {
                     </p>
                   </div>
                 </div>
+
+                <div className="mt-6 pt-6 border-t card-border space-y-3">
+                  <button
+                    onClick={saveBreakdown}
+                    disabled={isSavingBreakdown || !costBreakdown.productId}
+                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSavingBreakdown ? 'Saving...' : 'Save Breakdown'}
+                  </button>
+                  {!costBreakdown.productId && (
+                    <p className="text-xs text-muted">Enter a product name above to save this breakdown.</p>
+                  )}
+
+                  {breakdownSaveStatus && (
+                    <div
+                      role="status"
+                      className={`rounded-md border p-3 text-sm ${
+                        breakdownSaveStatus.type === 'success'
+                          ? 'bg-green-50 border-green-200 text-green-800'
+                          : 'bg-red-50 border-red-200 text-red-800'
+                      }`}
+                    >
+                      {breakdownSaveStatus.message}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Saved Breakdowns */}
+          {savedBreakdowns.length > 0 && (
+            <div className="bg-card rounded-lg shadow">
+              <div className="px-6 py-4 border-b card-border">
+                <h3 className="text-lg font-medium text-text">Saved Breakdowns</h3>
+                <p className="text-sm text-muted">Product cost breakdowns you've saved to your account</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted border-b card-border">
+                      <th className="px-6 py-3 font-medium">Product</th>
+                      <th className="px-6 py-3 font-medium">Total Cost</th>
+                      <th className="px-6 py-3 font-medium">Suggested Price</th>
+                      <th className="px-6 py-3 font-medium">Final Price</th>
+                      <th className="px-6 py-3 font-medium">Last Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {savedBreakdowns.map((b) => (
+                      <tr key={b.id} className="border-b card-border last:border-0">
+                        <td className="px-6 py-3 text-text font-medium">{b.productId}</td>
+                        <td className="px-6 py-3 text-text">${b.totalCost.toFixed(2)}</td>
+                        <td className="px-6 py-3 text-text">${b.suggestedPrice.toFixed(2)}</td>
+                        <td className="px-6 py-3 text-text">{b.finalPrice ? `$${b.finalPrice.toFixed(2)}` : '—'}</td>
+                        <td className="px-6 py-3 text-muted">{new Date(b.lastUpdated).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* AI Assistant Tab */}
+      {/* Keyword Assistant Tab */}
       {activeTab === 'assistant' && (
         <div className="bg-card rounded-lg shadow">
           <div className="px-6 py-4 border-b card-border">
@@ -611,14 +752,121 @@ const ManagerDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* The "Cost Analytics Dashboard" tab used to live here. Every figure in
-          it — 24 products, $67.45 average cost, 28.5% average margin, a
-          two-item "Products Needing Attention" list and a five-day cost trend —
-          was hardcoded in costManagementService.getCostAnalytics(). Nothing was
-          measured. There is no live table to source it from
-          (product_cost_breakdowns has never been applied to the database), so
-          the tab is gone rather than lying. See the handoff for what it would
-          take to bring it back for real. */}
+      {/* Cost Analytics Dashboard Tab — computed from the manager's own saved
+          product cost breakdowns (product_cost_breakdowns). Empty until the
+          manager saves at least one breakdown from the Calculator tab; no
+          figure here is invented. */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-6">
+          <div className="bg-card rounded-lg shadow">
+            <div className="px-6 py-4 border-b card-border flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h3 className="text-lg font-medium text-text">Cost Analytics Dashboard</h3>
+                <p className="text-sm text-muted">Computed from your saved product cost breakdowns</p>
+              </div>
+              <div className="flex space-x-2">
+                {(['week', 'month', 'quarter', 'year'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setAnalyticsPeriod(p)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium capitalize ${
+                      analyticsPeriod === p
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-bg text-muted hover:text-text'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6">
+              {isAnalyticsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-600"></div>
+                </div>
+              ) : !analytics || analytics.totalProducts === 0 ? (
+                <div className="text-center py-8 text-muted">
+                  <div className="text-4xl mb-2">📊</div>
+                  <p>No saved cost breakdowns in this period yet.</p>
+                  <p className="text-sm mt-1">
+                    Save a breakdown from the Cost Calculator tab and it will show up here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <p className="text-sm text-blue-600 font-medium">Products Costed</p>
+                      <p className="text-2xl font-bold text-blue-800">{analytics.totalProducts}</p>
+                    </div>
+                    <div className="bg-card p-4 rounded-lg border card-border">
+                      <p className="text-sm text-muted font-medium">Average Cost</p>
+                      <p className="text-2xl font-bold text-text">${analytics.averageCost.toFixed(2)}</p>
+                    </div>
+                    <div className="bg-green-50 p-4 rounded-lg">
+                      <p className="text-sm text-green-600 font-medium">Average Margin</p>
+                      <p className="text-2xl font-bold text-green-800">{analytics.averageMargin.toFixed(1)}%</p>
+                    </div>
+                    <div className="bg-indigo-50 p-4 rounded-lg">
+                      <p className="text-sm text-indigo-600 font-medium">Profitable Products</p>
+                      <p className="text-2xl font-bold text-indigo-800">
+                        {analytics.profitableProducts} / {analytics.totalProducts}
+                      </p>
+                    </div>
+                  </div>
+
+                  {analytics.lowMarginProducts.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-text mb-3">Products Needing Attention</h4>
+                      <div className="space-y-2">
+                        {analytics.lowMarginProducts.map((p) => (
+                          <div
+                            key={p.productId}
+                            className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-md px-4 py-3"
+                          >
+                            <span className="text-sm font-medium text-yellow-900">{p.productName}</span>
+                            <span className="text-sm text-yellow-800">
+                              {p.currentMargin.toFixed(1)}% margin (target {p.suggestedMargin.toFixed(0)}%)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {analytics.costTrends.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-text mb-3">Cost Trend</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-muted border-b card-border">
+                              <th className="px-4 py-2 font-medium">Date</th>
+                              <th className="px-4 py-2 font-medium">Avg. Cost</th>
+                              <th className="px-4 py-2 font-medium">Avg. Margin</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {analytics.costTrends.map((t) => (
+                              <tr key={t.date} className="border-b card-border last:border-0">
+                                <td className="px-4 py-2 text-text">{t.date}</td>
+                                <td className="px-4 py-2 text-text">${t.averageCost.toFixed(2)}</td>
+                                <td className="px-4 py-2 text-text">{t.averageMargin.toFixed(1)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

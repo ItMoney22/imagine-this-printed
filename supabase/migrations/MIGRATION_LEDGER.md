@@ -31,6 +31,32 @@ pg-script path, so NOT tracked in `schema_migrations` (like most of this repo).
 `orders-staff-write` and `landing-page-suggestions` (below) remain PENDING —
 unrelated to the security work, left for a separate decision.
 
+## 2026-08-16 — manager cost calculator persistence applied (Iahhm, task `078ccd51`)
+
+Branch `earth/iahhm/managerdashboard-adminco-078ccd51-msvztgfz`. Both applied
+LIVE to prod via a direct `pg` connection over the pooler (own `BEGIN` →
+functional insert/upsert/delete test against a real `user_profiles` row →
+verify catalog + zero residue from a second connection → `COMMIT`), same
+pattern as `20260726_cost_variables.sql`.
+
+- `20260726_cost_variables.sql` (commit `1ada658`, previously unmerged —
+  cherry-picked onto this branch) — `cost_variables` table, RLS, the
+  `cost_variables_role_for()` helper. Confirmed already live before this
+  session (zero-nine applied it 2026-07-26); this branch just gained the
+  matching application code.
+- `20260816_product_cost_breakdowns_and_gpt_queries.sql` (NEW) —
+  `product_cost_breakdowns` (manager's saved Cost Calculator results, one row
+  per `(manager_id, product_id)`, upserted) and `gpt_cost_queries` (Keyword
+  Assistant history). Both reuse `cost_variables_role_for()` for the
+  admin/founder RLS policy rather than duplicating it. Deliberately NOT the
+  `product_cost_breakdowns` shape in `001_initial_schema.sql` /
+  `prisma/schema.prisma` — that version requires a NOT NULL FK to `products`
+  and a `cost_variables_id`, which the ManagerDashboard Cost Calculator has no
+  UI for (no product picker). `product_id` here is a manager-typed label
+  (TEXT), matching the pre-existing `ProductCostBreakdown.productId: string`
+  contract in `src/types/index.ts`, which was never a strict `products.id` to
+  begin with.
+
 ## Root cause: why nobody could tell what's applied
 
 Migrations in this repo reach production through **three different, disjoint
@@ -377,10 +403,11 @@ same pattern this ledger used for `20260728120000_orders_staff_write_access.sql`
   said `pending/approved/rejected/featured` (written against a different
   table, `social_submissions`) and has since been narrowed to match the wire
   by that same agent. Not this ledger's area; logged for awareness only.
-- `20260726_cost_variables.sql` does **not exist** in this working tree —
-  it's only on unmerged commit `1ada658`
-  (`earth/zero-nine/persist-manager-cost-var-fe413f2e-ms2cs8qp`). Anything
-  that assumes it's part of the current tree is wrong.
+- ~~`20260726_cost_variables.sql` does not exist in this working tree~~ —
+  STALE as of 2026-08-16 (task `078ccd51`, Iahhm): cherry-picked commit
+  `1ada658` onto `earth/iahhm/managerdashboard-adminco-078ccd51-msvztgfz` (it
+  was never merged to `main`). `cost_variables` is live and this branch now
+  has it. See the 2026-08-16 section above for what else landed alongside it.
 
 ## For David — exact next steps, in order
 

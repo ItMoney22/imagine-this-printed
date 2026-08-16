@@ -553,7 +553,7 @@ describe('getCostAnalytics — computed from real breakdown rows', () => {
     state.listResult = {
       data: [
         {
-          id: 'row-1', product_id: 'p1', product_name: 'Budget Phone Case', manager_id: MANAGER_ID,
+          id: 'row-1', product_id: 'Budget Phone Case', manager_id: MANAGER_ID,
           print_time_hours: '1', material_usage_grams: '20',
           material_cost: '0.5', electricity_cost: '0.12', labor_cost: '25', packaging_cost: '2.5',
           overhead_cost: '4.22', total_cost: '32.34',
@@ -561,7 +561,7 @@ describe('getCostAnalytics — computed from real breakdown rows', () => {
           last_updated: '2026-08-01T00:00:00.000Z', created_at: '2026-08-01T00:00:00.000Z'
         },
         {
-          id: 'row-2', product_id: 'p2', product_name: 'Premium Vase', manager_id: MANAGER_ID,
+          id: 'row-2', product_id: 'Premium Vase', manager_id: MANAGER_ID,
           print_time_hours: '4', material_usage_grams: '150',
           material_cost: '3.75', electricity_cost: '0.48', labor_cost: '100', packaging_cost: '2.5',
           overhead_cost: '16', total_cost: '122.73',
@@ -577,10 +577,10 @@ describe('getCostAnalytics — computed from real breakdown rows', () => {
     expect(state.lastTable).toBe('product_cost_breakdowns')
     expect(analytics.period).toBe('Last month')
     expect(analytics.totalProducts).toBe(2)
-    // averageCost = (32.34 + 122.73) / 2 = 77.535
-    expect(analytics.averageCost).toBeCloseTo(77.535, 3)
+    // averageCost = (32.34 + 122.73) / 2 = 77.535, rounded to the cent
+    expect(analytics.averageCost).toBeCloseTo(77.54, 2)
     // margin on final_price: (37-32.34)/37=12.59%%, (170-122.73)/170=27.81%
-    expect(analytics.lowMarginProducts.some(p => p.productId === 'p1')).toBe(true)
+    expect(analytics.lowMarginProducts.some(p => p.productId === 'Budget Phone Case')).toBe(true)
     expect(analytics.profitableProducts).toBeGreaterThan(0)
   })
 

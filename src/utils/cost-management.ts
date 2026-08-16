@@ -2,6 +2,15 @@ import { supabase } from '../lib/supabase'
 import type { CostVariables, ProductCostBreakdown, GPTCostQuery, CostAnalytics } from '../types'
 
 const COST_VARIABLES_TABLE = 'cost_variables'
+const PRODUCT_COST_BREAKDOWNS_TABLE = 'product_cost_breakdowns'
+const GPT_COST_QUERIES_TABLE = 'gpt_cost_queries'
+
+const PERIOD_DAYS: Record<string, number> = {
+  week: 7,
+  month: 30,
+  quarter: 90,
+  year: 365
+}
 
 /**
  * Starting values for a manager who has never saved. These are a suggestion,
@@ -57,6 +66,50 @@ function mapRow(row: CostVariablesRow): CostVariables {
     lastUpdated: row.last_updated || new Date().toISOString(),
     createdAt: row.created_at || new Date().toISOString(),
     source: 'database'
+  }
+}
+
+// Shape of a public.product_cost_breakdowns row (see
+// supabase/migrations/20260816_product_cost_breakdowns_and_gpt_queries.sql)
+interface ProductCostBreakdownRow {
+  id: string
+  manager_id: string
+  product_id: string
+  print_time_hours: number | string | null
+  material_usage_grams: number | string | null
+  material_cost: number | string | null
+  electricity_cost: number | string | null
+  labor_cost: number | string | null
+  packaging_cost: number | string | null
+  overhead_cost: number | string | null
+  total_cost: number | string | null
+  suggested_margin: number | string | null
+  suggested_price: number | string | null
+  final_price: number | string | null
+  notes: string | null
+  last_updated: string | null
+  created_at: string | null
+}
+
+function mapBreakdownRow(row: ProductCostBreakdownRow): ProductCostBreakdown {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    managerId: row.manager_id,
+    printTimeHours: toNumber(row.print_time_hours, 0),
+    materialUsageGrams: toNumber(row.material_usage_grams, 0),
+    materialCost: toNumber(row.material_cost, 0),
+    electricityCost: toNumber(row.electricity_cost, 0),
+    laborCost: toNumber(row.labor_cost, 0),
+    packagingCost: toNumber(row.packaging_cost, 0),
+    overheadCost: toNumber(row.overhead_cost, 0),
+    totalCost: toNumber(row.total_cost, 0),
+    suggestedMargin: toNumber(row.suggested_margin, 0),
+    suggestedPrice: toNumber(row.suggested_price, 0),
+    finalPrice: row.final_price === null ? undefined : toNumber(row.final_price, 0),
+    notes: row.notes ?? undefined,
+    lastUpdated: row.last_updated || new Date().toISOString(),
+    createdAt: row.created_at || new Date().toISOString()
   }
 }
 
@@ -190,61 +243,79 @@ export class CostManagementService {
     }
   }
 
-  // Save product cost breakdown
-  async saveProductCostBreakdown(breakdown: ProductCostBreakdown): Promise<void> {
-    try {
-      // In real app, this would save to PostgreSQL with Prisma
-      console.log('Saving product cost breakdown:', breakdown)
-    } catch (error) {
-      console.error('Error saving product cost breakdown:', error)
-      throw new Error('Failed to save product cost breakdown')
+  /**
+   * Persist a product's cost breakdown (one row per manager+product label,
+   * upserted on that pair — recalculating a product updates its row instead
+   * of piling up a duplicate every time the calculator is re-run). Throws on
+   * failure so the calculator cannot claim a breakdown was saved when it
+   * was not.
+   */
+  async saveProductCostBreakdown(breakdown: ProductCostBreakdown): Promise<ProductCostBreakdown> {
+    if (!breakdown.managerId) {
+      throw new Error('Cannot save a cost breakdown without a manager account id.')
     }
+    if (!breakdown.productId) {
+      throw new Error('Cannot save a cost breakdown without a product name or id.')
+    }
+
+    const payload = {
+      manager_id: breakdown.managerId,
+      product_id: breakdown.productId,
+      print_time_hours: breakdown.printTimeHours ?? 0,
+      material_usage_grams: breakdown.materialUsageGrams ?? 0,
+      material_cost: breakdown.materialCost ?? 0,
+      electricity_cost: breakdown.electricityCost ?? 0,
+      labor_cost: breakdown.laborCost ?? 0,
+      packaging_cost: breakdown.packagingCost ?? 0,
+      overhead_cost: breakdown.overheadCost ?? 0,
+      total_cost: breakdown.totalCost ?? 0,
+      suggested_margin: breakdown.suggestedMargin ?? 0,
+      suggested_price: breakdown.suggestedPrice ?? 0,
+      final_price: breakdown.finalPrice ?? null,
+      notes: breakdown.notes ?? null,
+      last_updated: new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from(PRODUCT_COST_BREAKDOWNS_TABLE)
+      .upsert(payload, { onConflict: 'manager_id,product_id' })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error saving product cost breakdown:', error)
+      throw new Error(`Failed to save product cost breakdown: ${error.message}`)
+    }
+
+    if (!data) {
+      throw new Error('Failed to save product cost breakdown: the database returned no row.')
+    }
+
+    return mapBreakdownRow(data as ProductCostBreakdownRow)
   }
 
-  // Get cost breakdowns for manager
+  /**
+   * A manager's saved cost breakdowns, most recently updated first. Returns
+   * an empty list (rather than throwing) on a read failure — the analytics
+   * and calculator screens treat "no data yet" and "read failed" the same
+   * way: show nothing invented.
+   */
   async getCostBreakdowns(managerId: string): Promise<ProductCostBreakdown[]> {
-    try {
-      // Mock data for demo
-      const mockBreakdowns: ProductCostBreakdown[] = [
-        {
-          id: 'breakdown_1',
-          productId: 'product_1',
-          managerId,
-          printTimeHours: 3.5,
-          materialUsageGrams: 85,
-          materialCost: 2.13,
-          electricityCost: 0.42,
-          laborCost: 87.50,
-          packagingCost: 2.50,
-          overheadCost: 13.86,
-          totalCost: 106.41,
-          suggestedMargin: 25,
-          suggestedPrice: 141.88,
-          finalPrice: 139.99,
-          lastUpdated: new Date().toISOString(),
-          createdAt: '2025-01-10T00:00:00Z'
-        },
-        {
-          id: 'breakdown_2',
-          productId: 'product_2',
-          managerId,
-          printTimeHours: 1.2,
-          materialUsageGrams: 25,
-          materialCost: 0.63,
-          electricityCost: 0.14,
-          laborCost: 30.00,
-          packagingCost: 2.50,
-          overheadCost: 4.99,
-          totalCost: 38.26,
-          suggestedMargin: 25,
-          suggestedPrice: 51.01,
-          finalPrice: 49.99,
-          lastUpdated: new Date().toISOString(),
-          createdAt: '2025-01-11T00:00:00Z'
-        }
-      ]
+    if (!managerId) return []
 
-      return mockBreakdowns
+    try {
+      const { data, error } = await supabase
+        .from(PRODUCT_COST_BREAKDOWNS_TABLE)
+        .select('*')
+        .eq('manager_id', managerId)
+        .order('last_updated', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching cost breakdowns:', error)
+        return []
+      }
+
+      return ((data || []) as ProductCostBreakdownRow[]).map(mapBreakdownRow)
     } catch (error) {
       console.error('Error fetching cost breakdowns:', error)
       return []
@@ -362,53 +433,124 @@ Just ask your question and I'll provide detailed analysis with actionable insigh
     }
   }
 
-  // Save GPT query for history
+  /**
+   * Best-effort persistence of an assistant Q&A turn. Never throws — losing a
+   * history row must not block the chat itself from working.
+   */
   async saveGPTQuery(query: GPTCostQuery): Promise<void> {
+    if (!query.userId) return
+
     try {
-      // In real app, this would save to PostgreSQL with Prisma
-      console.log('Saving GPT query:', query)
+      const { error } = await supabase
+        .from(GPT_COST_QUERIES_TABLE)
+        .insert({
+          user_id: query.userId,
+          query: query.query,
+          response: query.response,
+          context: query.context ?? null
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error saving GPT query:', error)
+      }
     } catch (error) {
       console.error('Error saving GPT query:', error)
     }
   }
 
-  // Get cost analytics
-  async getCostAnalytics(_managerId: string, period: string = 'month'): Promise<CostAnalytics> {
+  /**
+   * Cost analytics computed from the manager's own saved breakdowns — no
+   * invented figures. A manager who has saved nothing yet in the requested
+   * period gets an honest zeroed report, not a demo dataset.
+   */
+  async getCostAnalytics(managerId: string, period: string = 'month'): Promise<CostAnalytics> {
+    const empty: CostAnalytics = {
+      period: `Last ${period}`,
+      totalProducts: 0,
+      averageCost: 0,
+      averageMargin: 0,
+      profitableProducts: 0,
+      lowMarginProducts: [],
+      costTrends: []
+    }
+
+    if (!managerId) return empty
+
     try {
-      // Mock analytics data
-      const mockAnalytics: CostAnalytics = {
-        period: `Last ${period}`,
-        totalProducts: 24,
-        averageCost: 67.45,
-        averageMargin: 28.5,
-        profitableProducts: 22,
-        lowMarginProducts: [
-          {
-            productId: 'product_5',
-            productName: 'Budget Phone Case',
-            currentMargin: 12.5,
-            suggestedMargin: 25.0
-          },
-          {
-            productId: 'product_8',
-            productName: 'Simple Keychain',
-            currentMargin: 15.2,
-            suggestedMargin: 25.0
-          }
-        ],
-        costTrends: [
-          { date: '2025-01-01', averageCost: 65.20, averageMargin: 27.8 },
-          { date: '2025-01-02', averageCost: 66.15, averageMargin: 28.1 },
-          { date: '2025-01-03', averageCost: 67.45, averageMargin: 28.5 },
-          { date: '2025-01-04', averageCost: 68.90, averageMargin: 29.2 },
-          { date: '2025-01-05', averageCost: 67.80, averageMargin: 28.9 }
-        ]
+      const days = PERIOD_DAYS[period] ?? PERIOD_DAYS.month
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+      const { data, error } = await supabase
+        .from(PRODUCT_COST_BREAKDOWNS_TABLE)
+        .select('*')
+        .eq('manager_id', managerId)
+        .gte('last_updated', cutoff)
+        .order('last_updated', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching cost analytics:', error)
+        return empty
       }
 
-      return mockAnalytics
+      const rows = ((data || []) as ProductCostBreakdownRow[]).map(mapBreakdownRow)
+      if (rows.length === 0) return empty
+
+      // Price a row by its actual sale price when set, falling back to the
+      // suggested price for a breakdown nobody has finalized yet.
+      const priced = rows.map(row => {
+        const price = row.finalPrice ?? row.suggestedPrice
+        const currentMargin = price > 0 ? this.calculateMargin(row.totalCost, price) : 0
+        return { row, currentMargin }
+      })
+
+      const totalProducts = priced.length
+      const averageCost = priced.reduce((sum, p) => sum + p.row.totalCost, 0) / totalProducts
+      const averageMargin = priced.reduce((sum, p) => sum + p.currentMargin, 0) / totalProducts
+      const profitableProducts = priced.filter(p => p.currentMargin > 0).length
+
+      const lowMarginProducts = priced
+        .filter(p => p.currentMargin < p.row.suggestedMargin)
+        .sort((a, b) => a.currentMargin - b.currentMargin)
+        .slice(0, 5)
+        .map(p => ({
+          productId: p.row.productId,
+          productName: p.row.productId,
+          currentMargin: Math.round(p.currentMargin * 10) / 10,
+          suggestedMargin: p.row.suggestedMargin
+        }))
+
+      const byDate = new Map<string, { cost: number; margin: number; count: number }>()
+      for (const p of priced) {
+        const date = p.row.lastUpdated.slice(0, 10)
+        const entry = byDate.get(date) || { cost: 0, margin: 0, count: 0 }
+        entry.cost += p.row.totalCost
+        entry.margin += p.currentMargin
+        entry.count += 1
+        byDate.set(date, entry)
+      }
+
+      const costTrends = Array.from(byDate.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, entry]) => ({
+          date,
+          averageCost: Math.round((entry.cost / entry.count) * 100) / 100,
+          averageMargin: Math.round((entry.margin / entry.count) * 10) / 10
+        }))
+
+      return {
+        period: `Last ${period}`,
+        totalProducts,
+        averageCost: Math.round(averageCost * 100) / 100,
+        averageMargin: Math.round(averageMargin * 10) / 10,
+        profitableProducts,
+        lowMarginProducts,
+        costTrends
+      }
     } catch (error) {
       console.error('Error fetching cost analytics:', error)
-      throw new Error('Failed to fetch cost analytics')
+      return empty
     }
   }
 
