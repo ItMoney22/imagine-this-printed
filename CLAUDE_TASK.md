@@ -1,55 +1,40 @@
 # Claude Task Brief
 
 ## Request
-- Correct the 2026-08-06 weekly Etsy report because the original email omitted its screenshots.
-- Send the four audit screenshots from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Update the weekly heartbeat so every future report includes and verifies its images.
-- Do not edit Etsy or repo implementation code.
+- Watchtower task `fb5d3899-7457-42bc-828a-51348cb01ce9`: merge and deploy the remaining transactional-email integration, then apply its production Supabase migration.
 
 ## Repo detection
-- Vite + React frontend with an Express/TypeScript backend.
-- The in-app email system stores mailboxes/messages in Supabase and delivers mail through Resend.
-- Resend supports CID inline images backed by normal image attachments.
+- React/Vite frontend with an Express/TypeScript backend, GitHub `main`, Render backend deployment, and Supabase PostgreSQL.
 
 ## Relevant files
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/services/email-resend.ts`
-- `backend/routes/email.ts`
-- `C:/Users/David/.codex/automations/weekly-etsy-shop-review/automation.toml`
+- `backend/utils/email.ts`
+- `backend/routes/stripe.ts`
+- `backend/routes/admin/user-product-approvals.ts`
+- `backend/routes/admin/email-templates.ts`
+- `backend/services/emailAI.ts`
+- `supabase/migrations/20260816000000_deactivate_unwired_email_templates.sql`
 
 ## Files to edit (STRICT)
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- Do not edit any repo implementation file.
-- External state in scope: one corrected report email and an update to the existing heartbeat.
+- Do not edit repository implementation files.
 
-## Completed correction
-- Sent subject: `Corrected: Mr. Imagine's Weekly Etsy Shop Review - August 6, 2026 (Screenshots Included)`.
-- Included all four fresh PNG screenshots inline beside their matching report sections.
-- Included the same four PNGs as attachments for clients that block inline images.
-- Resend reported four inline attachments with distinct content IDs.
-- The `wecare` recipient record received all four images with stored download URLs.
-- The corrected outbound message is logged in Mr. Imagine's Sent folder.
-
-## Future weekly-report requirements
-1. Capture four fresh screenshots: shop home, strongest listing, weaker listing, and About/policies.
-2. Insert each screenshot beside its matching email section using a CID reference.
-3. Attach the same four PNG files to the email.
-4. Verify four attachments in the sending-service record.
-5. Verify four working image attachments in the `wecare` recipient record.
-6. Do not claim completion if any image or verification is missing.
+## Plan
+1. Confirm PR #7 merges the Amelia branch and preserves main's order-status-link enhancements.
+2. Confirm Render runs merged main commit `64d6a0c` and the health endpoint succeeds.
+3. Apply the migration transactionally to production and query the active template rows.
 
 ## Acceptance criteria
-- [x] Corrected report sent from Mr. Imagine.
-- [x] Four screenshots embedded inline.
-- [x] Four PNG attachments included.
-- [x] Sending-service attachment count verified.
-- [x] Recipient attachment count and stored links verified.
-- [x] Weekly heartbeat updated with mandatory image checks.
-- [x] No Etsy or repo implementation changes made.
+- [x] PR #7 merged to `main` as `64d6a0c48f1f754a12b81eef24716ed33b3800d8`.
+- [x] Render backend deploy `dep-da12l1lr1llc73egd050` is live on that commit; `/api/health` returns 200.
+- [x] The merged code routes all stated transactional types through `generateAIEmail` with fallbacks, sends `itc_purchase`, uses `/product/:id`, and filters active templates.
+- [x] Production migration ran in a transaction: zero unwired active templates existed before or after, so zero rows changed as expected.
+- [x] CI typecheck and build passed; lint has one unrelated pre-existing `no-unused-expressions` error in `src/hooks/useMrImagineVoice.ts:185`.
 
 ## Commands
-- Read-only verification uses Resend attachment metadata and existing Supabase email records.
-- No repo build or test command is required.
+- `gh pr view 7 --repo ItMoney22/imagine-this-printed`
+- `node scripts/render-trigger-deploy.mjs` (Render returns an empty successful response; verify via its deploy API.)
+- Production SQL was applied from the committed migration using the ITP pooler in one `BEGIN`/`COMMIT` transaction.

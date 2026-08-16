@@ -1,25 +1,27 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Complete Watchtower task `fb5d3899-7457-42bc-828a-51348cb01ce9`: merge/deploy the transactional email integration and apply its production migration.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- PR #7 merged the integration to `main` as `64d6a0c`.
+- Render backend deploy `dep-da12l1lr1llc73egd050` is live on `64d6a0c`; production health returns 200.
+- The committed template-deactivation SQL ran in production. It was correctly a no-op: all seven known templates remain active and there were zero unwired active rows.
+- PR typecheck and build passed. The required lint check retains one unrelated baseline error in `src/hooks/useMrImagineVoice.ts:185`.
+
+## Work log (append-only)
+- 2026-08-16 — Watchtower `fb5d3899-7457-42bc-828a-51348cb01ce9` completed: merged PR #7 as `64d6a0c`, deployed Render backend `dep-da12l1lr1llc73egd050`, health 200, and executed the committed template-deactivation migration in production (0 rows changed because all seven templates are wired and active).
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `backend/utils/email.ts`
+- `backend/routes/stripe.ts`
+- `backend/routes/admin/user-product-approvals.ts`
+- `backend/routes/admin/email-templates.ts`
+- `backend/services/emailAI.ts`
+- `supabase/migrations/20260816000000_deactivate_unwired_email_templates.sql`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
@@ -27,7 +29,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
 - No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- External state completed for this request: GitHub PR #7/main, Render backend deployment, and ITP production Supabase migration.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
