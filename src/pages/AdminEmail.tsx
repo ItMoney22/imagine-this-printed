@@ -31,11 +31,19 @@ import {
   VolumeX,
   Wand2,
   Package,
+  ShieldOff,
 } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { emailApi, synthesizeMrImagineVoice } from '../lib/email-api'
-import type { Mailbox, EmailMessage, EmailFolder, AssignableUser, FeaturedProduct } from '../lib/email-api'
+import type {
+  Mailbox,
+  EmailMessage,
+  EmailFolder,
+  AssignableUser,
+  FeaturedProduct,
+  EmailSuppression,
+} from '../lib/email-api'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -883,6 +891,158 @@ const ManageMailboxesModal: React.FC<ManageMailboxesProps> = ({
   )
 }
 
+// ─── suppression list modal (read-only) ──────────────────────────────────────
+
+const SUPPRESSION_LABELS: Record<EmailSuppression['reason'], string> = {
+  hard_bounce: 'Hard bounce',
+  complaint: 'Spam complaint',
+  manual: 'Manual',
+}
+
+const SuppressionsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [rows, setRows] = useState<EmailSuppression[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+
+  // Debounced so typing an address doesn't fire a request per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(searchInput.trim()), 300)
+    return () => clearTimeout(id)
+  }, [searchInput])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    emailApi
+      .listSuppressions({ search: search || undefined, limit: 200 })
+      .then(({ suppressions, total: t }) => {
+        if (cancelled) return
+        setRows(suppressions)
+        setTotal(t)
+        setError(null)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Failed to load suppression list')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [search])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-card border border-text/10 rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
+        {/* header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-text/10 shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-text flex items-center gap-2">
+              <ShieldOff size={16} className="text-primary" />
+              Suppressed Addresses
+              {!loading && (
+                <span className="text-xs font-normal text-muted">({total})</span>
+              )}
+            </h2>
+            <p className="text-xs text-muted mt-1">
+              Built automatically from Resend hard-bounce and spam-complaint webhooks.
+              Transactional email to these addresses is blocked to protect the sending domain.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-muted hover:text-text transition-colors shrink-0"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* search */}
+        <div className="px-5 pt-4 shrink-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              placeholder="Search address…"
+              className="w-full bg-bg border border-text/10 rounded-lg pl-9 pr-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+        </div>
+
+        {/* table */}
+        <div className="overflow-auto flex-1 px-5 py-4">
+          {loading ? (
+            <p className="text-sm text-muted py-6 text-center">Loading…</p>
+          ) : error ? (
+            <p className="text-sm text-red-500 py-6 text-center">{error}</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-muted py-6 text-center">
+              {search
+                ? 'No suppressed address matches that search.'
+                : 'No suppressed addresses — nothing has hard-bounced or complained.'}
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted text-xs border-b border-text/10">
+                  <th className="text-left pb-2 font-medium">Address</th>
+                  <th className="text-left pb-2 font-medium">Reason</th>
+                  <th className="text-left pb-2 font-medium">Detail</th>
+                  <th className="text-left pb-2 font-medium">Events</th>
+                  <th className="text-left pb-2 font-medium">Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(row => (
+                  <tr key={row.id} className="border-b border-text/5 align-top">
+                    <td className="py-2.5 pr-3 text-text break-all">{row.email}</td>
+                    <td className="py-2.5 pr-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                          row.reason === 'complaint'
+                            ? 'bg-red-500/10 text-red-500'
+                            : row.reason === 'hard_bounce'
+                              ? 'bg-amber-500/10 text-amber-500'
+                              : 'bg-text/10 text-muted'
+                        }`}
+                      >
+                        {SUPPRESSION_LABELS[row.reason] ?? row.reason}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3 text-muted text-xs max-w-xs break-words">
+                      {row.detail || '—'}
+                    </td>
+                    <td className="py-2.5 pr-3 text-muted">{row.event_count}</td>
+                    <td className="py-2.5 text-muted text-xs whitespace-nowrap">
+                      {formatDate(row.last_seen_at)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* footer */}
+        <div className="px-5 py-3 border-t border-text/10 shrink-0">
+          <p className="text-xs text-muted">
+            Read-only. Suppressions are permanent by design — removing one means deliberately
+            mailing an address that bounced or reported us as spam, so it is done in the database,
+            not here.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Mr. Imagine assistant ───────────────────────────────────────────────────
 
 const MR_IMAGINE_VOICE_KEY = 'itp-mr-imagine-email-voice'
@@ -1335,6 +1495,7 @@ const AdminEmail: React.FC = () => {
   const [showCompose, setShowCompose] = useState(false)
   const [composeProps, setComposeProps] = useState<Partial<ComposeProps>>({})
   const [showManage, setShowManage] = useState(false)
+  const [showSuppressions, setShowSuppressions] = useState(false)
 
   // mobile view: 'mailboxes' | 'list' | 'message'
   const [mobileView, setMobileView] = useState<'mailboxes' | 'list' | 'message'>('mailboxes')
@@ -1650,13 +1811,23 @@ const AdminEmail: React.FC = () => {
           <h1 className="text-xl font-semibold text-text">Email</h1>
         </div>
         {isAdmin && (
-          <button
-            onClick={() => setShowManage(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm border border-text/10 rounded-lg text-text hover:bg-text/5 transition-colors"
-          >
-            <Settings size={14} className="text-primary" />
-            Manage Mailboxes
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSuppressions(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-text/10 rounded-lg text-text hover:bg-text/5 transition-colors"
+              title="Addresses blocked after a hard bounce or spam complaint"
+            >
+              <ShieldOff size={14} className="text-primary" />
+              Suppressions
+            </button>
+            <button
+              onClick={() => setShowManage(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-text/10 rounded-lg text-text hover:bg-text/5 transition-colors"
+            >
+              <Settings size={14} className="text-primary" />
+              Manage Mailboxes
+            </button>
+          </div>
         )}
       </div>
 
@@ -2072,6 +2243,10 @@ const AdminEmail: React.FC = () => {
           onClose={() => setShowManage(false)}
           onChanged={loadMailboxes}
         />
+      )}
+
+      {showSuppressions && isAdmin && (
+        <SuppressionsModal onClose={() => setShowSuppressions(false)} />
       )}
 
       {/* Mr. Imagine floating action button */}
