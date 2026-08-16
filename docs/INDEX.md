@@ -25,6 +25,7 @@ This index lists all active documentation. For historical/completed docs, see `d
 | [CUSTOMER_AI_PRODUCT_BUILDER.md](CUSTOMER_AI_PRODUCT_BUILDER.md) | CURRENT | Customer-facing AI builder docs |
 | [ENV_VARIABLES.md](ENV_VARIABLES.md) | CURRENT | Environment variable reference |
 | [README.md](README.md) | CURRENT | General documentation overview |
+| [SECURITY_HARDENING.md](SECURITY_HARDENING.md) | CURRENT | Browser-edge CSP/HSTS + API helmet, rate limits, role revocation |
 
 ### Feature Status Docs
 | Document | Status | Description |

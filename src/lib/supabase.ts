@@ -54,8 +54,16 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 console.log("[supabase] ✅ Supabase client initialized");
 
-// Optional: expose for console debugging (safe; anon key is public)
-if (typeof window !== "undefined") {
+// Console debugging handle — development builds only.
+//
+// The anon key itself is public, but this handle is not just the key: it is a
+// live client already holding the signed-in user's session. Anything that can
+// run script in the page (an XSS, a malicious extension, a pasted "fix",
+// self-XSS in the console) can call window.supabase and read or write every
+// row that user's RLS policies allow. Gating it on DEV means production ships
+// no such handle; `import.meta.env.DEV` is statically false in the production
+// build, so the whole block is dropped at build time.
+if (import.meta.env.DEV && typeof window !== "undefined") {
   // @ts-ignore
   window.supabase = supabase;
 }

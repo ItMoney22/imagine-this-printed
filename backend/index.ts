@@ -72,9 +72,20 @@ import kioskRouter from './routes/kiosk.js'
 import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
 import messagingRouter from './routes/messaging.js'
 import reviewsRouter from './routes/reviews.js'
+import adminUsersRouter from './routes/admin/users.js'
 
 // Import middleware
 import { requireAuth } from './middleware/supabaseAuth.js'
+import { securityHeaders } from './middleware/security-headers.js'
+import {
+  adminLimiter,
+  aiLimiter,
+  authLimiter,
+  codeCheckLimiter,
+  globalLimiter,
+  publicWriteLimiter,
+  rateLimitingEnabled
+} from './middleware/rate-limits.js'
 
 // .env already loaded via ./load-env.js at the top of this file (must run before
 // service imports that construct SDK clients at module-load time).
@@ -123,6 +134,19 @@ const app = express()
 const PORT = process.env.PORT || 4000
 const prisma = new PrismaClient()
 
+// The API runs behind exactly one reverse proxy in every environment (the
+// Render edge / the VPS nginx). Trusting that single hop makes req.ip the real
+// client address, which is what the rate limiters key on. Trusting *all* hops
+// would let a caller spoof X-Forwarded-For and mint a fresh bucket per request,
+// so this stays a hop count, never `true`. If a deploy ever gains a second
+// proxy in front (a CDN), bump TRUST_PROXY_HOPS rather than setting `true`.
+app.set('trust proxy', Number.parseInt(process.env.TRUST_PROXY_HOPS || '1', 10))
+
+// Security response headers (helmet): HSTS, nosniff, frame-deny, no-referrer,
+// and an API-shaped CSP. Registered before everything else so error responses
+// and 404s carry the headers too.
+app.use(securityHeaders())
+
 // Middleware
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -160,6 +184,12 @@ if (!isDevelopment && corsOptions.origin === true) {
 
 app.use(cors(corsOptions))
 
+// Per-IP backstop for the whole API. Sits after CORS (so preflights don't
+// consume budget) and before the body parsers (so a throttled request never
+// costs us a 50mb JSON parse). Webhooks and health probes are exempt — see
+// middleware/rate-limits.ts.
+app.use(globalLimiter)
+
 // Stripe webhook needs raw body, so we apply it before JSON parsing
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }))
 // Resend inbound-email webhook is svix-signed over the exact payload bytes
@@ -184,6 +214,29 @@ app.use(pinoHttp({
     return `${req.method} ${req.url} ${res.statusCode} - ${err.message}`
   }
 }))
+
+// Targeted rate limits, applied per path family before the mounts below.
+// Order matters: the tighter family limiter runs first, then the router.
+app.use(['/api/auth', '/api/account'], authLimiter)
+app.use('/api/admin', adminLimiter)
+app.use(
+  [
+    '/api/ai',
+    '/api/mockups',
+    '/api/realistic-mockups',
+    '/api/image-flow',
+    '/api/designer',
+    '/api/imagination-station',
+    '/api/creator/studio'
+  ],
+  aiLimiter
+)
+app.use(['/api/coupons', '/api/gift-cards'], codeCheckLimiter)
+app.use(['/api/support', '/api/community', '/api/reviews'], publicWriteLimiter)
+
+if (!rateLimitingEnabled) {
+  logger.warn('[security] RATE_LIMIT_ENABLED=false — all rate limiters are bypassed')
+}
 
 // Routes
 app.use('/api/auth', accountRoutes)
@@ -231,6 +284,7 @@ app.use('/api/admin/design-library', adminDesignLibraryRouter) // imported desig
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth connect + product posting (draft-first)
 app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task
+app.use('/api/admin/users', adminUsersRouter) // role changes + role-cache invalidation (must precede the '/api/admin' mount)
 app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
 app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)
 app.use('/api/coupons', couponsRouter)

@@ -1621,31 +1621,49 @@ const AdminDashboard: React.FC = () => {
 
   const updateUserRole = async (userId: string, newRole: User['role']) => {
     try {
-      // Update role in database
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({ role: newRole })
-        .eq('id', userId)
+      // Preferred path: the API owns the change. It writes the row, records the
+      // audit entry and invalidates the backend's in-process role cache in one
+      // step, so a demotion takes effect on the target's very next request
+      // instead of waiting out the cache TTL.
+      let viaApi = false
+      try {
+        await apiFetch(`/api/admin/users/${userId}/role`, {
+          method: 'POST',
+          body: JSON.stringify({ role: newRole })
+        })
+        viaApi = true
+      } catch (apiError) {
+        // Fallback: write directly, as this screen always did. Keeps role
+        // management working if the API is unreachable — the change is then
+        // TTL-bounded (60s) rather than immediate.
+        console.warn('[AdminDashboard] role change via API failed, falling back to direct write:', apiError)
+        const { error } = await supabase
+          .from('user_profiles')
+          .update({ role: newRole })
+          .eq('id', userId)
 
-      if (error) throw error
+        if (error) throw error
+      }
 
       // Update local state
       setUsers(prev => prev.map(u =>
         u.id === userId ? { ...u, role: newRole } : u
       ))
 
-      // Add audit log to database
-      await supabase
-        .from('audit_logs')
-        .insert({
-          user_id: user?.id || 'admin',
-          action: 'ROLE_CHANGE',
-          entity: 'User',
-          entity_id: userId,
-          changes: { role: newRole },
-          ip_address: '192.168.1.100',
-          user_agent: navigator.userAgent
-        })
+      // The API already wrote the audit record; only the fallback path needs to.
+      if (!viaApi) {
+        await supabase
+          .from('audit_logs')
+          .insert({
+            user_id: user?.id || 'admin',
+            action: 'ROLE_CHANGE',
+            entity: 'User',
+            entity_id: userId,
+            changes: { role: newRole },
+            ip_address: null,
+            user_agent: navigator.userAgent
+          })
+      }
 
       // Reload audit logs to show the new entry
       await loadAuditLogsData()
