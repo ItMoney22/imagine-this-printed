@@ -32,23 +32,24 @@ export default mergeConfig(
         // move, and it would fail every run for reasons unrelated to the change
         // being made.
         include: [
+          'src/context/CartContext.tsx',
           'src/utils/wholesale-pricing.ts',
           'src/utils/shipping-calculator.ts',
           'src/utils/dpi-calculator.ts',
           'src/utils/cost-management.ts',
           'src/lib/product-kind.ts'
         ],
-        // FLOORS, not targets. @vitest/coverage-v8 was not installed when these
-        // were written (shared node_modules — see the campaign brief), so no
-        // measured baseline exists yet. They are set low enough to survive the
-        // first real run and still catch a deleted or gutted suite. Raise them
-        // to the measured numbers after the first `npm test -- --coverage`.
+        // FLOORS, not targets, measured from the first real `npm test -- --coverage`
+        // run (2026-08-16) and set a few points below the observed numbers so the
+        // gate survives normal test-order/branch-count noise but still catches a
+        // deleted or gutted suite.
         thresholds: {
-          'src/utils/wholesale-pricing.ts': { statements: 70, branches: 60, functions: 70, lines: 70 },
-          'src/utils/shipping-calculator.ts': { statements: 60, branches: 50, functions: 55, lines: 60 },
-          'src/utils/dpi-calculator.ts': { statements: 70, branches: 60, functions: 70, lines: 70 },
-          'src/utils/cost-management.ts': { statements: 50, branches: 40, functions: 50, lines: 50 },
-          'src/lib/product-kind.ts': { statements: 85, branches: 75, functions: 85, lines: 85 }
+          'src/context/CartContext.tsx': { statements: 70, branches: 40, functions: 75, lines: 70 },
+          'src/utils/wholesale-pricing.ts': { statements: 90, branches: 90, functions: 95, lines: 90 },
+          'src/utils/shipping-calculator.ts': { statements: 85, branches: 65, functions: 95, lines: 85 },
+          'src/utils/dpi-calculator.ts': { statements: 85, branches: 75, functions: 95, lines: 85 },
+          'src/utils/cost-management.ts': { statements: 65, branches: 90, functions: 75, lines: 65 },
+          'src/lib/product-kind.ts': { statements: 95, branches: 90, functions: 95, lines: 95 }
         }
       }
     }
