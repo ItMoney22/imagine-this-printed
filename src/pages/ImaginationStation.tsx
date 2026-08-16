@@ -1,4 +1,4 @@
-﻿// src/pages/ImaginationStation.tsx
+// src/pages/ImaginationStation.tsx
 // Imagination Station - Imagination Sheet Builder with Editorial Design
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -1063,8 +1063,9 @@ const ImaginationStation: React.FC = () => {
 
     setIsProcessing(true);
     try {
-      // First, save the current sheet state â€” if this fails we abort the add-to-cart
-      await persistSheet();
+      // First, save the current sheet state — if this fails we abort the add-to-cart
+      const saveResult = await persistSheet();
+      const gcsThumbnailUrl = saveResult?.project?.thumbnail_url;
 
       // Render the print-ready 300 DPI composite server-side. This is now the
       // ONLY source of the file that reaches production — the client canvas
@@ -1104,23 +1105,12 @@ const ImaginationStation: React.FC = () => {
         console.warn('[ImaginationStation] No raster image layers to render — skipping print-ready file generation.');
       }
 
-      // Generate a preview thumbnail from the canvas (low-res UI preview only)
-      const canvas = canvasRef.current?.querySelector('canvas');
-      let thumbnailUrl = '';
-      if (canvas) {
-        thumbnailUrl = canvas.toDataURL('image/png', 0.5); // Lower quality for thumbnail
-      }
-
-      // Update sheet with thumbnail
-      if (thumbnailUrl) {
-        await imaginationApi.updateSheet(sheet.id, {
-          thumbnail_url: thumbnailUrl
-        });
-      }
-
       // Calculate price
       const price = calculateSheetPrice(sheet.print_type as PrintType, sheet.sheet_height);
       const preset = presets ? presets[sheet.print_type as PrintType] : { name: sheet.print_type };
+
+      // Use the GCS thumbnail URL from the saved project row
+      const previewUrl = gcsThumbnailUrl || '/placeholder-imagination-sheet.png';
 
       // Create a Product-like object for the cart
       const imaginationSheetProduct: Product = {
@@ -1129,7 +1119,7 @@ const ImaginationStation: React.FC = () => {
         description: `${preset.name} Imagination Sheet - ${sheet.sheet_width}" x ${sheet.sheet_height}" with ${layers.length} design${layers.length !== 1 ? 's' : ''}`,
         price: price,
         category: 'dtf-transfers',
-        images: [thumbnailUrl || '/placeholder-imagination-sheet.png'],
+        images: [previewUrl],
         inStock: true,
         metadata: {
           sheetId: sheet.id,
@@ -1142,10 +1132,7 @@ const ImaginationStation: React.FC = () => {
         }
       };
 
-      // Add to cart with design data. printReadyUrl (5th arg, "customDesign")
-      // flows through to order_items.metadata.custom_design — see
-      // backend/routes/stripe.ts:124 and backend/routes/orders.ts:67/179/205 —
-      // so production gets the real 300 DPI file, not the on-screen thumbnail.
+      // Add to cart with design data. We strip elements and canvasSnapshot to keep the shape clean and minimal.
       addToCart(
         imaginationSheetProduct,
         1,
@@ -1153,10 +1140,10 @@ const ImaginationStation: React.FC = () => {
         undefined, // no color selection
         printReadyUrl, // print-ready 300 DPI GCS URL (undefined for text/shape-only sheets)
         {
-          elements: layers,
+          elements: [], // Strip elements array
           template: 'imagination-sheet',
-          mockupUrl: thumbnailUrl,
-          canvasSnapshot: JSON.stringify(canvasState),
+          mockupUrl: gcsThumbnailUrl || '',
+          canvasSnapshot: undefined, // Strip canvas snapshot
           printReadyUrl,
         }
       );
@@ -1944,6 +1931,7 @@ const ImaginationStation: React.FC = () => {
 
       setSaveStatus('saved');
       lastAutosaveRef.current = Date.now();
+      return saveResult;
     } catch (error) {
       console.error('Failed to save:', error);
       setSaveStatus('unsaved');
