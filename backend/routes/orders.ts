@@ -32,8 +32,7 @@ router.get('/status/:orderId', async (req: Request, res: Response): Promise<any>
         id, order_number, status, payment_status, fulfillment_status,
         subtotal, tax_amount, shipping_amount, discount_amount, total, currency,
         customer_name, customer_email, tracking_number, tracking_company,
-        estimated_delivery, shipped_at, delivered_at, created_at, metadata,
-        order_items ( product_name, quantity, price, total, image_url, variations )
+        estimated_delivery, shipped_at, delivered_at, created_at, metadata
       `)
       .eq('id', orderId)
       .single()
@@ -41,6 +40,40 @@ router.get('/status/:orderId', async (req: Request, res: Response): Promise<any>
     if (error || !order) {
       return res.status(404).json({ error: 'Order not found' })
     }
+
+    // order_items has no price/total/image_url/variations columns — those
+    // live as unit_price/subtotal/metadata.{image_url,size,color}. Fetched
+    // separately (matching /my and /:orderId below) rather than embedded, so
+    // a bad join can't 400 the whole lookup. Orders written before the
+    // order_items table existed fall back to the orders.metadata.items
+    // snapshot, same as every other order-reading route in this file.
+    const { data: itemRows } = await supabase
+      .from('order_items')
+      .select('product_name, quantity, unit_price, subtotal, metadata')
+      .eq('order_id', orderId)
+
+    const items = (itemRows && itemRows.length > 0)
+      ? itemRows.map((item: any) => {
+          const snap = (item.metadata && typeof item.metadata === 'object') ? item.metadata : {}
+          return {
+            product_name: item.product_name,
+            quantity: item.quantity,
+            price: item.unit_price ?? 0,
+            total: item.subtotal ?? ((item.unit_price ?? 0) * (item.quantity || 1)),
+            image_url: snap.image_url || null,
+            variations: (snap.size || snap.color) ? { size: snap.size, color: snap.color } : undefined
+          }
+        })
+      : ((order.metadata as any)?.items || []).map((item: any) => ({
+          product_name: item.product?.name || item.name || 'Product',
+          quantity: item.quantity || 1,
+          price: item.product?.price ?? item.price ?? 0,
+          total: (item.product?.price ?? item.price ?? 0) * (item.quantity || 1),
+          image_url: item.product?.images?.[0] || item.image || item.imageUrl || item.image_url || null,
+          variations: (item.size || item.selectedSize || item.color || item.selectedColor)
+            ? { size: item.size ?? item.selectedSize, color: item.color ?? item.selectedColor }
+            : undefined
+        }))
 
     const tracking = order.tracking_number
       ? resolveCarrier(order.tracking_number, order.tracking_company)
@@ -74,7 +107,7 @@ router.get('/status/:orderId', async (req: Request, res: Response): Promise<any>
         delivered_at: order.delivered_at,
         created_at: order.created_at,
         print: (order.metadata as any)?.print || null,
-        items: order.order_items || []
+        items
       }
     })
   } catch (error: any) {
