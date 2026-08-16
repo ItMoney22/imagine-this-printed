@@ -45,6 +45,7 @@ import adminDesignLibraryRouter from './routes/admin/design-library.js'
 import adminMonitorRouter from './routes/admin/monitor.js'
 import adminEtsyRouter from './routes/admin/etsy.js'
 import adminTrendScoutRouter from './routes/admin/trend-scout.js'
+import mediaRouter from './routes/media.js'
 import seoRouter from './routes/seo.js'
 import socialOutboxRouter from './routes/social-outbox.js'
 import couponsRouter from './routes/coupons.js'
@@ -231,6 +232,7 @@ app.use('/api/admin/design-library', adminDesignLibraryRouter) // imported desig
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth connect + product posting (draft-first)
 app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task
+app.use('/api/media', mediaRouter) // permanent asset URLs — signs private GCS objects per request so stored URLs never expire
 app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
 app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)
 app.use('/api/coupons', couponsRouter)

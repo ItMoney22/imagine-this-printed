@@ -5,6 +5,12 @@
 // OPENAI_VISION_MODEL (detail:low — pennies per design), and creates catalogued
 // DRAFT products (status flips per collection via --activate after review).
 //
+// Every image is stored as a permanent /api/media/<gcs-path> URL (routes/media.ts
+// signs it per request) — NOT a 365-day signed URL, which would 403 the whole
+// catalog a year after import. The .ai/.svg/.eps originals are uploaded beside
+// the PNG so metadata.source_files is reachable off David's machine, and pixel
+// dimensions + DPI are recorded so nothing low-res gets catalogued as printable.
+//
 // Idempotent: each design carries metadata.import_key = its path under
 // DESIGN_ROOT minus the ".png" ("Gaming/controller", "8. Fishing/Fishing (50
 // Designs)/bass"); re-runs skip anything already imported. The scan is
@@ -13,16 +19,24 @@
 // Usage (from backend/, reads backend/.env):
 //   node scripts/import-designs.mjs --dir Gaming --limit 2      # smoke test
 //   node scripts/import-designs.mjs --all                       # full run
+//   node scripts/import-designs.mjs --all --include-psd         # + layered PSDs (~11 GB)
+//   node scripts/import-designs.mjs --all --no-sources          # PNGs only, skip originals
 //   node scripts/import-designs.mjs --activate Gaming           # go live
 //   node scripts/import-designs.mjs --status                    # counts
 // ---------------------------------------------------------------------------
-import 'dotenv/config'
+// override:true for the same reason load-env.ts does it — an OS-level
+// SUPABASE_SERVICE_ROLE_KEY (David's vault loader exports one) otherwise wins
+// over backend/.env and the whole run dies on "Invalid API key".
+import dotenv from 'dotenv'
+dotenv.config({ override: true })
+
 import fs from 'node:fs'
 import path from 'node:path'
 import { Storage } from '@google-cloud/storage'
 import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
 import { planImports, groupByCollection } from './lib/design-scan.mjs'
+import { stableMediaUrl, readImageStats, uploadSources } from './lib/design-media.mjs'
 
 const DESIGN_ROOT = process.env.DESIGN_LIBRARY_ROOT ||
   'E:\\Business\\Imagine-This-Printed\\Imagine This Printed (Designs)'
@@ -30,6 +44,9 @@ const PRICE = Number(process.env.IMPORT_PRICE || 24.99)
 const SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL']
 const COLORS = ['Black', 'White']
 const CONCURRENCY = 3
+// Anything bigger than this is left on disk with a note in metadata rather than
+// stalling a 2,700-design run on one giant PSD.
+const SOURCE_MAX_BYTES = Number(process.env.IMPORT_SOURCE_MAX_MB || 300) * 1024 * 1024
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const storage = new Storage({
@@ -116,9 +133,19 @@ async function nameDesign(pngPath, collection) {
 
 async function uploadPng(pngPath, dest) {
   const file = bucket.file(dest)
-  await file.save(fs.readFileSync(pngPath), { contentType: 'image/png', resumable: false })
-  const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 365 * 24 * 60 * 60 * 1000 })
-  return { publicUrl: signedUrl, path: dest }
+  const buffer = fs.readFileSync(pngPath)
+  await file.save(buffer, {
+    contentType: 'image/png',
+    resumable: false,
+    metadata: { cacheControl: 'public, max-age=31536000, immutable' }
+  })
+  // Permanent address. The signature is minted per request by routes/media.ts,
+  // so this URL keeps working long after any signed URL would have expired.
+  const image = await readImageStats(buffer).catch(err => {
+    console.error(`  [dims] could not measure ${path.basename(pngPath)}: ${err.message}`)
+    return null
+  })
+  return { publicUrl: stableMediaUrl(dest), path: dest, image }
 }
 
 async function loadExisting() {
@@ -170,10 +197,24 @@ async function importDesign(design, existing, stats) {
     uploadPng(pngPath, `design-library/${collectionSlug}/${storageId}.png`)
   ])
 
-  const sourceFiles = {}
-  for (const ext of ['ai', 'svg', 'psd', 'jpg']) {
-    const p = path.join(dirPath, `${designId}.${ext}`)
-    if (fs.existsSync(p)) sourceFiles[ext] = p
+  // Originals go to GCS too — recording the E:\ path made metadata.source_files
+  // useless to anyone but the machine that ran the import.
+  let sourceFiles = {}
+  let sourcesSkipped = []
+  if (!flag('no-sources')) {
+    try {
+      const uploadedSources = await uploadSources(bucket, {
+        dirPath,
+        designId,
+        collectionSlug,
+        includePsd: flag('include-psd'),
+        maxBytes: SOURCE_MAX_BYTES
+      })
+      sourceFiles = uploadedSources.sourceFiles
+      sourcesSkipped = uploadedSources.skipped
+    } catch (err) {
+      console.error(`  [sources] upload failed for ${importKey}: ${err.message}`)
+    }
   }
 
   const slug = uniqueSlug(slugify(named.title), existing.slugs)
@@ -198,7 +239,10 @@ async function importDesign(design, existing, stats) {
         design_id: designId,
         gcs_path: uploaded.path,
         source_files: sourceFiles,
+        ...(sourcesSkipped.length ? { source_files_skipped: sourcesSkipped } : {}),
+        image: uploaded.image,
         ai_tags: named.tags,
+        media_version: 2,
         imported_at: new Date().toISOString()
       }
     })
@@ -261,7 +305,11 @@ async function run() {
     return
   }
 
+  const sourceMode = flag('no-sources')
+    ? 'skipped'
+    : flag('include-psd') ? 'vectors + PSD' : 'vectors + jpg (PSD skipped, pass --include-psd)'
   console.log(`Importing ${plan.length} new design(s) from ${byCollection.size} collection(s)${limit ? ` (limit ${limit}/collection)` : ''} — price $${PRICE}, status draft`)
+  console.log(`Image URLs: permanent ${stableMediaUrl('design-library')}/<collection>/<design>.png · original sources: ${sourceMode}`)
 
   const stats = { imported: 0, skipped: 0, failed: 0 }
   const started = Date.now()
