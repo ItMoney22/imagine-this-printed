@@ -176,6 +176,25 @@ Windows (PowerShell):
 
 Or use any secure random string generator online.
 
+### Rate Limiting & Proxy (Optional — sane defaults)
+
+All optional. Defaults are set in `backend/middleware/rate-limits.ts`; full
+rationale in [SECURITY_HARDENING.md](SECURITY_HARDENING.md#backend-api-hardening).
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TRUST_PROXY_HOPS` | Number of reverse-proxy hops in front of the API. Makes `req.ip` the real client address, which the limiters key on. Must be a hop **count** — never `true`, or `X-Forwarded-For` becomes spoofable. Production is Cloudflare -> Render's edge -> this process = **2** hops; set explicitly in Render's env rather than relying on the code fallback. | `2` |
+| `RATE_LIMIT_ENABLED` | Set to `false` to bypass every limiter (kill switch; boot log warns when set). | `true` |
+| `RATE_LIMIT_GLOBAL_MAX` | Requests per IP per 15 min across the API. | `1000` |
+| `RATE_LIMIT_AUTH_MAX` | Requests per IP per 15 min on `/api/auth`, `/api/account`. | `60` |
+| `RATE_LIMIT_ADMIN_MAX` | Requests per IP per 5 min on `/api/admin/*`. | `300` |
+| `RATE_LIMIT_AI_MAX` | Non-GET requests per IP per 10 min on the paid-inference routes. | `60` |
+| `RATE_LIMIT_CODE_CHECK_MAX` | Requests per IP per 10 min on `/api/coupons`, `/api/gift-cards`. | `40` |
+| `RATE_LIMIT_PUBLIC_WRITE_MAX` | Non-GET requests per IP per 10 min on `/api/support`, `/api/community`. | `30` |
+
+Webhooks (`/api/stripe/webhook`, `/api/webhooks`, `/api/email/webhooks`,
+`/api/ai/replicate`), `/api/health` and `/api/print-bridge` are never throttled.
+
 ### Payment Processing - Stripe (Optional but Recommended)
 
 | Variable | Description | Example | Required |
