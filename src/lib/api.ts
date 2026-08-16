@@ -756,3 +756,85 @@ export const adminApi = {
 };
 
 
+
+// ---------------------------------------------------------------------------
+// Buyer-side virtual try-on (Watchtower task 3b362203).
+//
+// `generate` posts multipart/form-data, so it can't ride apiFetch — that helper
+// forces `Content-Type: application/json`, which strips the multipart boundary
+// and the server then sees an empty body.
+// ---------------------------------------------------------------------------
+export interface TryOnConfig {
+  enabled: boolean
+  reason?: string
+  dailyFreeCap: number
+  freeUsedToday?: boolean
+  freeRemainingToday?: number
+  usageDate?: string
+  timezone?: string
+  itcBalance?: number
+  tiers?: {
+    standard: { label: string; itcCost: number; poses: number }
+    premium: { label: string; itcCost: number; poses: number }
+  }
+}
+
+export interface TryOnResult {
+  tryonId: string | null
+  images: string[]
+  imageUrl: string
+  usedFree: boolean
+  itcCharged: number
+  itcBalance: number
+  tier: string
+  latencyMs: number
+}
+
+export const tryonApi = {
+  /** Public — safe to call signed out, so the card knows whether to render. */
+  isEnabled: (): Promise<{ enabled: boolean; dailyFreeCap: number }> =>
+    apiFetch('/api/tryon/enabled'),
+
+  getConfig: (): Promise<TryOnConfig> => apiFetch('/api/tryon/config'),
+
+  async generate(opts: {
+    photo: File
+    productId: string
+    tier: 'standard' | 'premium'
+    garmentImageIndex: number
+  }): Promise<TryOnResult> {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const form = new FormData()
+    form.append('photo', opts.photo)
+    form.append('productId', opts.productId)
+    form.append('tier', opts.tier)
+    form.append('garmentImageIndex', String(opts.garmentImageIndex))
+
+    const res = await fetch(`${API_BASE}/api/tryon/generate`, {
+      method: 'POST',
+      // No Content-Type header on purpose — the browser sets the multipart
+      // boundary itself.
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form
+    })
+
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`)
+    return json as TryOnResult
+  },
+
+  /** Instrumentation. Never allowed to break the page, so failures are swallowed. */
+  track: (payload: {
+    eventType: 'tryon_card_viewed' | 'add_to_cart'
+    productId?: string
+    tryonId?: string | null
+    secondsSinceTryon?: number
+  }): Promise<unknown> =>
+    apiFetch('/api/tryon/events', { method: 'POST', body: JSON.stringify(payload) }).catch(() => null),
+
+  remove: (id: string) => apiFetch(`/api/tryon/${id}`, { method: 'DELETE' }),
+
+  getAnalytics: (days = 30) => apiFetch(`/api/tryon/analytics?days=${days}`)
+}
