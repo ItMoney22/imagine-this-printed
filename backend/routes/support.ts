@@ -106,6 +106,7 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       .from('support_tickets')
       .insert({
         user_id: user_id || null,
+        email: email || null,
         subject,
         description: `Name: ${name || 'Not provided'}\n\n${description}${order_id ? `\n\nOrder ID: ${order_id}` : ''}`,
         category,

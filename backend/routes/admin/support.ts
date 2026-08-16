@@ -103,6 +103,55 @@ const createNotification = async (
 }
 
 /**
+ * Helper to resolve the email address of a ticket submitter,
+ * prioritizing the `email` column, then the user's profile,
+ * and finally parsing the first message for legacy guest tickets.
+ */
+const resolveTicketEmail = async (ticket: any): Promise<string | null> => {
+    if (ticket?.email && ticket.email.toLowerCase() !== 'anonymous@customer.com') {
+        return ticket.email
+    }
+
+    if (ticket?.user_id) {
+        const { data: userProfile } = await supabase
+            .from('user_profiles')
+            .select('email')
+            .eq('id', ticket.user_id)
+            .single()
+        if (userProfile?.email && userProfile.email.toLowerCase() !== 'anonymous@customer.com') {
+            return userProfile.email
+        }
+    }
+
+    // Try parsing the first message
+    const { data: firstMessage } = await supabase
+        .from('ticket_messages')
+        .select('message')
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+    if (firstMessage?.message) {
+        const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+        const matches = firstMessage.message.match(emailRegex)
+        if (matches && matches.length > 0) {
+            const validMatch = matches.find((email: string) => email.toLowerCase() !== 'anonymous@customer.com')
+            if (validMatch) {
+                // Backfill the email column on the ticket so future requests find it directly
+                await supabase
+                    .from('support_tickets')
+                    .update({ email: validMatch })
+                    .eq('id', ticket.id)
+                return validMatch
+            }
+        }
+    }
+
+    return null
+}
+
+/**
  * Check if any agent is online (from database)
  */
 export const checkAgentAvailability = async (): Promise<{ available: boolean; count: number }> => {
@@ -277,15 +326,28 @@ router.post('/tickets/:id/reply', requireSupportAccess, async (req: Request, res
             .eq('id', id)
             .single()
 
-        // Fetch user email separately
-        let ticket: any = ticketData
-        if (ticketData?.user_id) {
-            const { data: userProfile } = await supabase
+        if (!ticketData) {
+            res.status(404).json({ error: 'Ticket not found' })
+            return
+        }
+
+        const resolvedEmail = await resolveTicketEmail(ticketData)
+
+        // Fetch user profile separately if user_id exists
+        let userProfile: any = null
+        if (ticketData.user_id) {
+            const { data: profile } = await supabase
                 .from('user_profiles')
                 .select('email, first_name')
                 .eq('id', ticketData.user_id)
                 .single()
-            ticket = { ...ticketData, email: userProfile?.email, user: userProfile }
+            userProfile = profile
+        }
+
+        const ticket = {
+            ...ticketData,
+            email: resolvedEmail,
+            user: userProfile
         }
 
         // 3. Update ticket status if provided
@@ -304,9 +366,17 @@ router.post('/tickets/:id/reply', requireSupportAccess, async (req: Request, res
         }
 
         // 4. Send email notification to customer (only for non-internal messages)
-        if (!isInternal && ticket?.email) {
-            const agentName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Support Team'
-            await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName)
+        if (!isInternal) {
+            if (ticket?.email) {
+                const agentName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Support Team'
+                await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName)
+            } else {
+                res.json({
+                    message,
+                    warning: 'No deliverable email address found. The reply has been logged internally, but no email notification was sent.'
+                })
+                return
+            }
         }
 
         res.json({ message })
@@ -871,7 +941,8 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
         )
 
         // Send escalation email to support team
-        await sendTicketEscalationEmail(id, ticket.subject, ticket.email)
+        const resolvedEmail = await resolveTicketEmail(ticket)
+        await sendTicketEscalationEmail(id, ticket.subject, resolvedEmail || 'No Email')
 
         console.log(`[Escalation] Ticket ${id.slice(0, 8)} escalated - customer waiting for live chat`)
         res.json({ success: true, escalated: true })
