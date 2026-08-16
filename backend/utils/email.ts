@@ -10,6 +10,8 @@
 
 import { sendViaResend } from '../services/email-resend.js'
 import { getSuppression } from '../services/email-suppression.js'
+import { resolveCarrier } from './carrier-tracking.js'
+import { buildOrderStatusUrl } from './order-status-token.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -804,6 +806,76 @@ interface OrderItem {
   price: number
 }
 
+/**
+ * Extra order context every status email now accepts.
+ * `orderId` is the primary-key UUID — never shown to the customer, only used to
+ * mint the tokenized guest order-status link.
+ */
+export interface OrderEmailOptions {
+  orderId?: string
+  customerName?: string
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * What we actually print as "Order Number".
+ * Callers should pass orders.order_number (e.g. ITP-20260726-0042). If a legacy
+ * caller still hands us a raw UUID we degrade to the old 8-char slice rather
+ * than dumping a 36-character key into the subject line.
+ */
+function displayOrderNumber(orderNumber?: string | null, orderId?: string | null): string {
+  const candidate = (orderNumber || '').trim()
+  if (candidate && !UUID_RE.test(candidate)) return candidate
+  const fallback = candidate || (orderId || '').trim()
+  return fallback ? fallback.slice(0, 8).toUpperCase() : 'YOUR ORDER'
+}
+
+/**
+ * Greeting name. orders.customer_name is "First Last"; a first name reads far
+ * warmer in a greeting than the full legal name off the shipping label.
+ */
+function greetingName(customerName?: string | null): string {
+  const first = (customerName || '').trim().split(/\s+/)[0]
+  if (!first || first.length > 40) return 'Creative Friend'
+  // Guard against an email address landing in the name column.
+  if (first.includes('@')) return 'Creative Friend'
+  return first
+}
+
+/** Escape untrusted order/customer values before interpolating into HTML. */
+function esc(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/**
+ * Tracking block with a real, carrier-specific deep link.
+ * Renders nothing when there's no tracking number yet.
+ */
+function trackingBlockHtml(trackingNumber?: string | null, carrier?: string | null): string {
+  if (!trackingNumber) return ''
+  const info = resolveCarrier(trackingNumber, carrier)
+  return `
+        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
+          <h3 style="color: #374151; margin-top: 0;">Tracking Information</h3>
+          <div style="background: #f9fafb; border-radius: 8px; padding: 15px;">
+            <p style="color: #6b7280; margin: 0 0 5px 0;">Carrier: <strong>${esc(info.name)}</strong></p>
+            <p style="color: #6b7280; margin: 0;">Tracking Number:
+              <a href="${esc(info.trackingUrl)}" style="color: #4f46e5; font-weight: bold; text-decoration: underline;">${esc(trackingNumber)}</a>
+            </p>
+          </div>
+          <div style="text-align: center; margin-top: 18px;">
+            <a href="${esc(info.trackingUrl)}" style="display: inline-block; background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 14px;">
+              Track with ${esc(info.name)}
+            </a>
+          </div>
+        </div>`
+}
+
 // Try to import AI email service (may fail if not available)
 let generateAIEmail: any = null
 try {
@@ -824,19 +896,25 @@ try {
  */
 export const sendOrderConfirmationEmail = async (
   email: string,
-  orderId: string,
+  orderNumber: string,
   items: OrderItem[],
   total: number,
-  customerName?: string
+  customerName?: string,
+  options: OrderEmailOptions = {}
 ): Promise<boolean> => {
+  const orderRef = displayOrderNumber(orderNumber, options.orderId)
+  const name = greetingName(customerName || options.customerName)
+  const statusUrl = buildOrderStatusUrl(options.orderId)
+
   // Try AI-powered email first
   if (AI_EMAIL_ENABLED && generateAIEmail) {
     try {
       const aiEmail = await generateAIEmail({
         templateKey: 'order_confirmation',
         customerEmail: email,
-        customerName: customerName || 'Creative Friend',
-        orderNumber: orderId,
+        customerName: name,
+        orderNumber: orderRef,
+        orderId: options.orderId,
         items,
         total
       })
@@ -864,7 +942,7 @@ export const sendOrderConfirmationEmail = async (
 
   return sendEmail({
     to: email,
-    subject: `🎉 Order Confirmed - ${orderId.slice(0, 8).toUpperCase()}`,
+    subject: `🎉 Order Confirmed - ${orderRef}`,
     htmlContent: `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <!-- Mr. Imagine Header -->
@@ -876,7 +954,7 @@ export const sendOrderConfirmationEmail = async (
 
         <div style="background: white; padding: 25px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
           <p style="color: #7c3aed; font-size: 16px; font-weight: 600; margin: 0 0 15px;">
-            Hey there, creative soul! 👋
+            Hey ${esc(name)}! 👋
           </p>
 
           <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
@@ -886,7 +964,7 @@ export const sendOrderConfirmationEmail = async (
 
           <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 12px; padding: 15px; margin-bottom: 20px; text-align: center;">
             <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px; text-transform: uppercase; letter-spacing: 1px;">Order Number</p>
-            <p style="color: #7c3aed; font-size: 22px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+            <p style="color: #7c3aed; font-size: 22px; font-weight: bold; margin: 0;">${esc(orderRef)}</p>
           </div>
 
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
@@ -918,9 +996,10 @@ export const sendOrderConfirmationEmail = async (
           </div>
 
           <div style="text-align: center; margin: 25px 0;">
-            <a href="${FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);">
+            <a href="${esc(statusUrl)}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);">
               Track My Order
             </a>
+            <p style="color: #9ca3af; font-size: 12px; margin: 10px 0 0;">No account needed — this link is just for you.</p>
           </div>
 
           <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px;">
@@ -946,33 +1025,34 @@ export const sendOrderConfirmationEmail = async (
  */
 export const sendOrderShippedEmail = async (
   email: string,
-  orderId: string,
+  orderNumber: string,
   trackingNumber?: string,
-  carrier?: string
+  carrier?: string,
+  options: OrderEmailOptions = {}
 ): Promise<boolean> => {
+  const orderRef = displayOrderNumber(orderNumber, options.orderId)
+  const name = greetingName(options.customerName)
+  const statusUrl = buildOrderStatusUrl(options.orderId)
+
   return sendEmail({
     to: email,
-    subject: `📦 Your Order Has Shipped! - ${orderId}`,
+    subject: `📦 Your Order Has Shipped! - ${orderRef}`,
     htmlContent: `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
           <h1 style="color: #7c3aed; margin: 0;">Your Order is On Its Way! 📦</h1>
         </div>
 
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+          Hey ${esc(name)} — great news, your order just left our shop!
+        </p>
+
         <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
           <p style="color: #3730a3; font-size: 14px; margin: 0 0 10px 0;">Order Number</p>
-          <p style="color: #4f46e5; font-size: 24px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+          <p style="color: #4f46e5; font-size: 24px; font-weight: bold; margin: 0;">${esc(orderRef)}</p>
         </div>
 
-        ${trackingNumber ? `
-        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
-          <h3 style="color: #374151; margin-top: 0;">Tracking Information</h3>
-          <div style="background: #f9fafb; border-radius: 8px; padding: 15px;">
-            <p style="color: #6b7280; margin: 0 0 5px 0;">Carrier: <strong>${carrier || 'Standard Shipping'}</strong></p>
-            <p style="color: #6b7280; margin: 0;">Tracking Number: <strong>${trackingNumber}</strong></p>
-          </div>
-        </div>
-        ` : ''}
+        ${trackingBlockHtml(trackingNumber, carrier)}
 
         <div style="background: #f9fafb; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
           <h4 style="color: #374151; margin: 0 0 10px 0;">Estimated Delivery</h4>
@@ -982,9 +1062,10 @@ export const sendOrderShippedEmail = async (
         </div>
 
         <div style="text-align: center; margin: 30px 0;">
-          <a href="${FRONTEND_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            Track Your Order
+          <a href="${esc(statusUrl)}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            View Order Status
           </a>
+          <p style="color: #9ca3af; font-size: 12px; margin: 10px 0 0;">No account needed — this link is just for you.</p>
         </div>
 
         <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
@@ -1003,20 +1084,29 @@ export const sendOrderShippedEmail = async (
  */
 export const sendOrderDeliveredEmail = async (
   email: string,
-  orderId: string
+  orderNumber: string,
+  options: OrderEmailOptions = {}
 ): Promise<boolean> => {
+  const orderRef = displayOrderNumber(orderNumber, options.orderId)
+  const name = greetingName(options.customerName)
+  const statusUrl = buildOrderStatusUrl(options.orderId)
+
   return sendEmail({
     to: email,
-    subject: `✅ Your Order Has Been Delivered! - ${orderId}`,
+    subject: `✅ Your Order Has Been Delivered! - ${orderRef}`,
     htmlContent: `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
           <h1 style="color: #059669; margin: 0;">Delivered! ✅</h1>
         </div>
 
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+          Hey ${esc(name)} — it made it!
+        </p>
+
         <div style="background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px; text-align: center;">
           <p style="color: #065f46; font-size: 14px; margin: 0 0 10px 0;">Order Number</p>
-          <p style="color: #047857; font-size: 24px; font-weight: bold; margin: 0;">${orderId.slice(0, 8).toUpperCase()}</p>
+          <p style="color: #047857; font-size: 24px; font-weight: bold; margin: 0;">${esc(orderRef)}</p>
           <p style="color: #065f46; font-size: 16px; margin: 15px 0 0 0;">Your order has been delivered!</p>
         </div>
 
@@ -1036,6 +1126,9 @@ export const sendOrderDeliveredEmail = async (
           <a href="${FRONTEND_URL}/catalog" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
             Shop More Designs
           </a>
+          <p style="margin: 14px 0 0;">
+            <a href="${esc(statusUrl)}" style="color: #7c3aed; font-size: 13px; text-decoration: underline;">View order ${esc(orderRef)}</a>
+          </p>
         </div>
 
         <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">

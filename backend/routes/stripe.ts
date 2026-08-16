@@ -1735,14 +1735,32 @@ router.patch('/orders/:orderId/status', requireAuth, requireRole(['admin', 'mana
     // Send appropriate email based on status change — only on an ACTUAL
     // transition. Without this guard, re-PATCHing 'shipped' on an
     // already-shipped order re-mailed the customer "your order has shipped"
-    // every single time.
+    // every single time. Identify the order by its friendly order_number and
+    // address the buyer by name; orderId rides in the options so the CTA can
+    // be a tokenized guest status link. Tracking falls back to what's already
+    // stored when this status update didn't carry new tracking info.
     if (isRealTransition && order.customer_email) {
+      const emailOptions = {
+        orderId,
+        customerName:
+          order.customer_name ||
+          [order.shipping_address?.firstName, order.shipping_address?.lastName].filter(Boolean).join(' ') ||
+          undefined
+      }
+      const orderRef = order.order_number || orderId
+
       try {
         if (status === 'shipped') {
-          await sendOrderShippedEmail(order.customer_email, orderId, trackingNumber, carrier)
+          await sendOrderShippedEmail(
+            order.customer_email,
+            orderRef,
+            trackingNumber || order.tracking_number || undefined,
+            carrier || order.tracking_company || undefined,
+            emailOptions
+          )
           req.log?.info({ orderId, email: order.customer_email }, 'Shipped notification email sent')
         } else if (status === 'delivered') {
-          await sendOrderDeliveredEmail(order.customer_email, orderId)
+          await sendOrderDeliveredEmail(order.customer_email, orderRef, emailOptions)
           req.log?.info({ orderId, email: order.customer_email }, 'Delivered notification email sent')
         }
       } catch (emailError) {

@@ -1,5 +1,7 @@
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
+import { resolveCarrier } from '../utils/carrier-tracking.js'
+import { buildOrderStatusUrl } from '../utils/order-status-token.js'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -40,7 +42,10 @@ interface EmailContext {
   templateKey: string
   customerName?: string
   customerEmail: string
+  /** Human-readable orders.order_number — this is what the customer sees. */
   orderNumber?: string
+  /** orders.id (uuid) — never rendered; used to mint the guest order-status link. */
+  orderId?: string
   items?: Array<{ name: string; quantity: number; price: number }>
   total?: number
   trackingNumber?: string
@@ -248,10 +253,20 @@ function buildMrImagineEmail(options: {
     </table>
   ` : ''
 
-  const trackingHtml = options.trackingNumber ? `
+  // Carrier-specific deep link so the tracking number is clickable, not just text.
+  const tracking = options.trackingNumber
+    ? resolveCarrier(options.trackingNumber, options.carrier)
+    : null
+
+  const trackingHtml = options.trackingNumber && tracking ? `
     <div style="background: #f9fafb; border-radius: 8px; padding: 15px; margin: 20px 0;">
-      <p style="color: #6b7280; margin: 0 0 5px 0;">Carrier: <strong>${options.carrier || 'Standard Shipping'}</strong></p>
-      <p style="color: #6b7280; margin: 0;">Tracking Number: <strong>${options.trackingNumber}</strong></p>
+      <p style="color: #6b7280; margin: 0 0 5px 0;">Carrier: <strong>${tracking.name}</strong></p>
+      <p style="color: #6b7280; margin: 0;">Tracking Number:
+        <a href="${tracking.trackingUrl}" style="color: #4f46e5; font-weight: bold; text-decoration: underline;">${options.trackingNumber}</a>
+      </p>
+      <p style="margin: 12px 0 0;">
+        <a href="${tracking.trackingUrl}" style="display: inline-block; background: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px;">Track with ${tracking.name}</a>
+      </p>
     </div>
   ` : ''
 
@@ -286,7 +301,7 @@ function buildMrImagineEmail(options: {
           ${options.orderNumber ? `
             <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 12px; padding: 20px; margin: 25px 0; text-align: center;">
               <p style="color: #6b7280; font-size: 12px; margin: 0 0 5px; text-transform: uppercase; letter-spacing: 1px;">Order Number</p>
-              <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${options.orderNumber.slice(0, 8).toUpperCase()}</p>
+              <p style="color: #7c3aed; font-size: 24px; font-weight: bold; margin: 0;">${options.orderNumber}</p>
             </div>
           ` : ''}
 
@@ -351,10 +366,15 @@ function getCtaText(templateKey: string): string {
  * Get CTA URL based on template and context
  */
 function getCtaUrl(templateKey: string, context: EmailContext): string {
+  // Order CTAs go to the tokenized guest status page — /orders is the ADMIN
+  // OrderManagement screen, and /account/orders needs a login, so neither works
+  // for a guest buyer clicking through from their inbox.
+  const orderStatusUrl = buildOrderStatusUrl(context.orderId)
+
   const urls: Record<string, string> = {
-    order_confirmation: `${FRONTEND_URL}/orders`,
+    order_confirmation: orderStatusUrl,
     welcome: `${FRONTEND_URL}/create-design`,
-    order_shipped: `${FRONTEND_URL}/orders`,
+    order_shipped: orderStatusUrl,
     order_delivered: `${FRONTEND_URL}/catalog`,
     design_approved: context.productId ? `${FRONTEND_URL}/products/${context.productId}` : `${FRONTEND_URL}/my-products`,
     ticket_confirmation: FRONTEND_URL,
@@ -367,10 +387,14 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
  * Generate fallback email when AI is unavailable
  */
 function generateFallbackEmail(context: EmailContext): GeneratedEmail {
+  // First name off orders.customer_name; falls back to the old generic address.
+  const first = (context.customerName || '').trim().split(/\s+/)[0]
+  const who = first && !first.includes('@') && first.length <= 40 ? first : 'creative soul'
+
   const fallbacks: Record<string, { subject: string; greeting: string; content: string }> = {
     order_confirmation: {
       subject: `🎉 Order Confirmed - ${context.orderNumber || 'Your Order'}`,
-      greeting: 'Hey there, creative soul!',
+      greeting: `Hey ${who}!`,
       content: `<p>Great news! Your order has been confirmed and we're getting started on it right away.</p>
         <p>We can't wait to see your creation come to life!</p>`
     },
@@ -382,7 +406,7 @@ function generateFallbackEmail(context: EmailContext): GeneratedEmail {
     },
     order_shipped: {
       subject: `📦 Your Order Has Shipped! - ${context.orderNumber || ''}`,
-      greeting: 'Woohoo! Your creation is on its way!',
+      greeting: `Woohoo ${who} — your creation is on its way!`,
       content: `<p>Your order has left our workshop and is heading your way!</p>
         <p>We can't wait for you to see it in person.</p>`
     },
