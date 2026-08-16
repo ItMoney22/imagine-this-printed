@@ -21,6 +21,7 @@ import {
 } from '../services/stripe-connect.js'
 import { ITC_TO_USD_RATE } from '../config/itc-pricing.js'
 import { validateCouponForOrder, recordCouponUsage } from './coupons.js'
+import { sanitizeAttribution } from '../services/order-attribution.js'
 
 const router = Router()
 
@@ -852,8 +853,10 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
       couponCode,
       shippingMethod,
       shippingType,
-      pickupAppointment
+      pickupAppointment,
+      attribution
     } = req.body
+    const sanitizedAttribution = sanitizeAttribution(attribution)
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
@@ -958,6 +961,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
           country: shipping?.country || 'US'
         },
         discount_codes: couponCode ? [couponCode] : [],
+        attribution: sanitizedAttribution,
         metadata: {
           items: items.map((item: any) => ({
             id: item.id,

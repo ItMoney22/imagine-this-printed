@@ -7,6 +7,20 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-16 — social_outbox.scheduled_for + orders.attribution applied (Iahhm, task ba470233)
+
+Applied LIVE to prod, directly via `pg` against the ITP pooler (each inside its
+own `BEGIN`, verified against `information_schema`/`pg_indexes` after, then
+`COMMIT`). Not tracked in `schema_migrations` (same as most of this repo).
+
+- `20260728_social_outbox_scheduled_for.sql` — was **PENDING since 2026-07-28**
+  and the deployed `main` branch's `/bridge/next` had queried the column
+  unconditionally since commit `c3f4d41` — a live outage (every bridge poll
+  one PostgREST 42703 away from failing) that this audit found and fixed
+  before it was reported.
+- `20260816_orders_attribution.sql` (NEW file, same session) — adds
+  `orders.attribution JSONB` + a GIN index for the checkout-UTM-capture work.
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
