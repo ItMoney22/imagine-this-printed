@@ -1,33 +1,44 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Watchtower task `4a1aecb9-58c9-4b6e-8138-c76a7d5ff958`: merge Shippo server-side label purchase commit `a2f069c` onto current `main`, resolve the `OrderManagement.tsx` architecture conflict, deploy to staging, and smoke-test mock mode without spending money.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Scouted `a2f069c`, current dispatch `HEAD`, and `origin/main`; the dispatch branch is stale, while `origin/main` contains the prior label-persistence merge but not the server-side purchase commit.
+- Confirmed the merge hotspot: current `OrderManagement.tsx` purchases via `src/utils/shippo.ts` then PATCHes persistence; target architecture replaces both with one backend POST.
+- Confirmed both shipping-label migrations are additive and idempotent; the earlier migration also creates a partial index.
+- Prepared the implementation, verification, staging, and no-real-spend requirements in `CLAUDE_TASK.md`.
+- No application code, git history, deployment, database, or external service state was changed in this scout run.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `src/pages/OrderManagement.tsx`
+- `backend/routes/orders.ts`
+- `backend/routes/shipping.ts`
+- `src/utils/shippo.ts`
+- `supabase/migrations/20260726_order_shipping_label.sql`
+- `supabase/migrations/20260727_orders_shipping_label_url.sql` from `a2f069c`
+- `package.json`
+- `backend/package.json`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `.env.example`
+- `backend/.env.example`
+- `backend/routes/orders.ts`
+- `backend/routes/shipping.ts`
+- `docs/ENV_VARIABLES.md`
+- `docs/archive/VERCEL_ENV_SETUP.md`
+- `docs/site-audit-findings.md`
+- `src/pages/OrderManagement.tsx`
+- `src/utils/shippo.ts` (delete)
+- `supabase/migrations/20260727_orders_shipping_label_url.sql`
+- No unrelated repo implementation files. Real Shippo purchases remain blocked pending approval `ff472d92-7f43-4d97-813f-e13a30ae99d7`.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
@@ -262,6 +273,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-08-16 (Codex Shippo server-side purchase scout, task 4a1aecb9): Compared `a2f069c` with stale dispatch `HEAD` and current `origin/main`; identified the exact Order Management/orders-route reconciliation, the signed-quote preservation requirement, safe duplicate migration behavior, staging mock checks, and the no-real-spend boundary. Overwrote `CLAUDE_TASK.md` and refreshed only the current scope/status in `TASK_NOTES.md`; no implementation, git, deployment, database, or external state changes were made.
 - 2026-08-06 (Codex Etsy email image correction): Resent the full August 6 report from `mrimagine@imaginethisprinted.com` with four CID-embedded screenshots and the same four PNG attachments. Verified four inline attachments in Resend and four received images with stored URLs in `wecare@imaginethisprinted.com`. Updated `weekly-etsy-shop-review` to require and verify all four images on future runs. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-06 (Codex weekly Etsy review): Captured fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Verified no meaningful change since 2026-07-30: six active listings, all $17.50 at 30% off, and zero sales/reviews/admirers; the same real-product, size-chart, gallery, banner/icon, section, and AI-wording gaps remain. Sent the report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` and verified both Sent and recipient records. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-07-26 (Iahhm, task d402a271, follow-up) Live negative-test (PR #3, deliberate TS error) exposed that root `npm run typecheck` (`tsc --noEmit`) checks ZERO files — root tsconfig.json is solution-style (`"files": []` + references), so the script passed on broken code while the `build` job (`tsc -b`) correctly failed and BLOCKED the merge. Fixed `package.json` typecheck → `tsc -b --noEmit` (verified: catches the planted TS2322, exits 0 on clean tree). PR #3 closed + branch deleted after proving merge state BLOCKED. Also: this box's pre-provisioned root node_modules was incomplete (missing @aws-sdk/client-s3) — false local failures; fresh `npm ci` in CI is authoritative and green.
