@@ -182,7 +182,9 @@ export function useMrImagineVoice({ getState, onAction, onStatePatch }: Options)
   }, [sendTurn])
 
   useEffect(() => () => {
-    recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop()
+    if (recorderRef.current?.state !== 'inactive') {
+      recorderRef.current?.stop()
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop())
     const el = audioRef.current
     if (el) { el.pause(); el.src = '' }
