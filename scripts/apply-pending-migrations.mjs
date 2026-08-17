@@ -187,6 +187,19 @@ const PLAN = [
       )
       return { applied: rows[0].n === 0, detail: rows[0].n === 0 ? 'anon table read revoked' : 'anon still has SELECT grant' }
     }
+  },
+  {
+    id: 'lock-creator-metadata',
+    file: 'supabase/migrations/20260816_lock_creator_metadata.sql',
+    title: 'Prevent users from self-granting creator status/royalties in metadata',
+    why: 'The user_profiles UPDATE policy has no WITH CHECK on metadata, so any user could set metadata.creator = true and royalty_percent = 100.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(
+        `SELECT 1 FROM pg_trigger WHERE tgname = 'enforce_user_profile_metadata_immutable_trigger' AND NOT tgisinternal`
+      )
+      return { applied: rows.length > 0, detail: rows.length ? 'trigger present' : 'trigger absent' }
+    }
   }
 ]
 

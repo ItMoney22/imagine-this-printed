@@ -7,6 +7,12 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-16 — creator metadata locked (Zero Nine)
+
+Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (verified in-transaction).
+
+- `20260816_lock_creator_metadata.sql` — BEFORE INSERT OR UPDATE trigger `enforce_user_profile_metadata_immutable_trigger` on `public.user_profiles` which blocks non-service-role changes to privileged creator metadata keys (`creator`, `creator_royalty_percent`, and `royalty_percent`).
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
@@ -155,6 +161,7 @@ treat as a lead, not a fact, until someone runs the actual query.
 | `20260727_imagination_layers_allow_shape.sql` | APPLIED | `imagination_layers` table live (specific column not isolated, but table-level presence is a strong signal — this file only alters an existing table). |
 | `20260728_fix_get_user_role_ambiguity.sql` | **NOT YET APPLIED — fixes a live-broken function** | Added by a concurrent agent in this session. Verified live: `public.get_user_role(uuid)` currently raises `ERROR: column reference "user_id" is ambiguous` on **every call** — `user_profiles` has both `id` and a drifted `user_id` column, and the original `005_rls_fixes.sql` body (`WHERE id = user_id`) can't tell them apart. This file qualifies every reference (`up.id`, `up.role`, `get_user_role.user_id`) without dropping/renaming the function (a rename or `DROP FUNCTION` would cascade into every RLS policy that calls it). Confirmed correct by direct read. **This is the single highest-priority migration in this ledger** — every RLS policy in this repo that calls `get_user_role()` (there are ~15+) is silently broken until this applies. |
 | `20260728120000_orders_staff_write_access.sql` | **NOT YET APPLIED — new, added by this audit** | See "manager order-write" section below. |
+| `20260816_lock_creator_metadata.sql` | APPLIED | `enforce_user_profile_metadata_immutable_trigger` present on `public.user_profiles`. Blocks non-service-role changes to creator keys. |
 
 ## `migrations/` (root, legacy) — file-by-file status
 
