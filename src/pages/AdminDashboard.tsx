@@ -3,7 +3,7 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
+import api, { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
@@ -184,6 +184,7 @@ const AdminDashboard: React.FC = () => {
   const [showItcModal, setShowItcModal] = useState(false)
   const [itcUser, setItcUser] = useState<User | null>(null)
   const [itcAmount, setItcAmount] = useState<number>(0)
+  const [itcReason, setItcReason] = useState('')
 
   // Handle size toggle
   const toggleSize = (size: string) => {
@@ -1660,45 +1661,33 @@ const AdminDashboard: React.FC = () => {
   const handleGrantItc = async () => {
     if (!itcUser || itcAmount === 0) return
 
-    try {
-      // Fetch current wallet first
-      const { data: wallet } = await supabase
-        .from('user_wallets')
-        .select('*')
-        .eq('user_id', itcUser.id)
-        .single()
+    if (itcReason.trim().length < 10) {
+      toast.warning('Reason required', 'Enter a reason of at least 10 characters for this ITC adjustment.')
+      return
+    }
 
-      if (!wallet) {
-        toast.warning('No wallet', 'User has no wallet initialized yet.')
-        return
+    try {
+      // Service-role endpoint only — user_wallets has no client-writable UPDATE
+      // policy since the self-mint fix (20260810_lock_wallet_balance.sql).
+      const endpoint = itcAmount > 0 ? '/api/admin/wallet/credit' : '/api/admin/wallet/debit'
+      const { data } = await api.post(endpoint, {
+        userId: itcUser.id,
+        amount: Math.abs(itcAmount),
+        reason: itcReason.trim()
+      })
+
+      if (!data?.ok) {
+        throw new Error(data?.error || 'ITC adjustment failed')
       }
 
-      const newBalance = (wallet.itc_balance || 0) + itcAmount
-
-      const { error } = await supabase
-        .from('user_wallets')
-        .update({ itc_balance: newBalance })
-        .eq('user_id', itcUser.id)
-
-      if (error) throw error
-
+      const newBalance = data.wallet?.itc_balance ?? data.transaction?.balanceAfter ?? itcUser.itcBalance
       setUsers(users.map(u => u.id === itcUser.id ? { ...u, itcBalance: newBalance } : u))
-
-      // Audit log
-      await supabase.from('audit_logs').insert({
-        user_id: user?.id || 'admin',
-        action: 'GRANT_ITC',
-        entity: 'UserWallet',
-        entity_id: itcUser.id,
-        changes: { amount: itcAmount, previous_balance: wallet.itc_balance, new_balance: newBalance },
-        ip_address: '192.168.1.100',
-        user_agent: navigator.userAgent
-      })
 
       setShowItcModal(false)
       setItcAmount(0)
+      setItcReason('')
       setItcUser(null)
-      toast.success('ITC balance updated')
+      toast.success('ITC balance updated', `New balance: ${newBalance} ITC`)
     } catch (error: any) {
       console.error('Error granting ITC:', error)
       toast.error('Failed to update ITC', error.message)
@@ -2151,6 +2140,7 @@ const AdminDashboard: React.FC = () => {
                           onClick={() => {
                             setItcUser(user)
                             setItcAmount(0)
+                            setItcReason('')
                             setShowItcModal(true)
                           }}
                           className="text-emerald-600 hover:text-emerald-700 hover:underline"
@@ -4144,7 +4134,7 @@ const AdminDashboard: React.FC = () => {
               <p className="text-slate-600 mb-4">
                 Adjust ITC balance for <span className="font-semibold">{itcUser.firstName} {itcUser.lastName}</span>
               </p>
-              <div className="mb-6">
+              <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-700 mb-2">Amount (use negative to revoke)</label>
                 <input
                   type="number"
@@ -4153,6 +4143,16 @@ const AdminDashboard: React.FC = () => {
                   className="w-full border border-slate-300 rounded-xl px-4 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <p className="text-xs text-slate-500 mt-2">Current Balance: <span className="font-medium text-purple-600">{itcUser.itcBalance} ITC</span></p>
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Reason (min. 10 characters)</label>
+                <textarea
+                  value={itcReason}
+                  onChange={(e) => setItcReason(e.target.value)}
+                  rows={2}
+                  placeholder="Why is this balance being adjusted?"
+                  className="w-full border border-slate-300 rounded-xl px-4 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
               </div>
               <div className="flex justify-end gap-3">
                 <button
@@ -4163,7 +4163,8 @@ const AdminDashboard: React.FC = () => {
                 </button>
                 <button
                   onClick={handleGrantItc}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-md shadow-purple-500/20"
+                  disabled={itcReason.trim().length < 10 || itcAmount === 0}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-md shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Update Balance
                 </button>
