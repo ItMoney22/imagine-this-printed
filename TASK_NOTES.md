@@ -1,5 +1,63 @@
 # TASK_NOTES
-## Current request
+## Current request (2026-08-17, Zero Nine — Watchtower `9ec9444a`)
+- Implement a QA gate that reviews every design PRESENTATION before it can go live,
+  bounces failures back to the responsible agent with actionable feedback, and keeps
+  an auditable submission history. Pairs with the Etsy scout (`12d1c31d`) and the
+  daily designer (`f95ad58d`) agents, neither of which exists in the repo yet.
+
+## Current status
+- Shipped. Full contract in `docs/DESIGN_QA_GATE.md`.
+- Six criteria: mockup quality, design placement, typography, SEO, pricing sanity,
+  image sharpness. Blocking findings fail; warnings never block.
+- Image thresholds were CALIBRATED, not guessed — `backend/scripts/calibrate-qa-sharpness.ts`
+  measured 40 live listing images (sharpness median 909, worst real 186) against a blur
+  ladder (sigma 2.5 -> 78) and an upscale ladder (200px blown to 2000px -> 97). The floor
+  sits at 120, in the empty band between them. That calibration run also exposed a real
+  bug in the metric: sharp's `.greyscale()` on an RGBA source emits grey+alpha, so a crisp
+  transparent PNG was scoring as blurry. Fixed with `.flatten()` plus a channel assert.
+- Enforced at all three go-live paths: storefront activate, Etsy queue, Etsy publish, and
+  the Etsy worker (which reviews an unreviewed row in place rather than rejecting it).
+- A pass is fingerprinted to the presentation that earned it, so editing the title, tags,
+  price or photos after passing goes `stale` and demands a fresh review.
+- Migration `20260817120000_design_qa_gate.sql` is APPLIED LIVE to prod (additive only —
+  see `supabase/migrations/MIGRATION_LEDGER.md`). Prod is ahead of `main` until this
+  branch merges; the table is inert without the code.
+- Verified: 65 unit tests green, backend + frontend typecheck clean (only pre-existing
+  errors in untouched files), and `backend/scripts/qa-gate-e2e-check.ts` ALL CHECKS PASSED
+  against the live database (submit, resubmit, gate refusal, freshness, override, restore).
+  The six scaffold rows it wrote were deleted afterwards.
+- Live dry-run found REAL defects on active listings: a mockup whose artwork was redrawn
+  with different text and a purple bowl instead of an orange pumpkin, another with the
+  print cropped and garbled sign text, and descriptions running 242-282 chars against a
+  300 floor. 0/4 sampled listings would pass as they stand — the honest state of the
+  presentation, which is the problem this gate was asked to catch.
+- Two false positives the live run exposed were fixed before shipping: Etsy's 20-char tag
+  limit was being applied to storefront keywords, and metal wall art was being judged as a
+  garment print ("shown on a wall canvas instead of printed on a chest garment").
+
+### File shortlist (approved scope — 2026-08-17 QA gate)
+- `supabase/migrations/20260817120000_design_qa_gate.sql` (new)
+- `supabase/migrations/MIGRATION_LEDGER.md` (apply record)
+- `backend/services/image-metrics.ts` (new — measured resolution + Laplacian sharpness)
+- `backend/services/presentation-qa.ts` (new — the six criteria)
+- `backend/services/design-qa-gate.ts` (new — persistence, stamping, enforcement)
+- `backend/services/presentation-qa.test.ts`, `backend/services/design-qa-gate.test.ts` (new)
+- `backend/services/mockup-qa.ts` (one additive exemption for non-garment products)
+- `backend/routes/admin/design-qa.ts` (new — submit/rework/history/summary/override)
+- `backend/middleware/requireQaActor.ts` (new — admin session OR agent token)
+- `backend/routes/admin/design-library.ts`, `backend/routes/admin/etsy.ts`,
+  `backend/worker/etsy-jobs-worker.ts`, `backend/index.ts` (enforcement + mount)
+- `backend/scripts/calibrate-qa-sharpness.ts`, `qa-gate-dry-run.ts`, `qa-gate-e2e-check.ts` (new)
+- `src/components/DesignQaPanel.tsx` (new), `src/components/AdminDesignLibrary.tsx`
+- `docs/DESIGN_QA_GATE.md` (new), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-08-17 — QA gate shipped end to end and proven against the live database; two live
+  false positives fixed; migration applied; 65 tests green.
+
+---
+
+## Previous request (weekly Etsy report screenshots — historical)
 - Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
 
 ## Current status

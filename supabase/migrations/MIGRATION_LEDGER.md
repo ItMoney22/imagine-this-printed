@@ -7,6 +7,25 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-17 — design QA gate applied (Zero Nine, Watchtower `9ec9444a`)
+
+- `20260817120000_design_qa_gate.sql` — **APPLIED LIVE** 2026-08-17. Creates
+  `design_qa_reviews` (the presentation QA audit trail) plus
+  `next_design_qa_submission_no()`, and enables RLS on the new table only.
+  Purely additive: no existing table, policy, grant or row was touched.
+  Verified after apply with a live `information_schema.columns` +
+  `pg_policies` read (14 columns, 1 SELECT policy) and then end-to-end via
+  `backend/scripts/qa-gate-e2e-check.ts` — submit, resubmit, gate refusal,
+  freshness, override, all green. The six scaffold rows that check created were
+  deleted afterwards; the table is empty and the sample product's metadata was
+  restored.
+- Applied via the pg-script path, so NOT tracked in `schema_migrations` (like
+  most of this repo).
+- **Prod is ahead of `main` until branch
+  `earth/zero-nine/itp-implement-qa-gate-fo-9ec9444a-msxqu4j7` merges.** The
+  table is inert without that code — nothing reads or writes it — so the
+  ordering is safe either way, but the merge must not be forgotten.
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified

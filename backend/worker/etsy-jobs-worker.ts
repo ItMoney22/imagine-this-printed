@@ -19,6 +19,7 @@
 import { supabase } from '../lib/supabase.js'
 import { publishProductToEtsy, isEtsyEnabled } from '../services/etsy.js'
 import { runCopyrightGate } from '../services/etsy-copyright-gate.js'
+import { checkGate, submitForQa } from '../services/design-qa-gate.js'
 import { notifyChristina } from '../services/etsy-notify.js'
 import { claimOnce, type ClaimOutcome } from '../lib/webhook-helpers.js'
 import { type EtsyTier, etsyTierConfig, isEtsyTier } from '../shared/etsy-tiers.js'
@@ -143,6 +144,33 @@ async function processOne(rowId: string, productId: string, tier: EtsyTier = 'pr
       .eq('id', rowId)
     await notifyChristina({ productName: p.name, productId, outcome: 'blocked', gateReasons: gate.reasons })
     console.log(`[etsy-worker] BLOCKED ${productId}: ${gate.reasons.join('; ')}`)
+    return
+  }
+
+  // Presentation QA gate (Watchtower 9ec9444a). The queue endpoint already
+  // checks this, but the worker is the LAST thing between a design and a live
+  // Etsy listing, and rows also reach it by requeue and by direct DB insert.
+  //
+  // A design that has never been reviewed is reviewed HERE rather than
+  // rejected: a queued row is an explicit instruction to post this design, and
+  // "you forgot to click QA first" is a worse outcome than just running it. A
+  // design that has already FAILED is not re-run — the designer has to actually
+  // change something, which is the point of the loop.
+  let qa = await checkGate(productId, 'etsy')
+  if (!qa.allowed && qa.code === 'never_reviewed') {
+    console.log(`[etsy-worker] ${productId} has no QA review — running the gate now`)
+    const submission = await submitForQa({ productId, channel: 'etsy', submittedBy: 'etsy-worker' })
+    qa = { allowed: submission.verdict.status === 'passed', code: submission.verdict.status === 'passed' ? 'passed' : 'failed', reason: submission.stamp.failures[0] ?? 'passed', stamp: submission.stamp }
+  }
+
+  if (!qa.allowed) {
+    const reasons = qa.stamp?.failures?.length ? qa.stamp.failures : [qa.reason]
+    await supabase
+      .from('etsy_listings')
+      .update({ state: 'blocked', last_error: `QA gate: ${reasons.join(' | ')}`.slice(0, 500), updated_at: new Date().toISOString() })
+      .eq('id', rowId)
+    await notifyChristina({ productName: p.name, productId, outcome: 'blocked', gateReasons: reasons })
+    console.log(`[etsy-worker] QA BLOCKED ${productId}: ${reasons.join('; ')}`)
     return
   }
 

@@ -72,10 +72,21 @@ const COVERAGE_RULE: Record<string, string> = {
     'both a small front print and a large back print are CORRECT. Do not fail it for either.',
 }
 
-/** An all-over print was explicitly asked for — coverage must not be judged. */
+/**
+ * Coverage must not be judged. Two cases:
+ *   - an all-over print was explicitly asked for;
+ *   - the product is not a printed garment at all ('not-applicable'), e.g. a
+ *     metal wall panel. Judging "how much of the garment does the print cover"
+ *     on a wall panel produced a live false failure — the checker reported the
+ *     artwork was "shown on a wall canvas instead of printed on a chest
+ *     garment", which is a description of the product, not a defect.
+ */
 export function coverageIsExempt(placement?: string | null): boolean {
   const p = String(placement ?? '').toLowerCase()
-  return p.includes('all-over') || p.includes('all_over') || p.includes('full-print') || p.includes('fullprint')
+  return (
+    p.includes('all-over') || p.includes('all_over') || p.includes('full-print') || p.includes('fullprint') ||
+    p === 'not-applicable'
+  )
 }
 
 function coverageRuleFor(placement?: string | null, sizeInches?: number | null): string {

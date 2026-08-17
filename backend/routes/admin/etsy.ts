@@ -18,6 +18,7 @@ import {
 import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-composer.js'
 import { startModelShots, reshootModelShot, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
+import { checkGate } from '../../services/design-qa-gate.js'
 import { supabase } from '../../lib/supabase.js'
 import { type EtsyTier, isEtsyTier, tiersForCategory } from '../../shared/etsy-tiers.js'
 
@@ -61,6 +62,18 @@ router.post('/queue/:productId', async (req: Request, res: Response) => {
       .eq('id', productId)
       .maybeSingle()
     if (!product) return res.status(404).json({ error: 'Product not found' })
+
+    // Presentation QA gate (Watchtower 9ec9444a) — refuse at the QUEUE, not at
+    // the worker, so the admin finds out here instead of watching the row go
+    // 'blocked' minutes later with no panel context.
+    const qa = await checkGate(productId, 'etsy')
+    if (!qa.allowed) {
+      return res.status(422).json({
+        error: `Presentation QA gate: ${qa.reason}`,
+        qa_gate: { code: qa.code, stamp: qa.stamp },
+        next_step: `POST /api/admin/design-qa/submit/${productId} with { "channel": "etsy" }`
+      })
+    }
 
     const allowed = tiersForCategory(product.category)
     const requested: EtsyTier[] = Array.isArray(req.body?.tiers) && req.body.tiers.length
@@ -356,6 +369,19 @@ router.post('/publish/:productId', async (req: Request, res: Response) => {
   try {
     const { productId } = req.params
     const { taxonomyId, shippingProfileId, returnPolicyId, quantity, publish, priceOverride } = req.body || {}
+
+    // The direct publish path bypasses the queue, so it needs the same gate —
+    // otherwise "post it now" is a documented way around QA.
+    const qa = await checkGate(productId, 'etsy')
+    if (!qa.allowed) {
+      return res.status(422).json({
+        ok: false,
+        error: `Presentation QA gate: ${qa.reason}`,
+        qa_gate: { code: qa.code, stamp: qa.stamp },
+        next_step: `POST /api/admin/design-qa/submit/${productId} with { "channel": "etsy" }`
+      })
+    }
+
     const result = await publishProductToEtsy(productId, {
       taxonomyId: taxonomyId ? Number(taxonomyId) : undefined,
       shippingProfileId: shippingProfileId ? Number(shippingProfileId) : undefined,

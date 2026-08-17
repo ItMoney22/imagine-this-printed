@@ -42,6 +42,7 @@ import adminCouponsRouter from './routes/admin/coupons.js'
 import adminGiftCardsRouter from './routes/admin/gift-cards.js'
 import adminInventoryRouter from './routes/admin/inventory.js'
 import adminDesignLibraryRouter from './routes/admin/design-library.js'
+import adminDesignQaRouter from './routes/admin/design-qa.js'
 import adminMonitorRouter from './routes/admin/monitor.js'
 import adminEtsyRouter from './routes/admin/etsy.js'
 import adminTrendScoutRouter from './routes/admin/trend-scout.js'
@@ -278,6 +279,7 @@ app.use('/api/admin/coupons', adminCouponsRouter)
 app.use('/api/admin/gift-cards', adminGiftCardsRouter)
 app.use('/api/admin/inventory', adminInventoryRouter) // blank-shirt inventory + low-stock alerts
 app.use('/api/admin/design-library', adminDesignLibraryRouter) // imported design bundle: collections + bulk activate
+app.use('/api/admin/design-qa', adminDesignQaRouter) // presentation QA gate: submit/resubmit, rework queue, audit trail
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth connect + product posting (draft-first)
 app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task

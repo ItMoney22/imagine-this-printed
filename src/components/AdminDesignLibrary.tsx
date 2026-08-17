@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt, AlertTriangle, Unlock } from 'lucide-react'
+import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt, AlertTriangle, Unlock, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
 import api, { aiProducts } from '../lib/api'
+import DesignQaPanel from './DesignQaPanel'
 
 interface Collection {
   name: string
@@ -23,6 +24,16 @@ interface PrintCheck {
   min_dpi: number
 }
 
+// The presentation QA verdict, also computed server-side — see
+// backend/services/design-qa-gate.ts. Same rule as PrintCheck above: no
+// threshold or pass/fail logic lives in this file, so the badge can never
+// disagree with the endpoint that actually blocks activation.
+interface QaGateState {
+  allowed: boolean
+  code: 'passed' | 'overridden' | 'never_reviewed' | 'failed' | 'stale'
+  reason: string
+}
+
 interface LibraryProduct {
   id: string
   name: string
@@ -32,6 +43,7 @@ interface LibraryProduct {
   images: string[]
   print_check?: PrintCheck
   quarantine?: { reason?: string; released_at?: string; override_reason?: string } | null
+  qa_gate?: QaGateState
   can_activate?: boolean
 }
 
@@ -40,6 +52,17 @@ interface BlockedDesign {
   name: string | null
   reason: string
   code: string
+  gate?: 'print' | 'presentation'
+}
+
+// Badge copy per gate state. `stale` is its own state on purpose: "you changed
+// the listing after it passed" is a different instruction than "it failed".
+const QA_BADGE: Record<QaGateState['code'], { label: string; className: string; Icon: typeof ShieldCheck }> = {
+  passed: { label: 'QA PASSED', className: 'bg-emerald-100 text-emerald-700', Icon: ShieldCheck },
+  overridden: { label: 'QA OVERRIDDEN', className: 'bg-amber-100 text-amber-800', Icon: Unlock },
+  failed: { label: 'QA FAILED', className: 'bg-red-100 text-red-700', Icon: ShieldAlert },
+  stale: { label: 'CHANGED SINCE QA', className: 'bg-amber-100 text-amber-800', Icon: ShieldAlert },
+  never_reviewed: { label: 'NEEDS QA', className: 'bg-slate-100 text-slate-600', Icon: ShieldQuestion }
 }
 
 export default function AdminDesignLibrary() {
@@ -57,6 +80,8 @@ export default function AdminDesignLibrary() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [blocked, setBlocked] = useState<BlockedDesign[]>([])
+  const [qaTarget, setQaTarget] = useState<LibraryProduct | null>(null)
+  const [qaRun, setQaRun] = useState<{ done: number; total: number } | null>(null)
 
   const flash = (msg: string) => {
     setNotice(msg)
@@ -64,7 +89,10 @@ export default function AdminDesignLibrary() {
   }
 
   const blockedProducts = products.filter(p => p.can_activate === false)
-  const checkedBlocked = blockedProducts.filter(p => checked.has(p.id))
+  // Quarantine release only ever answers the PRINT block. A design held by the
+  // presentation gate is released from the QA panel instead, where the reason
+  // and the findings are both visible.
+  const checkedBlocked = products.filter(p => checked.has(p.id) && p.print_check?.ok === false)
 
   const fetchCollections = async () => {
     try {
@@ -181,6 +209,37 @@ export default function AdminDesignLibrary() {
     flash(`Mockup jobs queued for ${ids.length - failed} design(s)${failed ? ` (${failed} failed to queue)` : ''}. The worker renders them over the next while — images attach automatically.`)
   }
 
+  // Bulk QA. Sequential and server-side batched (the endpoint caps at 50 per
+  // call) because each review makes vision calls on the same key the render
+  // pipeline uses — firing a whole collection at once would rate-limit both.
+  const runQa = async () => {
+    const ids = [...checked]
+    if (!ids.length || !selected) return
+    if (!window.confirm(
+      `Run the presentation QA gate on ${ids.length} design(s)? Each review reads the mockups and the listing copy, ` +
+      'and costs a couple of vision calls per design.'
+    )) return
+    setQaRun({ done: 0, total: ids.length })
+    setError(null)
+    let passed = 0
+    let failed = 0
+    try {
+      for (let i = 0; i < ids.length; i += 50) {
+        const batch = ids.slice(i, i + 50)
+        const response = await api.post('/api/admin/design-qa/submit', { product_ids: batch, channel: 'storefront' })
+        passed += response.data.passed || 0
+        failed += response.data.failed || 0
+        setQaRun({ done: Math.min(ids.length, i + batch.length), total: ids.length })
+      }
+      flash(`QA complete: ${passed} passed, ${failed} failed. Open a design's QA badge to see what to fix.`)
+      fetchProducts(selected, statusFilter, offset)
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'QA review failed')
+    } finally {
+      setQaRun(null)
+    }
+  }
+
   const toggle = (id: string) => {
     setChecked(prev => {
       const next = new Set(prev)
@@ -233,12 +292,18 @@ export default function AdminDesignLibrary() {
           <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-2">
               <AlertTriangle className="w-4 h-4" />
-              {blocked.length} design(s) held back — too low-resolution to print
+              {blocked.length} design(s) held back from going live
             </div>
             <ul className="space-y-1 max-h-40 overflow-y-auto">
               {blocked.map(b => (
                 <li key={b.id} className="text-xs text-red-700">
-                  <span className="font-medium">{b.name || b.id}</span> — {b.reason}
+                  <span className="font-medium">{b.name || b.id}</span>
+                  {b.gate && (
+                    <span className="ml-1.5 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold uppercase">
+                      {b.gate === 'print' ? 'print quality' : 'presentation QA'}
+                    </span>
+                  )}
+                  {' — '}{b.reason}
                 </li>
               ))}
             </ul>
@@ -273,10 +338,16 @@ export default function AdminDesignLibrary() {
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
                       <CheckCircle className="w-4 h-4" /> Activate {checked.size}
                     </button>
-                    <button onClick={createMockups} disabled={busy || !!mockupRun}
+                    <button onClick={createMockups} disabled={busy || !!mockupRun || !!qaRun}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
                       <Shirt className="w-4 h-4" />
                       {mockupRun ? `Queueing ${mockupRun.done}/${mockupRun.total}…` : `Mockups for ${checked.size}`}
+                    </button>
+                    <button onClick={runQa} disabled={busy || !!mockupRun || !!qaRun}
+                      title="Run the presentation QA gate — mockups, placement, typography, copy, price, sharpness"
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 disabled:opacity-50">
+                      <ShieldCheck className="w-4 h-4" />
+                      {qaRun ? `Reviewing ${qaRun.done}/${qaRun.total}…` : `QA ${checked.size}`}
                     </button>
                     <button onClick={() => setStatus('draft', [...checked])} disabled={busy || !!mockupRun}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50">
@@ -319,13 +390,28 @@ export default function AdminDesignLibrary() {
                         {p.images?.[0] && <img src={p.images[0]} alt={p.name} loading="lazy" className="max-w-full max-h-full object-contain" />}
                       </div>
                       <div className="text-xs font-medium text-slate-800 truncate" title={p.name}>{p.name}</div>
-                      {p.can_activate === false && p.print_check && (
+                      {p.print_check?.ok === false && (
                         <div title={p.print_check.reason}
                           className="mt-1 flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
                           <AlertTriangle className="w-3 h-3 shrink-0" />
                           {p.print_check.code === 'unmeasured' ? 'NOT MEASURED' : 'TOO SMALL TO PRINT'}
                         </div>
                       )}
+                      {p.qa_gate && (() => {
+                        const badge = QA_BADGE[p.qa_gate.code]
+                        return (
+                          // A nested button, so the card's select-toggle has to be
+                          // stopped explicitly — clicking the badge opens the
+                          // review, it does not tick the checkbox.
+                          <span role="button" tabIndex={0}
+                            onClick={e => { e.stopPropagation(); setQaTarget(p) }}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setQaTarget(p) } }}
+                            title={`${p.qa_gate.reason} — click to open the QA review`}
+                            className={`mt-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer hover:brightness-95 ${badge.className}`}>
+                            <badge.Icon className="w-3 h-3 shrink-0" /> {badge.label}
+                          </span>
+                        )
+                      })()}
                       {p.quarantine?.released_at && (
                         <div title={`Override: ${p.quarantine.override_reason || ''}`}
                           className="mt-1 flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
@@ -363,6 +449,15 @@ export default function AdminDesignLibrary() {
           </>
         )}
       </div>
+
+      {qaTarget && (
+        <DesignQaPanel
+          productId={qaTarget.id}
+          productName={qaTarget.name}
+          onClose={() => setQaTarget(null)}
+          onChanged={() => selected && fetchProducts(selected, statusFilter, offset)}
+        />
+      )}
     </div>
   )
 }

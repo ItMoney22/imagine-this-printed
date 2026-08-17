@@ -15,20 +15,25 @@ import {
   minDpiFor,
   MIN_PRINT_INCHES
 } from '../../services/design-library-quality.js'
+import { partitionByQa, evaluateGate } from '../../services/design-qa-gate.js'
 
 const router = Router()
 
 // Rows carrying the fields the print-quality gate needs.
 const SELECT_FOR_GATE = 'id, name, status, metadata'
 
-/** What the admin grid needs to render a design's print verdict. */
+/** What the admin grid needs to render a design's print + presentation verdicts. */
 const annotate = (product: any) => {
   const verdict = canActivate(product.metadata)
+  const qa = evaluateGate(product.metadata, 'storefront')
   return {
     ...product,
     print_check: verdict.check,
     quarantine: product.metadata?.quarantine ?? null,
-    can_activate: verdict.allowed
+    qa_gate: { allowed: qa.allowed, code: qa.code, reason: qa.reason, stamp: qa.stamp },
+    // Both gates must pass. They are reported separately because the fixes are
+    // completely different: re-export the artwork bigger vs rewrite the listing.
+    can_activate: verdict.allowed && qa.allowed
   }
 }
 
@@ -130,7 +135,7 @@ router.post('/set-status', async (req: Request, res: Response) => {
       ).limit(1000)
       if (readError) throw readError
 
-      const { allowed, blocked } = partitionForActivation(candidates || [])
+      const { allowed: printOk, blocked } = partitionForActivation(candidates || [])
 
       // Stamp WHY on every held-back row so it is discoverable later instead of
       // the design just quietly never going live.
@@ -146,13 +151,26 @@ router.post('/set-status', async (req: Request, res: Response) => {
         if (stampError) console.error(`[design-library] quarantine stamp failed for ${row.id}:`, stampError.message)
       }
 
+      // SECOND GATE: presentation QA. A design can print beautifully and still
+      // be a listing nobody clicks — blurry mockups, an off-centre print,
+      // keyword-stuffed copy, a price with a slipped decimal. Watchtower task
+      // 9ec9444a: nothing goes live without passing this too. Reported as its
+      // own list because "re-export the art bigger" and "rewrite the listing"
+      // go to different people.
+      const { allowed, blocked: qaBlocked } = partitionByQa(printOk, 'storefront')
+
+      const heldBack = [
+        ...blocked.map(b => ({ id: b.id, name: b.name, reason: b.check.reason, code: b.check.code, gate: 'print' as const })),
+        ...qaBlocked.map(b => ({ id: b.id, name: b.name, reason: b.reason, code: b.code, gate: 'presentation' as const }))
+      ]
+
       if (!allowed.length) {
         return res.status(422).json({
-          error: blocked.length
-            ? `All ${blocked.length} design(s) are below print quality and were not activated.`
+          error: heldBack.length
+            ? `All ${heldBack.length} design(s) were held back — ${blocked.length} below print quality, ${qaBlocked.length} not through the presentation QA gate.`
             : 'Nothing to activate.',
           updated: 0,
-          blocked: blocked.map(b => ({ id: b.id, name: b.name, reason: b.check.reason, code: b.check.code }))
+          blocked: heldBack
         })
       }
 
@@ -163,13 +181,15 @@ router.post('/set-status', async (req: Request, res: Response) => {
         .select('id')
       if (error) throw error
 
+      const notes: string[] = ['Live.']
+      if (blocked.length) notes.push(`${blocked.length} held back as too low-resolution to print — see the red badge for why.`)
+      if (qaBlocked.length) notes.push(`${qaBlocked.length} held back by the presentation QA gate — run QA from the design's QA panel to see what to fix.`)
+      notes.push('SEO packs + TikTok outbox drafts generate on the worker within the hour.')
+
       return res.json({
         updated: data?.length ?? 0,
-        blocked: blocked.map(b => ({ id: b.id, name: b.name, reason: b.check.reason, code: b.check.code })),
-        note: blocked.length
-          ? `Live. ${blocked.length} design(s) held back as too low-resolution to print — see the red badge for why. ` +
-            'SEO packs + TikTok outbox drafts generate on the worker within the hour.'
-          : 'Live. SEO packs + TikTok outbox drafts generate on the worker within the hour.'
+        blocked: heldBack,
+        note: notes.join(' ')
       })
     }
 
