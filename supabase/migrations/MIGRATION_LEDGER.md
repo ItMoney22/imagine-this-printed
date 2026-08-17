@@ -7,6 +7,54 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-16 — admin_notifications type CHECK reconciled (Dr. Dill, task `ae9c62ac`)
+
+**APPLIED LIVE** via `scripts/apply-pending-migrations.mjs --apply
+--only=admin-notification-types`, verified in-transaction and re-confirmed
+against `pg_constraint` afterwards.
+
+- `20260816_admin_notifications_type_union.sql` — **APPLIED**. Sets
+  `admin_notifications_type_check` to the union of all ten types the code emits.
+
+**The bug it fixes is a whole class, not one migration.** A CHECK constraint
+cannot be extended in place, so four separate branches each did DROP + ADD with
+the *full* list restated from whatever they happened to see. Every file applies
+cleanly; the last writer silently deletes the others' types. Nothing catches it —
+not a merge conflict, not a failing migration, not a test.
+
+| file | added | silently dropped if applied today |
+|---|---|---|
+| `20260706000000_blank_inventory.sql` | low_stock, order_stalled, health_alert | payment_dispute, wholesale_application, new_order |
+| `20260727_refunds_and_disputes.sql` | payment_dispute | wholesale_application, new_order |
+| `20260728_wholesale_applications.sql` | wholesale_application | payment_dispute, new_order |
+| `20260807_admin_notifications_new_order.sql` | new_order | payment_dispute |
+
+Measured live **before** the fix, the constraint allowed exactly the 20260727
+list — so `20260727` was the last writer and **two** code paths had been
+inserting types the database rejected with `23514`, both swallowed by
+`try/catch`, both silent:
+
+- `backend/services/order-payment.ts:341` — `type:'new_order'` on **every paid
+  order**. The crew email sent; the admin bell row never existed. (The stated
+  bug in the task.)
+- `backend/routes/wholesale.ts:83` — `type:'wholesale_application'`. **Not in
+  the task brief; found by measuring instead of trusting the file.** The
+  `wholesale_applications` TABLE is also missing from prod, so that endpoint is
+  losing the whole lead, not just the alert. Tracked separately.
+
+**Do NOT apply `20260728_wholesale_applications.sql` or
+`20260807_admin_notifications_new_order.sql` for the type list** — the 20260816
+union migration supersedes both. Their CHECK blocks have been rewritten to the
+same union so a cold re-run can no longer destroy another branch's types, but
+they are redundant. `20260728` is still needed for its `wholesale_applications`
+table; apply that part only, and only after the union migration is live.
+
+**Adding a notification type from here on:** do not hand-write a fresh literal
+list. Copy the `DO` block in `20260816_admin_notifications_type_union.sql` and
+add your value to `required` — it unions the required list with the live
+constraint and with the values already in the table, so it can only ever add.
+`src/types/index.ts` → `AdminNotificationType` must be updated to match.
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
@@ -354,6 +402,14 @@ CONSTRAINT` silently removes `'payment_dispute'` as an allowed value. Whoever
 owns `refund_reward_reversal`/`refunds_and_disputes` needs to know the value
 they added will vanish unless one of these two files is updated to include
 both values in its `CHECK (type IN (...))`.
+
+> **RESOLVED 2026-08-16 (Dr. Dill, task `ae9c62ac`)** — Iahhm called this on
+> 2026-07-28 and it went unfixed for 19 days, during which a *third* and *fourth*
+> writer joined the pile-up and prod ran without `new_order` and
+> `wholesale_application`. Fixed by
+> `20260816_admin_notifications_type_union.sql` (applied live) plus defused CHECK
+> blocks in both files. See the 2026-08-16 section at the top of this ledger.
+> The prefix-collision half of the recommendation below still stands.
 
 **Recommendation for the coordinator**: route the prefix collisions back to
 whichever agents own `refunds_and_disputes`/`wholesale_applications` (constraint

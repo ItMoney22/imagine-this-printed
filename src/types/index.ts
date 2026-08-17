@@ -1628,9 +1628,29 @@ export interface ChatSession {
   };
 }
 
+/**
+ * Must stay in sync with the `admin_notifications_type_check` CHECK constraint —
+ * see supabase/migrations/20260816_admin_notifications_type_union.sql, which is
+ * the single place that list is reconciled. This union was stuck on the four
+ * original support types long after the backend started emitting low_stock /
+ * order_stalled / health_alert / payment_dispute / wholesale_application /
+ * new_order, so anything narrowing on `type` in the UI silently ignored them.
+ */
+export type AdminNotificationType =
+  | 'new_ticket'
+  | 'ticket_reply'
+  | 'ticket_escalation'
+  | 'agent_needed'
+  | 'low_stock'
+  | 'order_stalled'
+  | 'health_alert'
+  | 'payment_dispute'
+  | 'wholesale_application'
+  | 'new_order';
+
 export interface AdminNotification {
   id: string;
-  type: 'new_ticket' | 'ticket_reply' | 'ticket_escalation' | 'agent_needed';
+  type: AdminNotificationType;
   title: string;
   message?: string;
   ticket_id?: string;

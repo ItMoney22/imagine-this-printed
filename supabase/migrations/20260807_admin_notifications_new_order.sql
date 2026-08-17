@@ -26,11 +26,31 @@
 -- the paid order itself.
 -- ---------------------------------------------------------------------------
 
+-- ===========================================================================
+-- SUPERSEDED 2026-08-16 — DO NOT APPLY THIS FILE (Watchtower task ae9c62ac).
+--
+-- The list below was NOT additive after all. It was written against the
+-- wholesale branch's view of the world and never had 'payment_dispute', which
+-- 20260727_refunds_and_disputes.sql had meanwhile put live for chargeback
+-- alerts. Applying this file as originally written would have DROPPED
+-- 'payment_dispute' and silently killed every chargeback alert — a missed
+-- chargeback deadline is an automatic loss.
+--
+-- 'new_order' now reaches production through
+-- `20260816_admin_notifications_type_union.sql`, which computes the union of
+-- the required list, the live constraint, and the values already in the table,
+-- so it cannot drop anything.
+--
+-- The list here has been widened to that same union so that a cold re-run of
+-- this file is no longer destructive. It is still redundant — apply the
+-- 20260816 union migration instead.
+-- ===========================================================================
 ALTER TABLE public.admin_notifications DROP CONSTRAINT IF EXISTS admin_notifications_type_check;
 ALTER TABLE public.admin_notifications ADD CONSTRAINT admin_notifications_type_check
   CHECK (type IN (
     'new_ticket', 'ticket_reply', 'ticket_escalation', 'agent_needed',
     'low_stock', 'order_stalled', 'health_alert',
+    'payment_dispute',
     'wholesale_application',
     'new_order'
   ));

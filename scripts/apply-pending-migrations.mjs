@@ -187,6 +187,32 @@ const PLAN = [
       )
       return { applied: rows[0].n === 0, detail: rows[0].n === 0 ? 'anon table read revoked' : 'anon still has SELECT grant' }
     }
+  },
+  {
+    id: 'admin-notification-types',
+    file: 'supabase/migrations/20260816_admin_notifications_type_union.sql',
+    title: 'Reconcile admin_notifications_type_check to the union of every type the code emits',
+    why: "Four branches each rewrote the whole CHECK list; the last writer (20260727 refunds/disputes) left prod without 'new_order' or 'wholesale_application', so order-payment.ts and wholesale.ts have been inserting bell rows the DB rejects with 23514 (swallowed by try/catch — email sends, bell stays empty). Purely additive: the migration unions the required list with the live constraint and the values already in the table.",
+    requires: [],
+    check: async (c) => {
+      const REQUIRED = [
+        'new_ticket', 'ticket_reply', 'ticket_escalation', 'agent_needed',
+        'low_stock', 'order_stalled', 'health_alert',
+        'payment_dispute', 'wholesale_application', 'new_order'
+      ]
+      const { rows } = await c.query(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+          WHERE conrelid = 'public.admin_notifications'::regclass
+            AND conname  = 'admin_notifications_type_check'`
+      )
+      if (!rows.length) return { applied: false, detail: 'type CHECK constraint is absent entirely' }
+      const allowed = [...rows[0].def.matchAll(/'([a-zA-Z0-9_]+)'::/g)].map(m => m[1])
+      const missing = REQUIRED.filter(t => !allowed.includes(t))
+      return {
+        applied: missing.length === 0,
+        detail: missing.length ? `CHECK is missing: ${missing.join(', ')}` : `all ${REQUIRED.length} types allowed`
+      }
+    }
   }
 ]
 

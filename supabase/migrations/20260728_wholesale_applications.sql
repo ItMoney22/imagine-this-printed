@@ -43,12 +43,28 @@ DROP POLICY IF EXISTS "Service role full access to wholesale applications" ON pu
 CREATE POLICY "Service role full access to wholesale applications" ON public.wholesale_applications
   FOR ALL USING (auth.role() = 'service_role');
 
--- Extend the notification-type CHECK so a new wholesale application shows up
--- in the same admin_notifications feed as support tickets / low-stock alerts.
+-- ===========================================================================
+-- 2026-08-16 (Watchtower task ae9c62ac) — this block is DEFUSED, not deleted.
+--
+-- As originally written it rewrote the whole type list from the wholesale
+-- branch's point of view, so applying it TODAY would have dropped
+-- 'payment_dispute' (chargeback alerts, live since 20260727) and 'new_order'.
+-- The list is now the full union, so a cold run of this file can no longer
+-- destroy another branch's types.
+--
+-- It is also redundant: `20260816_admin_notifications_type_union.sql` owns the
+-- type list now and computes it as a union instead of restating a literal.
+-- The part of THIS file that production still needs is the
+-- `wholesale_applications` TABLE above — it is missing from prod, which is why
+-- POST /api/wholesale/apply currently drops every inbound wholesale lead. That
+-- is tracked separately; do not apply this file just for the CHECK.
+-- ===========================================================================
 ALTER TABLE public.admin_notifications DROP CONSTRAINT IF EXISTS admin_notifications_type_check;
 ALTER TABLE public.admin_notifications ADD CONSTRAINT admin_notifications_type_check
   CHECK (type IN (
     'new_ticket', 'ticket_reply', 'ticket_escalation', 'agent_needed',
     'low_stock', 'order_stalled', 'health_alert',
-    'wholesale_application'
+    'payment_dispute',
+    'wholesale_application',
+    'new_order'
   ));

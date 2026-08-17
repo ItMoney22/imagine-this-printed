@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, X, Check, AlertTriangle, MessageSquare, User } from 'lucide-react'
+import {
+  Bell, X, Check, AlertTriangle, MessageSquare, User,
+  ShoppingBag, ShieldAlert, Briefcase, PackageX, Clock, Activity,
+} from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import type { AdminNotification } from '../types'
@@ -139,6 +142,20 @@ export default function AdminNotificationBell({
         return <AlertTriangle className="w-4 h-4 text-orange-400" />
       case 'agent_needed':
         return <User className="w-4 h-4 text-red-400" />
+      // Non-support alerts share this bell too — without their own icon a paid
+      // order and a chargeback were indistinguishable from a low-stock ping.
+      case 'new_order':
+        return <ShoppingBag className="w-4 h-4 text-emerald-400" />
+      case 'payment_dispute':
+        return <ShieldAlert className="w-4 h-4 text-red-500" />
+      case 'wholesale_application':
+        return <Briefcase className="w-4 h-4 text-purple-400" />
+      case 'low_stock':
+        return <PackageX className="w-4 h-4 text-amber-400" />
+      case 'order_stalled':
+        return <Clock className="w-4 h-4 text-amber-400" />
+      case 'health_alert':
+        return <Activity className="w-4 h-4 text-orange-400" />
       default:
         return <Bell className="w-4 h-4 text-muted" />
     }
