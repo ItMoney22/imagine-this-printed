@@ -154,3 +154,92 @@ in the session scratchpad, not committed to the repo (binary grading output,
 not source). The generating script (`backend/scripts/grade-flux2-single-call-batch.ts`)
 is committed and re-runnable — point `GRADE_OUT_DIR` and `GRADE_JOBS_PER_TEMPLATE`
 at whatever a future re-grade needs.
+
+---
+
+## 9. Post-merge verification (Jimmy Phix, 2026-08-16 — Watchtower task `d1f954de-1b31-47a9-84c7-10764830a5f8`)
+
+Merged to `main` as `cd2f377` (merge of `69b74cc` + `bcc9c9d`; `TASK_NOTES.md`
+was the only conflict, union-merged). Gate before pushing: backend `tsc --noEmit`
+exit 0, frontend `tsc -b --noEmit` exit 0, vitest **608 passed / 8 skipped**
+(4 test files fail to *load* on missing `VITE_SUPABASE_*` env in a bare
+worktree — environment, not code). Render `imagine-this-printed-backend`
+(`srv-d7jpgut7vvec739bsid0`) and `imagine-this-printed-worker`
+(`srv-d7jppnn7f7vs73bb4p80`) both auto-deployed and report **`live` on
+`cd2f377`**; the worker boot log confirms `REPLICATE_API_TOKEN: Set`.
+
+### 9.1 The default-ON branch nobody had actually run
+
+Section 1's grading run set `MOCKUP_FLUX2_SINGLE_CALL=true` on its own process.
+**Production runs the other branch**: neither Render service defines the var at
+all (confirmed via the Render API — zero `MOCKUP*`/`FLUX*` keys on either
+service), so live behaviour rides on `flux2SingleCallEnabled()` returning
+`true` when the var is *absent*. That branch was verified directly, against the
+merged commit, on a real `product_assets` design:
+
+| run | `MOCKUP_FLUX2_SINGLE_CALL` | template | returned `modelId` | latency |
+| --- | --- | --- | --- | --- |
+| 1 | *(unset)* | `flat_lay` | `black-forest-labs/flux-2-pro` | 14.2s |
+| 2 | *(unset)* | `ghost_mannequin` | `black-forest-labs/flux-2-pro` | 12.8s |
+| 3 | `false` | `flat_lay` | `google/nano-banana-2-lite` | 11.4s |
+| 4 | `false` | `flat_lay` | `google/nano-banana-2-lite` | 9.3s |
+
+Runs 3–4 are the **kill switch proved working end to end** — no
+`🧪 flux-2-pro single-call` log line, the 2-step chain runs and returns a real
+image. Re-runnable as `backend/scripts/verify-flux2-single-call.ts`.
+
+Blast radius double-checked in the merged tree: `MockupTemplate` has five
+values, and `metal_shelf`/`metal_wall`/`mr_imagine` all `return` before the
+new block, as does the `opts.modelId` admin override — only `flat_lay` and
+`ghost_mannequin` can reach it. No production call site passes
+`singleCallFlux2` or `garmentRefImageUrl`, so all three
+(`ai-jobs-worker.ts:912`, the `:960` QA retry, `:1203`) resolve through the env
+default. The Replicate schema claims in §0/`FLUX2_MIGRATION_REPORT.md` were
+re-verified live the same day: `flux-2-pro` and `flux-2-max` both expose
+`input_images` (max 8), `resolution` (default `1 MP`) and `safety_tolerance`
+(max 5) — and neither exposes `image_inputs`.
+
+### 9.2 Secondary findings — what reproduced and what didn't
+
+- **Ghost-mannequin geometry reading flat: did NOT reproduce** in run 2. The
+  image has real invisible-mannequin form — filled shoulders, rounded chest,
+  natural taper, hollow collar showing the neck tape. Consistent with §6's
+  "intermittent", not with a systematic regression.
+- **Text garbling: did NOT reproduce.** The design used carries three separate
+  typographic elements and all three rendered legible and correctly spelled in
+  *both* flux-2-pro runs. Section 6's report of garbling on one recurring design
+  still stands as design-specific rather than model-wide.
+
+### 9.3 New finding — the *fallback* chain is the weaker path (n=2)
+
+Both kill-switch runs asked for a **black** shirt and both came back defective,
+in different ways:
+
+- run 3 returned a **white** garment — a straight garment-colour miss, the
+  single most customer-visible defect class in a mockup;
+- run 4 got the colour right but **hallucinated a DSLR camera** sitting in
+  frame next to the shirt, plus a garbled brand label on the neck tape.
+
+Both flux-2-pro runs were clean: correct black fabric, correct framing, nothing
+in the frame but the garment. This is n=2 per arm and is **not** a graded
+result — but it points the same way §5 did (the chain's worst failures are
+structural, inherited from the intermediate artifact) and it has a practical
+consequence worth stating plainly: **the rollback is not free.** Setting
+`MOCKUP_FLUX2_SINGLE_CALL=false` does not return to a known-good path, it
+returns to a path that missed garment colour once in two tries. Filed as a
+follow-up rather than fixed here.
+
+### 9.4 Monitoring plan (assumption — decided here)
+
+`product_assets.metadata.model_id` is the audit trail, and
+`verify-flux2-single-call.ts` prints its distribution over the 25 most recent
+mockup assets for free (`VERIFY_BASELINE_ONLY=1`, no generation, no spend).
+**Baseline at merge time:** the last 25 live mockup assets were
+`google/nano-banana-2-lite` ×15 and `google/nano-banana` ×10, newest
+`2026-08-11` — i.e. **zero** flux-2-pro rows existed in production before this
+merge, so the first `black-forest-labs/flux-2-pro` row is unambiguous proof a
+real customer job took the new path. Watch that distribution plus the worker's
+`⚠️ flux-2-pro single-call failed, falling back` warn line (Render log search)
+for the first ~50 live mockups; a fallback rate materially above the ~1.9%
+pooled E005 estimate, or any wearer/mascot sighting, is the trigger to flip the
+kill switch.
