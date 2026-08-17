@@ -1,33 +1,52 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Prepare the coordinated migration of Supabase project `czzyrmizvjqlifcivrhn` from legacy `anon`/`service_role` JWT API keys to publishable/secret keys and asymmetric Auth signing for Watchtower task `3ac9973b-623b-4519-811a-0185f6c9e4ff`.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Read-only live preflight confirms Supabase has exactly two API keys and both are `legacy`; no publishable/secret keys exist yet.
+- Both Render services contain the legacy anon/service-role values and match Supabase. Vercel has `VITE_SUPABASE_ANON_KEY` in Production and Development, not Preview.
+- Storefront, backend health, and database health currently return HTTP 200.
+- Current tracked files contain placeholder JWT examples only; no complete valid legacy JWT was found in the tracked tree.
+- Migration prerequisite found: `backend/middleware/supabaseAuth.ts` only verifies HS256 using `SUPABASE_JWT_SECRET`, and `api/_seo/bot-meta.mjs` sends the API key as a bearer JWT. Both must be made compatible before new keys/asymmetric signing are cut over.
+- No live credentials, deployments, local env files, vault entries, or implementation files were changed during this scout run.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
+- `CLAUDE.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `src/lib/supabase.ts`
+- `backend/lib/supabase.ts`
+- `backend/middleware/supabaseAuth.ts`
+- `backend/middleware/supabaseAuth.test.ts`
+- `api/_seo/bot-meta.mjs`
+- `api/_seo/bot-meta.test.mjs`
+- `backend/add-metadata-column.cjs`
+- `scripts/verify-signin-live.ts`
+- `backend/routes/health.ts`
+- `.env.example`
+- `backend/.env.example`
+- `docs/ENV_VARIABLES.md`
+- `RUNBOOK.md`
+- `package.json`
+- `backend/package.json`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `backend/middleware/supabaseAuth.ts`
+- `backend/middleware/supabaseAuth.test.ts`
+- `api/_seo/bot-meta.mjs`
+- `api/_seo/bot-meta.test.mjs`
+- `backend/add-metadata-column.cjs`
+- `.env.example`
+- `backend/.env.example`
+- `docs/ENV_VARIABLES.md`
+- `RUNBOOK.md`
+- External state approved for the execution session is limited to the Supabase, Render, Vercel, vault, and local-env targets named in `CLAUDE_TASK.md`; never write live values to tracked files.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
@@ -262,6 +281,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-08-16 (Codex Supabase key-rotation scout, Watchtower task `3ac9973b-623b-4519-811a-0185f6c9e4ff`): Confirmed the live project and both Render services still use matching legacy anon/service-role JWT keys, Vercel covers Production+Development only, and current health is green; found the HS256-only backend verifier and bearer-key SEO helper as mandatory migration prerequisites; refreshed the strict execution brief. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no credentials or live services were changed.
 - 2026-08-06 (Codex Etsy email image correction): Resent the full August 6 report from `mrimagine@imaginethisprinted.com` with four CID-embedded screenshots and the same four PNG attachments. Verified four inline attachments in Resend and four received images with stored URLs in `wecare@imaginethisprinted.com`. Updated `weekly-etsy-shop-review` to require and verify all four images on future runs. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-06 (Codex weekly Etsy review): Captured fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Verified no meaningful change since 2026-07-30: six active listings, all $17.50 at 30% off, and zero sales/reviews/admirers; the same real-product, size-chart, gallery, banner/icon, section, and AI-wording gaps remain. Sent the report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` and verified both Sent and recipient records. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-07-26 (Iahhm, task d402a271, follow-up) Live negative-test (PR #3, deliberate TS error) exposed that root `npm run typecheck` (`tsc --noEmit`) checks ZERO files — root tsconfig.json is solution-style (`"files": []` + references), so the script passed on broken code while the `build` job (`tsc -b`) correctly failed and BLOCKED the merge. Fixed `package.json` typecheck → `tsc -b --noEmit` (verified: catches the planted TS2322, exits 0 on clean tree). PR #3 closed + branch deleted after proving merge state BLOCKED. Also: this box's pre-provisioned root node_modules was incomplete (missing @aws-sdk/client-s3) — false local failures; fresh `npm ci` in CI is authoritative and green.
