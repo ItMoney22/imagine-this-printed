@@ -24,6 +24,7 @@ This index lists all active documentation. For historical/completed docs, see `d
 | [AI_PRODUCT_BUILDER_PIPELINE.md](AI_PRODUCT_BUILDER_PIPELINE.md) | CURRENT | Complete pipeline reference (production ready) |
 | [CUSTOMER_AI_PRODUCT_BUILDER.md](CUSTOMER_AI_PRODUCT_BUILDER.md) | CURRENT | Customer-facing AI builder docs |
 | [ENV_VARIABLES.md](ENV_VARIABLES.md) | CURRENT | Environment variable reference |
+| [VIRTUAL_TRYON.md](VIRTUAL_TRYON.md) | CURRENT | Buyer-side virtual try-on: FASHN integration, ITC pricing, daily free cap, conversion instrumentation (built, needs FASHN_API_KEY) |
 | [README.md](README.md) | CURRENT | General documentation overview |
 
 ### Feature Status Docs
@@ -90,6 +91,7 @@ These SQL migrations exist but have not been applied to the database:
 
 1. `backend/migrations/create_admin_settings.sql` - Voice settings table
 2. `backend/migrations/create_user_royalty_system.sql` - User royalty tracking
+3. `supabase/migrations/20260816_virtual_tryon.sql` - Virtual try-on runs, daily free-use cap, conversion events (task 3b362203)
 
 To apply: Copy SQL to Supabase Dashboard > SQL Editor > Run
 

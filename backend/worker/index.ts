@@ -2,6 +2,7 @@
 import '../load-env.js'
 import { startWorker } from './ai-jobs-worker.js'
 import { startEtsyWorker } from './etsy-jobs-worker.js'
+import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -34,5 +35,8 @@ console.log('=================================')
 
 startWorker()
 startEtsyWorker()
+// Privacy: expires shopper try-on photos out of GCS on a timer. See
+// backend/worker/tryon-retention-sweep.ts and docs/VIRTUAL_TRYON.md §7.
+startTryOnRetentionSweep()
 
 console.log('Worker is running. Press Ctrl+C to stop.')
