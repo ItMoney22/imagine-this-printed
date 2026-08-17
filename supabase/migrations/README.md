@@ -41,6 +41,26 @@ so they are no-ops against the live database, which already has these objects.
 the admin wallet routes it was written for actually write to `itc_transactions`. The
 committed shape is reconstructed from the live writers instead. See the file header.
 
+**Verified against live production 2026-08-17** (Watchtower task `8dccb9da`), via read-only
+`information_schema` / `pg_indexes` / `pg_policies` / `pg_constraint` introspection against
+prod (project `czzyrmizvjqlifcivrhn`, through the Supabase Management API's SQL endpoint using
+the vault's `database.SUPABASE_MANAGEMENT_PAT_ITP`). The 2026-07-26 reconstruction had three
+drifts from the live catalog, now corrected:
+
+1. `user_id`'s FK targets `public.user_profiles(id)`, not `auth.users(id)`.
+2. `transaction_type` carries a live `CHECK` constraint (`mockup_generation`, `mockup_refund`,
+   `background_removal`, `image_upscale`, `purchase`, `reward`, `admin_adjustment`) — `'spend'`,
+   named in the original column comment, is not actually an allowed value live.
+3. Only one RLS policy exists live (`wallet_transactions_owner_select`, owner SELECT). The
+   committed file additionally had an admin-SELECT policy and an **open INSERT policy**
+   (`WITH CHECK (true)`, no `TO` clause) that were never applied to prod — the INSERT policy
+   would have let any authenticated/anon caller forge ledger rows had it ever run. Removed
+   rather than fixed forward: all live writers use the service-role key, which bypasses RLS,
+   so no INSERT policy is needed.
+4. `idx_wallet_transactions_type` and `idx_wallet_transactions_reference` don't exist live —
+   dropped from the file so the migration is a true no-op against production, as its header
+   claims. Add them as a fresh forward migration if a query pattern ends up needing them.
+
 ## Dropped as obsolete
 
 - `migrations/sync_product_images.sql` — superseded by `fix_sync_product_images.sql`
@@ -56,17 +76,43 @@ committed shape is reconstructed from the live writers instead. See the file hea
 `COMPLETE_DATABASE_SETUP.sql` was moved to `archive/database/` as a historical snapshot.
 It is **not** part of active schema management — do not apply it.
 
-## Known pre-existing ordering bugs (NOT introduced by the consolidation)
+## Pre-existing ordering bugs — RESOLVED 2026-08-17 (Watchtower task `8dccb9da`)
 
-Two migrations ALTER a table that a *later-sorting* migration CREATEs, so a from-scratch
-`supabase db push` fails on them:
+Two migrations ALTERed a table that a *later-sorting* migration CREATEd, so a from-scratch
+`supabase db push` would have failed on them, and four migrations shared the version prefix
+`20251231`, which the Supabase CLI expects to be unique:
 
-1. `20251224_3d_models_licenses.sql` ALTERs `user_3d_models`, CREATEd in `20251224_user_3d_models.sql`
-2. `20251231_admin_invoices.sql` ALTERs `founder_invoices`, CREATEd in `20251231_founder_invoices.sql`
+1. `20251224_3d_models_licenses.sql` ALTERed `user_3d_models`, CREATEd in `20251224_user_3d_models.sql`
+2. `20251231_admin_invoices.sql` ALTERed `founder_invoices`, CREATEd in `20251231_founder_invoices.sql`
+3. `20251231_admin_invoices.sql`, `20251231_community_features.sql`, `20251231_founder_invoices.sql`,
+   and `20251231_stripe_connect_cashout.sql` all shared the bare `20251231` version.
 
-Separately, four migrations share the version prefix `20251231`, which the Supabase CLI
-expects to be unique.
+**Resolution**: read-only introspection of `supabase_migrations.schema_migrations` on prod
+showed every one of these migrations had already been applied — just under their original
+full 14-digit timestamps, not the truncated 8-digit dates the consolidation gave the files.
+The files were renamed to match those recorded versions exactly, which both fixes the sort
+order (CREATE now sorts before its ALTER) and keeps the Supabase CLI's tracking intact — a
+version already present in `schema_migrations` is treated as applied and skipped, so this
+rename does **not** cause a re-run:
 
-Fixing these means renaming already-applied migration files, which changes what
-`supabase_migrations.schema_migrations` has recorded — that needs a decision against the live
-database, so it was deliberately left alone. Tracked as follow-up work.
+| Old filename | New filename | Live tracking row |
+|---|---|---|
+| `20251224_user_3d_models.sql` | `20251224121126_user_3d_models.sql` | `20251224121126 / user_3d_models` |
+| `20251224_3d_models_licenses.sql` | `20251224160017_add_3d_model_licenses.sql` | `20251224160017 / add_3d_model_licenses` |
+| `20251231_stripe_connect_cashout.sql` | `20251231151403_stripe_connect_cashout.sql` | `20251231151403 / stripe_connect_cashout` |
+| `20251231_founder_invoices.sql` | `20251231202037_founder_invoices.sql` | `20251231202037 / founder_invoices` |
+| `20251231_admin_invoices.sql` | `20251231204047_admin_invoices.sql` | `20251231204047 / admin_invoices` |
+
+`20251231_community_features.sql` → `20251231160000_community_features.sql` is the one
+exception: its tables (`community_posts`, `community_boosts`, `community_boost_earnings`)
+exist live but there is **no** corresponding row in `schema_migrations` — it was applied to
+prod by some non-CLI mechanism (direct SQL) and never tracked. `20251231160000` is a
+synthesized, unique timestamp (not recovered from tracking, since none exists), chosen to
+sort between the other two `20251231` migrations it has no CREATE/ALTER relationship with —
+its position among them is inconsequential. Because its statements are fully idempotent
+(`CREATE TABLE IF NOT EXISTS`), the next real `supabase db push` will apply it for the first
+time as a safe no-op and finally record it in `schema_migrations`, closing the drift.
+
+All six files were confirmed idempotent before renaming (`IF NOT EXISTS` guards throughout;
+the two `INSERT INTO imagination_pricing` statements in the 3d-model files use
+`ON CONFLICT (feature_key) DO UPDATE`) — safe to re-run regardless of tracking state.
