@@ -423,3 +423,9 @@ a reviewed, deliberate action, not a rubber stamp.
   CLI's ledger doesn't drift further from reality. This is the single biggest
   lever available to stop this problem from recurring — everything in this
   document exists because that step kept getting skipped.
+
+## New since this ledger was written
+
+| File | Applied to prod? | Notes |
+|---|---|---|
+| `20260816_virtual_tryon.sql` | **NO — pending** | Watchtower task 3b362203. Creates `virtual_tryon_runs`, `virtual_tryon_daily_usage`, `virtual_tryon_events`, the `virtual_tryon_conversion` view, and seeds two `imagination_pricing` rows (`tryon_standard`, `tryon_premium`). Idempotent: every CREATE is `IF NOT EXISTS`, policies are `DROP POLICY IF EXISTS` first, and the pricing seed is `ON CONFLICT DO NOTHING`. Safe to re-run. The feature stays dark without `FASHN_API_KEY`, so applying this early is harmless. |

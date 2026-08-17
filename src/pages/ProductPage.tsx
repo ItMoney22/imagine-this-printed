@@ -8,10 +8,11 @@ import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
 import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
+import VirtualTryOn from '../components/VirtualTryOn'
 import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
-import { imaginationApi, apiFetch } from '../lib/api'
+import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables } from '../lib/product-kind'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 
@@ -374,7 +375,24 @@ const ProductPage: React.FC = () => {
   // means there's nothing to choose, per the task's acceptance criteria.
   const requiresPrintLocation = (product?.print_locations?.length ?? 0) > 1
 
-  const handleAddToCart = () => {
+  /**
+   * ONE add-to-cart event for the try-on funnel, fired from BOTH the main
+   * button and the try-on card. `attribution` is only present on the latter —
+   * a cart with no tryonId from a shopper who saw the card is exactly the
+   * control-cohort data point the conversion report needs, so this must never
+   * be limited to try-on users.
+   */
+  const trackCartForTryOn = (attribution?: { tryonId: string | null; secondsSinceTryon: number }) => {
+    if (!user || !product) return
+    void tryonApi.track({
+      eventType: 'add_to_cart',
+      productId: product.id,
+      tryonId: attribution?.tryonId ?? null,
+      secondsSinceTryon: attribution?.secondsSinceTryon
+    })
+  }
+
+  const handleAddToCart = (attribution?: { tryonId: string | null; secondsSinceTryon: number }) => {
     // Size is always required (we show default sizes if product doesn't have them)
     if (!selectedSize) {
       toast.warning('Selection required', 'Please select a size')
@@ -390,6 +408,7 @@ const ProductPage: React.FC = () => {
     }
     if (product) {
       addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
+      trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
   }
@@ -410,6 +429,8 @@ const ProductPage: React.FC = () => {
     }
     if (product) {
       addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
+      // Buy Now still puts the item in the cart, so it counts in the funnel.
+      trackCartForTryOn()
       navigate('/checkout')
     }
   }
@@ -822,7 +843,7 @@ const ProductPage: React.FC = () => {
               )}
 
               <button
-                onClick={handleAddToCart}
+                onClick={() => handleAddToCart()}
                 disabled={!product.inStock}
                 className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
@@ -839,6 +860,22 @@ const ProductPage: React.FC = () => {
                 Buy Now
               </button>
             </div>
+
+            {/* Virtual try-on. Apparel only — FASHN's tryon-v1.6 dresses a
+                person, which means nothing for metal wall art or a 3D print.
+                The card renders itself to null until the feature is switched
+                on server-side, so this is inert without a FASHN key. */}
+            {isApparel && (
+              <div className="mt-4">
+                <VirtualTryOn
+                  productId={product.id}
+                  productName={product.name}
+                  garmentImageIndex={videoActive ? 0 : selectedImage}
+                  onAddToCart={(attribution) => handleAddToCart(attribution)}
+                  disabled={!product.inStock}
+                />
+              </div>
+            )}
           </div>
 
           {hasDigitalDeliverables(product) && (
