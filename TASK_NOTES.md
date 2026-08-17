@@ -1,33 +1,40 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Watchtower task `6f1a3291-e9fa-4c26-89b4-85d5af505c56`: restore the missing `three_d_models` and `vendor_products` tables, resolve `products.approved` compatibility, verify RLS/admin approval behavior, and correct the migration ledger against live production.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Scout complete; implementation is pickup-ready in `CLAUDE_TASK.md`. No production writes were made in this terminal.
+- Live anonymous PostgREST confirms both tables are absent (`404/42P01`) and `products.approved` is absent (`400/42703`).
+- Live RPC confirms `get_user_role()` already works (`200`, zero UUID resolves to `customer`), so the ledger is stale on that point.
+- Decision: keep both features; use mutable `approved` on submission tables and a trigger-synchronized compatibility boolean on `products`, whose source of truth remains `status + is_active`.
+- Repository history disproves the task context that `001_initial_schema.sql` declared these tables; the implementation must add a new migration rather than edit history.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
+- `CLAUDE.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `supabase/migrations/README.md`
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `supabase/migrations/001_initial_schema.sql`
+- `supabase/migrations/20260728_fix_get_user_role_ambiguity.sql`
+- `scripts/apply-pending-migrations.mjs`
+- `src/pages/AdminDashboard.tsx`
+- `src/types/index.ts`
+- `src/utils/design-showcase-service.ts`
+- `backend/prisma/schema.prisma`
+- `package.json`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `supabase/migrations/20260817010000_restore_admin_submission_tables.sql` (new)
+- `scripts/apply-pending-migrations.mjs`
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md` (one concise implementation-result work-log bullet)
+- No frontend/backend application edits are approved unless a verified post-migration mismatch requires a shortlist update first.
+- External state approved for the implementation: the live ITP Supabase project `czzyrmizvjqlifcivrhn`, limited to applying and verifying this migration plus reversible/cleaned smoke rows.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
@@ -849,6 +856,7 @@ Symptoms, live, in the order they arrived: (1) "we got our first REAL order but 
 - supabase/migrations/20260810_lock_wallet_balance.sql (STAGED, NOT APPLIED — needs David's go-ahead, touches live prod RLS)
 
 ## Work log (append-only)
+- 2026-08-16 (WATCHTOWER `6f1a3291` — ADMIN SUBMISSION TABLE RESTORE SCOUT): live anonymous PostgREST reconfirmed `three_d_models` and `vendor_products` are missing (`404/42P01`) and `products.approved` is missing (`400/42703`), while `get_user_role()` now returns normally (`200`, `customer` for the zero UUID). Kept both features, scoped a new additive migration plus guarded apply-runner and ledger update, chose owner-pending/public-approved/admin-founder RLS, and made `products.approved` a synchronized compatibility field over the existing `status + is_active` lifecycle rather than a competing approval flag. Also verified the current and historical `001_initial_schema.sql` never declared either table despite the dispatch context. This Codex scout changed only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no live writes or implementation edits were made.
 - 2026-08-07 (FIRST REAL ORDER STRANDED — ROOT CAUSE FOUND, ORDER HEALED, HOLE CLOSED): **Root cause: Stripe was POSTing to a URL deleted 11 days earlier.** Endpoint `we_1SkSOEIK5lihoSZtO5fqfbU3` pointed at `https://api.imaginethisprinted.com/api/webhooks/stripe`, which returns **HTTP 404 "Route not found"** — that route was removed 2026-07-27 in **f4785ce** ("Payments hardening: server-authoritative checkout + one Stripe webhook"), consolidated into `POST /api/stripe/webhook`, and the Stripe Dashboard URL was never updated. Proof, not inference: `evt_3U1wrCIK5lihoSZt0VXcgvkn` (payment_intent.succeeded) carried **`pending_webhooks=2`** — Stripe had never received a 2xx from either registered endpoint — and live probes returned 404 for the configured path vs 400 (signature, i.e. alive) for the real one. A SECOND endpoint, `https://davidtrinidad.com/api/stripe/webhook` (`we_1T02Zw...`, created 2026-02-12, wrong project — the dashboard site) also 404s and has been silently swallowing ITP's live payment events; **left in place, flagged for David** since Ethan Dunn's unmerged commission-ledger work may intend that path. Money was never at risk: `pi_3U1wrCIK5lihoSZt09JA8sL4` was `succeeded`, livemode, charge `ch_3U1wrCIK5lihoSZt0o0Tu5zK`. But because `handleCheckoutOrderPayment` never ran, nothing downstream of "paid" ran: order stuck `status=pending`/`payment_status=pending`/`charge_id=null`, **zero emails ever sent to the customer** (verified against Resend, not just our DB — `utils/email.ts sendEmail` does NOT write `email_messages`, so DB absence proves nothing), no rewards, no blank-inventory decrement, no creator margins, no merch-ledger emission. The daily ops digest at 12:19 that day reported **"0 orders / $0.00 last 24h"** because it counts `payment_status='paid'`. Broken for EVERY real payment since 2026-07-27, storefront/Merch Studio Checkout Sessions included (they bridge to the same `payment_intent.succeeded` via `payment_intent_data.metadata`, routes/storefront.ts:397).
   **LIVE FIXES APPLIED (Stripe-side, in effect now, no deploy needed):** repointed `we_1SkSOE...` to `/api/stripe/webhook` and widened `enabled_events` 9 -> 19 as a UNION (never a replacement, so nothing already subscribed was dropped) to cover every event the code handles — `payment_intent.canceled`, `charge.refunded`, all five `charge.dispute.*` and `invoice.*` were all missing. Then replayed the stranded event with a correctly-computed `t=...,v1=HMAC-SHA256(secret, "ts.payload")` signature -> **HTTP 200 `{"received":true}`**, which also PROVED Render's `STRIPE_WEBHOOK_SECRET` matches this endpoint (otherwise the URL fix would have traded a 404 for a 400). Verified after: order now `status=processing`/`payment_status=paid`, and Resend shows the customer's confirmation **delivered** at 23:54:47 ("Your Ember Warrior tee is en route!"). `order_rewards` is legitimately 0 — she checked out as a guest (`user_id` null).
   **CODE FIXES (branch only, NOT deployed):** (1) The paid-order pipeline moved verbatim out of `routes/stripe.ts` into NEW `services/order-payment.ts` as `applyPaidCheckoutOrder(pi, log, source)` — it had exactly ONE caller, which is precisely why a dead webhook left the system with no other way to finish a paid order; `req` became `log` because that is the only thing it ever used `req` for; the atomic `UPDATE ... WHERE payment_status != 'paid'` claim and every fail-soft catch are unchanged deliberately. (2) NEW `reconcileUnrecordedPayments()` on the worker's hourly loop asks Stripe directly — "is this PaymentIntent succeeded?" — for orders we still believe unpaid (14-day window, 25/run, both env-configurable; excludes cancelled/refunded), heals them through the identical function, and raises a `health_alert` naming the recovered orders and pointing at the endpoint config. Runs FIRST in the loop so a healed order counts as paid in the same run's stall check and digest. (3) NEW `sendNewOrderTeamEmail` + a `new_order` `admin_notifications` row fire the moment an order is paid — **this did not exist at all**; the only team-facing order signals were the 3-DAY stall alert and the 8am digest, which is exactly why nobody was told. Reconciler-sourced orders carry an explicit "Stripe's webhook did NOT deliver" banner so a broken pipeline cannot read as a normal sale. (4) `charge_id` is now captured on the claim — it was NULL forever, leaving `findOrderForCharge`'s charge_id fallback permanently dead. (5) Fixed an inherited bug in the moved code: confirmation emails itemised every line at **$0.00** because they read `item.price`, a column that does not exist (`order_items` has `unit_price`). (6) `src/pages/OrderSuccess.tsx` never fetched the order — it sliced the raw UUID to fake an order number (customer saw "BF1ABB5F", not `ITP-MSJK1K3I-8GDG`) and rendered a **hardcoded** green "Processing" pill regardless of reality, which is literally the "it still says processing" David saw. It now polls the already-existing, guest-safe `GET /api/orders/:orderId/confirmation` (built for exactly this and never given a caller) and derives the pill from real `payment_status`/`status`, degrading to "Confirming" rather than an error page.
