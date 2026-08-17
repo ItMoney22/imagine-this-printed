@@ -18,6 +18,7 @@
     "worker:dev": "tsx watch --env-file=.env worker/index.ts",
     "dev:full": "concurrently \"npm:watch\" \"npm:worker:dev\" --names \"API,Worker\" --prefix-colors \"blue,magenta\"",
     "generate:stock-models": "tsx --env-file=.env scripts/generate-stock-models.ts",
+    "consume-briefs": "tsx scripts/design-agent-consumer.ts",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop ecosystem.config.cjs",
     "pm2:restart": "pm2 restart ecosystem.config.cjs",
@@ -68,7 +69,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/cors": "^2.8.17",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.19.0",

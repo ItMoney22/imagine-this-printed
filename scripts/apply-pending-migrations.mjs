@@ -187,6 +187,17 @@ const PLAN = [
       )
       return { applied: rows[0].n === 0, detail: rows[0].n === 0 ? 'anon table read revoked' : 'anon still has SELECT grant' }
     }
+  },
+  {
+    id: 'scout-design-briefs',
+    file: 'supabase/migrations/20260817000000_scout_design_briefs.sql',
+    title: 'Create scout_design_briefs table for persistent design briefs',
+    why: 'Allows design briefs to survive deploys and restarts, and supports multi-replica querying.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(`SELECT to_regclass('public.scout_design_briefs') AS t`)
+      return { applied: !!rows[0]?.t, detail: rows[0]?.t ? 'table present' : 'table absent' }
+    }
   }
 ]
 
