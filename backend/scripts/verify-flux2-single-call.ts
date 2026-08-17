@@ -28,7 +28,11 @@ import { runImageFlowMockup } from '../services/image-flow/worker-helpers.js'
 // Default run = production's actual condition: the var absent entirely.
 if (!process.argv.includes('--keep-env')) delete process.env.MOCKUP_FLUX2_SINGLE_CALL
 
-const MOCKUP_ROLES = ['mockup_flat_lay', 'mockup_ghost', 'mockup_front', 'mockup_back', 'mockup_pocket']
+// Real asset_role values written by ai-jobs-worker.ts:~1019 (confirmed live,
+// Watchtower task 189bc25b) — the original list here had 'mockup_ghost' and
+// 'mockup_front', neither of which the worker ever writes, so the baseline
+// probe silently excluded every ghost_mannequin asset from its distribution.
+const MOCKUP_ROLES = ['mockup_flat_lay', 'mockup_ghost_mannequin', 'mockup_mr_imagine', 'mockup_pocket', 'mockup_back']
 
 const sb = createClient(
   process.env.SUPABASE_URL!,
