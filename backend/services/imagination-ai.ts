@@ -638,7 +638,14 @@ export class ImaginationAIService {
             }
           )
         : await replicate.run(
-            'google/nano-banana' as `${string}/${string}`,
+            // A/B'd against v1 across 10 customer-style images (text logos, fine
+            // linework, gradients, photorealistic portraits/pets, illustrated
+            // posters) with a consistent single-image edit prompt: no visible
+            // fidelity regression, ~35% faster (4.63s vs 7.07s avg predict).
+            // Ignores output_format and always returns JPEG behind a .png
+            // delivery URL — handled by persistToGCS via sniffImageContentType
+            // (see gcs-storage.ts). Watchtower task 1fd2b86c-9977-40e6-8fc0-32ad3349722f.
+            'google/nano-banana-2-lite' as `${string}/${string}`,
             {
               input: {
                 prompt,

@@ -6,6 +6,7 @@
 import { Storage, Bucket, File } from '@google-cloud/storage'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import { sniffImageContentType, extForImageContentType } from './google-cloud-storage.js'
 
 const projectId = process.env.GCS_PROJECT_ID || 'imagine-this-printed-main'
 const bucketName = process.env.GCS_BUCKET_NAME || 'imagine-this-printed-main'
@@ -68,7 +69,7 @@ export async function uploadFile(
   const { userId, folder, filename, contentType = 'image/png', metadata = {} } = options
 
   // Generate unique filename if not provided
-  const uniqueFilename = filename || `${uuidv4()}.png`
+  const uniqueFilename = filename || `${uuidv4()}.${extForImageContentType(contentType)}`
 
   // Construct GCS path
   const gcsPath = folder === 'temp'
@@ -268,17 +269,27 @@ export async function uploadFromUrl(
     throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`)
   }
 
-  // Get content type from response or default to png
-  const contentType = response.headers.get('content-type') || 'image/png'
-
   // Convert to buffer
   const arrayBuffer = await response.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
 
-  console.log('[gcs-storage] 📤 Re-uploading to GCS, size:', buffer.length, 'bytes')
+  // Servers (Replicate included) can't be trusted to report the real format —
+  // e.g. google/nano-banana-2-lite ignores output_format and always returns
+  // JPEG bytes behind a .png delivery URL with an image/png header. Magic
+  // bytes win over both the served header and any assumed default.
+  const contentType =
+    sniffImageContentType(buffer) || response.headers.get('content-type') || 'image/png'
+
+  console.log('[gcs-storage] 📤 Re-uploading to GCS, size:', buffer.length, 'bytes', `(${contentType})`)
+
+  // Keep the caller's filename prefix but make the extension match the real bytes.
+  const filename = options.filename
+    ? options.filename.replace(/\.[a-zA-Z0-9]+$/, `.${extForImageContentType(contentType)}`)
+    : options.filename
 
   return uploadFile(buffer, {
     ...options,
+    filename,
     contentType
   })
 }
