@@ -91,6 +91,52 @@ VITE_SITE_URL="https://imaginethisprinted.com"
 | `VITE_ITC_WALLET_ADDRESS` | Crypto wallet address for payments | `43XyoLPb3aek3poicnYXjr...` | No |
 | `VITE_ITC_USD_RATE` | ITC to USD conversion rate | `0.10` | No |
 
+#### Shipping — Shippo label purchase (admin Order Management)
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `VITE_SHIPPO_API_TOKEN` | Shippo token used to buy labels from `/order-management` | `shippo_live_...` | No |
+
+**Mock mode:** when `VITE_SHIPPO_API_TOKEN` is unset, `src/utils/shippo.ts` answers every
+call from a local mock — a fake tracking number (`MOCK123456789`) and a fake label URL.
+Nothing is purchased and nothing ships. Mock mode announces itself three ways so a fake
+tracking number can't pass for a real one:
+
+1. A styled `console.warn` banner at module load, plus a warning on every mocked call.
+2. An amber banner at the top of `/order-management` and inside the "Generate Shipping
+   Label" modal.
+3. A 12-second warning toast ("MOCK label generated — nothing was shipped") instead of
+   the usual success toast.
+
+**Note:** `VITE_`-prefixed values are visible in the browser bundle. Carrier *rates* are
+already quoted server-side via the backend's `SHIPPO_API_TOKEN` (see `backend/.env.example`);
+moving label *purchase* behind the backend too is tracked as follow-up work.
+
+#### Shipping — ship-from (origin) address
+
+Every field is optional and falls back to the real Rockmart, GA warehouse. Defaults live in
+`src/config/ship-from.ts` and are derived from `WAREHOUSE_ADDRESS` in
+`src/utils/shipping-calculator.ts`, so the address labels ship from and the address rates are
+quoted from cannot drift apart. Set these to relocate the warehouse without a code change.
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `VITE_SHIP_FROM_NAME` | Origin contact name | `Imagine This Printed` | No |
+| `VITE_SHIP_FROM_COMPANY` | Origin company | `Imagine This Printed LLC` | No |
+| `VITE_SHIP_FROM_STREET1` | Street line 1 | `640 Goodyear Ave` | No |
+| `VITE_SHIP_FROM_STREET2` | Street line 2 (suite, unit) | `Suite B` | No |
+| `VITE_SHIP_FROM_CITY` | City | `Rockmart` | No |
+| `VITE_SHIP_FROM_STATE` | State code | `GA` | No |
+| `VITE_SHIP_FROM_ZIP` | Postal code | `30153` | No |
+| `VITE_SHIP_FROM_COUNTRY` | ISO country code | `US` | No |
+| `VITE_SHIP_FROM_PHONE` | Origin phone | `(770) 555-0134` | No |
+| `VITE_SHIP_FROM_EMAIL` | Origin email | `shipping@imaginethisprinted.com` | No |
+
+**Phone caveat:** the default is still the placeholder `(770) 000-0000` carried over from
+the backend rate quoter. Some carrier services reject a label whose origin phone is
+obviously fake — set `VITE_SHIP_FROM_PHONE` to the real warehouse number before buying live
+labels. A dev-mode console warning fires while the placeholder is in use.
+
 ---
 
 ## Backend Variables

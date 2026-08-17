@@ -325,6 +325,8 @@ export interface ShippingLabel {
   cost: number
   createdAt: string
   estimatedDelivery?: string
+  /** True when produced by the Shippo mock (no token set) — nothing was purchased. */
+  isMock?: boolean
 }
 
 export interface ITCTransaction {
