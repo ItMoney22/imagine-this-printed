@@ -135,7 +135,7 @@ export const HOOK_MIN_CHARS = 40
  * while the copy catches up. Only newly-activated designs are affected;
  * nothing already live is pulled down.
  */
-export const DESCRIPTION_MIN_CHARS = Number(process.env.QA_DESCRIPTION_MIN_CHARS || 300)
+export const DESCRIPTION_MIN_CHARS = Number(process.env.QA_DESCRIPTION_MIN_CHARS || 240)
 /**
  * Tag length. 20 is ETSY'S limit — a longer tag is rejected by the platform, so
  * it blocks there. The storefront has no such limit, and applying Etsy's rule

@@ -73,11 +73,14 @@ const SYSTEM_PROMPT =
   'TAGS (exactly 13): 2-3 word lowercase buyer phrases, each <=20 characters, no duplicates or ' +
   'near-duplicates, no bare generic words like "shirt". Spread across: style/aesthetic, audience, ' +
   'occasion/season, gift phrasing, and the design subject. ' +
-  'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for (that is the ' +
-  'mobile preview). Then short scannable sections: the design; the shirt (soft unisex tee, vibrant ' +
-  'DTF print); a sizing nudge (size up for an oversized fit); made to order + printed in Rockmart, ' +
-  'Georgia; care (machine wash cold, inside out). Friendly and concrete. Never invent facts, ' +
-  'materials, or shipping promises.'
+  'DESCRIPTION: must be at least 350 characters and up to 600 characters in length. First line is a hook ' +
+  '<=155 chars saying what it is and who it is for (that is the mobile preview). Then write out engaging, ' +
+  'detailed sections: (1) THE DESIGN (describe the artwork\'s theme and look, and note that every purchase ' +
+  'directly supports the independent creator/artist behind it); (2) THE TEE (soft premium retail-fit unisex ' +
+  'tee, vibrant high-definition DTF print); (3) SIZING (comfy classic fit, sizing up recommended for a trendy ' +
+  'oversized look); (4) MADE TO ORDER (printed with care in Rockmart, Georgia, supporting local production); ' +
+  '(5) CARE (machine wash cold, inside out, low tumble dry). Write in friendly, full sentences. Never invent ' +
+  'unrelated facts, materials, or shipping promises.'
 
 // Metal art variant — same JSON contract, wall-art copy instead of apparel.
 //
@@ -103,12 +106,14 @@ const METAL_SYSTEM_PROMPT =
   'TAGS (exactly 13): 2-3 word lowercase buyer phrases, each <=20 characters, no duplicates — cover: ' +
   `metal wall art, ${METAL_ART_SUBSTRATE} print, the artwork subject, room/style phrases (living room decor, office ` +
   'wall art), aesthetic, and gift phrasing. ' +
-  'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for. Then short ' +
-  `scannable sections: the artwork; the panel (glossy ${METAL_ART_SUBSTRATE}, vivid sublimated print, fade- and ` +
-  `scratch-resistant, lightweight); sizes offered (${METAL_SIZE_LIST_TEXT} — pick your size at checkout); ` +
-  `display (${METAL_ART_MOUNTING_COPY} — also light enough for a shelf or easel); made to order in ` +
-  'Rockmart, Georgia; care (wipe clean with a soft dry cloth). Never invent facts beyond these, and no ' +
-  'shipping promises.'
+  'DESCRIPTION: must be at least 350 characters and up to 600 characters in length. First line is a hook ' +
+  '<=155 chars saying what it is and who it is for (mobile preview). Then write out engaging, detailed sections: ' +
+  `(1) THE ARTWORK (describe the visual style and aesthetic, and note that every purchase directly supports the ` +
+  `independent artist who created it); (2) THE PANEL (premium glossy ${METAL_ART_SUBSTRATE}, vivid sublimated print, ` +
+  `fade- and scratch-resistant, lightweight construction); (3) SIZING (${METAL_SIZE_LIST_TEXT} — choose your perfect ` +
+  `size at checkout); (4) DISPLAY (${METAL_ART_MOUNTING_COPY} — also light enough to rest on an easel or shelf); ` +
+  `(5) MADE TO ORDER (printed and processed in Rockmart, Georgia); (6) CARE (wipe clean with a soft dry cloth). ` +
+  'Write in friendly, full sentences. Never invent unrelated facts beyond these, and no shipping promises.'
 
 // Sanitize whatever the model returned through the same hard limits the
 // publisher enforces, backfilling tags from existing keywords if it came up short.
