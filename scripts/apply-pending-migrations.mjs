@@ -174,6 +174,22 @@ const PLAN = [
     }
   },
   {
+    id: 'drop-vendor-product-shim-columns',
+    file: 'supabase/migrations/20260817020000_drop_obsolete_vendor_product_columns.sql',
+    title: 'Drop the obsolete name/metadata legacy-compat shim columns from vendor_products',
+    why: 'Added 2026-08-17 only so the old /download route select would not 42703; that route has since been repointed to products (or, even where unrepointed, vendor_products has 0 rows / no writer so the columns are unread in practice). No remaining reader or writer in backend/ or src/.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'vendor_products'
+            AND column_name IN ('name', 'metadata')`
+      )
+      const present = rows.map(r => r.column_name)
+      return { applied: present.length === 0, detail: present.length ? `still present: ${present.join(', ')}` : 'name/metadata columns absent' }
+    }
+  },
+  {
     id: 'profiles-cut-anon',
     file: 'supabase/migrations/20260806_03_profiles_cut_anon.sql',
     title: 'Revoke anon read of user_profiles (closes PII leak) — APPLY ONLY AFTER repointed frontend is live',
