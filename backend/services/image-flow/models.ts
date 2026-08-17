@@ -100,11 +100,25 @@ export const MODELS: ImageModel[] = [
     provider: 'replicate',
     tier: 'workhorse',
     label: 'Flux 2 Pro',
-    costPerImageUsd: 0.03,
+    // Billed per megapixel: $0.015/MP in + $0.015/MP out. A 1 MP text-to-image
+    // run is ~$0.015 (what this field represents — the router uses it for pure
+    // generation scoring and the cost gate); add ~$0.015 per 1 MP reference
+    // image, so a single-reference edit lands near $0.03. Replaces
+    // flux-1.1-pro-ultra ($0.06/image flat) at 75% less for generation.
+    costPerImageUsd: 0.015,
     approxSeconds: 8,
-    strengths: ['photoreal-people', 'text-in-image'],
+    strengths: [
+      'photoreal-people',
+      'photoreal-product',
+      'text-in-image',
+      'edit',
+      'multi-image',
+    ],
+    unifiedGenAndEdit: true,
+    notes:
+      'BFL FLUX.2 [pro]. One endpoint for text-to-image and reference-driven edits — up to 8 `input_images` (9 MP total input cap) with character/product consistency. Cheapest credible hero-grade generator in the roster. NOT to be confused with FLUX.2 [flex] ($0.06/MP), which we deliberately do not carry.',
     promptCraft:
-      'Handles narrative prose. Describe the scene as a photograph or cinematic frame. For text, put the exact string in double quotes. 60–120 words.',
+      'Handles narrative prose — describe the scene as a photograph or cinematic frame, subject first, then action, style, context. For text, put the exact string in double quotes. 60–120 words. With references, address them by index ("the graphic in image 1"). CRITICAL: this model has NO negative_prompt and BFL warns that naming something to exclude ("no wearer", "not a mannequin") can make it appear — always state what you DO want instead.',
   },
   {
     id: 'black-forest-labs/flux-1.1-pro',
