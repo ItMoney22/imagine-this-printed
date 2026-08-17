@@ -163,9 +163,15 @@ async function repair(product, stats) {
 
   // ---- 3. reachable original source files ---------------------------------
   if (DO_SOURCES) {
+    // A prior --sources pass (vectors+jpg only) leaves source_files nonempty,
+    // which used to satisfy this checkpoint on its own and permanently hide
+    // that PSD had never been attempted. source_files_psd_checked tracks
+    // "did a PSD-inclusive scan already run for this product" independent of
+    // whether that scan actually found a .psd on disk.
     const needsSources = !meta.source_files ||
       Object.keys(meta.source_files).length === 0 ||
-      sourceFilesAreLocalPaths(meta.source_files)
+      sourceFilesAreLocalPaths(meta.source_files) ||
+      (INCLUDE_PSD && !meta.source_files_psd_checked)
     if (needsSources) {
       const dir = localDirFor(product)
       if (!dir || !meta.design_id || !fs.existsSync(dir)) {
@@ -189,6 +195,10 @@ async function repair(product, stats) {
             stats.sourceFileCount += Object.keys(sourceFiles).length
           } else {
             stats.sourcesEmpty++
+          }
+          if (INCLUDE_PSD) {
+            meta.source_files_psd_checked = true
+            metaChanged = true
           }
         } catch (err) {
           stats.sourcesFailed++

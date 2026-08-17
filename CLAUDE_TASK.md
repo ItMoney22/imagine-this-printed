@@ -1,55 +1,54 @@
 # Claude Task Brief
 
-## Request
-- Correct the 2026-08-06 weekly Etsy report because the original email omitted its screenshots.
-- Send the four audit screenshots from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Update the weekly heartbeat so every future report includes and verifies its images.
-- Do not edit Etsy or repo implementation code.
+## Request (Watchtower task e7679a5a-440c-4a6e-aea8-36aede8cf9d7, continuation of 1f3d9e7d)
+- Fix the `--include-psd` eligibility checkpoint in `backend/scripts/backfill-design-library-media.mjs`.
+- Run the monitored PSD upload to `gs://imagine-this-printed-main/design-sources/`.
+- Verify uploaded-asset count and total bytes against the ~11 GB / ~2,700-design expectation.
 
 ## Repo detection
 - Vite + React frontend with an Express/TypeScript backend.
-- The in-app email system stores mailboxes/messages in Supabase and delivers mail through Resend.
-- Resend supports CID inline images backed by normal image attachments.
+- `backend/scripts/backfill-design-library-media.mjs` + `backend/scripts/lib/design-media.mjs` repair
+  design-library product rows (permanent media URLs, pixel dims, and original source files uploaded to GCS).
+- Preserved importer worktree with a working `backend/.env`:
+  `C:\Users\David\.watchtower-dispatch-worktrees\imagine-this-printed\iahhm\fix-design-library-url-e-1cb2f16c-ms2csjjm`
 
-## Relevant files
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/services/email-resend.ts`
-- `backend/routes/email.ts`
-- `C:/Users/David/.codex/automations/weekly-etsy-shop-review/automation.toml`
+## Root cause (found)
+`repair()`'s source-files checkpoint was:
+```js
+const needsSources = !meta.source_files || Object.keys(meta.source_files).length === 0 ||
+  sourceFilesAreLocalPaths(meta.source_files)
+```
+A prior `--sources` run (vectors+jpg only, no `--include-psd`) leaves `metadata.source_files` nonempty
+(e.g. `{ai:{...}, jpg:{...}}`). That satisfies all three conditions above, so a later
+`--sources --include-psd` run sees every product as already "done" and never re-scans for `.psd` files —
+PSDs are silently never uploaded, matching Mia Potts's scout finding in
+`E:\memory\watchtower\handoffs\handoff-mia-potts-1786930581931.json`.
 
-## Files to edit (STRICT)
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- Do not edit any repo implementation file.
-- External state in scope: one corrected report email and an update to the existing heartbeat.
+## Files to edit
+- `backend/scripts/backfill-design-library-media.mjs` (checkpoint fix — done)
+- `TASK_NOTES.md` (work-log bullet)
+- `CLAUDE_TASK.md` (this file)
+- No other implementation files in scope.
 
-## Completed correction
-- Sent subject: `Corrected: Mr. Imagine's Weekly Etsy Shop Review - August 6, 2026 (Screenshots Included)`.
-- Included all four fresh PNG screenshots inline beside their matching report sections.
-- Included the same four PNGs as attachments for clients that block inline images.
-- Resend reported four inline attachments with distinct content IDs.
-- The `wecare` recipient record received all four images with stored download URLs.
-- The corrected outbound message is logged in Mr. Imagine's Sent folder.
-
-## Future weekly-report requirements
-1. Capture four fresh screenshots: shop home, strongest listing, weaker listing, and About/policies.
-2. Insert each screenshot beside its matching email section using a CID reference.
-3. Attach the same four PNG files to the email.
-4. Verify four attachments in the sending-service record.
-5. Verify four working image attachments in the `wecare` recipient record.
-6. Do not claim completion if any image or verification is missing.
-
-## Acceptance criteria
-- [x] Corrected report sent from Mr. Imagine.
-- [x] Four screenshots embedded inline.
-- [x] Four PNG attachments included.
-- [x] Sending-service attachment count verified.
-- [x] Recipient attachment count and stored links verified.
-- [x] Weekly heartbeat updated with mandatory image checks.
-- [x] No Etsy or repo implementation changes made.
+## Fix applied
+Added a `meta.source_files_psd_checked` marker set whenever a PSD-inclusive scan runs for a product
+(regardless of whether a `.psd` was actually found on disk, so a design with no PSD converges after one
+pass instead of being rescanned every run). `needsSources` now also re-triggers when
+`INCLUDE_PSD && !meta.source_files_psd_checked`. `uploadSources()` itself was already correctly
+resumable (skips re-upload when the GCS object exists at the same byte size), so this fix only had to
+correct the per-product eligibility gate, not the upload logic.
 
 ## Commands
-- Read-only verification uses Resend attachment metadata and existing Supabase email records.
-- No repo build or test command is required.
+```
+cd backend
+node scripts/backfill-design-library-media.mjs --dry-run --sources --include-psd --limit 20
+node scripts/backfill-design-library-media.mjs --sources --include-psd
+node scripts/backfill-design-library-media.mjs --verify 20
+```
+Run from a worktree with `backend/.env` + `backend/node_modules` present (this dispatch worktree, once
+`npm install` completes) or the preserved iahhm worktree above.
+
+## Acceptance criteria
+- [x] Checkpoint no longer treats vector/jpg-only `source_files` as PSD-complete.
+- [ ] Monitored upload run completed against the design library.
+- [ ] GCS object count + total bytes in `design-sources/` reported and reconciled against expectation (~11 GB).
