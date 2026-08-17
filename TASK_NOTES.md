@@ -1020,3 +1020,24 @@ OrderManagement route, and `/account/orders` is behind `ProtectedRoute`.
   Premium" the server would never render, and a stale "1 free today" badge caused by keying an
   effect on the user object instead of user.id). Feature is DARK until FASHN_API_KEY is provisioned;
   approval filed. Migration NOT applied.
+
+- 2026-08-17 (zero-nine, task d7ceb366 — go-live + live verification of the photo-retention sweep):
+  merged `earth/zero-nine/virtual-try-on-implement-f3bf450c-mswkklgs` (which carries zero-saturn's
+  base try-on, 2698c72, plus the sweep, 2be0bc6) into main and pushed — merge commit 6a64ec7, one
+  conflict (TASK_NOTES.md) resolved as a union. Applied BOTH migrations to the production database
+  (`20260816_virtual_tryon.sql` then `20260816_02_tryon_photo_retention.sql`); ledger rows flipped to
+  APPLIED with live `information_schema`/`pg_policies` evidence. Confirmed the Render WORKER carries
+  valid `GCS_PROJECT_ID`/`GCS_CREDENTIALS` by authenticating with those exact values and writing real
+  objects. Then proved the sweep against the real bucket: seeded one `virtual_tryon_runs` row dated
+  40 days back with two genuine GCS objects under `tryon/<userId>/`, and 2 minutes after the worker
+  booted on the merge it logged `[tryon-retention] swept 1/1 run(s) older than 30d — 2 object(s)
+  deleted, 0 already gone, 0 failed, 0 deferred`. Both objects gone from the bucket,
+  `model_photo_path`/`result_url`/`result_paths`/`result_urls` cleared, `photos_purged_at` stamped
+  2026-08-17T02:33:22Z, and the ROW retained with its cost/ITC/status intact — the invariant the
+  sweep was built around, now demonstrated on production rather than in unit tests. Privacy line
+  proved dynamic end to end: with `TRYON_PHOTO_RETENTION_DAYS=45` set on the backend the live
+  `GET /api/tryon/enabled` returned 45 and the rendered card read "after 45 days"; reverting to the
+  default flipped both to 30. Card viewed in a browser at desktop and 386px phone width (no
+  horizontal overflow) via a throwaway component harness that stubs only the three I/O modules and
+  proxies `/api` to the real production backend. Feature remains DARK — no `FASHN_API_KEY` on either
+  Render service; approval 303ab404 still governs that.

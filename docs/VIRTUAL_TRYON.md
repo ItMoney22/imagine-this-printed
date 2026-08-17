@@ -269,8 +269,13 @@ nothing to claim or lock.
 
 1. Create a FASHN account at <https://fashn.ai>, buy credits, copy the API key
    from Settings → API.
-2. Apply `supabase/migrations/20260816_virtual_tryon.sql`, then
-   `supabase/migrations/20260816_02_tryon_photo_retention.sql`, to production.
+2. ~~Apply `supabase/migrations/20260816_virtual_tryon.sql`, then
+   `supabase/migrations/20260816_02_tryon_photo_retention.sql`, to production.~~
+   **DONE 2026-08-17** (Watchtower task d7ceb366). Both are live on the
+   production database; see `supabase/migrations/MIGRATION_LEDGER.md`. The
+   retention sweep has been verified against the real bucket — a seeded
+   40-day-old run had both of its GCS objects deleted, its pointers nulled and
+   `photos_purged_at` stamped, with the analytics row itself retained.
 3. Set on the Render backend service: `FASHN_API_KEY`, `TRYON_ENABLED=true`, and
    `FASHN_COST_PER_CREDIT_USD` to whatever tier you actually bought. The
    retention sweep runs in the **worker** service and needs no new key — but it
