@@ -1,55 +1,37 @@
 # Claude Task Brief
 
 ## Request
-- Correct the 2026-08-06 weekly Etsy report because the original email omitted its screenshots.
-- Send the four audit screenshots from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Update the weekly heartbeat so every future report includes and verifies its images.
-- Do not edit Etsy or repo implementation code.
+- Apply the additive `orders.shipping_label_url` production migration for Watchtower task `974998d9-6353-44b2-bb39-07211378cf08`.
 
 ## Repo detection
-- Vite + React frontend with an Express/TypeScript backend.
-- The in-app email system stores mailboxes/messages in Supabase and delivers mail through Resend.
-- Resend supports CID inline images backed by normal image attachments.
+- Vite/React frontend with Express/TypeScript backend, Supabase PostgreSQL, and Prisma 5.22.
+- The reviewed migration exists on commit `9b87aac`, not on the current `main` branch/worktree.
 
 ## Relevant files
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/services/email-resend.ts`
-- `backend/routes/email.ts`
-- `C:/Users/David/.codex/automations/weekly-etsy-shop-review/automation.toml`
+- `backend/prisma/schema.prisma`
+- `supabase/migrations/001_initial_schema.sql`
+- Migration source: `git show 9b87aac:supabase/migrations/20260726_order_shipping_label.sql`
 
 ## Files to edit (STRICT)
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- Do not edit any repo implementation file.
-- External state in scope: one corrected report email and an update to the existing heartbeat.
+- Do not edit implementation or migration files in this worktree.
 
-## Completed correction
-- Sent subject: `Corrected: Mr. Imagine's Weekly Etsy Shop Review - August 6, 2026 (Screenshots Included)`.
-- Included all four fresh PNG screenshots inline beside their matching report sections.
-- Included the same four PNGs as attachments for clients that block inline images.
-- Resend reported four inline attachments with distinct content IDs.
-- The `wecare` recipient record received all four images with stored download URLs.
-- The corrected outbound message is logged in Mr. Imagine's Sent folder.
-
-## Future weekly-report requirements
-1. Capture four fresh screenshots: shop home, strongest listing, weaker listing, and About/policies.
-2. Insert each screenshot beside its matching email section using a CID reference.
-3. Attach the same four PNG files to the email.
-4. Verify four attachments in the sending-service record.
-5. Verify four working image attachments in the `wecare` recipient record.
-6. Do not claim completion if any image or verification is missing.
+## Plan
+1. Run the recovered reviewed SQL against production using Prisma 5.22 and the backend Prisma schema.
+2. Assert, within the migration transaction, that `orders.shipping_label_url` is `TEXT` and that `idx_orders_shipping_label_url` is a valid partial index for non-null label URLs.
+3. Record the deployed-code gap: `origin/main` and the public production bundle do not contain the persistence commit.
+4. Merge/deploy commit `9b87aac`, then perform an approved real Shippo label purchase and confirm the URL persists.
 
 ## Acceptance criteria
-- [x] Corrected report sent from Mr. Imagine.
-- [x] Four screenshots embedded inline.
-- [x] Four PNG attachments included.
-- [x] Sending-service attachment count verified.
-- [x] Recipient attachment count and stored links verified.
-- [x] Weekly heartbeat updated with mandatory image checks.
-- [x] No Etsy or repo implementation changes made.
+- [x] Production `public.orders.shipping_label_url` exists as `TEXT`.
+- [x] Valid partial index `idx_orders_shipping_label_url` exists for non-null label URLs.
+- [x] Migration SQL executed successfully through Prisma 5.22 in a transaction.
+- [ ] Live Shippo purchase verified after persistence code merge/deploy; tracked by Watchtower follow-up `a05ddd01-1b48-40ea-a64a-a7b571407bfd`.
 
 ## Commands
-- Read-only verification uses Resend attachment metadata and existing Supabase email records.
-- No repo build or test command is required.
+- Executed: `npx --yes prisma@5.22.0 db execute --stdin --schema backend/prisma/schema.prisma` with `DATABASE_URL` loaded privately from the production backend environment.
+- No build is required for this schema-only operation.
