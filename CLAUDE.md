@@ -74,7 +74,7 @@ cd scripts && npm run verify
 - **Payments**: Stripe
 - **Canvas**: Konva.js for product design editor
 - **AI**: OpenAI GPT for marketing content generation
-- **Deployment**: Express.js static server (Railway + VPS)
+- **Deployment**: Vercel (frontend), Render (backend web service + background worker)
 
 ## Architecture
 
@@ -166,7 +166,7 @@ Proxy in development (vite.config.ts):
 ### Utility Services
 
 Key utility modules:
-- **src/utils/email.ts**: Brevo email integration
+- **src/utils/email.ts**: Transactional email utility using Resend (Brevo deprecated/removed)
 - **src/utils/stripe.ts**: Stripe payment processing
 - **src/utils/gpt-assistant.ts**: OpenAI GPT for marketing
 - **src/utils/product-recommender.ts**: AI product recommendations
@@ -189,14 +189,14 @@ VITE_API_BASE=https://api.imaginethisprinted.com
 VITE_SITE_URL=https://imaginethisprinted.com
 ```
 
-### Backend (Railway)
+### Backend (Render)
 ```env
 SUPABASE_URL=<same_as_frontend>
 SUPABASE_ANON_KEY=<same_as_frontend>
 SUPABASE_SERVICE_ROLE_KEY=<service_role_key>
 DATABASE_URL=<postgres_connection_string>
-BREVO_API_KEY=<brevo_api_key>
-BREVO_SENDER_EMAIL=wecare@imaginethisprinted.com
+RESEND_API_KEY=<resend_api_key>
+EMAIL_FROM=Imagine This Printed <wecare@imaginethisprinted.com>
 STRIPE_SECRET_KEY=<stripe_secret_key>
 OPENAI_API_KEY=<openai_api_key>
 ```
@@ -348,24 +348,12 @@ function MyComponent() {
 
 ## Deployment
 
-### Railway Deployment
+### Production Deployment
 
-Two services:
-1. **imagine-this-printed** (frontend): Vite build + static server
-2. **backend**: Express.js API server
-
-Deploy commands:
-```bash
-# Build frontend
-npm run build
-
-# Start static server
-npm start
-```
-
-### VPS Deployment
-
-Currently running on VPS at 168.231.69.85:8080
+The project is deployed on the following platforms:
+- **Frontend**: Vite SPA built and served via **Vercel** (automatic deployments triggered by pushes to `main` branch).
+- **Backend (API)**: Express.js server hosted on **Render** as a Web Service.
+- **Worker**: Background processor hosted on **Render** as a Background Worker.
 
 Health check endpoints:
 ```bash
