@@ -7,6 +7,68 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-17 — admin submission tables restored (Marcus Wolfe)
+
+Watchtower task `08444193-a962-46de-9d1a-d55ff9d2fabe`, implementing the scout
+brief from `6f1a3291` (commit `43927c2`). Applied LIVE to prod project
+`czzyrmizvjqlifcivrhn` via `scripts/apply-pending-migrations.mjs --apply --track
+--only=restore-admin-submissions`, verified in-transaction before COMMIT, then
+re-verified against the live catalog and over real HTTP.
+
+**Applied:** `20260817010000_restore_admin_submission_tables.sql` — creates
+`public.vendor_products` and `public.three_d_models` (neither has EVER been
+declared by a migration in this repo, at any point in git history — the 2026-08-16
+scout checked; they were created out of band and lost, or never existed), and adds
+`products.approved` as a trigger-synchronized compatibility boolean.
+
+**This one IS tracked.** `supabase_migrations.schema_migrations` now carries
+version `20260817010000` — unlike most of this repo's history.
+
+Live evidence, before → after:
+
+| Probe (anonymous PostgREST) | Before | After |
+|---|---|---|
+| `GET /rest/v1/three_d_models?select=id&limit=1` | 404 / `42P01` | **200** `[]` |
+| `GET /rest/v1/vendor_products?select=id&limit=1` | 404 / `42P01` | **200** `[]` |
+| `GET /rest/v1/products?select=id,approved&limit=1` | 400 / `42703` | **200** with `approved` |
+
+- Catalog after apply: both tables present, `relrowsecurity = true` on both, 6
+  named policies each (12 total), `sync_products_approved_trigger` on
+  `public.products`, CHECK `products_approved_matches_status`.
+- `products.approved` backfilled across all 2,466 rows: 43 true / 2,423 false,
+  **0 rows** where `approved IS DISTINCT FROM (status='active' AND is_active IS TRUE)`.
+- RLS proved by acting as each role (rolled back, zero residue): an owner can
+  submit but is blocked `42501` from inserting pre-approved, from self-approving,
+  and from reassigning a submission to another user; anon cannot see pending rows
+  but can see approved ones; admin can approve and delete both resources.
+- Authenticated-admin smoke test over real HTTP (insert → list pending → approve →
+  delete) passed for both tables; **all smoke rows deleted, both tables back to 0 rows.**
+- Live production Admin Dashboard checked in a real browser: **Vendors** ("Vendor
+  Product Approvals") and **Models** ("3D Model Approvals") both render, and
+  clicking Approve on a seeded row flipped the badge Pending → Approved with a
+  success toast. Re-checked at 390px mobile width — cards stack, no horizontal
+  overflow, no console error mentioning either table. The overview "Pending
+  Approvals" tile also moved 2418 → 2420 when two pending rows were seeded, which
+  proves the metric queries in `AdminDashboard.tsx` are working again too.
+- `public.get_user_role(uuid)` returns normally (`'customer'` for the zero UUID).
+
+**Corrections to older text in this ledger.** As of 2026-08-17 the runner reports
+all of the following LIVE, so any statement below that they are missing is stale:
+`fix-get-user-role`, `prevent-role-escalation`, `orders-staff-write`,
+`landing-page-suggestions`, `anon-policy-lockdown`, `discount-codes-lockdown`,
+`security-round2`, `profiles-cut-anon`. In particular the "`orders-staff-write`
+and `landing-page-suggestions` … remain PENDING" line in the section below is no
+longer true.
+
+**New guard in the runner.** `scripts/apply-pending-migrations.mjs` now resolves
+the Supabase project ref out of `DATABASE_URL` (pooler username `postgres.<ref>`
+or host `db.<ref>.supabase.co`), cross-checks it against `SUPABASE_URL` when that
+is set, and refuses `--apply` unless it equals `czzyrmizvjqlifcivrhn` — exiting
+before any connection is opened. `current_database()` and `current_user` are
+`postgres` on *every* Supabase project, so neither could ever have caught a
+misaimed URL. All three failure modes (wrong ref, unresolvable ref, DATABASE_URL
+vs SUPABASE_URL disagreement) were tested and each exits 1 without connecting.
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
@@ -149,12 +211,13 @@ treat as a lead, not a fact, until someone runs the actual query.
 | `20260714_product_alt_text.sql` | APPLIED | `products.alt_text` live. |
 | `20260724_etsy_integration.sql` | APPLIED | `etsy_oauth_states`, `etsy_connection`, `etsy_listings` all live. |
 | `20260725_email_forwarding.sql` | NOT RE-VERIFIED | `email_mailboxes` confirmed to exist generally; this file's specific columns not individually checked. |
-| `20260727_prevent_role_self_escalation.sql` | **NOT APPLIED — and must not be, alone** | `enforce_user_profile_role_immutable_trigger` confirmed absent from `pg_trigger`. Its trigger body calls `public.get_user_role()`, which is currently broken live (see next row) — **do not apply this file without `20260728_fix_get_user_role_ambiguity.sql` in the same push.** If this file ever applies on its own, every role-changing `UPDATE user_profiles` (including David's own admin tooling) will start raising `column reference "user_id" is ambiguous` and role management breaks. See "Ordering / dependency constraints" below. |
+| `20260727_prevent_role_self_escalation.sql` | ~~NOT APPLIED~~ → **APPLIED 2026-08-05/06** (with its prerequisite, as required) | `enforce_user_profile_role_immutable_trigger` confirmed absent from `pg_trigger`. Its trigger body calls `public.get_user_role()`, which is currently broken live (see next row) — **do not apply this file without `20260728_fix_get_user_role_ambiguity.sql` in the same push.** If this file ever applies on its own, every role-changing `UPDATE user_profiles` (including David's own admin tooling) will start raising `column reference "user_id" is ambiguous` and role management breaks. See "Ordering / dependency constraints" below. |
 | `20260727_signup_role_hardcode_customer.sql` | APPLIED (drifted from `003`) | Live `handle_new_user()` already hardcodes `default_role := 'customer'` with an admin-email allowlist, matching this file's intent — confirmed via `pg_get_functiondef`. Applied out-of-band, not tracked. |
 | `20260727_fix_itc_wallet_schema_drift.sql` | APPLIED | `itc_transactions`/`user_wallets` live columns match the corrected shape this file documents (`itc_transactions`: id/user_id/type/amount/reference/balance_after/metadata/created_at; `user_wallets` has `points`, no `points_balance`). |
 | `20260727_imagination_layers_allow_shape.sql` | APPLIED | `imagination_layers` table live (specific column not isolated, but table-level presence is a strong signal — this file only alters an existing table). |
-| `20260728_fix_get_user_role_ambiguity.sql` | **NOT YET APPLIED — fixes a live-broken function** | Added by a concurrent agent in this session. Verified live: `public.get_user_role(uuid)` currently raises `ERROR: column reference "user_id" is ambiguous` on **every call** — `user_profiles` has both `id` and a drifted `user_id` column, and the original `005_rls_fixes.sql` body (`WHERE id = user_id`) can't tell them apart. This file qualifies every reference (`up.id`, `up.role`, `get_user_role.user_id`) without dropping/renaming the function (a rename or `DROP FUNCTION` would cascade into every RLS policy that calls it). Confirmed correct by direct read. **This is the single highest-priority migration in this ledger** — every RLS policy in this repo that calls `get_user_role()` (there are ~15+) is silently broken until this applies. |
-| `20260728120000_orders_staff_write_access.sql` | **NOT YET APPLIED — new, added by this audit** | See "manager order-write" section below. |
+| `20260728_fix_get_user_role_ambiguity.sql` | ~~NOT YET APPLIED~~ → **APPLIED 2026-08-05/06**; re-confirmed live 2026-08-17 (`get_user_role('000…0')` returns `'customer'`, no ambiguity error). The historical description below is kept for context on WHY it mattered. | Added by a concurrent agent in this session. Verified live: `public.get_user_role(uuid)` currently raises `ERROR: column reference "user_id" is ambiguous` on **every call** — `user_profiles` has both `id` and a drifted `user_id` column, and the original `005_rls_fixes.sql` body (`WHERE id = user_id`) can't tell them apart. This file qualifies every reference (`up.id`, `up.role`, `get_user_role.user_id`) without dropping/renaming the function (a rename or `DROP FUNCTION` would cascade into every RLS policy that calls it). Confirmed correct by direct read. **This is the single highest-priority migration in this ledger** — every RLS policy in this repo that calls `get_user_role()` (there are ~15+) is silently broken until this applies. |
+| `20260728120000_orders_staff_write_access.sql` | ~~NOT YET APPLIED~~ → **APPLIED 2026-08-05/06** | Both policies confirmed live by the runner's status check on 2026-08-17. See "manager order-write" section below. |
+| `20260817010000_restore_admin_submission_tables.sql` | **APPLIED 2026-08-17, AND TRACKED** | Creates `public.vendor_products` + `public.three_d_models` (neither was ever declared by any migration in this repo's history) and adds `products.approved` as a trigger-synchronized compatibility boolean over `status`/`is_active`. Applied via the runner with `--track`, so `schema_migrations` carries version `20260817010000` — one of the very few rows in this repo that is honest. Verified live: anon PostgREST 200 on both tables and on `products.approved`, RLS on with 6 policies each, `sync_products_approved_trigger` + `products_approved_matches_status` CHECK on `products`, 0 drift across 2,466 product rows, admin insert→approve→delete smoke test passed and cleaned up, and both Admin Dashboard tabs verified in a real browser at desktop and 390px. Full detail in the 2026-08-17 section at the top. |
 
 ## `migrations/` (root, legacy) — file-by-file status
 
