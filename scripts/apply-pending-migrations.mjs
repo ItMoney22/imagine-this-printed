@@ -174,6 +174,17 @@ const PLAN = [
     }
   },
   {
+    id: 'wholesale-applications-table',
+    file: 'supabase/migrations/20260728_wholesale_applications.sql',
+    title: 'Create wholesale_applications (table + indexes + RLS only)',
+    why: 'POST /api/wholesale/apply inserts into public.wholesale_applications, which does not exist live — every inbound wholesale lead 500s and is lost. This file was defused 2026-08-17: its original DROP/ADD admin_notifications_type_check block is excluded (see the file banner) because that constraint is already correctly maintained as a union by 20260816_admin_notifications_type_union.sql.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(`SELECT to_regclass('public.wholesale_applications') AS t`)
+      return { applied: !!rows[0]?.t, detail: rows[0]?.t ? 'table present' : 'table absent' }
+    }
+  },
+  {
     id: 'profiles-cut-anon',
     file: 'supabase/migrations/20260806_03_profiles_cut_anon.sql',
     title: 'Revoke anon read of user_profiles (closes PII leak) — APPLY ONLY AFTER repointed frontend is live',

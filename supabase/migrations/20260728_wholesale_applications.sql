@@ -3,9 +3,19 @@
 -- WHY: src/pages/WholesalePortal.tsx used to call `alert('Application
 -- submitted!')` and throw the form data away — every inbound wholesale lead
 -- was silently dropped. This table gives applications somewhere real to
--- land, and the admin_notifications type CHECK is extended (same pattern as
--- 20260706_blank_inventory.sql did for 'low_stock'/'order_stalled') so a new
--- application shows up in the existing admin alert surface, not a new one.
+-- land so a new application shows up in the existing admin alert surface.
+--
+-- DEFUSED 2026-08-17 (Watchtower task 9d14723b-bc80-4dc7-940d-7616f523c6e0):
+-- this file originally also DROPped + ADDed admin_notifications_type_check
+-- restating a short, stale type list (same landmine pattern the ledger
+-- documents for 20260727_refunds_and_disputes.sql — MIGRATION_LEDGER.md
+-- "LIVE, GROWING collision" section). Applying that block today would
+-- silently drop 'payment_dispute' and every other type another migration
+-- added since, breaking chargeback alerts. The constraint is now correctly
+-- maintained as a union in supabase/migrations/20260816_admin_notifications_type_union.sql
+-- (applied live 2026-08-16, confirmed to already include 'wholesale_application').
+-- This file is CREATE TABLE / CREATE INDEX / RLS ONLY — do not re-add a CHECK
+-- block here; copy the DO-block-union pattern from the 20260816 file instead.
 
 CREATE TABLE IF NOT EXISTS public.wholesale_applications (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -42,13 +52,3 @@ CREATE POLICY "Users can view their own wholesale applications" ON public.wholes
 DROP POLICY IF EXISTS "Service role full access to wholesale applications" ON public.wholesale_applications;
 CREATE POLICY "Service role full access to wholesale applications" ON public.wholesale_applications
   FOR ALL USING (auth.role() = 'service_role');
-
--- Extend the notification-type CHECK so a new wholesale application shows up
--- in the same admin_notifications feed as support tickets / low-stock alerts.
-ALTER TABLE public.admin_notifications DROP CONSTRAINT IF EXISTS admin_notifications_type_check;
-ALTER TABLE public.admin_notifications ADD CONSTRAINT admin_notifications_type_check
-  CHECK (type IN (
-    'new_ticket', 'ticket_reply', 'ticket_escalation', 'agent_needed',
-    'low_stock', 'order_stalled', 'health_alert',
-    'wholesale_application'
-  ));

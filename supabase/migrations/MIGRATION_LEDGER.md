@@ -1,5 +1,35 @@
 # Migration Ledger — imagine-this-printed
 
+## 2026-08-17 — wholesale_applications table applied (Marcus Wolfe, task `9d14723b`)
+
+Applied LIVE to prod via `scripts/apply-pending-migrations.mjs --apply --only=wholesale-applications-table`
+(new plan entry, `to_regclass('public.wholesale_applications')` check, verified in-transaction).
+
+`supabase/migrations/20260728_wholesale_applications.sql` was **defused first**: its
+original trailing `DROP CONSTRAINT` + `ADD CONSTRAINT admin_notifications_type_check`
+block (the exact landmine this ledger's "LIVE, GROWING collision" section below
+already flagged against `20260727_refunds_and_disputes.sql`) was removed. That
+constraint is already correctly live as a 10-type union — Dr. Dill's
+`20260816_admin_notifications_type_union.sql` (task `ae9c62ac`, applied directly
+2026-08-16, not yet merged to main) fixed it for real, and independently
+re-verified here immediately before this apply: `pg_get_constraintdef` showed
+all ten types including `wholesale_application` already present, untouched by
+this migration. The file now applies CREATE TABLE / CREATE INDEX / RLS only.
+
+Verified against live prod after apply: columns/types/defaults match the
+`CREATE TABLE` exactly, both indexes present (`idx_wholesale_applications_user_id`,
+`idx_wholesale_applications_status`), RLS enabled with both policies present
+("Users can view their own…" SELECT-own, "Service role full access…" ALL). End
+to end: a real `POST /api/wholesale/apply` call (HTTP 201) inserted a row,
+`admin_notifications` got a `wholesale_application` row, and it was visible via
+`GET /api/admin/support/notifications` (HTTP 200, present in `notifications[]`).
+Probe rows deleted after verification — table is back to 0 rows.
+
+This closes the "wholesale_applications TABLE does not exist" gap Dr. Dill's
+`ae9c62ac` handoff flagged as a live lead-loss bug (follow-up task `9d14723b`,
+this one).
+
+
 Audited 2026-07-28 by Iahhm, Watchtower ITP Closeout campaign (tasks `5b86e9ac`,
 `c5335439`, `3390cc85`). Read-only against production throughout — every
 APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
