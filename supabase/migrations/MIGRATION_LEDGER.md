@@ -7,6 +7,34 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-16 — ITC wallet self-mint closed (Zero Nine, task `2be49cee`)
+
+`20260810_lock_wallet_balance.sql` applied LIVE to prod. **Tracked** in
+`supabase_migrations.schema_migrations` as version `20260810` /
+`lock_wallet_balance` — the first migration in this repo to follow the
+"if you apply by hand, insert the ledger row" rule at the bottom of this file.
+
+The file as drafted on 08-10 was re-verified against the live catalog before
+applying and **would have failed**, so it was corrected first:
+
+- its INSERT policy named `points_balance` / `lifetime_itc_earned` /
+  `lifetime_points_earned`, none of which exist live (same repo-vs-live drift
+  `20260727_fix_itc_wallet_schema_drift.sql` documents). `CREATE POLICY` would
+  have raised 42703 and — with no transaction wrapper in the draft — left the
+  table with its UPDATE policies dropped, no user INSERT policy, and the
+  REVOKE never run. Rewritten against the live columns, wrapped in BEGIN/COMMIT.
+- the draft left `Service role can insert wallets` (cmd=INSERT, **roles=public**,
+  `WITH CHECK (true)`) in place. Permissive policies OR together, so that one
+  re-opened everything the new zero-balance INSERT policy closed. It was also
+  dead weight — `service_role` has `rolbypassrls`. Dropped.
+
+Live result: zero UPDATE policies on `user_wallets`, `UPDATE/DELETE/TRUNCATE`
+revoked from `anon` + `authenticated`, one INSERT policy that only admits a
+zero-balance row for `auth.uid()`. Verified end-to-end against production
+PostgREST with a real signed-in user JWT (8/8: self-UPDATE 42501, cross-user
+UPDATE 42501, balance-carrying INSERT 42501, DELETE 42501, own SELECT still
+200, service-role credit still 200).
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
