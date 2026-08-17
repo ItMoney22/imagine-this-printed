@@ -63,9 +63,8 @@ STRIPE_SECRET_KEY="sk_test_..."
 STRIPE_WEBHOOK_SECRET="whsec_..."
 
 # Email (optional)
-BREVO_API_KEY="your-brevo-api-key"
-BREVO_SENDER_EMAIL="noreply@yourdomain.com"
-BREVO_SENDER_NAME="Imagine This Printed"
+RESEND_API_KEY="re_your-resend-api-key"
+EMAIL_FROM="Imagine This Printed <wecare@imaginethisprinted.com>"
 
 # AWS S3 (optional)
 AWS_ACCESS_KEY_ID="..."
@@ -427,7 +426,7 @@ npm start
 
 ### Environment Variables
 
-Ensure these are set in your hosting platform (Railway, Vercel, etc.):
+Ensure these are set in your hosting platforms (Render, Vercel, etc.):
 
 **Backend**:
 - All variables from `backend/.env.example`
