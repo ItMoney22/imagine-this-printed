@@ -19,6 +19,7 @@
 // ---------------------------------------------------------------------------
 import Replicate from 'replicate'
 import OpenAI from 'openai'
+import sharp from 'sharp'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from './gcs-storage.js'
 import { sniffImageContentType, extForImageContentType } from './google-cloud-storage.js'
@@ -46,6 +47,44 @@ const STOCK_MODEL_BASE = 'https://storage.googleapis.com/imagine-this-printed-me
 function sniffImageType(buffer: Buffer): { contentType: string; ext: string } {
   const contentType = sniffImageContentType(buffer) || 'image/png'
   return { contentType, ext: extForImageContentType(contentType) }
+}
+
+/**
+ * Scales an image proportionally if its shortest side is less than 2000px.
+ * If width equals height (square), scales to 2000x2000.
+ */
+export async function resizeIfNeeded(buffer: Buffer): Promise<Buffer> {
+  const image = sharp(buffer)
+  const metadata = await image.metadata()
+  const width = metadata.width
+  const height = metadata.height
+
+  if (!width || !height) {
+    return buffer
+  }
+
+  const shortestSide = Math.min(width, height)
+  if (shortestSide >= 2000) {
+    return buffer
+  }
+
+  let newWidth: number
+  let newHeight: number
+  if (width === height) {
+    newWidth = 2000
+    newHeight = 2000
+  } else if (width < height) {
+    newWidth = 2000
+    newHeight = Math.round((height / width) * 2000)
+  } else {
+    newHeight = 2000
+    newWidth = Math.round((width / height) * 2000)
+  }
+
+  console.log(`[etsy-shots] Resizing from ${width}x${height} to ${newWidth}x${newHeight} (shortest side target 2000px)`)
+  return await image
+    .resize(newWidth, newHeight)
+    .toBuffer()
 }
 
 // Engine: gpt-image (OpenAI-direct, the codebase's premium compositor — best
@@ -652,16 +691,37 @@ async function generateOneShot(
   sizeInches: number = 11
 ): Promise<string> {
   const viaGptImage = async (): Promise<string> => {
+    const filename = `etsy_shot_${productId}_${plan.key}_${Date.now()}.png`
+    const gcsPath = `users/${userId}/mockups/${filename}`
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
       prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches),
       size: '1024x1536', // portrait, matches the 3:4 listing crop
       quality: 'high',
       userId,
-      objectPath: `users/${userId}/mockups/etsy_shot_${productId}_${plan.key}_${Date.now()}.png`
+      objectPath: gcsPath
     })
     console.log(`[etsy-shots] ${productId} ${plan.key} (${plan.label}) via ${modelId} → ${url}`)
-    return url
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Failed to fetch OpenAI image for resizing: ${res.status}`)
+      const originalBuffer = Buffer.from(await res.arrayBuffer())
+      const resizedBuffer = await resizeIfNeeded(originalBuffer)
+
+      const contentType = res.headers.get('content-type') || 'image/png'
+      const upload = await gcsStorage.uploadFile(resizedBuffer, {
+        userId,
+        folder: 'mockups',
+        filename,
+        contentType,
+        metadata: { productId, shot: plan.key, persona: plan.label, purpose: 'etsy-listing', resized: 'true' }
+      })
+      console.log(`[etsy-shots] Resized OpenAI image successfully: ${upload.publicUrl}`)
+      return upload.publicUrl
+    } catch (resizeErr: any) {
+      console.warn(`[etsy-shots] Failed to resize OpenAI image (${resizeErr.message || resizeErr}) — falling back to original URL`)
+      return url
+    }
   }
 
   const viaNanoBanana = async (): Promise<string> => {
@@ -678,8 +738,9 @@ async function generateOneShot(
       }
     })
     const buffer = await outputToBuffer(output)
-    const { contentType, ext } = sniffImageType(buffer)
-    const upload = await gcsStorage.uploadFile(buffer, {
+    const resizedBuffer = await resizeIfNeeded(buffer)
+    const { contentType, ext } = sniffImageType(resizedBuffer)
+    const upload = await gcsStorage.uploadFile(resizedBuffer, {
       userId,
       folder: 'mockups',
       filename: `etsy_shot_${productId}_${plan.key}_${Date.now()}.${ext}`,
@@ -972,10 +1033,27 @@ async function mirrorShotsToProductAssets(productId: string, images: string[], c
       console.warn(`[etsy-shots] ${productId}: ${denied.length} shot(s) failed QA and were NOT added to the product mockups`)
     }
 
-    // Roles are positional and stable, so a re-shoot replaces its own slot
-    // rather than accumulating duplicates.
-    const roles = keep.filter(s => s.ok).map(s => ({ ...s, role: `mockup_model_${s.i + 1}` }))
-    if (roles.length === 0) return
+    const okShots = keep.filter(s => s.ok)
+    if (okShots.length === 0) return
+
+    const roles = await Promise.all(
+      okShots.map(async (s) => {
+        let width = 2000
+        let height = 2000
+        try {
+          const res = await fetch(s.url)
+          if (res.ok) {
+            const buf = Buffer.from(await res.arrayBuffer())
+            const meta = await sharp(buf).metadata()
+            if (meta.width) width = meta.width
+            if (meta.height) height = meta.height
+          }
+        } catch (err) {
+          console.warn(`[etsy-shots] failed to probe metadata for ${s.url}:`, err)
+        }
+        return { ...s, role: `mockup_model_${s.i + 1}`, width, height }
+      })
+    )
 
     await supabase
       .from('product_assets')
@@ -991,8 +1069,8 @@ async function mirrorShotsToProductAssets(productId: string, images: string[], c
         // can so these rows look like every other asset row.
         path: (() => { try { return new URL(r.url).pathname.split('/').slice(2).join('/') || null } catch { return null } })(),
         url: r.url,
-        width: 1024,
-        height: 1024,
+        width: r.width,
+        height: r.height,
         asset_role: r.role,
         // Never primary: the ghost mannequin owns the hero slot.
         is_primary: false,
