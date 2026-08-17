@@ -433,14 +433,22 @@ router.get('/:orderId', requireAuth, async (req: Request, res: Response): Promis
 router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder']), async (req: Request, res: Response): Promise<any> => {
   try {
     const { orderId } = req.params
-    const { status, internal_notes, notes } = req.body ?? {}
+    const {
+      status, internal_notes, notes,
+      tracking_number, shipping_label_url, tracking_company, estimated_delivery
+    } = req.body ?? {}
 
     const wantsStatus = status !== undefined
     const wantsInternalNotes = internal_notes !== undefined
     const wantsNotes = notes !== undefined
+    const wantsTrackingNumber = tracking_number !== undefined
+    const wantsShippingLabelUrl = shipping_label_url !== undefined
+    const wantsTrackingCompany = tracking_company !== undefined
+    const wantsEstimatedDelivery = estimated_delivery !== undefined
 
-    if (!wantsStatus && !wantsInternalNotes && !wantsNotes) {
-      return res.status(400).json({ error: 'Nothing to update — provide status, internal_notes or notes' })
+    if (!wantsStatus && !wantsInternalNotes && !wantsNotes && !wantsTrackingNumber &&
+      !wantsShippingLabelUrl && !wantsTrackingCompany && !wantsEstimatedDelivery) {
+      return res.status(400).json({ error: 'Nothing to update — provide status, internal_notes, notes, tracking_number, shipping_label_url, tracking_company or estimated_delivery' })
     }
     if (wantsStatus && typeof status !== 'string') {
       return res.status(400).json({ error: 'status must be a string' })
@@ -450,6 +458,18 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
     }
     if (wantsNotes && typeof notes !== 'string') {
       return res.status(400).json({ error: 'notes must be a string' })
+    }
+    if (wantsTrackingNumber && typeof tracking_number !== 'string') {
+      return res.status(400).json({ error: 'tracking_number must be a string' })
+    }
+    if (wantsShippingLabelUrl && typeof shipping_label_url !== 'string') {
+      return res.status(400).json({ error: 'shipping_label_url must be a string' })
+    }
+    if (wantsTrackingCompany && typeof tracking_company !== 'string') {
+      return res.status(400).json({ error: 'tracking_company must be a string' })
+    }
+    if (wantsEstimatedDelivery && estimated_delivery !== null && typeof estimated_delivery !== 'string') {
+      return res.status(400).json({ error: 'estimated_delivery must be a string or null' })
     }
 
     const { data: order, error: orderError } = await supabase
@@ -476,19 +496,30 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       // clicks stay idempotent.
       if (transition.kind === 'move') {
         updateData.status = status
-        if (status === 'shipped') updateData.fulfillment_status = 'fulfilled'
+        if (status === 'shipped') {
+          updateData.fulfillment_status = 'fulfilled'
+          updateData.shipped_at = new Date().toISOString()
+        }
         if (status === 'delivered') updateData.fulfillment_status = 'delivered'
       }
     }
 
     if (wantsInternalNotes) updateData.internal_notes = internal_notes
     if (wantsNotes) updateData.notes = notes
+    // Carrier label fields (Watchtower task f2b836ab): a purchased label is
+    // written here, service-role, rather than from the browser under RLS —
+    // the same silent-drop-on-policy-mismatch class of bug the status/notes
+    // path above was already rewritten to avoid.
+    if (wantsTrackingNumber) updateData.tracking_number = tracking_number
+    if (wantsShippingLabelUrl) updateData.shipping_label_url = shipping_label_url
+    if (wantsTrackingCompany) updateData.tracking_company = tracking_company
+    if (wantsEstimatedDelivery) updateData.estimated_delivery = estimated_delivery
 
     const { data: updated, error: updateError } = await supabase
       .from('orders')
       .update(updateData)
       .eq('id', orderId)
-      .select('id, status, internal_notes, notes, updated_at')
+      .select('id, status, internal_notes, notes, tracking_number, shipping_label_url, tracking_company, estimated_delivery, shipped_at, updated_at')
       .single()
 
     if (updateError || !updated) {

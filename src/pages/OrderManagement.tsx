@@ -390,29 +390,23 @@ const OrderManagement: React.FC = () => {
     let persistError = ''
 
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .update({
+      // Goes through the backend (service role), same as updateOrderStatus /
+      // updateOrderNotes above — a direct browser supabase write here would
+      // run under RLS as the signed-in admin and can drop the write silently
+      // on a policy mismatch (that's the bug this whole feature exists to fix).
+      await apiFetch(`/api/orders/${dbOrderId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
           status: 'shipped',
           tracking_number: label.trackingNumber,
           shipping_label_url: label.labelUrl,
           tracking_company: label.carrier,
-          estimated_delivery: label.estimatedDelivery || null,
-          updated_at: shippedAt
+          estimated_delivery: label.estimatedDelivery || null
         })
-        .eq('id', dbOrderId)
-        .select('id')
-
-      if (error) {
-        persistError = error.message
-      } else if (!data || data.length === 0) {
-        // RLS can drop an UPDATE without raising an error — no rows changed.
-        persistError = 'no order row was updated (check your permissions on this order)'
-      } else {
-        persisted = true
-      }
+      })
+      persisted = true
     } catch (err) {
-      persistError = err instanceof Error ? err.message : 'unknown error'
+      persistError = extractApiError(err, 'unknown error')
     }
 
     if (persisted) {
