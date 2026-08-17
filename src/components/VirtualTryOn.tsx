@@ -61,6 +61,11 @@ export default function VirtualTryOn({
 
   const [available, setAvailable] = useState<boolean | null>(null)
   const [config, setConfig] = useState<TryOnConfig | null>(null)
+  // Quoted verbatim in the privacy line below, so it is read from the server
+  // rather than hardcoded — the sweep's window is an env var
+  // (TRYON_PHOTO_RETENTION_DAYS) and a stale number here would be a promise we
+  // don't keep. 30 matches the server default if an older backend omits it.
+  const [retentionDays, setRetentionDays] = useState(30)
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [tier, setTier] = useState<Tier>('standard')
@@ -78,7 +83,11 @@ export default function VirtualTryOn({
     let cancelled = false
     tryonApi
       .isEnabled()
-      .then((res) => { if (!cancelled) setAvailable(Boolean(res?.enabled)) })
+      .then((res) => {
+        if (cancelled) return
+        setAvailable(Boolean(res?.enabled))
+        if (Number(res?.photoRetentionDays) > 0) setRetentionDays(Number(res.photoRetentionDays))
+      })
       .catch(() => { if (!cancelled) setAvailable(false) })
     return () => { cancelled = true }
   }, [])
@@ -96,7 +105,11 @@ export default function VirtualTryOn({
     let cancelled = false
     tryonApi
       .getConfig()
-      .then((cfg) => { if (!cancelled) setConfig(cfg) })
+      .then((cfg) => {
+        if (cancelled) return
+        setConfig(cfg)
+        if (Number(cfg?.photoRetentionDays) > 0) setRetentionDays(Number(cfg.photoRetentionDays))
+      })
       .catch(() => { /* the card still works; it just shows generic pricing */ })
     return () => { cancelled = true }
   }, [userId, available])
@@ -434,7 +447,8 @@ export default function VirtualTryOn({
           <p className="mt-3 text-xs text-muted flex items-start gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
             Your photo is private to your account and is only used to make this try-on.
-            Delete it any time and the file goes with it.
+            Delete it any time and the file goes with it — and if you don't, we delete it
+            for you automatically after {retentionDays} days.
           </p>
         </>
       )}

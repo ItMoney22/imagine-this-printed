@@ -772,6 +772,8 @@ export interface TryOnConfig {
   freeRemainingToday?: number
   usageDate?: string
   timezone?: string
+  /** Days a shopper's uploaded photo survives before the retention sweep deletes it. */
+  photoRetentionDays?: number
   itcBalance?: number
   tiers?: {
     standard: { label: string; itcCost: number; poses: number }
@@ -792,7 +794,7 @@ export interface TryOnResult {
 
 export const tryonApi = {
   /** Public — safe to call signed out, so the card knows whether to render. */
-  isEnabled: (): Promise<{ enabled: boolean; dailyFreeCap: number }> =>
+  isEnabled: (): Promise<{ enabled: boolean; dailyFreeCap: number; photoRetentionDays?: number }> =>
     apiFetch('/api/tryon/enabled'),
 
   getConfig: (): Promise<TryOnConfig> => apiFetch('/api/tryon/config'),

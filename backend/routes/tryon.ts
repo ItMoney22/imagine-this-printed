@@ -40,6 +40,12 @@ import {
   FASHN_COST_PER_CREDIT_USD,
   type FashnCategory
 } from '../services/fashn-tryon.js'
+// The retention window is quoted to the shopper in the card's privacy line, so
+// it has to come from the same constant the sweep actually enforces — a
+// hardcoded "30 days" in the UI becomes a false promise the moment
+// TRYON_PHOTO_RETENTION_DAYS is retuned. Importing the module does not start
+// the sweep; only worker/index.ts calls startTryOnRetentionSweep().
+import { TRYON_PHOTO_RETENTION_DAYS } from '../worker/tryon-retention-sweep.js'
 import {
   openGate,
   settleFailure,
@@ -267,7 +273,11 @@ async function recordEvent(row: Record<string, unknown>): Promise<void> {
 // that without a token. Carries no per-user data.
 // ---------------------------------------------------------------------------
 router.get('/enabled', async (_req: Request, res: Response): Promise<any> => {
-  return res.json({ enabled: isTryOnEnabled(), dailyFreeCap: DAILY_FREE_TRYONS })
+  return res.json({
+    enabled: isTryOnEnabled(),
+    dailyFreeCap: DAILY_FREE_TRYONS,
+    photoRetentionDays: TRYON_PHOTO_RETENTION_DAYS
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -284,7 +294,8 @@ router.get('/config', requireAuth, async (req: Request, res: Response): Promise<
         enabled: false,
         reason: 'Virtual try-on is not switched on yet.',
         dailyFreeCap: DAILY_FREE_TRYONS,
-        timezone: TRYON_TIMEZONE
+        timezone: TRYON_TIMEZONE,
+        photoRetentionDays: TRYON_PHOTO_RETENTION_DAYS
       })
     }
 
@@ -302,6 +313,7 @@ router.get('/config', requireAuth, async (req: Request, res: Response): Promise<
       freeRemainingToday: freeUsed ? 0 : DAILY_FREE_TRYONS,
       usageDate,
       timezone: TRYON_TIMEZONE,
+      photoRetentionDays: TRYON_PHOTO_RETENTION_DAYS,
       itcBalance,
       tiers: {
         standard: { label: TRYON_TIERS.standard.label, itcCost: standardCost, poses: TRYON_TIERS.standard.numSamples },
@@ -578,6 +590,11 @@ router.get('/history', requireAuth, async (req: Request, res: Response): Promise
       .select('id, product_id, result_url, tier, status, created_at')
       .eq('user_id', req.user!.id)
       .eq('status', 'completed')
+      // Runs whose images the retention sweep has expired (see
+      // worker/tryon-retention-sweep.ts) keep their row for the conversion
+      // report but have no bytes left to show. Without this filter the
+      // shopper's history renders a row of broken tiles.
+      .not('result_url', 'is', null)
       .order('created_at', { ascending: false })
       .limit(20)
     return res.json({ tryons: data || [] })

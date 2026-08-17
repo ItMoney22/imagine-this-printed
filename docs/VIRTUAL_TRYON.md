@@ -34,7 +34,9 @@ src/lib/api.ts                       tryonApi client
 backend/routes/tryon.ts              endpoints
 backend/services/fashn-tryon.ts      FASHN transport (submit + poll)
 backend/services/virtual-tryon.ts    daily cap, ITC pricing, funnel maths
+backend/worker/tryon-retention-sweep.ts  automatic photo expiry (§7.1)
 supabase/migrations/20260816_virtual_tryon.sql
+supabase/migrations/20260816_02_tryon_photo_retention.sql
 ```
 
 ### Endpoints
@@ -45,7 +47,7 @@ supabase/migrations/20260816_virtual_tryon.sql
 | GET | `/api/tryon/config` | user | Free-remaining today, ITC balance, tier prices. |
 | POST | `/api/tryon/generate` | user | multipart `photo` + `productId` + `tier` + `garmentImageIndex`. |
 | POST | `/api/tryon/events` | user | `tryon_card_viewed` / `add_to_cart`. |
-| GET | `/api/tryon/history` | user | Last 20 completed try-ons. |
+| GET | `/api/tryon/history` | user | Last 20 completed try-ons whose images haven't been swept (§7.1). |
 | DELETE | `/api/tryon/:id` | user | Deletes the row **and the stored image bytes**. |
 | GET | `/api/tryon/analytics` | admin | The keep-or-kill report. |
 
@@ -205,8 +207,61 @@ carts per 100 runs falls under that bar; `keep` if it clears it;
   GCS, not just the row. The card promises this in copy, so it has to be true.
 - Failed renders delete the uploaded photo immediately.
 - `moderation_level: conservative` — the strictest setting FASHN offers.
-- **Not yet built:** an automatic retention sweep. Photos persist until the
-  shopper deletes them. See the follow-up task in the handoff.
+
+### 7.1 Automatic retention sweep
+
+Shopper photos expire on a timer whether or not anyone presses Delete
+(`backend/worker/tryon-retention-sweep.ts`, Watchtower task `f3bf450c`).
+
+| Knob | Default | What it does |
+|---|---|---|
+| `TRYON_PHOTO_RETENTION_DAYS` | `30` | How long an uploaded photo may live. |
+| `TRYON_RETENTION_SWEEP_HOURS` | `24` | Sweep cadence. Daily — the window is measured in weeks, so a faster tick only buys query load. |
+| `TRYON_RETENTION_KEEP_RESULTS` | `false` | `true` keeps the rendered results past the window and expires only the source photo. |
+| `TRYON_RETENTION_BATCH` | `200` | Rows per tick, so a backlog drains over days instead of hanging the worker. |
+| `TRYON_RETENTION_ENABLED` | *(on)* | `false` switches the sweep off entirely. |
+
+What one tick does:
+
+1. Selects `virtual_tryon_runs` older than the window that still hold an image
+   pointer, oldest first.
+2. Deletes `model_photo_path` — and, unless `TRYON_RETENTION_KEEP_RESULTS=true`,
+   every `result_paths` object — from GCS.
+3. Nulls `model_photo_path` (and `result_paths` / `result_url` / `result_urls`)
+   and stamps `photos_purged_at`.
+
+Four things it deliberately does **not** do:
+
+- **It never deletes the run row.** `cost_usd`, `itc_charged`, `status` and
+  `used_free_daily` are the keep-or-kill conversion report in §6 — dropping the
+  row to delete a photo would quietly destroy the data the feature is judged on.
+  Only the image pointers are cleared.
+- **It never nulls a path whose bytes are still there.** The path is the only
+  pointer we hold; nulling it after a failed delete would orphan a customer's
+  photo in the bucket, unreachable even by their own Delete button. A failed
+  delete leaves the row untouched and the next sweep retries it. An object
+  that's already gone (404) counts as success.
+- **It does nothing at all when GCS is unconfigured**, for the same reason —
+  nulling pointers we can't act on is strictly worse than waiting.
+- **It doesn't need its migration to work.** `photos_purged_at` ships in
+  `20260816_02_tryon_photo_retention.sql`; if that hasn't been applied, the
+  purge write is retried without the stamp. (This repo has already taken one
+  production outage from deployed code querying an unapplied column.)
+
+Why results expire with the photo by default: a FASHN result is not an
+anonymous mockup, it's the shopper's own body wearing the garment, generated
+from their photo. It is at least as identifying as the input, so deleting the
+upload while keeping the render would be privacy theatre. `GET /api/tryon/history`
+filters out runs whose results have been swept, so an expired try-on drops out
+of the shopper's gallery instead of rendering a broken tile.
+
+The card states the window to the shopper in its own copy, read from
+`GET /api/tryon/enabled` rather than hardcoded — retuning
+`TRYON_PHOTO_RETENTION_DAYS` changes the promise on screen with it.
+
+Running it on several worker replicas at once is safe: deleting an object twice
+yields `missing` and nulling an already-null column is a no-op, so there is
+nothing to claim or lock.
 
 ---
 
@@ -214,9 +269,14 @@ carts per 100 runs falls under that bar; `keep` if it clears it;
 
 1. Create a FASHN account at <https://fashn.ai>, buy credits, copy the API key
    from Settings → API.
-2. Apply `supabase/migrations/20260816_virtual_tryon.sql` to production.
+2. Apply `supabase/migrations/20260816_virtual_tryon.sql`, then
+   `supabase/migrations/20260816_02_tryon_photo_retention.sql`, to production.
 3. Set on the Render backend service: `FASHN_API_KEY`, `TRYON_ENABLED=true`, and
-   `FASHN_COST_PER_CREDIT_USD` to whatever tier you actually bought.
+   `FASHN_COST_PER_CREDIT_USD` to whatever tier you actually bought. The
+   retention sweep runs in the **worker** service and needs no new key — but it
+   does need the worker's GCS credentials (`GCS_PROJECT_ID` / `GCS_CREDENTIALS`),
+   or it logs a warning and declines to run rather than nulling paths it can't
+   act on. Watch for `[tryon-retention]` in the worker log.
 4. Deploy. The card appears on apparel product pages on its own — it reads
    `GET /api/tryon/enabled` and renders to `null` until that says yes.
 5. Watch `GET /api/tryon/analytics?days=14`. Kill with `TRYON_ENABLED=false` (no
