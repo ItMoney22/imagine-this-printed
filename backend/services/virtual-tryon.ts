@@ -277,6 +277,8 @@ export interface ConversionReport {
   breakevenUsdPerRun: number
   /** What one incremental add-to-cart is assumed to be worth in gross margin. */
   valuePerAddToCartUsd: number
+  /** Whether the value is measured from purchase data or assumed from default. */
+  usingMeasuredValue: boolean
   /**
    * The bar, stated as a rate: incremental carts per 100 completed runs needed
    * to cover the FASHN bill. Below this the feature is losing money per click.
@@ -357,13 +359,26 @@ export function summarizeConversion(events: FunnelEvent[], runs: RunCostRow[]): 
   const costPerIncrementalAddToCartUsd =
     incrementalAddToCarts > 0 ? Number((totalUsd / incrementalAddToCarts).toFixed(4)) : null
 
+  // Logic to replace the TRYON_VALUE_PER_ADD_TO_CART_USD assumption with the measured figure
+  // once sufficient purchase data is available:
+  const SUFFICIENT_PURCHASES_THRESHOLD = 10
+  let valuePerAddToCartUsd = TRYON_VALUE_PER_ADD_TO_CART_USD
+  let usingMeasuredValue = false
+
+  if (used.purchases >= SUFFICIENT_PURCHASES_THRESHOLD && used.addToCarts > 0) {
+    const measuredCartToPurchaseRate = used.purchases / used.addToCarts
+    const grossMarginPerPurchase = 13.0 // $26 AOV x 50% gross margin
+    valuePerAddToCartUsd = Number((grossMarginPerPurchase * measuredCartToPurchaseRate).toFixed(2))
+    usingMeasuredValue = true
+  }
+
   // THE KILL RULE, in the brief's own terms: a run costs ~$0.075, so it has to
   // buy at least $0.075 of incremental gross margin. One incremental cart is
   // worth `valuePerAddToCart`, so the required incremental-cart rate is
   // breakeven / value — expressed per 100 runs because that reads like a
   // conversion rate instead of a decimal nobody can hold in their head.
   const breakevenIncrementalCartsPer100Runs = Number(
-    ((TRYON_BREAKEVEN_USD_PER_RUN / TRYON_VALUE_PER_ADD_TO_CART_USD) * 100).toFixed(2)
+    ((TRYON_BREAKEVEN_USD_PER_RUN / valuePerAddToCartUsd) * 100).toFixed(2)
   )
   const actualIncrementalCartsPer100Runs = completed.length
     ? Number(((incrementalAddToCarts / completed.length) * 100).toFixed(2))
@@ -378,7 +393,7 @@ export function summarizeConversion(events: FunnelEvent[], runs: RunCostRow[]): 
       verdictReason = `Try-on users add to cart at ${used.addToCartRatePct}% vs ${notUsed.addToCartRatePct}% for shoppers who saw the card and skipped it — no positive lift, so every render is pure cost.`
     } else if (actualIncrementalCartsPer100Runs >= breakevenIncrementalCartsPer100Runs) {
       verdict = 'keep'
-      verdictReason = `${actualIncrementalCartsPer100Runs} incremental carts per 100 runs beats the ${breakevenIncrementalCartsPer100Runs} needed to cover $${TRYON_BREAKEVEN_USD_PER_RUN.toFixed(3)}/run at $${TRYON_VALUE_PER_ADD_TO_CART_USD.toFixed(2)} of margin per cart.`
+      verdictReason = `${actualIncrementalCartsPer100Runs} incremental carts per 100 runs beats the ${breakevenIncrementalCartsPer100Runs} needed to cover $${TRYON_BREAKEVEN_USD_PER_RUN.toFixed(3)}/run at $${valuePerAddToCartUsd.toFixed(2)} of margin per cart.`
     } else {
       verdict = 'kill'
       verdictReason = `${actualIncrementalCartsPer100Runs} incremental carts per 100 runs falls short of the ${breakevenIncrementalCartsPer100Runs} needed to cover $${TRYON_BREAKEVEN_USD_PER_RUN.toFixed(3)}/run.`
@@ -418,7 +433,8 @@ export function summarizeConversion(events: FunnelEvent[], runs: RunCostRow[]): 
     },
     incrementalAddToCarts,
     breakevenUsdPerRun: TRYON_BREAKEVEN_USD_PER_RUN,
-    valuePerAddToCartUsd: TRYON_VALUE_PER_ADD_TO_CART_USD,
+    valuePerAddToCartUsd,
+    usingMeasuredValue,
     breakevenIncrementalCartsPer100Runs,
     actualIncrementalCartsPer100Runs,
     verdict,

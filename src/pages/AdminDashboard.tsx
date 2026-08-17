@@ -25,6 +25,7 @@ import { MockupProgressPanel } from '../components/MockupProgressPanel'
 import { PromoPricingModal } from '../components/PromoPricingModal'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
+import AdminVirtualTryOnReport from '../components/AdminVirtualTryOnReport'
 
 // T-shirt print placements offered on a product → products.print_locations.
 // Mirrors the same list in the AI wizard (AdminCreateProductWizard.tsx) and the
@@ -39,8 +40,8 @@ const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -1963,7 +1964,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
           <nav className="flex flex-wrap gap-2">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'tryon', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -1975,7 +1976,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'tryon' ? 'Virtual Try-On' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -3034,6 +3035,13 @@ const AdminDashboard: React.FC = () => {
                 </table>
               </div>
             </div>
+          )
+        }
+
+        {/* Virtual Try-On Tab */}
+        {
+          selectedTab === 'tryon' && (
+            <AdminVirtualTryOnReport />
           )
         }
 
