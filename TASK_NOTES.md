@@ -1,33 +1,30 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Complete Watchtower task `b3c8029a-3d68-47ab-9ac1-6be1f89577f7`: merge the already-live wholesale-applications migration history into `main` through the pre-merge gate.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Confirmed source commit `3bf0650` is a clean fast-forward from `main` commit `0c1ffd1`; pre-merge preview is conflict-free.
+- Confirmed the merge scope is exactly the migration, migration-plan entry, and migration-ledger entry.
+- Confirmed the source migration removes the dangerous stale `admin_notifications_type_check` DROP/ADD block; no database operation is needed or authorized.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `supabase/migrations/20260728_wholesale_applications.sql`
+- `scripts/apply-pending-migrations.mjs`
+- `supabase/migrations/MIGRATION_LEDGER.md`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `supabase/migrations/20260728_wholesale_applications.sql` (source merge only; do not re-add the CHECK block)
+- `scripts/apply-pending-migrations.mjs` (source merge only)
+- `supabase/migrations/MIGRATION_LEDGER.md` (source merge only)
+- No database, deployment, email, or application-code changes.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
@@ -493,6 +490,7 @@ Rationale: (1) David report: adding an image scrolls board to bottom + slow reco
 - NEW email system: supabase/migrations/20260612_email_system.sql, backend/routes/email.ts, backend/services/email-resend.ts, backend/index.ts (mount), src/pages/AdminEmail.tsx, src/lib/email-api.ts, src/App.tsx (route), src/components/Navbar.tsx or AdminDashboard.tsx (link)
 
 ## Work log (append-only) — wave 2
+- 2026-08-16 (Watchtower task b3c8029a): scoped the clean wholesale-migration fast-forward for the pre-merge gate; source 3bf0650 changes only the defused SQL migration, its migration-plan entry, and its ledger record, with no database action authorized.
 - 2026-06-12: Board-view bug FIXED — SheetCanvas constrainPan max-bound math error corrected (was subtracting scaledWidth/Height, putting centered pan out of range → snap-to-bottom) + pan re-validated on zoom/sheet/viewport change; page now fits the FULL BOARD after any image add (fitSheetToView; removed both fit-to-image autozooms) + "Fit board" button in zoom pill.
 - 2026-06-12: Mr. Imagine multi-model generation — backend generateImagesMulti (count 1-4, intent-scored roster via image-flow pickFanOutModels: Flux 2 Max / Grok Imagine / Imagen 4 Ultra / Wan 2.7 / Ideogram v3 / GPT Image 2-era registry; per-image ITC charge, trial covers first, partial refunds on model failure, 502 if all fail), /ai/generate returns {images[], cost, perImageCost, failures} + legacy aliases. Frontend: count pill selector, 2x2 result grid w/ model badges, per-image Add to Sheet (modal stays open), failure note. ReimagineItModal: Standard (Nano Banana) vs Premium (GPT Image 2) tier cards, costs from pricing table (reimagine_standard/premium, fallback 1/50).
 - 2026-06-12: EMAIL SYSTEM (code complete) — migration 20260612_email_system.sql (email_mailboxes + email_messages, RLS locked, dedupe index for webhook retries, seeded wecare@); backend/services/email-resend.ts (Resend REST send, svix HMAC verification w/o dependency, address parsing); backend/routes/email.ts mounted /api/email (mailbox CRUD admin-only, per-owner message access, folders inbox/sent/archived, search, send w/ reply threading headers, inbound webhook filters account-wide events to our domain + known mailboxes, attachments ≤1MB stored inline); raw-body mount for webhook in index.ts; env RESEND_API_KEY(working key re_GYND…)/EMAIL_DOMAIN/RESEND_WEBHOOK_SECRET added to backend/.env + example; src/lib/email-api.ts client; /admin/email route (ProtectedRoute) + Navbar admin "Email" link; AdminEmail.tsx 3-pane client (agent-built).

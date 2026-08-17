@@ -1,55 +1,46 @@
 # Claude Task Brief
 
 ## Request
-- Correct the 2026-08-06 weekly Etsy report because the original email omitted its screenshots.
-- Send the four audit screenshots from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Update the weekly heartbeat so every future report includes and verifies its images.
-- Do not edit Etsy or repo implementation code.
+- Complete Watchtower task `b3c8029a-3d68-47ab-9ac1-6be1f89577f7`: merge `earth/marcus-wolfe/create-wholesale-applica-9d14723b-mswmd0co` into `main` through the repository pre-merge gate.
+- This is code-history synchronization only. The production `wholesale_applications` table was already created and independently verified; do not run migrations against any database or make unrelated production changes.
 
 ## Repo detection
-- Vite + React frontend with an Express/TypeScript backend.
-- The in-app email system stores mailboxes/messages in Supabase and delivers mail through Resend.
-- Resend supports CID inline images backed by normal image attachments.
+- Vite + React frontend with an Express/TypeScript backend and Supabase SQL migrations.
+- The current `main` commit is `0c1ffd1`; source commit `3bf0650` has `main` as its direct ancestor, so the merge is a clean fast-forward and changes only three files.
 
 ## Relevant files
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/services/email-resend.ts`
-- `backend/routes/email.ts`
-- `C:/Users/David/.codex/automations/weekly-etsy-shop-review/automation.toml`
+- `supabase/migrations/20260728_wholesale_applications.sql`
+- `scripts/apply-pending-migrations.mjs`
+- `supabase/migrations/MIGRATION_LEDGER.md`
 
 ## Files to edit (STRICT)
+- `supabase/migrations/20260728_wholesale_applications.sql` — accept the source branch's defused version only.
+- `scripts/apply-pending-migrations.mjs` — accept the source branch's `wholesale-applications-table` plan entry only.
+- `supabase/migrations/MIGRATION_LEDGER.md` — accept the source branch's 2026-08-17 wholesale-application ledger entry only.
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- Do not edit any repo implementation file.
-- External state in scope: one corrected report email and an update to the existing heartbeat.
+- Do not edit application code, create another migration, alter the production database, or reintroduce an `admin_notifications` CHECK block.
 
-## Completed correction
-- Sent subject: `Corrected: Mr. Imagine's Weekly Etsy Shop Review - August 6, 2026 (Screenshots Included)`.
-- Included all four fresh PNG screenshots inline beside their matching report sections.
-- Included the same four PNGs as attachments for clients that block inline images.
-- Resend reported four inline attachments with distinct content IDs.
-- The `wecare` recipient record received all four images with stored download URLs.
-- The corrected outbound message is logged in Mr. Imagine's Sent folder.
-
-## Future weekly-report requirements
-1. Capture four fresh screenshots: shop home, strongest listing, weaker listing, and About/policies.
-2. Insert each screenshot beside its matching email section using a CID reference.
-3. Attach the same four PNG files to the email.
-4. Verify four attachments in the sending-service record.
-5. Verify four working image attachments in the `wecare` recipient record.
-6. Do not claim completion if any image or verification is missing.
+## Plan
+1. Use the repository's pre-merge gate to merge `earth/marcus-wolfe/create-wholesale-applica-9d14723b-mswmd0co` into `main`; it is a clean fast-forward from `0c1ffd1` to `3bf0650`.
+2. Confirm `20260728_wholesale_applications.sql` contains only the idempotent table, indexes, RLS, and policies. Its header must document that the stale `admin_notifications_type_check` DROP/ADD block is defused.
+3. Confirm the migration plan includes `id: 'wholesale-applications-table'`, targets this migration, has no prerequisites, and checks `to_regclass('public.wholesale_applications')`.
+4. Confirm the migration ledger starts with the 2026-08-17 wholesale-applications entry, records the live apply and verification, and explains why the redundant CHECK block remains absent.
+5. Verify the merge diff stays limited to the three files and introduces no whitespace errors. Do not apply the plan: production already has the target state.
 
 ## Acceptance criteria
-- [x] Corrected report sent from Mr. Imagine.
-- [x] Four screenshots embedded inline.
-- [x] Four PNG attachments included.
-- [x] Sending-service attachment count verified.
-- [x] Recipient attachment count and stored links verified.
-- [x] Weekly heartbeat updated with mandatory image checks.
-- [x] No Etsy or repo implementation changes made.
+- [ ] The source branch is merged to `main` through the pre-merge gate without conflicts.
+- [ ] `20260728_wholesale_applications.sql` has no `ALTER TABLE public.admin_notifications` or `admin_notifications_type_check` statement; the defuse banner remains.
+- [ ] `scripts/apply-pending-migrations.mjs` lists `wholesale-applications-table` for `20260728_wholesale_applications.sql` with the `to_regclass` check.
+- [ ] `MIGRATION_LEDGER.md` contains the 2026-08-17 wholesale-applications section and its live-verification context.
+- [ ] No database action, application-code change, or unrelated file change is introduced.
 
 ## Commands
-- Read-only verification uses Resend attachment metadata and existing Supabase email records.
-- No repo build or test command is required.
+- `git merge-base --is-ancestor main earth/marcus-wolfe/create-wholesale-applica-9d14723b-mswmd0co`
+- `git merge-tree main earth/marcus-wolfe/create-wholesale-applica-9d14723b-mswmd0co`
+- `git diff --check main earth/marcus-wolfe/create-wholesale-applica-9d14723b-mswmd0co`
+- `node --check scripts/apply-pending-migrations.mjs`
+- `git diff --name-only main earth/marcus-wolfe/create-wholesale-applica-9d14723b-mswmd0co`
