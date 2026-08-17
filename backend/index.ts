@@ -51,6 +51,7 @@ import socialOutboxRouter from './routes/social-outbox.js'
 import couponsRouter from './routes/coupons.js'
 import giftCardsRouter from './routes/gift-cards.js'
 import marketingRouter from './routes/marketing.js'
+import scoutRouter from './routes/scout.js'
 import socialRouter from './routes/social.js'
 import communityRouter from './routes/community.js'
 import adminControlPanelRouter from './routes/admin/control-panel.js'
@@ -287,6 +288,7 @@ app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (
 app.use('/api/coupons', couponsRouter)
 app.use('/api/gift-cards', giftCardsRouter)
 app.use('/api/marketing', marketingRouter)
+app.use('/api/scout', scoutRouter) // t-shirt design brief scout: GET design-briefs (design agent consumes), POST design-briefs/run (admin/manager refresh)
 app.use('/api/social', socialRouter)
 app.use('/api/community', communityRouter)
 app.use('/api/admin/control-panel', adminControlPanelRouter)
