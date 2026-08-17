@@ -1,33 +1,33 @@
 # TASK_NOTES
 ## Current request
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
+- Watchtower task `1e0b76cb-af40-477e-a651-fe1f884c24e6`: reconcile shopper-initiated virtual try-on deletion with the live photo-retention sweep.
 
 ## Current status
-- Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
-- Attached the same four PNG files for email clients that block inline display.
-- Verified four attachments in Resend and four received images with stored URLs in the `wecare` inbox.
-- Updated `weekly-etsy-shop-review` so all future reports require inline images, attachments, and sender/recipient verification.
-- No live Etsy changes or repo implementation-code changes were made.
+- Decision recorded: approach A. Manual deletion must match the retention sweep—delete shopper photo bytes and pointers while retaining `virtual_tryon_runs` economic fields for conversion reporting.
+- Current branch predates the merged try-on implementation; `origin/main` contains the relevant source via merge `6a64ec7`.
+- `summarizeConversion` already consumes `virtual_tryon_runs`; no events-store migration is warranted unless implementation testing proves otherwise.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
-- `src/lib/email-api.ts`
-- `src/pages/AdminEmail.tsx`
-- `supabase/migrations/20260612000001_email_system.sql`
+- `backend/routes/tryon.ts`
+- `backend/worker/tryon-retention-sweep.ts`
+- `backend/worker/tryon-retention-sweep.test.ts`
+- `backend/services/virtual-tryon.ts`
+- `backend/services/virtual-tryon.test.ts`
+- `docs/VIRTUAL_TRYON.md`
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
-- No repo implementation files.
-- External state approved for this request: the Mr. Imagine mailbox, current report email, and weekly heartbeat update.
+- `backend/routes/tryon.ts`
+- `backend/worker/tryon-retention-sweep.ts`
+- `backend/worker/tryon-retention-sweep.test.ts`
+- `docs/VIRTUAL_TRYON.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Claude run)
+- Do not edit migrations, `virtual_tryon_events`, production data, or unrelated files.
 
 ### Scope expansion — GitHub Actions CI gate (added 2026-07-26 by Iahhm, Watchtower task d402a271-c026-4fae-8308-d2cfae1d0d3f)
 - Rationale: Watchtower dispatch from the 2026-07-26 full-codebase audit sweep orders a CI gate: run typecheck/lint/build
@@ -262,6 +262,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-08-16 (Codex, Watchtower task 1e0b76cb-af40-477e-a651-fe1f884c24e6): Scouted the merged try-on retention and DELETE paths, selected approach A, and wrote the Claude handoff. The approved implementation keeps `virtual_tryon_runs` economics while purging photo bytes and pointers; only `CLAUDE_TASK.md` and `TASK_NOTES.md` changed in this run.
 - 2026-08-06 (Codex Etsy email image correction): Resent the full August 6 report from `mrimagine@imaginethisprinted.com` with four CID-embedded screenshots and the same four PNG attachments. Verified four inline attachments in Resend and four received images with stored URLs in `wecare@imaginethisprinted.com`. Updated `weekly-etsy-shop-review` to require and verify all four images on future runs. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-06 (Codex weekly Etsy review): Captured fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Verified no meaningful change since 2026-07-30: six active listings, all $17.50 at 30% off, and zero sales/reviews/admirers; the same real-product, size-chart, gallery, banner/icon, section, and AI-wording gaps remain. Sent the report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` and verified both Sent and recipient records. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-07-26 (Iahhm, task d402a271, follow-up) Live negative-test (PR #3, deliberate TS error) exposed that root `npm run typecheck` (`tsc --noEmit`) checks ZERO files — root tsconfig.json is solution-style (`"files": []` + references), so the script passed on broken code while the `build` job (`tsc -b`) correctly failed and BLOCKED the merge. Fixed `package.json` typecheck → `tsc -b --noEmit` (verified: catches the planted TS2322, exits 0 on clean tree). PR #3 closed + branch deleted after proving merge state BLOCKED. Also: this box's pre-provisioned root node_modules was incomplete (missing @aws-sdk/client-s3) — false local failures; fresh `npm ci` in CI is authoritative and green.
