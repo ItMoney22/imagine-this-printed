@@ -72,6 +72,49 @@ warranted a clean, recorded rotation with a known-good baseline.
   other live-looking passwords for a **different** Supabase project
   (`yrjoblqqgrposgbvsbxm`). Out of ITP scope — flagged for the same VPS/creds cleanup owner.
 
+## VPS root SSH rotation — attempted 2026-08-16, credential already neutralized (task `e180df11`)
+
+The follow-up approval (`e180df11-125d-4264-bea2-6d8a2e670f5c`) to rotate the root SSH
+password on `168.231.69.85` was ruled GO. On execution the premise dissolved: **the box
+had already been reinstalled, which killed the leaked credential.** Evidence, all gathered
+read-only:
+
+- **Leaked root password is DEAD.** `IAmGod1622##` and every variant
+  (`IAmGod1622#`, `IAmGod1622`, `Iamgod1622##`, …) were **DENIED** over SSH password auth.
+- **All of David's local SSH keys are denied** — `~/.ssh/id_rsa`, `id_ed25519`,
+  `id_fivem_codex` each `Permission denied (publickey)`. So key-based rotation is out too.
+- **The box's SSH host identity changed.** `known_hosts` had this box's ed25519 key hashing
+  to `SHA256:JYxs…`; the live box now presents `SHA256:QjRiB/OgWgM+A0SVRNb7kU0iijohp4vkiWFbaF7xWMs`,
+  and the stored ECDSA entry is "offending" too. Fresh host keys + a default hostname
+  (`srv1699887.hstgr.cloud`, reverse DNS) + the stock `OpenSSH_9.6p1 Ubuntu` banner ⇒ the
+  VPS was **reprovisioned/reinstalled**, wiping the old root password and old authorized keys.
+- **Not a fail2ban false-negative.** A no-auth transport probe after the attempts showed the
+  server still responding and offering `publickey,password` — the denials are genuine.
+- **Hostinger API** (vault `hostinger.HOSTINGER_API_TOKEN`) lists **0 VMs**, so this box is
+  not manageable from David's current API token (different Hostinger account/scope, or the IP
+  was recycled).
+
+**Security outcome:** the exposure the incident named — *"anyone holding the leaked
+`IAmGod1622##` value gets root SSH"* — is **CLOSED**. The reinstall already invalidated the
+leaked credential (verified denied). The acceptance criterion *"the old password no longer
+grants SSH access"* is therefore satisfied.
+
+**What could NOT be done, and why:** `passwd` requires an authenticated session, and no
+working credential (password or key) is held for the reinstalled box. A new
+`vps.ROOT_SSH_PASSWORD` was deliberately **not fabricated** — a fake value would be worse
+than none. The vault instead carries a `vps` status record documenting all of the above.
+
+**Caveat worth flagging:** the reinstalled box still has **root password auth enabled** with
+an unknown password set by whoever provisioned it. If that password is weak/default it is a
+new (separate) exposure — but it cannot be assessed or hardened without access, which only
+David can obtain from the Hostinger control panel.
+
+**Open decision (filed as an approval):** reclaim the box via the Hostinger panel (reset root
+password there, disable password auth / add a key, then store the new secret in
+`vps.ROOT_SSH_PASSWORD`) **vs.** confirm it retired and scrub the stale references
+(`CLAUDE.md`'s "running on VPS at 168.231.69.85:8080", `ecosystem.config.cjs` PM2 target,
+and the dead plaintext password still in `Imagine This City/vps_grab.py` + git `010fc57`).
+
 ## Operational notes for next time
 
 - Rotate via `PATCH /v1/projects/{ref}/database/password` (Management PAT), not the
