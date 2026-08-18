@@ -223,6 +223,10 @@ const AdminSupport: React.FC = () => {
             })
 
             if (response.ok) {
+                const data = await response.json()
+                if (data.warning) {
+                    alert(data.warning)
+                }
                 setReplyContent('')
                 fetchTicketMessages(selectedTicket.id)
                 fetchTickets() // Refresh ticket list
@@ -526,6 +530,15 @@ const AdminSupport: React.FC = () => {
                                 )}
                             </div>
                         </div>
+
+                        {!selectedTicket.email && !selectedTicket.user?.email && (
+                            <div className="mx-4 mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-center gap-2">
+                                <AlertCircle size={16} className="text-yellow-400 flex-shrink-0" />
+                                <span className="text-xs text-yellow-400 font-medium">
+                                    Warning: This ticket does not have a deliverable email address. Replies will be saved internally but cannot be sent to the customer.
+                                </span>
+                            </div>
+                        )}
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                             {/* Original Description */}

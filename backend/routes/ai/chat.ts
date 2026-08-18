@@ -243,7 +243,7 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                                 .from('support_tickets')
                                 .insert({
                                     user_id: userId || null,
-                                    email: userEmail || 'anonymous@customer.com',
+                                    email: userEmail || null,
                                     subject: args.issue_summary,
                                     description: args.description || args.issue_summary,
                                     priority: args.priority,
