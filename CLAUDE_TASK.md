@@ -1,55 +1,53 @@
 # Claude Task Brief
 
 ## Request
-- Correct the 2026-08-06 weekly Etsy report because the original email omitted its screenshots.
-- Send the four audit screenshots from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
-- Update the weekly heartbeat so every future report includes and verifies its images.
-- Do not edit Etsy or repo implementation code.
+- Watchtower task `3ba0cd22-5d2f-45f0-bee7-1290a032b8a2`: verify the Nano Banana 2 Lite composite swap has merged and deployed, then preserve production evidence for GCS MIME correctness and Etsy image acceptance.
+- This is a verification and handoff task. Do not modify application code, Git refs, cloud configuration, GCS objects, Etsy listings, or production jobs from this dispatch.
 
 ## Repo detection
-- Vite + React frontend with an Express/TypeScript backend.
-- The in-app email system stores mailboxes/messages in Supabase and delivers mail through Resend.
-- Resend supports CID inline images backed by normal image attachments.
+- Imagine This Printed is a Vite/React frontend plus an Express/TypeScript backend and async worker.
+- GitHub `main` auto-deploys the backend and worker to Render; production health endpoints are available at the API domain.
+- GCS persists mockup bytes, while Etsy uploads `metadata.etsy_shots.images` before product images.
 
 ## Relevant files
 - `AGENTS.md`
-- `CLAUDE_TASK.md`
+- `CLAUDE.md`
 - `TASK_NOTES.md`
-- `backend/services/email-resend.ts`
-- `backend/routes/email.ts`
-- `C:/Users/David/.codex/automations/weekly-etsy-shop-review/automation.toml`
+- `backend/services/google-cloud-storage.ts`
+- `backend/services/etsy.ts`
+- `backend/services/image-flow/{models.ts,input-builder.ts,worker-helpers.ts}`
+- `backend/worker/ai-jobs-worker.ts`
+- `backend/scripts/verify-nano-banana-2-lite.ts`
+- `RUNBOOK.md`, `README.md`, `backend/package.json`
 
 ## Files to edit (STRICT)
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- Do not edit any repo implementation file.
-- External state in scope: one corrected report email and an update to the existing heartbeat.
+- No other repo files. Do not create or modify release, cloud, Etsy, GCS, or handoff artifacts.
 
-## Completed correction
-- Sent subject: `Corrected: Mr. Imagine's Weekly Etsy Shop Review - August 6, 2026 (Screenshots Included)`.
-- Included all four fresh PNG screenshots inline beside their matching report sections.
-- Included the same four PNGs as attachments for clients that block inline images.
-- Resend reported four inline attachments with distinct content IDs.
-- The `wecare` recipient record received all four images with stored download URLs.
-- The corrected outbound message is logged in Mr. Imagine's Sent folder.
+## Verified state
+- Commit `a7b33939afd9a5c5675cc309eb2a72686114d017` is already an ancestor of `origin/main`; its Nano Banana Lite swap and MIME-sniffing changes are therefore merged.
+- `origin/main` resolves to `41c1a5ae38badfe5578540cce65b7d5bb22f0d0e`; the API and storefront health probes both returned HTTP 200. A prior production handoff records both Render services live on that commit.
+- The newer Flux 2 Pro rollout changes the active default for `flat_lay` and `ghost_mannequin` mockups. Therefore a first post-deploy job is not expected to log Nano Banana Lite for those templates. Nano Banana Lite remains the relevant historical and model-shot compatibility path.
+- Live database evidence: the newest Lite mockup asset (2026-08-11T12:25:11Z) returns JPEG magic bytes and GCS `Content-Type: image/jpeg` (54,539 bytes); the MIME label matches its bytes.
+- Etsy ledger evidence: 24 listings have accepted images, totaling 107 accepted uploads, with zero accepted-image rows carrying a `last_error`; the newest recorded success is 2026-08-09T23:55:21Z.
 
-## Future weekly-report requirements
-1. Capture four fresh screenshots: shop home, strongest listing, weaker listing, and About/policies.
-2. Insert each screenshot beside its matching email section using a CID reference.
-3. Attach the same four PNG files to the email.
-4. Verify four attachments in the sending-service record.
-5. Verify four working image attachments in the `wecare` recipient record.
-6. Do not claim completion if any image or verification is missing.
+## Plan
+1. Keep the merge proof (`git merge-base --is-ancestor a7b3393 origin/main`) with the deployment/health evidence above.
+2. When a new Nano Banana Lite model-shot job occurs, query its GCS object and compare the HTTP content type against JPEG magic bytes.
+3. Confirm the matching Etsy listing increments `uploaded_image_count` without `last_error`, noting that `services/etsy.ts` uploads model shots first.
+4. Treat a Flux 2 Pro log for flat/ghost templates as expected current behavior, not a rollback; investigate only if model-shot/Lite paths lose MIME correctness or Etsy rejects an upload.
+5. Do not run `verify-nano-banana-2-lite.ts` without an explicit spend approval: its header documents an approximately $0.15 Replicate cost.
 
 ## Acceptance criteria
-- [x] Corrected report sent from Mr. Imagine.
-- [x] Four screenshots embedded inline.
-- [x] Four PNG attachments included.
-- [x] Sending-service attachment count verified.
-- [x] Recipient attachment count and stored links verified.
-- [x] Weekly heartbeat updated with mandatory image checks.
-- [x] No Etsy or repo implementation changes made.
+- [x] The requested Nano Banana Lite commit is merged into `main`.
+- [x] Production health is live; prior deployment evidence identifies `41c1a5a` as the deployed Render revision.
+- [x] A persisted Lite mockup’s GCS metadata is `image/jpeg` and matches JPEG bytes.
+- [x] Etsy ledger shows accepted image uploads with no recorded upload errors.
+- [ ] A new post-`41c1a5a` real job is observed. Its expected model depends on template: Flux 2 Pro for flat/ghost, Lite only where the still-Lite path is selected.
 
 ## Commands
-- Read-only verification uses Resend attachment metadata and existing Supabase email records.
-- No repo build or test command is required.
+- `git merge-base --is-ancestor a7b3393 origin/main`
+- `git rev-parse origin/main`
+- `Invoke-WebRequest https://api.imaginethisprinted.com/api/health`
+- `npm --prefix backend exec tsx scripts/verify-nano-banana-2-lite.ts` (optional, paid; do not run automatically)
