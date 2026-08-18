@@ -1223,10 +1223,13 @@ router.post('/download', requireAuth, async (req: Request, res: Response): Promi
 
     console.log('[user-products] 📥 Download request:', { userId, designId })
 
-    // Verify the user owns this design
+    // Verify the user owns this design. Creator designs live in `products`
+    // (is_user_generated + created_by_user_id), written by both the
+    // AI Product Builder (/create above) and Creator Studio — vendor_products
+    // has no writer for this data and was the wrong table.
     const { data: design, error: designError } = await supabase
-      .from('vendor_products')
-      .select('id, name, images, metadata')
+      .from('products')
+      .select('id, name, images, metadata, created_by_user_id')
       .eq('id', designId)
       .single()
 
@@ -1234,8 +1237,10 @@ router.post('/download', requireAuth, async (req: Request, res: Response): Promi
       return res.status(404).json({ error: 'Design not found' })
     }
 
-    // Check if the design belongs to the user
-    if (design.metadata?.creator_id !== userId) {
+    // Check if the design belongs to the user. created_by_user_id is the
+    // authoritative column; metadata.creator_id is kept as a fallback since
+    // it's written alongside it on every creator-product insert.
+    if (design.created_by_user_id !== userId && design.metadata?.creator_id !== userId) {
       return res.status(403).json({ error: 'You can only download your own designs' })
     }
 
