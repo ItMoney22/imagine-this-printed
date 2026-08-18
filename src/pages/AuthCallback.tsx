@@ -27,14 +27,17 @@ export default function AuthCallback() {
         const pkceVerification = verifyPkceStorage();
         console.log(getPkceDebugInfo());
 
-        // CRITICAL: Verify PKCE keys exist
-        if (!pkceVerification.hasState || !pkceVerification.hasVerifier) {
-          console.error('[callback] ❌ PKCE VERIFICATION FAILED');
-          console.error('[callback] Missing keys:', {
-            state: pkceVerification.hasState ? '✅' : '❌ MISSING',
-            verifier: pkceVerification.hasVerifier ? '✅' : '❌ MISSING',
-          });
+        // Only the code-verifier is actually consumed by exchangeCodeForSession.
+        // `oauth-state` is written solely by signInWithGoogle's manual workaround,
+        // so requiring it here broke every non-Google PKCE link (magic link,
+        // email confirmation) with a bogus "PKCE keys not found" error.
+        if (!pkceVerification.hasVerifier) {
+          console.error('[callback] ❌ PKCE VERIFICATION FAILED - no code verifier');
           throw new Error('PKCE keys not found in localStorage. Auth flow may have been interrupted.');
+        }
+
+        if (!pkceVerification.hasState) {
+          console.log('[callback] ℹ️ No oauth-state present (expected for non-Google links)');
         }
 
         console.log('[callback] ✅ PKCE verification passed');

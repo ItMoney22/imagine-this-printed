@@ -28,6 +28,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import AuthCallback from './pages/AuthCallback'
 import AuthError from './pages/AuthError'
+import ResetPassword from './pages/ResetPassword'
 import ProductCatalog from './pages/ProductCatalog'
 import ProductPage from './pages/ProductPage'
 import Cart from './pages/Cart'
@@ -150,7 +151,7 @@ function App() {
                   <Route path="/signup" element={<Signup />} />
                   <Route path="/auth/callback" element={<AuthCallback />} />
                   <Route path="/auth/error" element={<AuthError />} />
-                  <Route path="/auth/reset-password" element={<AuthCallback />} />
+                  <Route path="/auth/reset-password" element={<ResetPassword />} />
                   <Route path="/catalog" element={<ProductCatalog />} />
                   {/* Retired seasonal pages (July 4th / World Cup) — send old links to the catalog */}
                   <Route path="/america-250" element={<Navigate to="/catalog" replace />} />

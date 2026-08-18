@@ -1,5 +1,61 @@
 # TASK_NOTES
-## Current request (2026-08-17, Zero Nine — Watchtower `9ec9444a`)
+## Current request (2026-08-18) — fix localhost sign-in
+- David could not sign in on `http://localhost:5173`; symptom was a persistent
+  "Invalid login credentials" on email/password.
+
+## Current status
+- **Dev env was broken:** `node_modules` was half-installed (78 entries, no `.bin`),
+  so `npm run dev` failed with `'vite' is not recognized`. Repaired with `npm install`
+  (610 packages added); dev server now serves on :5173.
+- **Auth stack itself is healthy:** anon key valid, email provider enabled, CORS fine.
+  A deliberate bad-credential call returns a clean 400 `invalid_credentials` in ~77ms.
+- **Reproduced the real failure:** submitting the browser-saved password for
+  `davidltrinidad@gmail.com` returns `invalid_credentials` from Supabase. The stored
+  password is stale/wrong, or the account has no password (Google-created).
+- **Google sign-in is dead everywhere (prod included):** Google returns
+  `Error 401: deleted_client` — OAuth client
+  `83382196916-u6o6lu5velvutkb1q6ov5ur93tk23app.apps.googleusercontent.com`
+  has been deleted in Google Cloud. Needs a new OAuth client + Supabase provider update.
+- **Password reset was fully broken**, which is why there was no way back in:
+  `/auth/reset-password` rendered `<AuthCallback />`, which hard-throws unless an
+  `oauth-state` key exists in localStorage. That key is written *only* by
+  `signInWithGoogle`, so every recovery link failed with "PKCE keys not found"
+  and bounced to `/login`. Same check also broke magic-link / email-confirm links.
+
+## Fixes applied
+- New `src/pages/ResetPassword.tsx`: real set-new-password page. Handles PKCE `code`,
+  legacy hash tokens, an already-consumed code, and expired links; calls
+  `supabase.auth.updateUser({ password })`.
+- `src/App.tsx`: `/auth/reset-password` now routes to `<ResetPassword />`.
+- `src/pages/AuthCallback.tsx`: PKCE gate now requires only the code-verifier
+  (what `exchangeCodeForSession` actually consumes); a missing `oauth-state` is
+  logged as informational instead of thrown.
+- Verified: typecheck clean on touched files; page renders and degrades gracefully
+  with no token.
+
+## Still open (needs David)
+- Rotate/recreate the Google OAuth client in Google Cloud Console, then update the
+  Google provider client id/secret in the Supabase dashboard.
+- Confirm `http://localhost:5173/auth/reset-password` is in the Supabase redirect
+  allow-list before relying on the reset email locally.
+- Google sign-in stays broken until that client is recreated.
+
+### Work log (append-only)
+- 2026-08-18 — Repaired the local dev install (`vite` missing), reproduced the
+  `invalid_credentials` failure, found `/auth/reset-password` was routed to
+  `AuthCallback` and hard-failing on a Google-only `oauth-state` key, shipped
+  `ResetPassword.tsx` + the relaxed PKCE gate, and pushed to `main` (production
+  deploy) after a clean build. Google OAuth `deleted_client` left open for David.
+
+## File shortlist (approved scope — 2026-08-18 sign-in fix)
+- `src/pages/ResetPassword.tsx` (new)
+- `src/App.tsx` (route)
+- `src/pages/AuthCallback.tsx` (PKCE gate)
+- `TASK_NOTES.md`
+
+---
+
+## Previous request (2026-08-17, Zero Nine — Watchtower `9ec9444a`)
 - Implement a QA gate that reviews every design PRESENTATION before it can go live,
   bounces failures back to the responsible agent with actionable feedback, and keeps
   an auditable submission history. Pairs with the Etsy scout (`12d1c31d`) and the
@@ -58,9 +114,7 @@
 ---
 
 ## Previous request (weekly Etsy report screenshots — historical)
-- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.
-
-## Current status
+- Correct the 2026-08-06 Etsy report email by including all four screenshots, and require verified images in every future weekly report.## Status
 - Sent a corrected report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
 - Embedded the shop-home, Y2K, HIM WAS BAD, and About/policies screenshots inline using CID images.
 - Attached the same four PNG files for email clients that block inline display.
