@@ -436,4 +436,33 @@ describe('summarizeConversion', () => {
     const report = summarizeConversion(events, [])
     expect(report.cohorts.usedTryOn.shoppers + report.cohorts.noTryOn.shoppers).toBe(1)
   })
+
+  it('replaces the default value-per-add-to-cart with measured rate if sufficient purchase data is available', () => {
+    const events: any[] = []
+    const purchased = (u: string, p: string) => ({ user_id: u, product_id: p, event_type: 'purchase' })
+
+    // 40 try-on users, 20 carted, 10 purchased
+    // cart-to-purchase rate = 10 / 20 = 50%
+    // measured value = 50% * $13.00 = $6.50
+    for (let i = 0; i < 40; i++) {
+      events.push(viewed(`u${i}`, 'p1'), ran(`u${i}`, 'p1'))
+      if (i < 20) events.push(carted(`u${i}`, 'p1'))
+      if (i < 10) events.push(purchased(`u${i}`, 'p1'))
+    }
+
+    // 40 non-try-on users, 10 carted
+    for (let i = 100; i < 140; i++) {
+      events.push(viewed(`u${i}`, 'p1'))
+      if (i < 110) events.push(carted(`u${i}`, 'p1'))
+    }
+
+    const runs = Array.from({ length: 40 }, () => completedRun())
+    const report = summarizeConversion(events, runs)
+
+    expect(report.usingMeasuredValue).toBe(true)
+    expect(report.valuePerAddToCartUsd).toBe(6.50)
+    // breakeven should be based on $6.50 instead of $4.00
+    // breakeven = 0.075 / 6.50 * 100 = 1.15
+    expect(report.breakevenIncrementalCartsPer100Runs).toBe(1.15)
+  })
 })
