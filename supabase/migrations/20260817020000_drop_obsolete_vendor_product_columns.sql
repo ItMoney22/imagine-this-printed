@@ -1,0 +1,48 @@
+-- ============================================================================
+-- Drop the obsolete name/metadata legacy-compat shim columns from
+-- public.vendor_products
+-- ============================================================================
+-- Watchtower task 7b3e842c-9f47-41bc-8c9a-36fc810583a1.
+--
+-- WHY THIS EXISTS
+-- ---------------
+-- `name` and `metadata` were added to `public.vendor_products` on 2026-08-17
+-- (supabase/migrations/20260817010000_restore_admin_submission_tables.sql,
+-- still unmerged on earth/marcus-wolfe/itp-implement-admin-subm-08444193-mswlv9do
+-- but already applied live to production) purely so that
+-- `backend/routes/user-products.ts`'s POST /download handler could select
+-- `id, name, images, metadata` from `vendor_products` without a PostgREST
+-- 400/42703 undefined_column error. `backend/routes/user-products.ts` was
+-- then repointed to query `products` instead (commit b0b5756, branch
+-- earth/sifu/itp-repoint-itc-design-d-bd44ca82-mswn8gm8, task bd44ca82 —
+-- also still unmerged as of this migration), which its own commit message
+-- flags these two columns as safe to drop in a follow-up migration.
+--
+-- Re-verified 2026-08-17 (this task): a full grep of backend/ and src/ for
+-- `vendor_products` turns up exactly two query call sites plus two
+-- string-constant/type references:
+--   * backend/routes/user-products.ts:1228 — still selects `name`/`metadata`
+--     on `main` (the repoint above has not merged yet). Confirmed harmless:
+--     `vendor_products` has 0 rows in production and no INSERT writer
+--     anywhere in this repo, so that select already 0-row/errors and falls
+--     through to the same "Design not found" 404 response with or without
+--     these two columns — dropping them changes no observable behaviour.
+--   * src/pages/AdminDashboard.tsx (4 call sites: count/select("*")/update
+--     approved/delete) — never references `.name` or `.metadata` on a
+--     vendor_products row; its mapper only reads id/vendor_id/title/
+--     description/price/images/category/approved/commission_rate/created_at.
+--   * backend/routes/community.ts:42, src/components/community/
+--     CommunityShowcase.tsx, src/utils/community-service.ts — the string
+--     `'vendor_products'` is used only as a filter-constant/type literal,
+--     never as a column reference.
+--
+-- SAFETY
+-- ------
+-- Idempotent (IF EXISTS on both drops) and additive-inverse only: removes
+-- exactly the two nullable/default-valued shim columns added by the
+-- 2026-08-17 restore migration, no other column, index, or row is touched.
+-- ============================================================================
+
+ALTER TABLE public.vendor_products
+  DROP COLUMN IF EXISTS name,
+  DROP COLUMN IF EXISTS metadata;

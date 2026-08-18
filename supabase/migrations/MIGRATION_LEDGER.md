@@ -381,6 +381,27 @@ have the remaining `20260728_*` bare-date files renamed to unique full
 14-digit timestamps before this branch's migrations are considered ready,
 same pattern this ledger used for `20260728120000_orders_staff_write_access.sql`.
 
+## 2026-08-17 — vendor_products legacy shim columns dropped (Amelia Chan, task 7b3e842c)
+
+- `20260817020000_drop_obsolete_vendor_product_columns.sql` — **APPLIED LIVE**
+  via `scripts/apply-pending-migrations.mjs --apply --track` (new PLAN entry
+  `drop-vendor-product-shim-columns`). Drops `vendor_products.name` and
+  `vendor_products.metadata`, the two legacy-compat columns
+  `20260817010000_restore_admin_submission_tables.sql` added so the old
+  `/download` route select wouldn't 42703. That route was repointed to
+  `products` (commit `b0b5756`, task `bd44ca82`) — but note **neither
+  `20260817010000` nor `b0b5756` is merged to `main` as of this migration**;
+  both are live in the DB / on unmerged branches respectively (same drift
+  pattern this ledger describes throughout). Confirmed safe regardless:
+  `vendor_products` had 0 rows and no INSERT writer anywhere in the repo at
+  the time of this drop, so the un-repointed `/download` select already
+  0-rows/errors into the same "Design not found" 404 either way. Verified
+  live via PostgREST: `select=*` → 200 `[]`; explicit `select=id,name,metadata`
+  → 400/42703 (columns confirmed gone); full insert → PATCH approved=true →
+  DELETE smoke test against a real row reproduced `AdminDashboard.tsx`'s
+  approve/reject calls end-to-end, 201/200/204 throughout, table back to 0
+  rows after cleanup.
+
 ## Other drift observed, not fixed (out of scope for this pass)
 
 - `20260428_decrement_itc_atomic.sql`'s `decrement_itc(uuid, numeric)` is
