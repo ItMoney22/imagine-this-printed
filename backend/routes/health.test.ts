@@ -7,6 +7,8 @@ import { describe, it, expect } from 'vitest'
 // value is fine — no test here executes a query. Same dynamic-import-after-
 // env-setup pattern as webhooks-supabase-auth.test.ts.
 process.env.DATABASE_URL ||= 'postgresql://user:pass@localhost:5432/db'
+process.env.SUPABASE_URL ||= 'https://dummy-project.supabase.co'
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'dummy-service-role-key'
 
 const { verifyHealthProbeToken } = await import('./health.js')
 
