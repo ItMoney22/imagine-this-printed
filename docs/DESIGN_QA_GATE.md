@@ -189,6 +189,20 @@ npx tsx --env-file=.env scripts/qa-gate-e2e-check.ts [productId] # prove the loo
   report only defects a shopper would notice, but they are not deterministic —
   which is why every one of them is overridable by a human with a recorded
   reason.
+- **Typography judges the design's focal text, not every incidental pixel.** A
+  busy illustrated scene (a cityscape, a crowd, a market) often carries small
+  background signage that is scenery, not the sold message. As of 2026-08-18
+  the prompt explicitly scopes `typographyOk` to a title/name/slogan-class
+  focal text and tells the model to ignore soft or tiny incidental background
+  lettering — the same "would a shopper actually notice" standard the realism
+  criterion already uses. Before this, a design with legible primary text but
+  dense secondary scene-signage (e.g. "Neon City Tactical Soldier Crossover",
+  four legible major signs plus tiny background labels) failed typography 0/8
+  even after `design_placement` was fixed and passing reliably. Verified live
+  against two products: the soldier tee flips fail→pass 3/3 with placement and
+  realism unaffected, and a known-good design with real focal text ("Neon Y2K
+  Glitch Boo Crew") still passes 3/3 — the scoping does not blanket-disable the
+  check. Watchtower task `f7b25ed8-1fe1-4eef-99ce-ae7afe2dc0d4`.
 - As of 2026-08-17 a live sample of the active catalogue scored **0/4 passing**,
   almost entirely on description length (242–282 chars against a 300 floor) plus
   two genuine mockup defects. That is the honest state of the presentation, not

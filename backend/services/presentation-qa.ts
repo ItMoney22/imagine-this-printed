@@ -651,10 +651,14 @@ export async function readPresentation(
                 'labels/tags, duplicated limbs, or an obviously synthetic plastic look. Ordinary studio lighting, ' +
                 'a plain backdrop, a flat-lay and a ghost-mannequin shot are all FINE.\n\n' +
                 `2. PLACEMENT — ${placementLine}\n\n` +
-                '3. TYPOGRAPHY — if the printed design contains words, is every word crisp and readable at a ' +
-                'glance? Set typographyOk to false for letters that are broken, smeared, warped into nonsense, ' +
-                'colliding, or so low-contrast against the garment that they disappear. Set hasText to false and ' +
-                'typographyOk to true when the design has no words at all.\n\n' +
+                '3. TYPOGRAPHY — judge only the design\'s FOCAL text: a title, a name, a slogan, or any other ' +
+                'wording that is clearly meant to be read as part of the main composition. Set typographyOk to ' +
+                'false only when that focal text is broken, smeared, warped into nonsense, colliding, or so ' +
+                'low-contrast it disappears — the kind of thing a shopper scrolling past would actually notice. ' +
+                'A busy illustrated scene (a cityscape, a crowd, a market) often has small incidental signage, ' +
+                'labels or background lettering that is part of the scenery rather than the sold message — it is ' +
+                'FINE for that to be small or soft at normal viewing size; do not fail typography over it. Set ' +
+                'hasText to false and typographyOk to true when the design has no focal words at all.\n\n' +
                 'Respond in JSON: {"realistic": bool, "realismIssue": string, "centered": bool, ' +
                 '"placementIssue": string, "hasText": bool, "typographyOk": bool, "typographyIssue": string}. ' +
                 'Each issue string is one short sentence naming the single worst defect, or an empty string when ' +
