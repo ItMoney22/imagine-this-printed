@@ -18,6 +18,9 @@ All endpoints live under `/api/storefront/*` and use the same Bearer auth
 | `STOREFRONT_BASE_COST_USD` | D1 base cost per shirt (default `10`). |
 | `STOREFRONT_BACK_PRINT_UPCHARGE_USD` | Extra-location upcharge when a back print ships (default `5` — **confirm with David**). |
 | `STOREFRONT_CREATOR_FEE_PERCENT` | Fee share deducted from creator margin, % of retail (default `3`). |
+| `STOREFRONT_HOODIE_BASE_COST_USD` | Base cost for hoodies (falls back to `STOREFRONT_BASE_COST_USD` if unset). |
+| `STOREFRONT_POLO_BASE_COST_USD` | Base cost for polos (falls back to `STOREFRONT_BASE_COST_USD` if unset). |
+| `STOREFRONT_RAIN_JACKET_BASE_COST_USD` | Base cost for rain jackets (falls back to `STOREFRONT_BASE_COST_USD` if unset). |
 
 ## GET /api/storefront/catalog
 
@@ -42,16 +45,21 @@ the legacy key stays unscoped. Response items now also carry `colors` and
 | `colors`, `sizes` | text | JSON array or CSV |
 | `placement` | text | optional JSON blob of designer transforms (stored verbatim) |
 | `externalRef` | text | optional storefront draft id, echoed back in product metadata |
+| `garmentType` | text | optional — programmatic garment name (e.g. `hoodie`, `polo`, `rain_jacket`). Resolves cost env var. |
+| `garmentLabel` | text | optional — display garment name (e.g. `Hoodie`, `Polo`, `Rain Jacket`). Saved in metadata. |
+| `categorySlug` | text | optional — product category slug (e.g. `hoodies`, `polos`, `rain-jackets`). Defaults to `shirts`. |
+| `expectedCostUsd` | text | optional — client-calculated expected cost. If provided and mismatches calculated cost, returns 400. |
 
 Effect: files stored in ITP GCS (`merch-studio/<vendor>/<batch>/…`); product
 created with `created_by_user_id=<mapped creator>`, `is_user_generated=true`,
-`status='pending_approval'`, `cost_price = base (+ back upcharge)`,
-`print_locations` set, and it lands in the existing admin approval queue.
+`status='pending_approval'`, `cost_price = base (+ back upcharge)` (garment-specific base cost dynamically resolved from env variables),
+`print_locations` set, assigned to dynamically resolved `product_categories` from `categorySlug`, and it lands in the existing admin approval queue.
 Approval flips `status='active'` + `is_active=true` → product appears on the
 creator's scoped catalog. Rejection sets `status='rejected'` + `is_active=false`
 (reason emailed + stored in `metadata.rejection_reason`).
 
 Returns `201 { productId, slug, status, retailUsd, costUsd, files }`.
+If `expectedCostUsd` is provided and mismatches the server's calculated cost, returns `400 { error: "Expected cost ... does not match calculated cost ...", calculatedCostUsd, expectedCostUsd }`.
 
 ## GET /api/storefront/products/status  (creator keys only)
 
