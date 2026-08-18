@@ -21,6 +21,7 @@ import stripeRoutes from './routes/stripe.js'
 import ordersRouter from './routes/orders.js'
 import aiProductsRouter from './routes/admin/ai-products.js'
 import adminWalletRouter from './routes/admin/wallet.js'
+import adminUsersRouter from './routes/admin/users.js'
 import replicateCallbackRouter from './routes/ai/replicate-callback.js'
 import mockupsRouter from './routes/mockups.js'
 import designerRouter from './routes/designer.js'
@@ -249,6 +250,7 @@ app.use('/api/orders', ordersRouter)
 app.use('/api/admin/products/ai', aiProductsRouter)
 app.use('/api/image-flow', imageFlowRouter)
 app.use('/api/admin/wallet', adminWalletRouter)
+app.use('/api/admin/users', adminUsersRouter)
 app.use('/api/ai/replicate', replicateCallbackRouter)
 app.use('/api/mockups', mockupsRouter)
 app.use('/api/designer', designerRouter)

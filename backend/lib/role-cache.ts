@@ -6,11 +6,21 @@ import { supabase } from './supabase.js'
 // per call.
 //
 // Negative results are cached too (under a shorter TTL) so a stray
-// missing-profile case doesn't hammer the DB on every retry. Roles change
-// rarely; a 5-minute window is the right tradeoff between staleness and
-// pressure on `user_profiles`. If a user is promoted/demoted, they'll see
-// the new role within 5 minutes — acceptable for an admin tool.
-const POSITIVE_TTL_MS = 5 * 60 * 1000
+// missing-profile case doesn't hammer the DB on every retry.
+//
+// TTL is 60s, not the 5 minutes this started at. A cached role is a
+// privilege that outlives the decision to revoke it: with a 5-minute window a
+// demoted or compromised admin kept admin access for most of an incident
+// response. 60s still absorbs the request bursts the cache exists for (a
+// dashboard panel load fans out to a dozen endpoints in a second or two)
+// while capping worst-case staleness at a minute.
+//
+// The TTL is only the backstop. Role changes made through
+// POST /api/admin/users/:userId/role (backend/routes/admin/users.ts) call
+// `invalidateCachedRole` and take effect on the very next request. The TTL
+// covers changes made out of band (a direct edit in the Supabase dashboard,
+// a SQL migration) and other processes' caches (the cache is per-process).
+const POSITIVE_TTL_MS = 60 * 1000
 const NEGATIVE_TTL_MS = 30 * 1000
 
 type Entry = { role: string | null; expiresAt: number }
@@ -37,9 +47,27 @@ export async function getCachedRole(userId: string): Promise<string | null> {
   return role
 }
 
-// Test/debug helper. Not exported from index.ts; only callable by
-// internal admin tooling that wants to flush a stale entry after a role
-// change without waiting for the TTL.
+/**
+ * Drop one user's cached role so the next authorization check re-reads
+ * `user_profiles`. Call this from every path that can change a role —
+ * promotion, demotion, profile deletion — so revocation is immediate rather
+ * than TTL-bounded.
+ */
 export function invalidateCachedRole(userId: string): void {
   cache.delete(userId)
+}
+
+/**
+ * Flush every cached role. For bulk role changes (a migration, a script) and
+ * for the admin "flush role cache" control.
+ */
+export function invalidateAllCachedRoles(): number {
+  const size = cache.size
+  cache.clear()
+  return size
+}
+
+/** Introspection for the admin cache endpoint and tests. */
+export function roleCacheStats(): { entries: number; positiveTtlMs: number; negativeTtlMs: number } {
+  return { entries: cache.size, positiveTtlMs: POSITIVE_TTL_MS, negativeTtlMs: NEGATIVE_TTL_MS }
 }
