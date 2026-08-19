@@ -7,6 +7,44 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-19 — admin UPDATE policy on user_profiles applied (Marcus Wolfe, Watchtower `54fb9414`)
+
+- `20260819190000_admin_update_user_profiles_rls.sql` — **APPLIED LIVE** 2026-08-19.
+  Adds one policy, `Admins can update any profile`, `FOR UPDATE TO authenticated`
+  with `get_user_role(auth.uid()) = ANY (ARRAY['admin','founder'])` on both
+  `USING` and `WITH CHECK`.
+- The bug it fixes: `public.user_profiles` carried exactly **one** UPDATE policy
+  — `Users can update own profile`, `USING (auth.uid() = id)`. An admin
+  promoting somebody else matched **zero rows**, and PostgREST answers that with
+  200 and an empty array rather than an error, so `AdminDashboard.tsx`'s
+  `updateUserRole()` showed a green "Role updated" toast for a write that never
+  happened. That is why production held 183 customers, 2 admins and 0 vendors:
+  the promotion UI had been a silent no-op since it was written. The
+  `enforce_user_profile_role_immutable` trigger was never the blocker — it
+  already exempts admin/founder; RLS stopped the statement one layer earlier.
+- Purely additive. No existing policy dropped or rewritten; permissive policies
+  OR together, so self-update and `service_role` are untouched. A non-admin
+  gains nothing — `USING` is evaluated against the CALLER's role.
+- Verified against production:
+  1. the whole file plus an 11-check impersonation suite
+     (`set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated`,
+     each expected-failure in its own SAVEPOINT) inside a `BEGIN … ROLLBACK` —
+     11/11, including a BEFORE check proving the admin UPDATE matched 0 rows,
+     AFTER checks for promote **and** demote, `customer CANNOT update another
+     profile`, `customer CANNOT self-escalate` (trigger raises), `customer CAN
+     still edit own fields`, and a second run of the whole file for idempotency.
+     Rollback proven real with a throwaway `CREATE TABLE` probe;
+  2. end-to-end through the real UI in a headless browser afterwards — an admin
+     session promoted `info@darrellmccutchen.com` to `vendor`, demoted them,
+     re-promoted them, and was blocked from demoting itself; audit rows written
+     each time.
+- Applied over a direct connection in an explicit transaction, so NOT tracked in
+  `schema_migrations` (like most of this repo).
+- **Prod is ahead of `main` until branch
+  `earth/marcus-wolfe/itp-enable-vendor-promot-54fb9414-mt0eg2fa` merges.** Safe
+  in either order: without the frontend changes the policy simply makes an
+  existing (broken) admin action start working.
+
 ## 2026-08-19 — vendor-scoped products RLS applied (Zero Nine, Watchtower `f8ecc070`)
 
 - `20260819130000_vendor_scoped_products_rls.sql` — **APPLIED LIVE** 2026-08-19.

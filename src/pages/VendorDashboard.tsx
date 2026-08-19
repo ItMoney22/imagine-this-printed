@@ -148,6 +148,9 @@ const VendorDashboard: React.FC = () => {
         createdAt: p.created_at,
         updatedAt: p.updated_at,
         metadata: p.metadata || {},
+        // Needed by handleAddToStore — a 'shirts' row can't be written without
+        // at least one print location (products_print_locations_valid).
+        print_locations: p.print_locations || undefined,
         isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false
       }))
 
@@ -164,6 +167,14 @@ const VendorDashboard: React.FC = () => {
     try {
       // Persist a real draft row — this used to mutate local state only, so
       // "added" products vanished on refresh and never reached approval.
+      // The products_print_locations_valid CHECK requires at least one print
+      // location on a 'shirts' row, and the catalog is mostly shirts — copying a
+      // shirt without this made the INSERT fail outright. Carry the source
+      // product's placements over, falling back to a front print.
+      const printLocations = product.category === 'shirts'
+        ? (product.print_locations?.length ? product.print_locations : ['front_image'])
+        : product.print_locations
+
       const { data, error } = await supabase.from('products').insert({
         vendor_id: user.id,
         name: product.name,
@@ -172,6 +183,7 @@ const VendorDashboard: React.FC = () => {
         category: product.category,
         product_type: 'physical',
         images: product.images,
+        ...(printLocations ? { print_locations: printLocations } : {}),
         status: 'draft',
         is_active: false,
         metadata: {
