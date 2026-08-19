@@ -1,5 +1,76 @@
 # TASK_NOTES
-## Current request (2026-08-18) — fix localhost sign-in
+## Current request (2026-08-19) — 3D toy gen → store + Etsy → sales signal
+
+David: "finetune our 3d toy gen as we need to add them to the store and etsy,
+we need to see what sells and make sure we are printing money."
+
+### Locked decisions (David, 2026-08-19)
+- **Both tiers per toy**: each toy ships as a physical printed figurine AND an
+  STL digital download (reuses the existing `etsy_listings.tier` rail).
+- **Catalog source**: house batch generated from trend data (20–40 SKUs), not
+  the 13 existing user one-offs.
+- **Finetune target**: print-economics gate FIRST (volume → filament → COGS,
+  printability/watertight, base stability), ahead of visual tuning.
+
+### Live prod state found this session (evidence, not assumption)
+- `user_3d_models`: 18 rows ever; 13 `ready` with GLB+STL; last gen 2026-06-13.
+- `products`: 2,468 rows (2,461 active) — **zero** 3D toys. Categories are
+  shirts / t-shirts / dtf-transfers / metal-art / hoodies only.
+- `etsy_listings`: 24 rows, **every one `state: draft`**, all 2026-08-09.
+- `orders`: 4 rows. `order_items`: 1 row. No sales signal exists yet.
+
+### Blocker chain (4 found)
+1. **Sold toys never reached the printer** — `print-bridge.ts` emitted an
+   unregistered `line: 'catalog-toy'` and `notifyWorkers` matched that same bad
+   string. **FIXED + SHIPPED** (see work log).
+2. **Etsy publish throws on toys** — promote writes `category: '3d-prints'`;
+   `taxonomyIdFor()` has no mapping for it. Needs two taxonomy ids (physical
+   figurine + digital 3D file). OPEN.
+3. **STL download tier not wired** — `etsy_listings.tier='download'` sources a
+   design file via `sourceDesignFile()`, not `metadata.print3d.stl_url`. OPEN.
+4. **Etsy sales rail dead** — `20260728_etsy_receipts_and_inventory_sync.sql`
+   never applied to prod (`orders.etsy_receipt_id` and
+   `etsy_connection.receipts_watermark` both MISSING). `etsy-receipt-ingest.ts`
+   reads that watermark first every tick, so **no Etsy sale has ever been
+   ingested**. Blocked on manual SQL — filed to watchtower `pending-sql/`.
+
+### Still open (needs David)
+- Run `E:/memory/watchtower/pending-sql/2026-08-19-imagine-this-printed-etsy-receipts-sales-rail.sql`
+  against prod (`czzyrmizvjqlifcivrhn`). Additive + idempotent.
+- **True COGS inputs are unknown.** `STOREFRONT_3D_PRINT_*_BASE_COST_USD` in
+  `.env.example` are a *partner* cost basis (Darrell V2 lane) mirroring ITP's
+  retail print prices — they are NOT filament + power + labor. The economics
+  gate needs real numbers: $/kg filament, printer model + speed, labor per
+  print, target margin. Watchtower approval `8ffa97fe` still pending.
+
+### Work log (append-only)
+- 2026-08-19 — Probed live prod and established the 4-blocker chain above.
+  Merged the two unmerged catalog-3D print fixes into `main`:
+  `076e2a0` (chase-valenti — `catalog-toy` → `custom-toy` at the emit site,
+  plus `model_file` upload support in `storefront.ts`) and `c28e971`
+  (zero-nine — `notifyWorkers` now resolves catalog toy ids against `products`
+  instead of a `.startsWith('catalog-toy')` match that could never be true).
+  Caught that local `main` was 6 commits STALE before pushing — a naive push
+  would have reverted levi-james's vendor-marketplace bundle, deleting
+  `MIGRATION_LEDGER.md` and three live-applied migrations. Merged `origin/main`
+  first, then re-verified the push diff was exactly 4 files / 0 deletions.
+  Gate green on the integrated tree: backend typecheck clean, 12/12 new
+  print-bridge tests, 57 files / 748 tests repo-source, `npm run build` OK.
+  Pushed `f04ffa0..1d0253c`; all 4 prod health endpoints green after deploy.
+  Filed blocker 4's SQL to `E:/memory/watchtower/pending-sql/` + `inbox/david/`
+  (prod DDL is correctly gated in auto mode).
+
+## File shortlist (approved scope — 2026-08-19 3D toy gen)
+- `backend/routes/print-bridge.ts`, `backend/routes/print-bridge.test.ts` (merged)
+- `backend/routes/storefront.ts`, `backend/.env.example` (merged)
+- `TASK_NOTES.md`
+- Still-unscoped (blockers 2/3 + economics gate) — to be added before editing:
+  `backend/services/etsy.ts`, `backend/services/glb-to-stl.ts`,
+  `backend/routes/3d-models.ts`
+
+---
+
+## Previous request (2026-08-18) — fix localhost sign-in
 - David could not sign in on `http://localhost:5173`; symptom was a persistent
   "Invalid login credentials" on email/password.
 
