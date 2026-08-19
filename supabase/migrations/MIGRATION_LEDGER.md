@@ -7,6 +7,43 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-19 — vendor-scoped products RLS applied (Zero Nine, Watchtower `f8ecc070`)
+
+- `20260819130000_vendor_scoped_products_rls.sql` — **APPLIED LIVE** 2026-08-19.
+  Adds three vendor-scoped RLS policies on `public.products`
+  (`Vendors can insert/update/delete their own products`, all keyed on
+  `vendor_id = auth.uid()` plus `get_user_role(auth.uid()) = 'vendor'`) and the
+  `enforce_vendor_product_write_limits_trigger` BEFORE INSERT OR UPDATE guard
+  that keeps `status`/`is_active`/`is_featured`/`cost_price`/`vendor_id`/
+  `created_by_user_id` out of a vendor's reach.
+- Purely additive. The three `Admins can … products` policies were **not**
+  touched, dropped or rewritten; permissive policies OR together, so admin
+  reach is unchanged. Row count before and after: 2,468. Grants unchanged.
+- The bug it fixes: there was NO vendor write policy at all, so every
+  `VendorDashboard.tsx` write failed — INSERT with 42501 and UPDATE with a
+  200-and-zero-rows that the UI reported as success. Live proof before the fix:
+  `SELECT count(*) FROM products WHERE vendor_id IS NOT NULL` = **0** of 2,468.
+- Verified three ways, all against production:
+  1. the whole migration plus a 31-check impersonation suite
+     (`set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated`)
+     inside a `BEGIN … ROLLBACK` — 31/31, run once before the apply and again
+     after, against the committed policies;
+  2. a no-JWT direct-connection write (the worker/psql path) — still able to
+     publish, feature and set `cost_price`, i.e. no server-side regression;
+  3. a true end-to-end run through GoTrue + PostgREST with two throwaway
+     vendor accounts on prod — 14/14, covering insert, edit-own,
+     cannot-edit-other, cannot-insert-as-other, cannot-self-publish,
+     cannot-self-feature, delete-own. Both users and every row were deleted
+     afterwards; post-teardown check reported 0 stray users, 0 stray products,
+     2,468 total.
+- Applied via the Supabase Management API SQL endpoint, so NOT tracked in
+  `schema_migrations` (like most of this repo).
+- **Prod is ahead of `main` until branch
+  `earth/zero-nine/add-vendor-scoped-rls-po-f8ecc070-mt0dqisc` merges.** Safe
+  in either order: the policies only widen what a `vendor`-role account may do,
+  and there are currently **zero** accounts with `role='vendor'` in production,
+  so nothing can exercise them until someone is promoted.
+
 ## 2026-08-17 — design QA gate applied (Zero Nine, Watchtower `9ec9444a`)
 
 - `20260817120000_design_qa_gate.sql` — **APPLIED LIVE** 2026-08-17. Creates

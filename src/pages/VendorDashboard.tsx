@@ -101,7 +101,10 @@ const VendorDashboard: React.FC = () => {
         digitalPrice: p.digital_price || 0,
         images: p.images || [],
         category: p.category || 'shirts',
-        approved: p.status === 'active',
+        // products.approved is the real, DB-derived flag (sync_products_approved()
+        // keeps it equal to status='active' AND is_active). status alone said
+        // "approved" for a row an admin had deactivated.
+        approved: p.approved === true,
         commissionRate: 25,
         createdAt: p.created_at,
         productType: p.product_type || 'physical',
@@ -161,7 +164,7 @@ const VendorDashboard: React.FC = () => {
     try {
       // Persist a real draft row — this used to mutate local state only, so
       // "added" products vanished on refresh and never reached approval.
-      const { error } = await supabase.from('products').insert({
+      const { data, error } = await supabase.from('products').insert({
         vendor_id: user.id,
         name: product.name,
         description: product.description,
@@ -176,8 +179,14 @@ const VendorDashboard: React.FC = () => {
           source_product_id: product.id,
           added_from_catalog: true,
         },
-      })
+      }).select('id')
       if (error) throw error
+      // Same trap as handleUpdateProduct: PostgREST can answer 200 with an
+      // empty body when RLS lets the statement run but writes nothing. Never
+      // claim a save we can't see a row for.
+      if (!data || data.length === 0) {
+        throw new Error('Product was not saved — your account may not have vendor permissions.')
+      }
 
       toast.success('Added to your store', `${product.name} saved as a draft in My Products.`)
       setSelectedTab('products')
@@ -202,7 +211,7 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
-      const { error } = await supabase.from('products').insert({
+      const { data, error } = await supabase.from('products').insert({
         vendor_id: user?.id,
         name: newProduct.title,
         description: newProduct.description,
@@ -214,9 +223,15 @@ const VendorDashboard: React.FC = () => {
         file_url: uploadedDigitalFile?.url || null,
         status: 'draft',
         is_active: false
-      })
+      }).select('id')
       if (error) throw error
-      
+      // Same trap as handleUpdateProduct: PostgREST can answer 200 with an
+      // empty body when RLS lets the statement run but writes nothing. Never
+      // claim a submission we can't see a row for.
+      if (!data || data.length === 0) {
+        throw new Error('Product was not saved — your account may not have vendor permissions.')
+      }
+
       toast.success('Success', 'Product submitted for approval!')
       setNewProduct({
         title: '',
