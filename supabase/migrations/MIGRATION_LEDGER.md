@@ -7,6 +7,39 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-19 — vendor-marketplace bundle MERGED to `main` + tracking rows reconciled (Levi James, Watchtower `c53ca544`)
+
+- Merge commit `9144e7b` brings `16727bf` (vendor-scoped products RLS),
+  `587a096` (admin UPDATE policy on `user_profiles` + admin vendors tab
+  repointed at `products`) and `74a81da` (dead `public.vendor_products`
+  dropped) onto `main`, on top of `56f955f`. `main` and production are no
+  longer split across three places for this feature.
+- **`schema_migrations` reconciled.** At merge time only `20260819210000` had
+  a tracking row — `20260819130000` and `20260819190000` were applied live but
+  never recorded (see the two sections below, which called this out). Verified
+  read-only against production that both were genuinely applied — the three
+  `Vendors can insert/update/delete their own products` policies, the
+  `enforce_vendor_product_write_limits_trigger` trigger and the
+  `enforce_vendor_product_write_limits()` function all present, plus the
+  `Admins can update any profile` policy on `user_profiles` — then inserted the
+  two missing rows (`ON CONFLICT (version) DO NOTHING`, `statements` NULL like
+  their siblings). Both files are fully idempotent (`DROP … IF EXISTS` +
+  `CREATE`, `CREATE OR REPLACE FUNCTION`), so a replay would have been harmless
+  either way; the rows exist so a replay does not happen at all.
+- All three 2026-08-19 migrations plus `20260817010000` / `20260817020000` now
+  carry full-filename `name` values in `supabase_migrations.schema_migrations`.
+- **Do NOT read this as the whole table becoming an honest ledger.** Everything
+  older than 2026-08-17 is still desynced exactly as documented below; this
+  reconciliation was scoped to the three migrations this merge shipped.
+- Verified after the push: `origin/main` at `9144e7b`; typecheck, `eslint .`
+  (0 errors), `vitest run` (56 files / 736 tests) and `npm run build` all green
+  on the merged tree; Vercel serving the merged bundles in production (the
+  `Marked rejected and taken off the store` string from `74a81da` and the
+  `Floating standoff wall mount` string from `56f955f` both present in the live
+  chunks); `/api/health`, `/health/email`, `/health/auth`, `/health/database`
+  all OK. Render skipped a deploy by design — both services use `rootDir:
+  backend` and this merge touched no file under `backend/`.
+
 ## 2026-08-19 — dead `public.vendor_products` table DROPPED (Jessica Steele, Watchtower `5b16357c`)
 
 - `20260819210000_drop_vendor_products.sql` — **APPLIED LIVE** 2026-08-19 via
@@ -98,12 +131,14 @@ db push`/`db reset` was run, nothing was written to the live database.
      session promoted `info@darrellmccutchen.com` to `vendor`, demoted them,
      re-promoted them, and was blocked from demoting itself; audit rows written
      each time.
-- Applied over a direct connection in an explicit transaction, so NOT tracked in
-  `schema_migrations` (like most of this repo).
-- **Prod is ahead of `main` until branch
-  `earth/marcus-wolfe/itp-enable-vendor-promot-54fb9414-mt0eg2fa` merges.** Safe
-  in either order: without the frontend changes the policy simply makes an
-  existing (broken) admin action start working.
+- Applied over a direct connection in an explicit transaction, so it was NOT
+  tracked in `schema_migrations` at apply time. **Backfilled 2026-08-19** as
+  version `20260819190000` during the merge (task `c53ca544`) — see the
+  reconciliation section above.
+- ~~Prod is ahead of `main`~~ — **RESOLVED 2026-08-19**: merged to `main` in
+  `9144e7b` (task `c53ca544`) via branch
+  `earth/jessica-steele/itp-drop-dead-public-ven-5b16357c-mt0ffi4q`, which
+  bundled this commit.
 
 ## 2026-08-19 — vendor-scoped products RLS applied (Zero Nine, Watchtower `f8ecc070`)
 
@@ -134,13 +169,14 @@ db push`/`db reset` was run, nothing was written to the live database.
      cannot-self-feature, delete-own. Both users and every row were deleted
      afterwards; post-teardown check reported 0 stray users, 0 stray products,
      2,468 total.
-- Applied via the Supabase Management API SQL endpoint, so NOT tracked in
-  `schema_migrations` (like most of this repo).
-- **Prod is ahead of `main` until branch
-  `earth/zero-nine/add-vendor-scoped-rls-po-f8ecc070-mt0dqisc` merges.** Safe
-  in either order: the policies only widen what a `vendor`-role account may do,
-  and there are currently **zero** accounts with `role='vendor'` in production,
-  so nothing can exercise them until someone is promoted.
+- Applied via the Supabase Management API SQL endpoint, so it was NOT tracked
+  in `schema_migrations` at apply time. **Backfilled 2026-08-19** as version
+  `20260819130000` during the merge (task `c53ca544`) — see the reconciliation
+  section above.
+- ~~Prod is ahead of `main`~~ — **RESOLVED 2026-08-19**: merged to `main` in
+  `9144e7b` (task `c53ca544`) via branch
+  `earth/jessica-steele/itp-drop-dead-public-ven-5b16357c-mt0ffi4q`, which
+  bundled this commit.
 
 ## 2026-08-17 — design QA gate applied (Zero Nine, Watchtower `9ec9444a`)
 
