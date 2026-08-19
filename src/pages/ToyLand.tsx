@@ -1,10 +1,11 @@
 // The Toy Factory — the kid-facing home of the 3D toy line (David 2026-08-19:
-// "a dedicated Toy page that looks like an amazing experience for kids").
-// Design is built from the product's own truth: every toy is FDM-printed
-// layer by layer from at most 4 filament spools (the AMS limit), so the hero
-// is a toy that prints itself slab by slab, and the page palette IS a 4-spool
-// filament set on a deep printer-bed navy. Marketed URL: /toys.
-// This page commits to its own look in both site themes (explicit colors).
+// "a dedicated Toy page that looks like an amazing experience for kids" +
+// "use real images of something we will really print").
+// Every image on this page is a REAL toy render from user_3d_models — actual
+// meshes sitting in GCS that our printers can run today — served through the
+// permanent /api/media proxy (concept.png only; STL/GLB stay license-gated).
+// The page palette is a 4-spool filament set (the AMS limit) on printer-bed
+// navy, and it commits to that look in both site themes.
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -13,6 +14,9 @@ import ThreeDPrintRequestModal from '../components/ThreeDPrintRequestModal'
 
 interface PaletteEntry { hex: string; pct?: number }
 
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://api.imaginethisprinted.com'
+const MEDIA = (modelId: string) => `${API_BASE}/api/media/3d-models/${modelId}/concept.png`
+
 // The 4-spool page palette (filament colors, not web colors).
 const SPOOLS = {
   red: '#ff4d6d',
@@ -20,67 +24,30 @@ const SPOOLS = {
   teal: '#2ec4b6',
   purple: '#9d5cff'
 }
-const BED = '#151f4d'      // printer-bed navy (page ground)
-const BED_DEEP = '#0e1538' // deeper band
-const PLA_WHITE = '#fff8f0'
 
-// The factory robot, built from print slabs. `animate` runs the layer-by-layer
-// print-in (hero only); the magnet-section copy renders instantly so the snap
-// reaction happens right where the kid clicked.
-const FactoryBot: React.FC<{ equipped: 'sword' | 'dragon' | null; animate?: boolean; scale?: number }> = ({ equipped, animate = false, scale = 1 }) => {
-  const layer = (i: number) => (animate ? { className: 'tf-layer', style: { ['--i' as any]: i } } : { className: '', style: {} })
-  const l = (i: number, extra: React.CSSProperties) => ({
-    className: `tf-slab ${animate ? 'tf-layer' : ''}`,
-    style: { ...(animate ? { ['--i' as any]: i } : {}), ...extra }
-  })
-  return (
-    <div className="tf-printer" style={{ width: `min(${360 * scale}px, 80vw)` }} aria-hidden="true">
-      <div className="tf-toy tf-toy-idle" style={{ transform: `scale(${scale})`, transformOrigin: 'bottom center' }}>
-        {/* horn */}
-        <div {...l(7, { width: 22, height: 20, background: SPOOLS.yellow, borderRadius: '50% 50% 8px 8px' })} />
-        {/* head */}
-        <div {...l(6, { width: 120, height: 64, background: SPOOLS.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 22 })}>
-          <span className="tf-eye" /><span className="tf-eye" />
-        </div>
-        {/* arms + body */}
-        <div {...layer(5)} style={{ ...(animate ? { ['--i' as any]: 5 } : {}) }}>
-          <div className="tf-arm-row">
-            <div className="tf-hand">
-              <div className="tf-slab" style={{ width: 34, height: 62, background: SPOOLS.purple }} />
-              <span className="tf-magnet-dot" />
-              {equipped === 'sword' && <span className="tf-accessory tf-snap" style={{ left: -20, top: -34 }}>🗡️</span>}
-            </div>
-            <div className="tf-slab" style={{ width: 108, height: 84, background: SPOOLS.red }} />
-            <div className="tf-hand">
-              <div className="tf-slab" style={{ width: 34, height: 62, background: SPOOLS.purple }} />
-              <span className="tf-magnet-dot" />
-              {equipped === 'dragon' && <span className="tf-accessory tf-snap" style={{ right: -26, top: -30 }}>🐉</span>}
-            </div>
-          </div>
-        </div>
-        {/* hips */}
-        <div {...l(4, { width: 96, height: 26, background: SPOOLS.purple, marginTop: 4 })} />
-        {/* legs */}
-        <div {...layer(3)} style={{ ...(animate ? { ['--i' as any]: 3 } : {}), display: 'flex', gap: 18, marginTop: 4 }}>
-          <div className="tf-slab" style={{ width: 36, height: 44, background: SPOOLS.teal }} />
-          <div className="tf-slab" style={{ width: 36, height: 44, background: SPOOLS.teal }} />
-        </div>
-        {/* feet */}
-        <div {...layer(2)} style={{ ...(animate ? { ['--i' as any]: 2 } : {}), display: 'flex', gap: 10, marginTop: 4 }}>
-          <div className="tf-slab" style={{ width: 52, height: 18, background: SPOOLS.yellow }} />
-          <div className="tf-slab" style={{ width: 52, height: 18, background: SPOOLS.yellow }} />
-        </div>
-      </div>
-      <div className={`tf-bed-plate ${animate ? 'tf-layer' : ''}`} style={animate ? { ['--i' as any]: 0 } : {}} />
-      <div className="tf-bed-glow" />
-    </div>
-  )
-}
+// Real, print-ready models from the creator lab (status 'ready', mesh on GCS).
+// Curated 2026-08-19 from live user_3d_models — these are actual toys we can
+// print today, not stock art. Full-color renders lead; the unpainted grey
+// sculpts are honestly labeled PAINT ME and feed the paint-kit story.
+const SHOWCASE: { modelId: string; name: string; tag?: 'NEW' | 'PAINT ME' }[] = [
+  { modelId: '684d282e-89f5-4dd2-a30e-cf4e428643ff', name: 'The Wizard Beast', tag: 'NEW' },
+  { modelId: '2d7eaa60-fb44-4a12-9357-cebeccb408f5', name: 'Robo Rascal', tag: 'NEW' },
+  { modelId: 'b9024e35-c410-411b-9317-fd66c4d25247', name: 'The Fearless One' },
+  { modelId: '880f4a78-55dd-4303-97bc-f405899e3ef7', name: 'Foxfire' },
+  { modelId: '1c197777-16b4-4438-a726-16cb9cef09c6', name: 'Storm Boy' },
+  { modelId: 'f5542e6c-cc21-437a-90f7-ca51f04ca04e', name: 'Tiger & Fox' },
+  { modelId: '8638333f-7bf1-4a71-bc94-4e18b4027f96', name: 'Battle Dragon' },
+  { modelId: '6b54089f-d328-4a6a-b567-e0db44713e03', name: 'Sir Barksalot', tag: 'PAINT ME' },
+  { modelId: '5642d08e-425e-4f65-9da7-20ee353d0eea', name: 'Sky King', tag: 'PAINT ME' },
+  { modelId: 'ac11efde-9283-4f78-a7fb-8d3804482d85', name: 'Balloon Buddy', tag: 'PAINT ME' }
+]
+
+// Named picks for the fixed layout spots.
+const BARKSALOT = '6b54089f-d328-4a6a-b567-e0db44713e03'
 
 const ToyLand: React.FC = () => {
   const [toys, setToys] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [equipped, setEquipped] = useState<'sword' | 'dragon' | null>('sword')
   const [showPrintRequestModal, setShowPrintRequestModal] = useState(false)
 
   useEffect(() => {
@@ -119,6 +86,9 @@ const ToyLand: React.FC = () => {
     void loadToys()
   }, [])
 
+  const hero = SHOWCASE[0]
+  const shelf = SHOWCASE.slice(1, 3)
+
   return (
     <div className="tf-page">
       <style>{`
@@ -129,9 +99,9 @@ const ToyLand: React.FC = () => {
           --yellow: ${SPOOLS.yellow};
           --teal: ${SPOOLS.teal};
           --purple: ${SPOOLS.purple};
-          --bed: ${BED};
-          --bed-deep: ${BED_DEEP};
-          --pla: ${PLA_WHITE};
+          --bed: #151f4d;
+          --bed-deep: #0e1538;
+          --pla: #fff8f0;
           background: var(--bed);
           color: var(--pla);
           font-family: 'Poppins', system-ui, sans-serif;
@@ -147,16 +117,15 @@ const ToyLand: React.FC = () => {
         .tf-eyebrow::before { content: ''; width: 1.5rem; height: 3px; border-radius: 2px; background: var(--yellow); }
 
         /* ---------- hero ---------- */
-        .tf-hero { position: relative; padding: 3.5rem 0 0; }
-        .tf-hero-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 2rem; align-items: center; }
-        @media (max-width: 820px) { .tf-hero-grid { grid-template-columns: 1fr; } }
+        .tf-hero { position: relative; padding: 3.5rem 0 1rem; }
+        .tf-hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 2.5rem; align-items: center; }
+        @media (max-width: 880px) { .tf-hero-grid { grid-template-columns: 1fr; } }
         .tf-h1 {
-          font-size: clamp(2.6rem, 6.5vw, 4.6rem);
+          font-size: clamp(2.6rem, 6.5vw, 4.4rem);
           line-height: .98; font-weight: 800; margin: .75rem 0 1rem;
         }
-        .tf-h1 em { font-style: normal; color: var(--yellow); }
         .tf-h1 .tf-real {
-          position: relative; white-space: nowrap;
+          white-space: nowrap;
           background: linear-gradient(90deg, var(--red), var(--purple));
           -webkit-background-clip: text; background-clip: text; color: transparent;
         }
@@ -165,7 +134,7 @@ const ToyLand: React.FC = () => {
         .tf-cta {
           display: inline-block; font-family: 'Baloo 2', sans-serif; font-weight: 800;
           font-size: 1.25rem; padding: .85rem 2rem; border-radius: 999px;
-          background: var(--yellow); color: #3a2c00; text-decoration: none;
+          background: var(--yellow); color: #3a2c00; text-decoration: none; border: none; cursor: pointer;
           box-shadow: 0 6px 0 #c99a1a, 0 14px 30px rgba(255, 201, 60, .25);
           transition: transform .12s ease, box-shadow .12s ease;
         }
@@ -179,43 +148,31 @@ const ToyLand: React.FC = () => {
         .tf-spool-note { display: flex; align-items: center; gap: .6rem; margin-top: 1.5rem; color: #aab1dc; font-size: .85rem; }
         .tf-spool { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); box-shadow: inset 0 0 0 2px var(--bed); }
 
-        /* ---------- the self-printing toy ---------- */
-        .tf-printer { position: relative; margin: 0 auto; width: min(320px, 80vw); padding-bottom: 1rem; }
-        .tf-toy { position: relative; display: flex; flex-direction: column; align-items: center; }
-        .tf-slab {
-          border-radius: 10px;
-          box-shadow: inset 0 -4px 0 rgba(0,0,0,.18);
-          background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.07) 0 2px, transparent 2px 6px);
+        /* ---------- the real-toy shelf (hero right) ---------- */
+        .tf-shelf { position: relative; min-height: 420px; }
+        @media (max-width: 880px) { .tf-shelf { min-height: 360px; margin-top: .5rem; } }
+        .tf-polaroid {
+          position: absolute; background: #fff; border-radius: 14px; padding: 10px 10px 12px;
+          box-shadow: 0 18px 40px rgba(0,0,0,.45);
+          transition: transform .2s ease;
         }
-        .tf-bed-plate {
-          height: 14px; width: 100%; border-radius: 8px;
-          background: linear-gradient(#3a4aa3, #26346f);
-          margin-top: 6px;
-          box-shadow: 0 10px 30px rgba(0,0,0,.45);
+        .tf-polaroid:hover { transform: rotate(0deg) scale(1.03) !important; z-index: 5; }
+        .tf-polaroid img { display: block; border-radius: 8px; object-fit: cover; background: #fff; }
+        .tf-polaroid figcaption {
+          font-family: 'Baloo 2', sans-serif; font-weight: 700; color: #2b2b45;
+          text-align: center; padding-top: .45rem; font-size: 1rem;
         }
-        .tf-bed-glow { position: absolute; inset: auto 0 -30px 0; height: 60px; background: radial-gradient(ellipse at center, rgba(46,196,182,.25), transparent 70%); }
-        .tf-arm-row { display: flex; align-items: flex-start; gap: 8px; }
-        .tf-hand { position: relative; }
-        .tf-magnet-dot {
-          position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
-          width: 8px; height: 8px; border-radius: 50%; background: #cfd6ff;
-          box-shadow: 0 0 6px 2px rgba(207,214,255,.65);
-        }
-        .tf-eye { width: 12px; height: 14px; border-radius: 50%; background: #1b1b2d; }
-        .tf-accessory {
-          position: absolute; font-size: 2.1rem; filter: drop-shadow(0 4px 6px rgba(0,0,0,.4));
+        .tf-sticker {
+          position: absolute; top: -14px; right: -12px; z-index: 2;
+          font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: .75rem; letter-spacing: .04em;
+          background: var(--red); color: #fff; padding: .4rem .8rem; border-radius: 999px;
+          transform: rotate(8deg); box-shadow: 0 6px 14px rgba(0,0,0,.35);
         }
         @media (prefers-reduced-motion: no-preference) {
-          .tf-layer { opacity: 0; transform: translateY(14px); animation: tfLayer .45s cubic-bezier(.2,.9,.3,1.2) forwards; animation-delay: calc(var(--i) * .22s); }
-          .tf-toy-idle { animation: tfBob 3.4s ease-in-out 2.6s infinite; }
-          .tf-eye { animation: tfBlink 4.5s 3s infinite; }
-          .tf-snap { animation: tfSnap .35s cubic-bezier(.2,1.4,.4,1.4); }
+          .tf-sway { animation: tfSway 6s ease-in-out infinite; }
           .tf-float { animation: tfFloat 5s ease-in-out infinite; }
         }
-        @keyframes tfLayer { to { opacity: 1; transform: translateY(0); } }
-        @keyframes tfBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-        @keyframes tfBlink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
-        @keyframes tfSnap { 0% { transform: scale(.2) rotate(-30deg); } 100% { transform: scale(1) rotate(0); } }
+        @keyframes tfSway { 0%,100% { translate: 0 0; } 50% { translate: 0 -8px; } }
         @keyframes tfFloat { 0%,100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-10px) rotate(6deg); } }
 
         /* ---------- sections ---------- */
@@ -226,26 +183,23 @@ const ToyLand: React.FC = () => {
         .tf-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 2rem; }
         @media (max-width: 820px) { .tf-steps { grid-template-columns: 1fr; } }
         .tf-step {
-          border-radius: 20px; padding: 1.4rem 1.3rem 1.5rem; position: relative;
+          border-radius: 20px; padding: 1.4rem 1.3rem 1.5rem;
           background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
         }
-        .tf-step-num {
-          font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 2.4rem; line-height: 1;
-        }
+        .tf-step-num { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 2.4rem; line-height: 1; }
         .tf-step h3 { font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 1.25rem; margin: .5rem 0 .35rem; }
         .tf-step p { color: #c3c9ea; font-size: .95rem; line-height: 1.55; }
 
         .tf-feature { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: center; margin-top: 2rem; }
         @media (max-width: 820px) { .tf-feature { grid-template-columns: 1fr; } }
-        .tf-parts-row { display: flex; gap: .8rem; margin-top: 1.2rem; flex-wrap: wrap; }
-        .tf-part {
-          font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 1rem;
-          padding: .6rem 1.1rem; border-radius: 999px; cursor: pointer;
+        .tf-addon-chips { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.2rem; }
+        .tf-chip {
+          font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: .95rem;
+          padding: .55rem 1rem; border-radius: 999px;
           background: rgba(255,255,255,.07); color: var(--pla);
-          border: 2px solid rgba(255,255,255,.16); transition: all .15s ease;
+          border: 2px solid rgba(255,255,255,.16);
         }
-        .tf-part:hover { border-color: var(--teal); transform: translateY(-2px); }
-        .tf-part[data-on='true'] { background: var(--teal); border-color: var(--teal); color: #04302b; }
+        .tf-chip b { color: var(--yellow); font-weight: 800; }
 
         .tf-pots { display: flex; gap: 1rem; margin-top: 1.2rem; }
         .tf-pot { width: 3rem; height: 3.4rem; border-radius: .6rem .6rem 1rem 1rem; position: relative; box-shadow: inset 0 -8px 0 rgba(0,0,0,.2); }
@@ -255,24 +209,26 @@ const ToyLand: React.FC = () => {
         .tf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 1.1rem; margin-top: 2rem; }
         .tf-card {
           display: block; text-decoration: none; border-radius: 22px; overflow: hidden;
-          background: var(--pla); color: #23253c;
+          background: #fff; color: #23253c; position: relative;
           transform: rotate(var(--tilt, 0deg));
           transition: transform .18s ease, box-shadow .18s ease;
           box-shadow: 0 10px 24px rgba(0,0,0,.35);
         }
         .tf-card:hover { transform: rotate(0deg) translateY(-6px) scale(1.02); box-shadow: 0 18px 40px rgba(0,0,0,.45); }
-        .tf-card img { width: 100%; height: 200px; object-fit: cover; display: block; }
+        .tf-card img { width: 100%; height: 230px; object-fit: cover; display: block; background: #fff; }
         .tf-card-body { padding: .9rem 1rem 1.1rem; }
         .tf-card-name { font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: 1.05rem; line-height: 1.15; }
         .tf-card-meta { display: flex; align-items: center; justify-content: space-between; margin-top: .6rem; }
         .tf-card-price { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 1.15rem; color: #6b21a8; }
+        .tf-card-cta { font-family: 'Baloo 2', sans-serif; font-weight: 700; font-size: .85rem; color: #0d7f74; }
         .tf-dots { display: flex; gap: .3rem; }
         .tf-dot { width: .8rem; height: .8rem; border-radius: 50%; border: 2px solid rgba(0,0,0,.12); }
         .tf-badge {
-          position: absolute; top: .7rem; left: .7rem; font-family: 'Baloo 2', sans-serif;
+          position: absolute; top: .7rem; left: .7rem; z-index: 2; font-family: 'Baloo 2', sans-serif;
           font-weight: 700; font-size: .7rem; letter-spacing: .05em; padding: .25rem .6rem;
           border-radius: 999px; background: var(--red); color: white;
         }
+        .tf-badge[data-tag='PAINT ME'] { background: var(--teal); color: #04302b; }
 
         /* ---------- grown-ups ---------- */
         .tf-grownups {
@@ -299,9 +255,9 @@ const ToyLand: React.FC = () => {
               We print it <span className="tf-real">for&nbsp;real</span>.
             </h1>
             <p className="tf-lede">
-              Tell us your hero — a taco dragon, a robot mermaid, anything — and our
-              printers build it layer by layer in full color. Magnets in the hands,
-              magic in the base.
+              Every toy on this page started as someone's idea and came off our
+              printers as a real full-color figure — magnets in the hands, magic
+              in the base. Yours is next.
             </p>
             <div className="tf-cta-row">
               <Link to="/toy-creator" className="tf-cta">Make my toy!</Link>
@@ -316,8 +272,22 @@ const ToyLand: React.FC = () => {
             </p>
           </div>
 
-          {/* The signature: a toy that prints itself, layer by layer. */}
-          <FactoryBot equipped={equipped} animate />
+          {/* Real toys, straight from the creator lab. */}
+          <div className="tf-shelf" aria-label="Real toys from our printers">
+            <figure className="tf-polaroid tf-sway" style={{ width: 'min(300px, 62%)', right: '4%', top: 0, transform: 'rotate(2.5deg)', zIndex: 3 }}>
+              <span className="tf-sticker">Printed this week!</span>
+              <img src={MEDIA(hero.modelId)} alt={hero.name} width={300} height={280} />
+              <figcaption>{hero.name}</figcaption>
+            </figure>
+            <figure className="tf-polaroid" style={{ width: 'min(190px, 42%)', left: '2%', top: '14%', transform: 'rotate(-6deg)', zIndex: 2 }}>
+              <img src={MEDIA(shelf[0].modelId)} alt={shelf[0].name} width={190} height={170} loading="lazy" />
+              <figcaption style={{ fontSize: '.85rem' }}>{shelf[0].name}</figcaption>
+            </figure>
+            <figure className="tf-polaroid" style={{ width: 'min(180px, 40%)', left: '18%', bottom: '-4%', transform: 'rotate(5deg)' }}>
+              <img src={MEDIA(shelf[1].modelId)} alt={shelf[1].name} width={180} height={160} loading="lazy" />
+              <figcaption style={{ fontSize: '.85rem' }}>{shelf[1].name}</figcaption>
+            </figure>
+          </div>
         </div>
       </header>
 
@@ -346,52 +316,42 @@ const ToyLand: React.FC = () => {
         </div>
       </section>
 
-      {/* ============================ MAGNET HANDS ============================ */}
+      {/* ==================== MAGNET HANDS + PAINT KITS ==================== */}
       <section className="tf-section">
         <div className="tf-wrap tf-feature">
           <div>
             <span className="tf-eyebrow">Magnet hands</span>
             <h2 className="tf-h2 tf-display">Snap! New sword. Snap! Pet dragon.</h2>
             <p className="tf-sub">
-              Every figure hides tiny magnets in its palms. Weapon packs, pet
-              companions and extra parts click right in — try it on our factory
-              robot:
+              Every figure hides tiny magnets in its palms, so extra parts click
+              right into its hands — collect them all:
             </p>
-            <div className="tf-parts-row">
-              <button
-                className="tf-part"
-                data-on={equipped === 'sword'}
-                onClick={() => setEquipped(equipped === 'sword' ? null : 'sword')}
-              >
-                🗡️ Snap on the sword
-              </button>
-              <button
-                className="tf-part"
-                data-on={equipped === 'dragon'}
-                onClick={() => setEquipped(equipped === 'dragon' ? null : 'dragon')}
-              >
-                🐉 Snap on the pet dragon
-              </button>
+            <div className="tf-addon-chips">
+              <span className="tf-chip">🗡️ Weapon pack <b>$6.99</b></span>
+              <span className="tf-chip">🐉 Pet companion <b>$9.99</b></span>
+              <span className="tf-chip">🧲 Extra magnets <b>$2.99</b></span>
             </div>
-            {/* Same robot, right where the kid is clicking — snaps react here. */}
-            <div style={{ marginTop: '1.5rem' }}>
-              <FactoryBot equipped={equipped} scale={0.72} />
+            <div style={{ marginTop: '2.2rem' }}>
+              <span className="tf-eyebrow" style={{ color: SPOOLS.teal }}>Paint your own</span>
+              <h2 className="tf-h2 tf-display" style={{ fontSize: '1.7rem' }}>The exact paints for YOUR toy</h2>
+              <p className="tf-sub">
+                Order it plain and we'll pack a paint kit with the very colors
+                your toy was designed in — nothing missing, nothing extra.
+                Rainy-day project: solved.
+              </p>
+              <div className="tf-pots" aria-hidden="true">
+                <span className="tf-pot" style={{ background: SPOOLS.red }} />
+                <span className="tf-pot" style={{ background: SPOOLS.yellow }} />
+                <span className="tf-pot" style={{ background: SPOOLS.teal }} />
+                <span className="tf-pot" style={{ background: SPOOLS.purple }} />
+              </div>
             </div>
           </div>
-          <div>
-            <span className="tf-eyebrow" style={{ color: SPOOLS.teal }}>Paint your own</span>
-            <h2 className="tf-h2 tf-display" style={{ fontSize: '1.7rem' }}>The exact paints for YOUR toy</h2>
-            <p className="tf-sub">
-              Order your toy plain and we'll pack a paint kit with the very colors
-              it was designed in — nothing missing, nothing extra. Rainy-day
-              project: solved.
-            </p>
-            <div className="tf-pots" aria-hidden="true">
-              <span className="tf-pot" style={{ background: SPOOLS.red }} />
-              <span className="tf-pot" style={{ background: SPOOLS.yellow }} />
-              <span className="tf-pot" style={{ background: SPOOLS.teal }} />
-              <span className="tf-pot" style={{ background: SPOOLS.purple }} />
-            </div>
+          <div style={{ position: 'relative' }}>
+            <figure className="tf-polaroid" style={{ position: 'relative', width: 'min(340px, 90%)', margin: '0 auto', transform: 'rotate(-2deg)' }}>
+              <img src={MEDIA(BARKSALOT)} alt="Sir Barksalot, an unpainted printed bulldog figure" style={{ width: '100%', height: 320, objectFit: 'cover' }} loading="lazy" />
+              <figcaption>Sir Barksalot — printed plain, waiting for your paint</figcaption>
+            </figure>
           </div>
         </div>
       </section>
@@ -401,10 +361,14 @@ const ToyLand: React.FC = () => {
         <div className="tf-wrap">
           <span className="tf-eyebrow">Fresh off the printers</span>
           <h2 className="tf-h2 tf-display">Meet the toys</h2>
+          <p className="tf-sub">
+            Real designs from our creator lab — every one of these already has a
+            print-ready 3D model waiting for the printer.
+          </p>
           {loading ? (
             <div className="tf-grid">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="tf-card" style={{ height: 300, opacity: .25 }} />
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="tf-card" style={{ height: 300, opacity: .15 }} />
               ))}
             </div>
           ) : toys.length > 0 ? (
@@ -418,20 +382,22 @@ const ToyLand: React.FC = () => {
                     key={toy.id}
                     to={`/product/${toy.slug || toy.id}`}
                     className="tf-card"
-                    style={{ ['--tilt' as any]: `${(i % 3) - 1}deg`, position: 'relative' }}
+                    style={{ ['--tilt' as any]: `${(i % 3) - 1}deg` }}
                   >
                     {fullColor && <span className="tf-badge">FULL COLOR</span>}
-                    <img src={toy.images?.[0] || '/itc-coin.png'} alt={toy.altText || toy.name} loading="lazy" />
+                    <img src={toy.images?.[0] || MEDIA(SHOWCASE[i % SHOWCASE.length].modelId)} alt={toy.altText || toy.name} loading="lazy" />
                     <div className="tf-card-body">
                       <div className="tf-card-name">{toy.name.replace(/^Toy:\s*/i, '')}</div>
                       <div className="tf-card-meta">
                         <span className="tf-card-price">${Number(toy.price).toFixed(2)}</span>
-                        {palette.length > 0 && (
+                        {palette.length > 0 ? (
                           <span className="tf-dots">
                             {palette.slice(0, 4).map((p, j) => (
                               <span key={j} className="tf-dot" style={{ background: p.hex }} />
                             ))}
                           </span>
+                        ) : (
+                          <span className="tf-card-cta">View toy →</span>
                         )}
                       </div>
                     </div>
@@ -440,14 +406,24 @@ const ToyLand: React.FC = () => {
               })}
             </div>
           ) : (
-            <div style={{ marginTop: '2rem', padding: '2.5rem', borderRadius: 22, background: 'rgba(255,255,255,.05)', border: '1px dashed rgba(255,255,255,.2)', textAlign: 'center' }}>
-              <p className="tf-display" style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-                The first toy drop is on the printers right now 🖨️
-              </p>
-              <p className="tf-sub" style={{ margin: '0.5rem auto 1.5rem' }}>
-                Beat everyone to it — make your own one-of-a-kind toy today.
-              </p>
-              <Link to="/toy-creator" className="tf-cta">Make my toy!</Link>
+            <div className="tf-grid">
+              {SHOWCASE.map((item, i) => (
+                <Link
+                  key={item.modelId}
+                  to="/toy-creator"
+                  className="tf-card"
+                  style={{ ['--tilt' as any]: `${(i % 3) - 1}deg` }}
+                >
+                  {item.tag && <span className="tf-badge" data-tag={item.tag}>{item.tag}</span>}
+                  <img src={MEDIA(item.modelId)} alt={item.name} loading="lazy" />
+                  <div className="tf-card-body">
+                    <div className="tf-card-name">{item.name}</div>
+                    <div className="tf-card-meta">
+                      <span className="tf-card-cta">Make one like this →</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
             </div>
           )}
         </div>
