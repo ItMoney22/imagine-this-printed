@@ -41,7 +41,7 @@ export function Footer() {
               </li>
               <li>
                 <Link to="/toys" className="text-sm text-muted hover:text-secondary transition-colors">
-                  3D Toy Shop
+                  Toy Factory
                 </Link>
               </li>
             </ul>

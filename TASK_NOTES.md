@@ -81,7 +81,9 @@ checkout has another session's design-QA work in flight — untouched).
 
 ### File shortlist (approved scope — 2026-08-19 #2 wave)
 Toy visibility:
-- `src/pages/ModelGallery.tsx` (rewrite: real public toy shop from `products`)
+- `src/pages/ToyLand.tsx` (NEW — "Toy Factory": dedicated kid-marketed toy
+  experience page at /toys, David direct request this session; supersedes and
+  REMOVES `src/pages/ModelGallery.tsx`, whose interim rewrite was folded in)
 - `src/App.tsx` (routes public + `/toys` alias)
 - `src/components/Sidebar.tsx` (toy shop + toy creator links)
 - `src/components/Footer.tsx` (fix 4 dead category hrefs)

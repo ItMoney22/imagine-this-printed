@@ -145,7 +145,7 @@ export function Sidebar() {
           <NavItem
             to="/toys"
             icon={<Blocks className="w-5 h-5" />}
-            label="3D Toy Shop"
+            label="Toy Factory"
             isCollapsed={isCollapsed}
             isActive={isActive('/toys') || isActive('/models') || isActive('/toy-creator')}
             highlight={true}

@@ -47,7 +47,7 @@ import ReturnsPolicy from './pages/ReturnsPolicy'
 const Checkout = lazy(() => import('./pages/Checkout'))
 const FoundersDashboard = lazy(() => import('./pages/FoundersDashboard'))
 const VendorDashboard = lazy(() => import('./pages/VendorDashboard'))
-const ModelGallery = lazy(() => import('./pages/ModelGallery'))
+const ToyLand = lazy(() => import('./pages/ToyLand'))
 const Wallet = lazy(() => import('./pages/Wallet'))
 const CRM = lazy(() => import('./pages/CRM'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
@@ -170,11 +170,11 @@ function App() {
                   <Route path="/order-status/:orderId" element={<OrderStatus />} />
                   <Route path="/founders" element={<FoundersDashboard />} />
                   <Route path="/vendor" element={<VendorDashboard />} />
-                  {/* PUBLIC — the Toy Shop is a storefront; browsing must not
-                      require login (buying goes through the normal cart). */}
-                  <Route path="/toys" element={<ModelGallery />} />
-                  <Route path="/models" element={<ModelGallery />} />
-                  <Route path="/3d-models" element={<ModelGallery />} />
+                  {/* PUBLIC — the Toy Factory is the kid-marketed toy page;
+                      browsing must not require login (buying uses the cart). */}
+                  <Route path="/toys" element={<ToyLand />} />
+                  <Route path="/models" element={<ToyLand />} />
+                  <Route path="/3d-models" element={<ToyLand />} />
                   <Route path="/toy-creator" element={<ProtectedRoute><ToyCreator /></ProtectedRoute>} />
                   <Route path="/metal-art" element={<ProtectedRoute><MetalArtStudio /></ProtectedRoute>} />
                   {/* PUBLIC — opened by scanning the NFC tag in a printed figurine */}
