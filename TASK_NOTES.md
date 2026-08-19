@@ -108,6 +108,29 @@ Garment tiers + blanks:
 - `scripts/seed-blank-shirts.mjs` (new; manual run)
 Admin materials UI:
 - `src/components/AdminPrintMaterials.tsx` (new), `src/pages/AdminDashboard.tsx` (tab)
+Added mid-wave (David direct requests, same session):
+- `backend/routes/media.ts` (3d-models/<uuid>/concept.png ONLY through the
+  permanent proxy — STL/GLB stay license-gated)
+- `backend/services/order-pricing.test.ts`, `backend/routes/print-bridge.test.ts`
+
+### Work log (append-only) — 2026-08-19 #2 wave
+- 2026-08-19 — Built the full slice on
+  `earth/zero-nine/toy-shop-filament-garment-tiers`: Toy Factory page (/toys,
+  real user_3d_models renders via /api/media, kid-marketed after David rejected
+  the CSS-toy v1), print_materials inventory (migration + PLAN entry + admin
+  CRUD + AdminDashboard "Filament & Paint" tab), palette extraction at concept
+  time + ≤4-color AMS filament plan + matched paint plan in print-bridge
+  payloads and floor emails, checkout metadata drop fixed (color_mode /
+  include_paint_kit / tier now persist), garment quality tiers (client+server),
+  blanks catalog pill, toy add-ons (server-priced), Tripo small tier → HD,
+  C-grip-hands toy clause, ToyCreator defaults color4, promote → activate-live
+  checkbox + Tripo preview image + palette + addons. JiffyShirts scout filed to
+  Watchtower (`14d214d5`). GATE GREEN on the worktree: backend tsc clean
+  (--preserveSymlinks; junctioned node_modules), eslint 0 errors, vitest 57
+  files / 754 tests (6 new pricing tests; print-bridge fake DB extended for the
+  palette lookups), `npm run build` OK. Live-verified locally: media proxy 302s
+  concept.png and 404s model.stl; page + snap interaction checked in a real
+  browser. NOT yet merged/pushed.
 
 ---
 
