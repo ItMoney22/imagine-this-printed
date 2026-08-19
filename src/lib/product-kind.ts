@@ -77,6 +77,14 @@ const CATEGORY_ALIASES: Record<string, string> = {
   '3d-print': '3d-prints',
   'metal-arts': 'metal-art',
   metal: 'metal-art',
+  // Legacy vendor-dashboard categories (pre-reconciliation, see
+  // VendorDashboard.tsx) — these were generic merch tags, not real product
+  // types, so there's no better bucket than the apparel default.
+  gaming: 'shirts',
+  eco: 'shirts',
+  office: 'shirts',
+  lifestyle: 'shirts',
+  tech: 'shirts',
 }
 
 export function canonicalCategoryOf(product: Pick<Product, 'category' | 'metadata'>): string {
@@ -87,6 +95,34 @@ export function canonicalCategoryOf(product: Pick<Product, 'category' | 'metadat
   const c = String(product?.category || '').toLowerCase().trim()
   if (!c) return 'shirts'
   return CATEGORY_ALIASES[c] || c
+}
+
+// Storefront category ids ProductCatalog.tsx filters on (matches its
+// `categories` array). Shared with VendorDashboard.tsx so vendor
+// creation/edit forms only ever offer categories the catalog can actually
+// route a product to.
+export const STOREFRONT_CATEGORIES: { id: string; label: string }[] = [
+  { id: 'shirts', label: 'T-Shirts' },
+  { id: 'hoodies', label: 'Hoodies' },
+  { id: 'tumblers', label: 'Tumblers' },
+  { id: 'dtf-transfers', label: 'DTF Transfers' },
+  { id: '3d-prints', label: '3D Prints' },
+  { id: 'metal-art', label: 'Metal Art' },
+]
+
+// Reverse of CATEGORY_ALIASES: every raw `products.category` value —
+// including the canonical id itself — that resolves to a given canonical
+// storefront category. ProductCatalog's server-side filter uses this so a
+// category-tab click also matches legacy/aliased values already sitting in
+// the table, not just the canonical id (canonicalCategoryOf alone only
+// affects client-side display, run *after* the DB query already excluded
+// the row).
+export function categoryValuesFor(canonicalId: string): string[] {
+  const values = new Set<string>([canonicalId])
+  for (const [raw, canonical] of Object.entries(CATEGORY_ALIASES)) {
+    if (canonical === canonicalId) values.add(raw)
+  }
+  return Array.from(values)
 }
 
 // Default size options when a product has none set on its column. Type-aware so

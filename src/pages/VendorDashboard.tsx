@@ -5,6 +5,7 @@ import { API_BASE } from '../lib/api'
 import type { VendorProduct, Product } from '../types'
 import { CreatorAnalytics } from '../components/CreatorAnalytics'
 import { useToast } from '../hooks/useToast'
+import { STOREFRONT_CATEGORIES } from '../lib/product-kind'
 
 const VendorDashboard: React.FC = () => {
   const { user } = useAuth()
@@ -101,7 +102,10 @@ const VendorDashboard: React.FC = () => {
         digitalPrice: p.digital_price || 0,
         images: p.images || [],
         category: p.category || 'shirts',
-        approved: p.status === 'active',
+        // products.approved is the real, DB-derived flag (sync_products_approved()
+        // keeps it equal to status='active' AND is_active). status alone said
+        // "approved" for a row an admin had deactivated.
+        approved: p.approved === true,
         commissionRate: 25,
         createdAt: p.created_at,
         productType: p.product_type || 'physical',
@@ -145,6 +149,9 @@ const VendorDashboard: React.FC = () => {
         createdAt: p.created_at,
         updatedAt: p.updated_at,
         metadata: p.metadata || {},
+        // Needed by handleAddToStore — a 'shirts' row can't be written without
+        // at least one print location (products_print_locations_valid).
+        print_locations: p.print_locations || undefined,
         isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false
       }))
 
@@ -161,7 +168,15 @@ const VendorDashboard: React.FC = () => {
     try {
       // Persist a real draft row — this used to mutate local state only, so
       // "added" products vanished on refresh and never reached approval.
-      const { error } = await supabase.from('products').insert({
+      // The products_print_locations_valid CHECK requires at least one print
+      // location on a 'shirts' row, and the catalog is mostly shirts — copying a
+      // shirt without this made the INSERT fail outright. Carry the source
+      // product's placements over, falling back to a front print.
+      const printLocations = product.category === 'shirts'
+        ? (product.print_locations?.length ? product.print_locations : ['front_image'])
+        : product.print_locations
+
+      const { data, error } = await supabase.from('products').insert({
         vendor_id: user.id,
         name: product.name,
         description: product.description,
@@ -169,6 +184,7 @@ const VendorDashboard: React.FC = () => {
         category: product.category,
         product_type: 'physical',
         images: product.images,
+        ...(printLocations ? { print_locations: printLocations } : {}),
         status: 'draft',
         is_active: false,
         metadata: {
@@ -176,8 +192,14 @@ const VendorDashboard: React.FC = () => {
           source_product_id: product.id,
           added_from_catalog: true,
         },
-      })
+      }).select('id')
       if (error) throw error
+      // Same trap as handleUpdateProduct: PostgREST can answer 200 with an
+      // empty body when RLS lets the statement run but writes nothing. Never
+      // claim a save we can't see a row for.
+      if (!data || data.length === 0) {
+        throw new Error('Product was not saved — your account may not have vendor permissions.')
+      }
 
       toast.success('Added to your store', `${product.name} saved as a draft in My Products.`)
       setSelectedTab('products')
@@ -202,7 +224,7 @@ const VendorDashboard: React.FC = () => {
     }
 
     try {
-      const { error } = await supabase.from('products').insert({
+      const { data, error } = await supabase.from('products').insert({
         vendor_id: user?.id,
         name: newProduct.title,
         description: newProduct.description,
@@ -214,9 +236,15 @@ const VendorDashboard: React.FC = () => {
         file_url: uploadedDigitalFile?.url || null,
         status: 'draft',
         is_active: false
-      })
+      }).select('id')
       if (error) throw error
-      
+      // Same trap as handleUpdateProduct: PostgREST can answer 200 with an
+      // empty body when RLS lets the statement run but writes nothing. Never
+      // claim a submission we can't see a row for.
+      if (!data || data.length === 0) {
+        throw new Error('Product was not saved — your account may not have vendor permissions.')
+      }
+
       toast.success('Success', 'Product submitted for approval!')
       setNewProduct({
         title: '',
@@ -676,12 +704,9 @@ const VendorDashboard: React.FC = () => {
                   required
                 >
                   <option value="">Select Category</option>
-                  <option value="gaming">Gaming</option>
-                  <option value="eco">Eco-Friendly</option>
-                  <option value="office">Office</option>
-                  <option value="lifestyle">Lifestyle</option>
-                  <option value="3d-models">3D Models</option>
-                  <option value="tech">Technology</option>
+                  {STOREFRONT_CATEGORIES.map(c => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -1016,12 +1041,9 @@ const VendorDashboard: React.FC = () => {
                     required
                   >
                     <option value="">Select Category</option>
-                    <option value="gaming">Gaming</option>
-                    <option value="eco">Eco-Friendly</option>
-                    <option value="office">Office</option>
-                    <option value="lifestyle">Lifestyle</option>
-                    <option value="3d-models">3D Models</option>
-                    <option value="tech">Technology</option>
+                    {STOREFRONT_CATEGORIES.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>

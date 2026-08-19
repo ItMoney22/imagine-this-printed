@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
-import { canonicalCategoryOf } from '../lib/product-kind'
+import { canonicalCategoryOf, categoryValuesFor } from '../lib/product-kind'
 import type { Product } from '../types'
 
 // Products per page. Chosen as a multiple of the 3-column xl grid so the
@@ -50,11 +50,11 @@ function applyApprovalFilter(query: any) {
 // Server-side mirror of canonicalCategoryOf (src/lib/product-kind.ts). Metal
 // and 3D-print products often carry a null `category` column and rely on
 // metadata.product_template/category instead, so those two buckets match on
-// either signal. Apparel-style categories match the column directly — a
-// product whose category column disagrees with its own metadata tag is a
-// data-hygiene edge case, not something this filter tries to resolve, since
-// doing so safely (NULL-guarding every metadata comparison) would need a
-// wall of `.or()` calls this pass didn't have a live DB to verify against.
+// either signal. Apparel-style categories match against every raw value
+// that canonicalCategoryOf's CATEGORY_ALIASES folds into that canonical id
+// (via categoryValuesFor) — this is what lets a legacy/in-flight vendor
+// category like `lifestyle` or `gaming` still land under the T-Shirts tab
+// instead of only "All Products".
 function applyCategoryFilter(query: any, categoryId: string) {
   if (categoryId === 'all') return query
   if (categoryId === 'metal-art') {
@@ -67,7 +67,7 @@ function applyCategoryFilter(query: any, categoryId: string) {
       'category.ilike.%3d%,category.ilike.%toy%,metadata->>product_template.ilike.%3d%,metadata->>product_template.ilike.%toy%,metadata->>category.ilike.%3d%,metadata->>category.ilike.%toy%'
     )
   }
-  return query.eq('category', categoryId)
+  return query.in('category', categoryValuesFor(categoryId))
 }
 
 // "Popular" used to sort by metadata.viewCount — a JSONB field that's rarely
