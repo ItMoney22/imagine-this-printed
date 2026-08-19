@@ -170,8 +170,11 @@ function App() {
                   <Route path="/order-status/:orderId" element={<OrderStatus />} />
                   <Route path="/founders" element={<FoundersDashboard />} />
                   <Route path="/vendor" element={<VendorDashboard />} />
-                  <Route path="/models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />
-                  <Route path="/3d-models" element={<ProtectedRoute><ModelGallery /></ProtectedRoute>} />
+                  {/* PUBLIC — the Toy Shop is a storefront; browsing must not
+                      require login (buying goes through the normal cart). */}
+                  <Route path="/toys" element={<ModelGallery />} />
+                  <Route path="/models" element={<ModelGallery />} />
+                  <Route path="/3d-models" element={<ModelGallery />} />
                   <Route path="/toy-creator" element={<ProtectedRoute><ToyCreator /></ProtectedRoute>} />
                   <Route path="/metal-art" element={<ProtectedRoute><MetalArtStudio /></ProtectedRoute>} />
                   {/* PUBLIC — opened by scanning the NFC tag in a printed figurine */}

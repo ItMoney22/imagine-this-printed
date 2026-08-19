@@ -73,10 +73,13 @@ export const SIZE_TIERS: Record<PrintSizeTier, SizeTierConfig> = {
   small: {
     tier: 'small',
     label: 'Small',
-    description: '100mm tall — desktop figurine. Detailed geometry, standard texture.',
+    // HD texture since 2026-08-19 (David: "make it better") — the 100mm
+    // desktop tier is the volume seller and standard texture read muddy on
+    // full-color (color4) prints. Cost delta on Tripo is small.
+    description: '100mm tall — desktop figurine. Detailed geometry + HD texture.',
     printHeightMm: 100,
     faceLimit: 25_000,
-    texture: 'standard',
+    texture: 'HD',
     quad: false,
     itcCost: 80,
     printPriceUsd: 11.99,

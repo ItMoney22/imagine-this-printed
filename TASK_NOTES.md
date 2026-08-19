@@ -68,6 +68,45 @@ we need to see what sells and make sure we are printing money."
   `backend/services/etsy.ts`, `backend/services/glb-to-stl.ts`,
   `backend/routes/3d-models.ts`
 
+## Scope expansion (2026-08-19 #2) — David direct request (voice, this session):
+## toy visibility + full-color/filament + shirt tiers/blanks + paint kits + magnet parts
+David: 3D toy came out great but "there is nowhere for a reg cust to even see
+that"; wants full-color prints with a filament inventory that tells the floor
+which ≤4 colors to load (AMS limit); shirt quality tiers (Gildan base vs
+premium) + customers able to buy blanks; JiffyShirts scout filed to Watchtower
+(task `14d214d5`); paint kits matched to the toy's actual colors; magnet
+sockets in hands + sellable extra parts (weapons/pets). Branch:
+`earth/zero-nine/toy-shop-filament-garment-tiers` (own worktree; the shared
+checkout has another session's design-QA work in flight — untouched).
+
+### File shortlist (approved scope — 2026-08-19 #2 wave)
+Toy visibility:
+- `src/pages/ModelGallery.tsx` (rewrite: real public toy shop from `products`)
+- `src/App.tsx` (routes public + `/toys` alias)
+- `src/components/Sidebar.tsx` (toy shop + toy creator links)
+- `src/components/Footer.tsx` (fix 4 dead category hrefs)
+- `src/pages/AdminToyLab.tsx` (activate/deactivate promoted product)
+- `backend/routes/3d-models.ts` (promote: preview image, palette, toy addons)
+Filament/paint inventory + full color:
+- `supabase/migrations/20260819230000_print_materials.sql` (new)
+- `scripts/apply-pending-migrations.mjs` (PLAN entry)
+- `backend/routes/admin/print-materials.ts` (new CRUD), `backend/index.ts` (mount)
+- `backend/services/print-palette.ts` (new: palette extract + material match)
+- `backend/worker/ai-jobs-worker.ts` (store palette on concept success)
+- `backend/routes/stripe.ts` (carry color_mode/paint_kit/tier into order metadata)
+- `backend/routes/print-bridge.ts` (+ test) (filament/paint plan in payload+email)
+- `backend/services/nano-banana-3d.ts` (toy clause: C-grip hands, clean regions)
+- `backend/services/tripo3d.ts` (small tier → HD texture)
+- `src/pages/ToyCreator.tsx` (default full color, palette display)
+Garment tiers + blanks:
+- `src/lib/garment-tiers.ts` (new), `src/lib/product-kind.ts` (toy addons)
+- `src/types/index.ts`, `src/context/CartContext.tsx`, `src/pages/ProductPage.tsx`,
+  `src/pages/Cart.tsx`, `src/pages/Checkout.tsx`, `src/pages/ProductCatalog.tsx`
+- `backend/services/order-pricing.ts` (+ test) (tier cents + toy addon cents)
+- `scripts/seed-blank-shirts.mjs` (new; manual run)
+Admin materials UI:
+- `src/components/AdminPrintMaterials.tsx` (new), `src/pages/AdminDashboard.tsx` (tab)
+
 ---
 
 ## Previous request (2026-08-18) — fix localhost sign-in

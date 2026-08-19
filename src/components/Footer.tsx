@@ -21,24 +21,27 @@ export function Footer() {
           <div>
             <h4 className="font-semibold text-text mb-4">Products</h4>
             <ul className="space-y-2">
+              {/* Hrefs must be real ProductCatalog category ids — the old
+                  dtf/apparel/3d/stickers slugs matched nothing and rendered
+                  four permanently-empty catalog pages. */}
               <li>
-                <Link to="/catalog/dtf" className="text-sm text-muted hover:text-secondary transition-colors">
+                <Link to="/catalog/dtf-transfers" className="text-sm text-muted hover:text-secondary transition-colors">
                   DTF Transfers
                 </Link>
               </li>
               <li>
-                <Link to="/catalog/apparel" className="text-sm text-muted hover:text-secondary transition-colors">
+                <Link to="/catalog/shirts" className="text-sm text-muted hover:text-secondary transition-colors">
                   Custom Apparel
                 </Link>
               </li>
               <li>
-                <Link to="/catalog/3d" className="text-sm text-muted hover:text-secondary transition-colors">
-                  3D Printing
+                <Link to="/catalog/blanks" className="text-sm text-muted hover:text-secondary transition-colors">
+                  Blank Shirts
                 </Link>
               </li>
               <li>
-                <Link to="/catalog/stickers" className="text-sm text-muted hover:text-secondary transition-colors">
-                  Stickers & Decals
+                <Link to="/toys" className="text-sm text-muted hover:text-secondary transition-colors">
+                  3D Toy Shop
                 </Link>
               </li>
             </ul>

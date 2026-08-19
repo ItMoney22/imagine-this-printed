@@ -30,7 +30,9 @@ import {
   X,
   Contact,
   Mail,
-  Inbox
+  Inbox,
+  Blocks,
+  Shirt
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -138,6 +140,23 @@ export function Sidebar() {
             label="Products"
             isCollapsed={isCollapsed}
             isActive={isActive('/catalog')}
+            onClick={closeMobile}
+          />
+          <NavItem
+            to="/toys"
+            icon={<Blocks className="w-5 h-5" />}
+            label="3D Toy Shop"
+            isCollapsed={isCollapsed}
+            isActive={isActive('/toys') || isActive('/models') || isActive('/toy-creator')}
+            highlight={true}
+            onClick={closeMobile}
+          />
+          <NavItem
+            to="/catalog/blanks"
+            icon={<Shirt className="w-5 h-5" />}
+            label="Blank Shirts"
+            isCollapsed={isCollapsed}
+            isActive={location.pathname === '/catalog/blanks'}
             onClick={closeMobile}
           />
           <NavItem

@@ -197,7 +197,15 @@ function snapshotCartItems(items: any[] | undefined | null) {
     customDesign: i.customDesign ?? null,
     // Selected add-on upsells (metal-art stand/mount/etc.) so MyOrders + the
     // print bridge / fulfillment can see what to include.
-    addons: Array.isArray(i.selectedAddons) && i.selectedAddons.length ? i.selectedAddons : null
+    addons: Array.isArray(i.selectedAddons) && i.selectedAddons.length ? i.selectedAddons : null,
+    // Garment quality tier (Gildan classic vs Softstyle vs Bella+Canvas vs
+    // Comfort Colors) — fulfillment must pull the right blank.
+    tier: i.selectedTier ?? null,
+    // 3D-print attributes the floor needs — these previously died here and the
+    // worker email always said "matte grey" (Watchtower 2026-08-19 wave).
+    color_mode: i.product?.metadata?.color_mode ?? i.product?.metadata?.print3d?.color_mode ?? null,
+    include_paint_kit: i.product?.metadata?.include_paint_kit === true || null,
+    model_id: i.product?.metadata?.model_id ?? null
   }))
 }
 
@@ -229,7 +237,13 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
         custom_design: item.customDesign ?? null,
         // Add-on upsells for fulfillment (+ per-unit add-on total).
         addons: hasAddons ? item.selectedAddons : null,
-        addons_total: hasAddons ? addonUnit : 0
+        addons_total: hasAddons ? addonUnit : 0,
+        // Garment quality tier for apparel; 3D print attributes for toys —
+        // the print bridge and worker emails read these (see print-bridge.ts).
+        tier: item.selectedTier ?? null,
+        color_mode: item.product?.metadata?.color_mode ?? item.product?.metadata?.print3d?.color_mode ?? null,
+        include_paint_kit: item.product?.metadata?.include_paint_kit === true || null,
+        model_id: item.product?.metadata?.model_id ?? null
       }
     }
   })
@@ -304,6 +318,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       productId: item?.product?.id != null ? String(item.product.id) : null,
       quantity: item?.quantity || 1,
       selectedSize: item?.selectedSize ?? null,
+      selectedTier: item?.selectedTier ?? null,
       selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
       clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null,
       // weight feeds the signed shipping-quote verification (must match the

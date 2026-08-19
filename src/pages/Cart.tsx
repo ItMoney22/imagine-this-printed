@@ -4,6 +4,7 @@ import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { addonsUnitTotal } from '../lib/product-kind'
+import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
@@ -76,6 +77,14 @@ const Cart: React.FC = () => {
                     {item.selectedColor && (
                       <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{item.selectedColor}</span></p>
                     )}
+                    {item.selectedTier && getGarmentTier(item.selectedTier) && (
+                      <p className="text-sm text-muted mt-1">
+                        Quality: <span className="font-medium text-text">{getGarmentTier(item.selectedTier)!.label} ({getGarmentTier(item.selectedTier)!.brand})</span>
+                        {garmentTierUpcharge(item.selectedTier) > 0 && (
+                          <span className="font-medium text-text"> (+${garmentTierUpcharge(item.selectedTier).toFixed(2)})</span>
+                        )}
+                      </p>
+                    )}
                     {item.selectedAddons && item.selectedAddons.length > 0 && (
                       <div className="mt-1">
                         {item.selectedAddons.map(addon => (
@@ -122,7 +131,7 @@ const Cart: React.FC = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold">
-                      ${((item.product.price + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                      ${((item.product.price + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                     </p>
                     <button
                       onClick={() => removeFromCart(item.id)}
