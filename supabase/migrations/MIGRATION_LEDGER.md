@@ -7,6 +7,55 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-19 — wide-open public INSERT policies dropped (Sifu, Watchtower `1e03d8e0`)
+
+- `20260819210000_drop_public_insert_policies.sql` — **APPLIED LIVE** to
+  production 2026-08-19. Drops exactly two policies and nothing else:
+  - `community_boost_earnings` — `"System can insert earnings"`
+    (INSERT, `TO {public}`, `WITH CHECK (true)`), shipped by
+    `20251231000002_community_features.sql:246`.
+  - `user_profiles` — `"Service role can insert profiles"`
+    (INSERT, `TO {public}`, `WITH CHECK (true)`). **Not in any migration file
+    in this repo** — pure prod drift, applied by hand at some point.
+
+  Both names imply service-role intent; neither enforced it. `TO public` is
+  every role including `anon`, which holds the INSERT grant on both tables.
+  Proven live with the real publishable anon key before the drop:
+  `POST /rest/v1/community_boost_earnings` returned **HTTP 201 and wrote a
+  row**; `POST /rest/v1/user_profiles` (with `role: "admin"`) returned 409 /
+  `23503` — RLS let it through and only `user_profiles_id_fkey` stopped it.
+  After the drop both return **HTTP 401 / SQLSTATE 42501**. Probe rows were
+  deleted; `community_boost_earnings` is back to 0 rows.
+
+  Nothing legitimate depended on them: `service_role` and `postgres` both have
+  `rolbypassrls = true`, so the backend's service-key client
+  (`backend/lib/supabase.ts`) and the `SECURITY DEFINER` signup trigger
+  `public.handle_new_user()` never consult RLS. `user_profiles` keeps the
+  correctly-scoped `"Users can insert own profile"` (`WITH CHECK
+  auth.uid() = id`); `community_boost_earnings` is intentionally left with no
+  INSERT policy at all.
+
+  Verified by `scripts/verify-anon-insert-lockdown.mjs` (catalog + live anon
+  POST, run before and after), a 11/11 `BEGIN…ROLLBACK` impersonation dry run,
+  and a 10/10 live end-to-end pass — real account created through GoTrue, its
+  profile auto-created by the trigger with `role='customer'`, own-profile
+  read/update working, cross-user profile INSERT and self-credited boost
+  earnings both refused with 42501, service-role write still working, account
+  and all rows torn down afterwards (185 users / 185 profiles / 0 earnings,
+  unchanged). Full evidence: `docs/SECURITY-anon-insert-lockdown-1e03d8e0.md`.
+
+- Applied via the pg-script path, so NOT tracked in `schema_migrations` (like
+  most of this repo). **Prod is ahead of `main` until this branch merges** —
+  safe in either order, the migration only removes permissions and no
+  application code depends on them.
+
+- Post-fix sweep of the whole `public` schema: **zero** policies remain that
+  are `TO public` with `WITH CHECK (true)` / `USING (true)` on a write command.
+  These two were the last of the family that `20260805_security_lockdown.sql`
+  started clearing. Still open as a separate hardening question: `anon` holds
+  INSERT/UPDATE/DELETE/TRUNCATE grants on **89** `public` tables, so RLS is the
+  only thing standing between the publishable key and those tables.
+
 ## 2026-08-17 — design QA gate applied (Zero Nine, Watchtower `9ec9444a`)
 
 - `20260817120000_design_qa_gate.sql` — **APPLIED LIVE** 2026-08-17. Creates

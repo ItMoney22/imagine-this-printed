@@ -17,7 +17,8 @@
     "verify": "node scripts/verify/critical-paths.js",
     "verify:home": "node scripts/verify/critical-paths.js home",
     "verify:products": "node scripts/verify/critical-paths.js products",
-    "verify:auth": "node scripts/verify/critical-paths.js auth"
+    "verify:auth": "node scripts/verify/critical-paths.js auth",
+    "verify:anon-insert": "node scripts/verify-anon-insert-lockdown.mjs"
   },
   "engines": {
     "node": ">=18.17"
