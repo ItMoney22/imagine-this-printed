@@ -190,6 +190,17 @@ const PLAN = [
     }
   },
   {
+    id: 'drop-vendor-products',
+    file: 'supabase/migrations/20260819210000_drop_vendor_products.sql',
+    title: 'Drop the dead public.vendor_products table',
+    why: 'Two tables have claimed "a vendor product" for months and only public.products has ever been written to. vendor_products has 0 rows, no INSERT writer, no inbound FK, no dependent view, no function or policy reference. AdminDashboard.tsx was repointed at products (587a096) and this task removes its transitional legacy fallback, so the table has no reader left either.',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(`SELECT to_regclass('public.vendor_products') AS t`)
+      return { applied: !rows[0]?.t, detail: rows[0]?.t ? 'table still present' : 'table absent' }
+    }
+  },
+  {
     id: 'profiles-cut-anon',
     file: 'supabase/migrations/20260806_03_profiles_cut_anon.sql',
     title: 'Revoke anon read of user_profiles (closes PII leak) — APPLY ONLY AFTER repointed frontend is live',

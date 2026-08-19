@@ -36,6 +36,43 @@ const PRINT_LOCATION_OPTIONS: { value: TshirtPrintLocation; label: string; hint:
   { value: 'pocket', label: 'Pocket', hint: 'Small left-chest pocket print' },
 ]
 
+// Roles an admin can hand out from the Users tab, with what each one actually
+// unlocks. `privileged` roles get a confirmation step — a mis-click on a bare
+// <select> used to silently grant admin.
+// 'kiosk' is deliberately absent: it belongs to terminal sessions
+// (KioskAuthContext), not to a person's account.
+const ASSIGNABLE_ROLES: { value: User['role']; label: string; blurb: string; privileged: boolean }[] = [
+  { value: 'customer', label: 'Customer', blurb: 'Shop and design. The default every new account starts on.', privileged: false },
+  { value: 'vendor', label: 'Vendor', blurb: 'Unlocks the Vendor Dashboard at /vendor: submit products, track sales and payouts. Submissions always land as unapproved drafts — only an admin can publish them.', privileged: true },
+  { value: 'wholesale', label: 'Wholesale', blurb: 'Tiered bulk pricing in the wholesale portal.', privileged: false },
+  { value: 'founder', label: 'Founder', blurb: 'Assigned orders and the 35% profit share. Founders can also change other users’ roles.', privileged: true },
+  { value: 'manager', label: 'Manager', blurb: 'Order and cost management across the platform.', privileged: true },
+  { value: 'support_agent', label: 'Support Agent', blurb: 'Works the support ticket queue.', privileged: true },
+  { value: 'admin', label: 'Admin', blurb: 'Full control of the platform — roles, payouts, ITC, every dashboard. Grant sparingly.', privileged: true },
+]
+
+const roleLabel = (role: string) => ASSIGNABLE_ROLES.find(r => r.value === role)?.label || role
+
+const ROLE_BADGE_CLASS: Record<string, string> = {
+  admin: 'bg-red-100 text-red-700',
+  founder: 'bg-purple-100 text-purple-700',
+  manager: 'bg-blue-100 text-blue-700',
+  vendor: 'bg-emerald-100 text-emerald-700',
+  wholesale: 'bg-amber-100 text-amber-700',
+  support_agent: 'bg-cyan-100 text-cyan-700',
+  customer: 'bg-slate-100 text-slate-600',
+}
+
+// A vendor submission as this dashboard sees it: always a `public.products`
+// row with vendor_id set. (The legacy `public.vendor_products` table it used
+// to also read was dropped by 20260819210000_drop_vendor_products.sql — it
+// never had a writer and never held a row, so there is no second source and
+// no `source` discriminator any more.)
+type VendorSubmission = VendorProduct & {
+  status?: string
+  vendorEmail?: string
+}
+
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
@@ -43,7 +80,32 @@ const AdminDashboard: React.FC = () => {
   const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
   const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
-  const [vendorProducts, setVendorProducts] = useState<VendorProduct[]>([])
+  const [vendorProducts, setVendorProducts] = useState<VendorSubmission[]>([])
+  // Users-tab filters: 180+ accounts render in one table, so finding the person
+  // to promote was the hard part of granting a role.
+  const [userSearch, setUserSearch] = useState('')
+  const [userRoleFilter, setUserRoleFilter] = useState<string>('all')
+  const USERS_PAGE_SIZE = 50
+  const [userLimit, setUserLimit] = useState(USERS_PAGE_SIZE)
+  // Pending role change awaiting confirmation (privileged roles only).
+  const [roleChange, setRoleChange] = useState<{ user: User; newRole: User['role'] } | null>(null)
+  const filteredUsers = React.useMemo(() => {
+    const q = userSearch.trim().toLowerCase()
+    return users.filter(u => {
+      if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false
+      if (!q) return true
+      return `${u.email || ''} ${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q)
+    })
+  }, [users, userSearch, userRoleFilter])
+  // Every assignable role gets a chip even at zero — "Vendor · 0" is exactly the
+  // fact an admin needs to see. Any role present in the data but not assignable
+  // from here (e.g. kiosk) is appended so it is never hidden.
+  const roleCounts = React.useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const r of ASSIGNABLE_ROLES) counts.set(r.value, 0)
+    for (const u of users) counts.set(u.role, (counts.get(u.role) || 0) + 1)
+    return [...counts.entries()]
+  }, [users])
   const [products, setProducts] = useState<Product[]>([])
   // Products-tab filters: the imported design library pushed the catalog past
   // 2,700 rows — collection/status/search + paging keep the table usable.
@@ -502,11 +564,10 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'pending_approval')
 
-      // Get pending vendor products
-      const { count: pendingVendorProducts } = await supabase
-        .from('vendor_products')
-        .select('*', { count: 'exact', head: true })
-        .eq('approved', false)
+      // No separate vendor-submission counter: a vendor submission IS a
+      // `products` row (status 'draft'), so it is already inside
+      // pendingProducts above. Counting the dropped `vendor_products` table
+      // here used to double as a second source; it never held a row.
 
       // Get pending 3D models
       const { count: pendingModels } = await supabase
@@ -514,7 +575,7 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('approved', false)
 
-      const pendingApprovals = (pendingProducts || 0) + (pendingUserProducts || 0) + (pendingVendorProducts || 0) + (pendingModels || 0)
+      const pendingApprovals = (pendingProducts || 0) + (pendingUserProducts || 0) + (pendingModels || 0)
 
       // Get total 3D models
       const { count: modelsUploaded } = await supabase
@@ -1536,29 +1597,43 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  // Vendor submissions land in public.products with vendor_id set — that is what
+  // VendorDashboard.tsx actually writes (both "Add to store" and the submit
+  // form). This tab used to read the legacy `vendor_products` table, which
+  // nothing ever wrote to once the vendor flow moved onto `products`, so an
+  // admin could never see (let alone approve) a real submission. That table was
+  // dropped by 20260819210000_drop_vendor_products.sql having never held a row;
+  // `products` is now the single source for this tab.
   const loadVendorProductsData = async () => {
     try {
       const { data, error } = await supabase
-        .from('vendor_products')
+        .from('products')
         .select('*')
+        .not('vendor_id', 'is', null)
         .order('created_at', { ascending: false })
 
       if (error) throw error
 
-      const mappedVendorProducts: VendorProduct[] = (data || []).map((vp: any) => ({
-        id: vp.id,
-        vendorId: vp.vendor_id,
-        title: vp.title || '',
-        description: vp.description || '',
-        price: vp.price || 0,
-        images: vp.images || [],
-        category: vp.category || 'other',
-        approved: vp.approved || false,
-        commissionRate: vp.commission_rate || 15,
-        createdAt: vp.created_at
+      const submissions: VendorSubmission[] = (data || []).map((p: any) => ({
+        id: p.id,
+        vendorId: p.vendor_id,
+        title: p.name || '',
+        description: p.description || '',
+        price: Number(p.price) || 0,
+        images: p.images || [],
+        category: p.category || 'other',
+        // products.approved is DB-derived (status='active' AND is_active) and
+        // pinned by sync_products_approved() — never infer it from status alone.
+        approved: p.approved === true,
+        commissionRate: 25,
+        createdAt: p.created_at,
+        productType: p.product_type || 'physical',
+        digitalPrice: Number(p.digital_price) || 0,
+        fileUrl: p.file_url || undefined,
+        status: p.status || 'draft',
       }))
 
-      setVendorProducts(mappedVendorProducts)
+      setVendorProducts(submissions)
     } catch (error) {
       console.error('Error loading vendor products:', error)
     }
@@ -1621,19 +1696,46 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
-  const updateUserRole = async (userId: string, newRole: User['role']) => {
+  // A privileged role goes through the confirmation modal; everything else
+  // applies straight away. Both funnel into updateUserRole.
+  const requestUserRoleChange = (target: User, newRole: User['role']) => {
+    if (newRole === target.role) return
+
+    // Dropping your own admin role logs you out of this dashboard on the next
+    // profile refresh, and there are only two admins on the platform.
+    if (target.id === user?.id && target.role === 'admin' && newRole !== 'admin') {
+      toast.error('Blocked', 'You cannot remove your own admin role. Ask the other admin to do it.')
+      return
+    }
+
+    if (ASSIGNABLE_ROLES.find(r => r.value === newRole)?.privileged) {
+      setRoleChange({ user: target, newRole })
+      return
+    }
+    void updateUserRole(target, newRole)
+  }
+
+  const updateUserRole = async (target: User, newRole: User['role']) => {
+    const previousRole = target.role
     try {
-      // Update role in database
-      const { error } = await supabase
+      // .select() matters: the enforce_user_profile_role_immutable trigger lets
+      // an admin session through, but if RLS ever matched zero rows PostgREST
+      // would answer 200 with an empty body and this would report a success
+      // that never happened.
+      const { data, error } = await supabase
         .from('user_profiles')
         .update({ role: newRole })
-        .eq('id', userId)
+        .eq('id', target.id)
+        .select('id, role')
 
       if (error) throw error
+      if (!data || data.length === 0) {
+        throw new Error('No row was updated — your session may not have permission to change roles.')
+      }
 
       // Update local state
       setUsers(prev => prev.map(u =>
-        u.id === userId ? { ...u, role: newRole } : u
+        u.id === target.id ? { ...u, role: newRole } : u
       ))
 
       // Add audit log to database
@@ -1643,16 +1745,21 @@ const AdminDashboard: React.FC = () => {
           user_id: user?.id || 'admin',
           action: 'ROLE_CHANGE',
           entity: 'User',
-          entity_id: userId,
-          changes: { role: newRole },
+          entity_id: target.id,
+          changes: { role: newRole, previous_role: previousRole, email: target.email },
           ip_address: '192.168.1.100',
           user_agent: navigator.userAgent
         })
 
-      // Reload audit logs to show the new entry
+      // Reload audit logs to show the new entry, and the metrics so the
+      // Active Vendors count reflects the change immediately.
       await loadAuditLogsData()
+      await loadMetrics()
 
-      toast.success('Role updated', `User role updated to ${newRole}.`)
+      toast.success(
+        'Role updated',
+        `${target.email || 'User'} is now ${roleLabel(newRole)}${newRole === 'vendor' ? ' — they can reach /vendor after their next sign-in.' : '.'}`
+      )
     } catch (error: any) {
       console.error('Error updating user role:', error)
       toast.error('Failed to update user role', error.message)
@@ -1695,64 +1802,80 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
-  const approveVendorProduct = async (productId: string) => {
+  const approveVendorProduct = async (submission: VendorSubmission) => {
     try {
-      const { error } = await supabase
-        .from('vendor_products')
-        .update({ approved: true })
-        .eq('id', productId)
+      // products.approved is derived, not writable: sync_products_approved()
+      // overwrites it from (status='active' AND is_active), and the
+      // products_approved_matches_status CHECK enforces the same identity.
+      // status + is_active IS the publish gate.
+      const { data, error } = await supabase
+        .from('products')
+        .update({ status: 'active', is_active: true })
+        .eq('id', submission.id)
+        .select('id, approved')
 
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
+      if (data[0].approved !== true) throw new Error('Product saved but did not go live — check status/is_active.')
 
       setVendorProducts(prev => prev.map(p =>
-        p.id === productId ? { ...p, approved: true } : p
+        p.id === submission.id ? { ...p, approved: true, status: 'active' } : p
       ))
 
       await supabase.from('audit_logs').insert({
         user_id: user?.id || 'admin',
         action: 'APPROVE_PRODUCT',
         entity: 'VendorProduct',
-        entity_id: productId,
-        changes: { approved: true },
+        entity_id: submission.id,
+        changes: { approved: true, vendor_id: submission.vendorId },
         ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
       await loadAuditLogsData()
       await loadMetrics()
-      toast.success('Vendor product approved')
+      await loadProducts()
+      toast.success('Vendor product approved', `${submission.title} is now live in the store.`)
     } catch (error: any) {
       console.error('Error approving vendor product:', error)
       toast.error('Failed to approve product', error.message)
     }
   }
 
-  const rejectVendorProduct = async (productId: string) => {
+  const rejectVendorProduct = async (submission: VendorSubmission) => {
     if (!confirm('Are you sure you want to reject this vendor product?')) return
 
     try {
-      const { error } = await supabase
-        .from('vendor_products')
-        .delete()
-        .eq('id', productId)
+      // Reject, don't delete. Ten tables FK to products.id ON DELETE CASCADE
+      // (reviews, variants, assets, etsy_listings, social_outbox, …), so a
+      // one-click delete here would silently take related rows with it. The
+      // row stays for the vendor to see and for an admin to reverse.
+      const { data, error } = await supabase
+        .from('products')
+        .update({ status: 'rejected', is_active: false })
+        .eq('id', submission.id)
+        .select('id')
 
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
 
-      setVendorProducts(prev => prev.filter(p => p.id !== productId))
+      setVendorProducts(prev => prev.map(p =>
+        p.id === submission.id ? { ...p, approved: false, status: 'rejected' } : p
+      ))
 
       await supabase.from('audit_logs').insert({
         user_id: user?.id || 'admin',
         action: 'REJECT_PRODUCT',
         entity: 'VendorProduct',
-        entity_id: productId,
-        changes: { rejected: true },
+        entity_id: submission.id,
+        changes: { rejected: true, vendor_id: submission.vendorId },
         ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
       await loadAuditLogsData()
       await loadMetrics()
-      toast.success('Vendor product rejected', 'The product has been deleted.')
+      toast.success('Vendor product rejected', 'Marked rejected and taken off the store. Nothing was deleted.')
     } catch (error: any) {
       console.error('Error rejecting vendor product:', error)
       toast.error('Failed to reject product', error.message)
@@ -2092,7 +2215,51 @@ const AdminDashboard: React.FC = () => {
         {selectedTab === 'users' && (
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-display font-bold text-slate-900">User Management</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-display font-bold text-slate-900">User Management</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    Set a role here to grant access. <span className="font-medium text-slate-700">Vendor</span> unlocks the Vendor Dashboard at /vendor,
+                    where submissions arrive as unapproved drafts for review on the Vendors tab.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {roleCounts.map(([role, count]) => (
+                    <button
+                      key={role}
+                      onClick={() => { setUserRoleFilter(userRoleFilter === role ? 'all' : role); setUserLimit(USERS_PAGE_SIZE) }}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-colors ${userRoleFilter === role
+                        ? 'bg-purple-600 text-white'
+                        : ROLE_BADGE_CLASS[role] || 'bg-slate-100 text-slate-600'
+                        }`}
+                      title={`Show only ${roleLabel(role)} accounts`}
+                    >
+                      {roleLabel(role)} · {count}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={userSearch}
+                  onChange={e => { setUserSearch(e.target.value); setUserLimit(USERS_PAGE_SIZE) }}
+                  placeholder="Search by email or name…"
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm w-72"
+                />
+                <select
+                  value={userRoleFilter}
+                  onChange={e => { setUserRoleFilter(e.target.value); setUserLimit(USERS_PAGE_SIZE) }}
+                  className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  <option value="all">All roles</option>
+                  {ASSIGNABLE_ROLES.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+                <span className="text-sm text-slate-500">
+                  {filteredUsers.length} of {users.length} users
+                </span>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
@@ -2107,54 +2274,92 @@ const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                  {filteredUsers.slice(0, userLimit).map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-slate-900">{user.firstName} {user.lastName}</div>
+                        <div className="text-sm font-medium text-slate-900">
+                          {[row.firstName, row.lastName].filter(Boolean).join(' ') || '—'}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{user.email}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{row.email}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <select
-                          value={user.role}
-                          onChange={(e) => updateUserRole(user.id, e.target.value as User['role'])}
-                          className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-                        >
-                          <option value="customer">Customer</option>
-                          <option value="vendor">Vendor</option>
-                          <option value="founder">Founder</option>
-                          <option value="manager">Manager</option>
-                          <option value="admin">Admin</option>
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${ROLE_BADGE_CLASS[row.role] || 'bg-slate-100 text-slate-600'}`}>
+                            {roleLabel(row.role)}
+                          </span>
+                          <select
+                            value={row.role}
+                            onChange={(e) => requestUserRoleChange(row, e.target.value as User['role'])}
+                            className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                            aria-label={`Role for ${row.email}`}
+                          >
+                            {ASSIGNABLE_ROLES.map(r => (
+                              <option key={r.value} value={r.value}>{r.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <img src="/itc-coin.png" alt="ITC" className="w-4 h-4" />
-                          <span className="text-sm font-medium text-purple-600">{(user.itcBalance || 0).toLocaleString()}</span>
+                          <span className="text-sm font-medium text-purple-600">{(row.itcBalance || 0).toLocaleString()}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                        {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
+                        {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : 'Unknown'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        <button className="text-purple-600 hover:text-purple-700 hover:underline" onClick={() => { }}>Edit</button>
+                        {row.role === 'vendor' ? (
+                          <button
+                            onClick={() => requestUserRoleChange(row, 'customer')}
+                            className="text-slate-600 hover:text-slate-900 hover:underline"
+                            title="Revoke vendor access and return this account to Customer"
+                          >
+                            Remove Vendor
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => requestUserRoleChange(row, 'vendor')}
+                            className="text-emerald-600 hover:text-emerald-700 hover:underline"
+                            title="Grant vendor access to the Vendor Dashboard"
+                          >
+                            Make Vendor
+                          </button>
+                        )}
                         <button
                           onClick={() => {
-                            setItcUser(user)
+                            setItcUser(row)
                             setItcAmount(0)
                             setItcReason('')
                             setShowItcModal(true)
                           }}
-                          className="text-emerald-600 hover:text-emerald-700 hover:underline"
+                          className="text-purple-600 hover:text-purple-700 hover:underline"
                         >
                           Grant ITC
                         </button>
-                        <button className="text-red-600 hover:text-red-700 hover:underline">Suspend</button>
                       </td>
                     </tr>
                   ))}
+                  {filteredUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
+                        No users match that search.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
+            {filteredUsers.length > userLimit && (
+              <div className="px-6 py-4 border-t border-slate-200 text-center">
+                <button
+                  onClick={() => setUserLimit(l => l + USERS_PAGE_SIZE)}
+                  className="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline"
+                >
+                  Show {Math.min(USERS_PAGE_SIZE, filteredUsers.length - userLimit)} more
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -2162,55 +2367,91 @@ const AdminDashboard: React.FC = () => {
         {selectedTab === 'vendors' && (
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-display font-bold text-slate-900">Vendor Product Approvals</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-display font-bold text-slate-900">Vendor Product Approvals</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    Everything submitted from the Vendor Dashboard. Approving publishes it to the store; rejecting takes it
+                    off the store without deleting it.
+                  </p>
+                </div>
+                <span className="px-3 py-1.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
+                  {vendorProducts.filter(p => !p.approved).length} pending
+                </span>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-              {vendorProducts.map((product) => {
-                const vendor = users.find(u => u.id === product.vendorId)
-                return (
-                  <div key={product.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-soft hover:shadow-soft-lg transition-shadow">
-                    <img
-                      src={product.images[0]}
-                      alt={product.title}
-                      className="w-full h-48 object-cover"
-                    />
-                    <div className="p-4">
-                      <h4 className="font-semibold text-slate-900 mb-2">{product.title}</h4>
-                      <p className="text-slate-600 text-sm mb-3 line-clamp-2">{product.description}</p>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-lg font-bold text-slate-900">${product.price}</span>
-                        <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.approved
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-amber-100 text-amber-700'
-                          }`}>
-                          {product.approved ? 'Approved' : 'Pending'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-slate-500 mb-3">
-                        Vendor: {vendor?.firstName} {vendor?.lastName}
-                      </p>
-
-                      {!product.approved && (
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => approveVendorProduct(product.id)}
-                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => rejectVendorProduct(product.id)}
-                            className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
-                          >
-                            Reject
-                          </button>
+            {vendorProducts.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <p className="text-sm font-medium text-slate-700">No vendor submissions yet.</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  Submissions appear here once an account with the <span className="font-medium">Vendor</span> role adds a
+                  product from /vendor. Grant the role on the Users tab.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+                {vendorProducts.map((product) => {
+                  const vendor = users.find(u => u.id === product.vendorId)
+                  const vendorName = [vendor?.firstName, vendor?.lastName].filter(Boolean).join(' ')
+                  const isRejected = product.status === 'rejected'
+                  return (
+                    <div key={product.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-soft hover:shadow-soft-lg transition-shadow flex flex-col">
+                      {product.images?.[0] ? (
+                        <img
+                          src={product.images[0]}
+                          alt={product.title}
+                          className="w-full h-48 object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-48 bg-slate-100 flex items-center justify-center text-sm text-slate-400">
+                          No image submitted
                         </div>
                       )}
+                      <div className="p-4 flex flex-col flex-1">
+                        <h4 className="font-semibold text-slate-900 mb-2">{product.title}</h4>
+                        <p className="text-slate-600 text-sm mb-3 line-clamp-2">{product.description}</p>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-lg font-bold text-slate-900">${product.price}</span>
+                          <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.approved
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : isRejected
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-amber-100 text-amber-700'
+                            }`}>
+                            {product.approved ? 'Live' : isRejected ? 'Rejected' : 'Pending'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-500 mb-1">
+                          Vendor: {vendorName || vendor?.email || product.vendorId}
+                        </p>
+                        <p className="text-xs text-slate-400 mb-3">
+                          {product.category} · submitted {product.createdAt ? new Date(product.createdAt).toLocaleDateString() : 'unknown'}
+                        </p>
+
+                        <div className="flex space-x-2 mt-auto">
+                          {!product.approved && (
+                            <button
+                              onClick={() => approveVendorProduct(product)}
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
+                            >
+                              {isRejected ? 'Approve anyway' : 'Approve'}
+                            </button>
+                          )}
+                          {!isRejected && (
+                            <button
+                              onClick={() => rejectVendorProduct(product)}
+                              className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
+                            >
+                              {product.approved ? 'Take down' : 'Reject'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -4131,6 +4372,46 @@ const AdminDashboard: React.FC = () => {
             </div>
           )
         }
+
+        {/* Role change confirmation — privileged roles only */}
+        {roleChange && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 p-6">
+              <h3 className="text-xl font-display font-bold text-slate-900 mb-4">
+                Grant the {roleLabel(roleChange.newRole)} role?
+              </h3>
+              <p className="text-slate-600 mb-3">
+                <span className="font-semibold">{roleChange.user.email || roleChange.user.id}</span> goes from{' '}
+                <span className="font-semibold">{roleLabel(roleChange.user.role)}</span> to{' '}
+                <span className="font-semibold">{roleLabel(roleChange.newRole)}</span>.
+              </p>
+              <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+                {ASSIGNABLE_ROLES.find(r => r.value === roleChange.newRole)?.blurb}
+              </p>
+              <p className="text-xs text-slate-500 mb-5">
+                Logged to the audit trail. The account picks up the new role on its next sign-in or profile refresh.
+              </p>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setRoleChange(null)}
+                  className="flex-1 border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium py-2.5 px-4 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const pending = roleChange
+                    setRoleChange(null)
+                    void updateUserRole(pending.user, pending.newRole)
+                  }}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Grant ITC Modal */}
         {showItcModal && itcUser && (

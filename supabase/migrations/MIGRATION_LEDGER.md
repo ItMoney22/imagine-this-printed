@@ -7,6 +7,141 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-19 — dead `public.vendor_products` table DROPPED (Jessica Steele, Watchtower `5b16357c`)
+
+- `20260819210000_drop_vendor_products.sql` — **APPLIED LIVE** 2026-08-19 via
+  `node --env-file=backend/.env scripts/apply-pending-migrations.mjs
+  --only=drop-vendor-products --apply --track` (new PLAN entry
+  `drop-vendor-products`). **Tracked** in
+  `supabase_migrations.schema_migrations` as version `20260819210000`.
+- **What it removes:** the whole table, and with it its 6 RLS policies, 4
+  indexes, the `update_vendor_products_updated_at` trigger, the pkey, the
+  `vendor_products_vendor_id_fkey -> user_profiles(id)` FK and every table
+  grant (including the stale `anon` INSERT/UPDATE/DELETE grants that the
+  89-table anon-grant sweep, task `b6d6720f`, would otherwise still have had
+  to revoke here). No separate `DROP POLICY` statements: policies are owned by
+  the table and die with it.
+- **Why it was safe.** Pre-drop, read-only against production: 0 rows; no
+  inbound FK; no dependent view or matview (`pg_depend` + `pg_rewrite`); no
+  function body mentioning it; no policy on any other table mentioning it; no
+  CHECK/FK constraint elsewhere mentioning it; not in the `supabase_realtime`
+  publication. `DROP TABLE` is issued with the default **RESTRICT**, not
+  CASCADE, on purpose — with zero dependents proven, a RESTRICT error is the
+  signal that something new started depending on the table. Do not "fix" such
+  an error by adding CASCADE.
+- **Why it existed at all.** `20260817010000_restore_admin_submission_tables.sql`
+  re-created it on 2026-08-17 only because `AdminDashboard.tsx` was still
+  reading it and 404ing; restoring it never gave it a writer. Commit `587a096`
+  repointed the admin vendors tab at `products WHERE vendor_id IS NOT NULL`
+  (which is what `VendorDashboard.tsx` actually writes) and kept a
+  transitional merge of legacy rows; this task removes that fallback from
+  `loadMetrics`, `loadVendorProductsData`, `approveVendorProduct` and
+  `rejectVendorProduct`, along with the `VendorSubmission.source`
+  discriminator. `VendorProduct` in `src/types/index.ts` is a frontend shape,
+  not this table, and is untouched.
+- **Ordering note:** `20260817010000` (the CREATE) is still unmerged. If it
+  lands on `main` after this file, a from-scratch replay still ends correct —
+  `20260817010000` (create) → `20260817020000` (drop shim cols) →
+  `20260819210000` (drop table) sorts in that order.
+- **Verified live after applying:** table `to_regclass` NULL; 0 policies,
+  0 indexes, 0 grants, 0 triggers, FK gone; PostgREST
+  `GET /rest/v1/vendor_products` → `404 42P01`, `GET
+  /rest/v1/products?vendor_id=not.is.null` → `200`; `products` still 2,468
+  rows, `user_profiles` still 185 (customer 182 / admin 2 / vendor 1),
+  `three_d_models` untouched. The drop was rehearsed first inside
+  `BEGIN … ROLLBACK` (rollback proven real with a throwaway `CREATE TABLE`
+  probe) and re-run twice in-transaction to prove idempotency. Then an 11/11
+  end-to-end suite over real HTTP with a real admin GoTrue session (magic link
+  generated with the service role and redeemed via `verifyOtp` — no password
+  touched): seed a vendor submission → it appears in the tab's query →
+  Approve sets `status='active'/is_active=true` and the derived `approved`
+  flips true → audit-log insert accepted without the removed `source` field →
+  Reject sets `status='rejected'/is_active=false` without deleting → test row
+  and its audit rows cleaned up, `products` back to 2,468.
+- **Found while doing this, NOT fixed:** the shared checkout's
+  `backend/.env` holds a `SUPABASE_SERVICE_ROLE_KEY` for a *different* project
+  (`ref: yrjoblqqgrposgbvsbxm`, not `czzyrmizvjqlifcivrhn`); it 401s "Invalid
+  API key" against both PostgREST and GoTrue admin. The correct ITP key is in
+  the vault at `itp.SUPABASE_SERVICE_ROLE_KEY`. Local-only as far as this task
+  could tell (production backend health is fine, so Render's copy is a
+  different value), but any agent running a service-role script off
+  `backend/.env` will hit it. Filed as a follow-up.
+
+## 2026-08-19 — admin UPDATE policy on user_profiles applied (Marcus Wolfe, Watchtower `54fb9414`)
+
+- `20260819190000_admin_update_user_profiles_rls.sql` — **APPLIED LIVE** 2026-08-19.
+  Adds one policy, `Admins can update any profile`, `FOR UPDATE TO authenticated`
+  with `get_user_role(auth.uid()) = ANY (ARRAY['admin','founder'])` on both
+  `USING` and `WITH CHECK`.
+- The bug it fixes: `public.user_profiles` carried exactly **one** UPDATE policy
+  — `Users can update own profile`, `USING (auth.uid() = id)`. An admin
+  promoting somebody else matched **zero rows**, and PostgREST answers that with
+  200 and an empty array rather than an error, so `AdminDashboard.tsx`'s
+  `updateUserRole()` showed a green "Role updated" toast for a write that never
+  happened. That is why production held 183 customers, 2 admins and 0 vendors:
+  the promotion UI had been a silent no-op since it was written. The
+  `enforce_user_profile_role_immutable` trigger was never the blocker — it
+  already exempts admin/founder; RLS stopped the statement one layer earlier.
+- Purely additive. No existing policy dropped or rewritten; permissive policies
+  OR together, so self-update and `service_role` are untouched. A non-admin
+  gains nothing — `USING` is evaluated against the CALLER's role.
+- Verified against production:
+  1. the whole file plus an 11-check impersonation suite
+     (`set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated`,
+     each expected-failure in its own SAVEPOINT) inside a `BEGIN … ROLLBACK` —
+     11/11, including a BEFORE check proving the admin UPDATE matched 0 rows,
+     AFTER checks for promote **and** demote, `customer CANNOT update another
+     profile`, `customer CANNOT self-escalate` (trigger raises), `customer CAN
+     still edit own fields`, and a second run of the whole file for idempotency.
+     Rollback proven real with a throwaway `CREATE TABLE` probe;
+  2. end-to-end through the real UI in a headless browser afterwards — an admin
+     session promoted `info@darrellmccutchen.com` to `vendor`, demoted them,
+     re-promoted them, and was blocked from demoting itself; audit rows written
+     each time.
+- Applied over a direct connection in an explicit transaction, so NOT tracked in
+  `schema_migrations` (like most of this repo).
+- **Prod is ahead of `main` until branch
+  `earth/marcus-wolfe/itp-enable-vendor-promot-54fb9414-mt0eg2fa` merges.** Safe
+  in either order: without the frontend changes the policy simply makes an
+  existing (broken) admin action start working.
+
+## 2026-08-19 — vendor-scoped products RLS applied (Zero Nine, Watchtower `f8ecc070`)
+
+- `20260819130000_vendor_scoped_products_rls.sql` — **APPLIED LIVE** 2026-08-19.
+  Adds three vendor-scoped RLS policies on `public.products`
+  (`Vendors can insert/update/delete their own products`, all keyed on
+  `vendor_id = auth.uid()` plus `get_user_role(auth.uid()) = 'vendor'`) and the
+  `enforce_vendor_product_write_limits_trigger` BEFORE INSERT OR UPDATE guard
+  that keeps `status`/`is_active`/`is_featured`/`cost_price`/`vendor_id`/
+  `created_by_user_id` out of a vendor's reach.
+- Purely additive. The three `Admins can … products` policies were **not**
+  touched, dropped or rewritten; permissive policies OR together, so admin
+  reach is unchanged. Row count before and after: 2,468. Grants unchanged.
+- The bug it fixes: there was NO vendor write policy at all, so every
+  `VendorDashboard.tsx` write failed — INSERT with 42501 and UPDATE with a
+  200-and-zero-rows that the UI reported as success. Live proof before the fix:
+  `SELECT count(*) FROM products WHERE vendor_id IS NOT NULL` = **0** of 2,468.
+- Verified three ways, all against production:
+  1. the whole migration plus a 31-check impersonation suite
+     (`set_config('request.jwt.claims', …)` + `SET LOCAL ROLE authenticated`)
+     inside a `BEGIN … ROLLBACK` — 31/31, run once before the apply and again
+     after, against the committed policies;
+  2. a no-JWT direct-connection write (the worker/psql path) — still able to
+     publish, feature and set `cost_price`, i.e. no server-side regression;
+  3. a true end-to-end run through GoTrue + PostgREST with two throwaway
+     vendor accounts on prod — 14/14, covering insert, edit-own,
+     cannot-edit-other, cannot-insert-as-other, cannot-self-publish,
+     cannot-self-feature, delete-own. Both users and every row were deleted
+     afterwards; post-teardown check reported 0 stray users, 0 stray products,
+     2,468 total.
+- Applied via the Supabase Management API SQL endpoint, so NOT tracked in
+  `schema_migrations` (like most of this repo).
+- **Prod is ahead of `main` until branch
+  `earth/zero-nine/add-vendor-scoped-rls-po-f8ecc070-mt0dqisc` merges.** Safe
+  in either order: the policies only widen what a `vendor`-role account may do,
+  and there are currently **zero** accounts with `role='vendor'` in production,
+  so nothing can exercise them until someone is promoted.
+
 ## 2026-08-17 — design QA gate applied (Zero Nine, Watchtower `9ec9444a`)
 
 - `20260817120000_design_qa_gate.sql` — **APPLIED LIVE** 2026-08-17. Creates

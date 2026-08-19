@@ -1,0 +1,86 @@
+-- ============================================================================
+-- Drop the dead public.vendor_products table
+-- ============================================================================
+-- Watchtower task 5b16357c-afd2-4e2a-9e6e-0ad2c4d1293b.
+--
+-- WHY THIS EXISTS
+-- ---------------
+-- The platform has had two tables claiming to represent "a vendor's product"
+-- for months, and only one of them has ever been written to.
+--
+--   * `public.products` (vendor_id NOT NULL) is the live one. Both vendor
+--     creation paths in src/pages/VendorDashboard.tsx — `handleAddToStore`
+--     and `handleSubmitProduct` — insert there, and
+--     20260819130000_vendor_scoped_products_rls.sql gave that table the
+--     vendor-scoped RLS policies + write-limit trigger that make the flow
+--     safe.
+--   * `public.vendor_products` is the dead one. It was restored on 2026-08-17
+--     (20260817010000_restore_admin_submission_tables.sql, applied live,
+--     branch earth/marcus-wolfe/itp-implement-admin-subm-08444193-mswlv9do)
+--     only because AdminDashboard.tsx still read from it and was 404ing.
+--     Restoring the table did not give it a writer. It has had **0 rows** the
+--     entire time.
+--
+-- Commit 587a096 repointed the admin approval tab at
+-- `products WHERE vendor_id IS NOT NULL` and merged any legacy
+-- `vendor_products` rows in as a transitional safety net. That net has now
+-- caught nothing, twice over, so this migration removes the table and the
+-- accompanying commit removes the fallback reads/writes from
+-- AdminDashboard.tsx (`loadMetrics`, `loadVendorProductsData`,
+-- `approveVendorProduct`, `rejectVendorProduct`).
+--
+-- NOTE: `VendorProduct` in src/types/index.ts is NOT this table. It is the
+-- shared frontend product shape and stays exactly where it is.
+--
+-- PRE-DROP VERIFICATION (run live against czzyrmizvjqlifcivrhn, 2026-08-19)
+-- ------------------------------------------------------------------------
+--   SELECT count(*) FROM public.vendor_products;                  -> 0
+--   inbound FKs (pg_constraint WHERE confrelid = the table)       -> none
+--   dependent views/matviews (pg_depend + pg_rewrite)             -> none
+--   functions whose body mentions vendor_products                 -> none
+--   policies on OTHER tables mentioning vendor_products           -> none
+--   CHECK/FK constraints elsewhere mentioning vendor_products     -> none
+--   supabase_realtime publication membership                      -> none
+--
+-- The only outbound reference is `vendor_products_vendor_id_fkey ->
+-- user_profiles(id) ON DELETE CASCADE`, which goes away with the table and
+-- cannot orphan anything on the parent side.
+--
+-- Remaining repo references to the STRING 'vendor_products' are deliberate
+-- and unrelated to this table:
+--   * backend/routes/community.ts:42, src/utils/community-service.ts,
+--     src/components/community/CommunityShowcase.tsx — a
+--     `community_posts.post_type` filter constant, not a table name.
+--   * backend/routes/user-products.ts:1228 — a comment explaining why that
+--     route was repointed off this table.
+--
+-- SAFETY
+-- ------
+-- Idempotent: DROP TABLE IF EXISTS. Its six RLS policies, four indexes, the
+-- `update_vendor_products_updated_at` trigger, the pkey, the outbound FK and
+-- every table grant are owned by the table and drop with it — no separate
+-- DROP POLICY statements are needed, and issuing them separately would only
+-- be able to fail once the table is gone. RESTRICT (the default) is used
+-- deliberately instead of CASCADE: with zero dependents proven above, a
+-- RESTRICT drop that suddenly errors is the signal that something new started
+-- depending on this table between verification and apply. Do not "fix" such
+-- an error by switching to CASCADE.
+--
+-- RECREATE PATH (should this ever need reversing)
+-- ----------------------------------------------
+-- The full DDL — columns, indexes, trigger, the six policies and the grants —
+-- lives in section 1 of
+-- supabase/migrations/20260817010000_restore_admin_submission_tables.sql
+-- (that file is on the unmerged branch above; `git show
+-- f1f02f4:supabase/migrations/20260817010000_restore_admin_submission_tables.sql`).
+-- Nothing else is lost, because there is nothing in the table to lose.
+--
+-- MIGRATION ORDERING NOTE
+-- -----------------------
+-- 20260817010000 (which CREATEs this table) is still unmerged. If it lands on
+-- main after this file, a from-scratch replay still ends in the right state:
+-- 20260817010000 -> 20260817020000 -> 20260819210000 sorts create, alter,
+-- drop, in that order.
+-- ============================================================================
+
+DROP TABLE IF EXISTS public.vendor_products;
