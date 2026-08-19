@@ -31,6 +31,10 @@ const VendorDashboard: React.FC = () => {
   const [editUploadingImages, setEditUploadingImages] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
 
+  // Inline delete confirmation — tracks which card is asking "are you sure?"
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
   const [selectedTab, setSelectedTab] = useState<'products' | 'catalog' | 'submit' | 'creator' | 'analytics' | 'payouts'>('products')
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false)
@@ -427,6 +431,33 @@ const VendorDashboard: React.FC = () => {
     }
   }
 
+  const handleDeleteProduct = async (productId: string) => {
+    setDeletingId(productId)
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', productId)
+        .select()
+      if (error) throw error
+      // RLS only allows vendors to delete their own unpublished drafts — an
+      // approved product (or a stale/foreign id) comes back as an empty
+      // array with HTTP 200, not an error, so a missing row means "blocked."
+      if (!data || data.length === 0) {
+        throw new Error('This product can\'t be deleted — unpublish it first, or it may no longer exist.')
+      }
+
+      toast.success('Product deleted', 'The draft has been removed from My Products.')
+      loadVendorProducts()
+    } catch (error: any) {
+      console.error('Error deleting product:', error)
+      toast.error('Delete failed', error.message)
+    } finally {
+      setDeletingId(null)
+      setConfirmDeleteId(null)
+    }
+  }
+
   if (user?.role !== 'vendor' && user?.role !== 'admin') {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -584,17 +615,53 @@ const VendorDashboard: React.FC = () => {
                       <span>Comm: {product.commissionRate}%</span>
                     </div>
 
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => openEditModal(product)}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-3 rounded transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button className="flex-1 bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-3 rounded transition-colors">
-                        Analytics
-                      </button>
-                    </div>
+                    {confirmDeleteId === product.id ? (
+                      <div className="flex items-center justify-between gap-2 bg-red-50 border border-red-200 rounded px-3 py-2">
+                        <span className="text-xs font-medium text-red-800">Delete this draft?</span>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProduct(product.id)}
+                            disabled={deletingId === product.id}
+                            className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold py-1.5 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {deletingId === product.id ? 'Deleting…' : 'Confirm'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            disabled={deletingId === product.id}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-semibold py-1.5 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => openEditModal(product)}
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-3 rounded transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button className="flex-1 bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-3 rounded transition-colors">
+                          Analytics
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(product.id)}
+                          disabled={product.approved}
+                          title={product.approved ? 'Unpublish this product before deleting it' : 'Delete this draft'}
+                          aria-label="Delete product"
+                          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:hover:bg-gray-300 disabled:cursor-not-allowed text-white py-2 px-3 rounded transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
