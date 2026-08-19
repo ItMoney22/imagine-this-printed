@@ -152,6 +152,15 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
       // custom mini. Entries carry lineItemId so multi-item orders disambiguate.
       // Candidates come from order_items rows AND the metadata snapshot
       // (deduped by product id) so older orders without rows still print.
+      //
+      // `line` MUST be one of the Watchtower rail's registered ItpLineId values
+      // (david-trinidad-com/src/lib/itp-print-lines.ts: custom-toy | custom-mini
+      // | lithophane | dtf | part) — createOrder() 400s with "unknown print line"
+      // on anything else and the order is dropped into pullFromItp's errors array
+      // instead of reaching the fleet. A catalog 3D product already has its own
+      // reference image + (often) a finished mesh, same as a "send a photo, we
+      // print it" job, so it rides the 'custom-toy' line rather than a bespoke
+      // (and unregistered) 'catalog-toy' id. Watchtower task ffe7c108.
       const catalogCandidates = new Map<string, { product_id: string; product_name?: string; quantity: number; total?: number }>()
       for (const it of lineItems) {
         const pid = it.product_id
@@ -190,7 +199,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           out.push({
             itpOrderId: o.id,
             lineItemId: it.product_id,
-            line: 'catalog-toy',
+            line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
             glbUrl: p.metadata?.print3d?.glb_url || p.metadata?.glb_url || undefined,
