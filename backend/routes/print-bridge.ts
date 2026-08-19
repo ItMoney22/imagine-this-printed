@@ -38,6 +38,14 @@ function requireBridgeAuth(req: Request, res: Response, next: NextFunction): voi
 // backend/routes/3d-models.ts POST /:id/order), so order_items carry that id.
 const PRINT_ITEM_PREFIX = '3d-print-'
 
+// Catalog 3D print items carry the product's raw UUID as their cart/item id
+// (see storefront.ts's `items: lines.map(l => ({ id: l.productId, ... }))`
+// and stripe.ts's snapshotCartItems `id: i.product?.id`) — never a literal
+// "catalog-toy"-prefixed string. Telling one apart from an ordinary catalog
+// item (a t-shirt, etc.) requires looking the id up against `products` and
+// checking the same predicate /queue uses below.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 const CUSTOMER_STATUSES = [
   'received', 'in_production', 'printing', 'shipped_soon', 'rejected', 'issue',
   // factory floor stages that trigger WORKER notification emails:
@@ -69,8 +77,6 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
 
     const { data: orders, error } = await q
     if (error) return res.status(500).json({ error: error.message })
-
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
     const out: any[] = []
     let cursor = since
@@ -270,11 +276,39 @@ router.post('/status', requireBridgeAuth, async (req: Request, res: Response): P
   }
 })
 
+// Resolve which of these ids are catalog products enrolled in 3D printing —
+// same predicate /queue uses (category '3d-prints' or metadata.print3d.enabled).
+// Non-UUID candidates (e.g. "3d-print-<modelId>" custom-mini ids) are the
+// caller's job to filter out first; this only ever queries real product ids.
+export async function resolveCatalogToyProductIds(candidateIds: string[]): Promise<Set<string>> {
+  if (candidateIds.length === 0) return new Set()
+  const { data: prods } = await supabase
+    .from('products')
+    .select('id, category, metadata')
+    .in('id', candidateIds)
+  return new Set(
+    (prods || [])
+      .filter((p: any) => p.category === '3d-prints' || p?.metadata?.print3d?.enabled === true)
+      .map((p: any) => p.id)
+  )
+}
+
+// Which order-metadata items belong in a print-floor worker notification: a
+// custom mini (id prefixed `3d-print-`) or a catalog toy (id resolved as a
+// printable catalog product). Pulled out standalone so it's testable without
+// a live DB or mail sender.
+export function filterPrintNotificationItems(items: any[], catalogToyIds: Set<string>): any[] {
+  return items.filter(i => {
+    const rawId = String(i.client_product_id || i.id || '')
+    return rawId.startsWith(PRINT_ITEM_PREFIX) || catalogToyIds.has(rawId)
+  })
+}
+
 /**
  * Email the print-floor workers when a job needs hands: the insert pause
  * (2 magnets + NFC tag written with the toy's experience URL) or final packing.
  */
-async function notifyWorkers(
+export async function notifyWorkers(
   order: { id: string; metadata: any },
   status: string,
   info: { railStatus?: string; printer?: string; jobId?: string }
@@ -285,10 +319,13 @@ async function notifyWorkers(
     .filter(Boolean)
 
   const items: any[] = Array.isArray(order.metadata?.items) ? order.metadata.items : []
-  const printItems = items.filter(i =>
-    String(i.client_product_id || i.id || '').startsWith(PRINT_ITEM_PREFIX) ||
-    String(i.client_product_id || i.id || '').startsWith('catalog-toy')
-  )
+  const catalogCandidateIds = Array.from(new Set(
+    items
+      .map(i => String(i.client_product_id || i.id || ''))
+      .filter(id => UUID_RE.test(id))
+  ))
+  const catalogToyIds = await resolveCatalogToyProductIds(catalogCandidateIds)
+  const printItems = filterPrintNotificationItems(items, catalogToyIds)
   const itemLines = (printItems.length ? printItems : items).map(i => {
     const rawId = String(i.client_product_id || i.id || '')
     const modelId = rawId.startsWith(PRINT_ITEM_PREFIX) ? rawId.slice(PRINT_ITEM_PREFIX.length) : null
