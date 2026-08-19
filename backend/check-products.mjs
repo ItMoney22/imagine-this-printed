@@ -1,5 +1,11 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+
+// Explicit path + override: `dotenv/config` reads <cwd>/.env and refuses to replace an
+// already-set var, so this read the wrong file AND lost to the parent shell.
+dotenv.config({ path: path.resolve(fileURLToPath(import.meta.url), '../../.env'), override: true });
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,

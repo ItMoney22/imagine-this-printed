@@ -17,10 +17,11 @@
  * scripts already do (see backend/scripts/refresh-product-images.ts).
  */
 
+// backend/load-env.ts, not a bare dotenv.config(): dotenv will NOT overwrite a
+// SUPABASE_* var the parent shell already exported, so this script would silently
+// query the wrong project. See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import '../load-env.js'
 import { createClient } from '@supabase/supabase-js'
-import dotenv from 'dotenv'
-
-dotenv.config()
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY

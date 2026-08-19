@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config({ path: '../backend/.env' });
+// Explicit module-relative path + override: the old form was cwd-relative (broken
+// unless run from scripts/) and non-overriding (lost to the parent shell).
+dotenv.config({ path: path.resolve(fileURLToPath(import.meta.url), '../../backend/.env'), override: true });
 
 const supabase = createClient(
   process.env.SUPABASE_URL,

@@ -1,8 +1,10 @@
+// backend/load-env.ts, not dotenv.config({ path: '.env' }): that form is BOTH
+// cwd-relative (wrong file when run from the repo root) and non-overriding (loses to
+// whatever the parent shell exported). Running a migration against the wrong project is
+// the worst version of this bug. See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import '../load-env.js'
 import { createClient } from '@supabase/supabase-js'
 import * as fs from 'fs'
-import * as dotenv from 'dotenv'
-
-dotenv.config({ path: '.env' })
 
 const supabaseUrl = process.env.SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!

@@ -23,10 +23,14 @@ import * as path from 'path';
 import * as fs from 'fs';
 import fetch from 'node-fetch';
 
+// override: true on both - dotenv will NOT replace a SUPABASE_* var the parent shell
+// already exported, which is how this script ends up diagnosing the wrong project.
+// See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
 // Load .env.admin
-dotenv.config({ path: path.resolve(process.cwd(), '.env.admin') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.admin'), override: true });
 
-// Also load .env for frontend variables
+// Also load .env for frontend variables (does not clobber .env.admin: same override rule,
+// last write wins, and .env.admin is the more specific file - so load order matters).
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL;

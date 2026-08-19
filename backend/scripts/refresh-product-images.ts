@@ -4,12 +4,12 @@
  * Usage: npx tsx scripts/refresh-product-images.ts
  */
 
+// backend/load-env.ts, not a bare dotenv.config(): dotenv will NOT overwrite a
+// SUPABASE_*/GCS var the parent shell already exported, so this script would silently
+// sign URLs for the wrong project. See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import '../load-env.js'
 import { createClient } from '@supabase/supabase-js'
 import { Storage } from '@google-cloud/storage'
-import dotenv from 'dotenv'
-
-// Load environment variables
-dotenv.config()
 
 // Initialize GCS directly to avoid any module caching issues
 const storage = new Storage({

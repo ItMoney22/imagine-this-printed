@@ -17,8 +17,13 @@
  *   - Shows final user state
  */
 
-import 'dotenv/config';
+// Explicit override - `dotenv/config` refuses to replace an already-set SUPABASE_* var,
+// so an admin reset could land on the wrong project.
+// See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import dotenv from 'dotenv';
 import fetch from 'node-fetch';
+
+dotenv.config({ override: true });
 
 const BASE = process.env.SUPABASE_URL!;
 const SRV = process.env.SUPABASE_SERVICE_ROLE!;

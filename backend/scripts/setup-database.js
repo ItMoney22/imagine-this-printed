@@ -5,7 +5,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '../.env') });
+// override: dotenv will NOT replace a SUPABASE_* var the parent shell already
+// exported, and a setup script pointed at the wrong project is a disaster.
+// See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

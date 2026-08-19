@@ -15,8 +15,13 @@
  *   - Provides instructions for manual browser test
  */
 
-import 'dotenv/config';
+// Explicit override - `dotenv/config` refuses to replace an already-set SUPABASE_* var,
+// so a live sign-in check could be run against the wrong project.
+// See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import dotenv from 'dotenv';
 import fetch from 'node-fetch';
+
+dotenv.config({ override: true });
 
 const base = process.env.SUPABASE_URL!;
 const anon = process.env.SUPABASE_ANON_KEY!;

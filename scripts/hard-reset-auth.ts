@@ -18,8 +18,13 @@
  *   - Sets temp password from .env.admin
  */
 
-import 'dotenv/config';
+// Explicit override - `dotenv/config` refuses to replace an already-set SUPABASE_* var,
+// and this script DELETES auth data. Pointing it at the wrong project is unrecoverable.
+// See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import dotenv from 'dotenv';
 import fetch from 'node-fetch';
+
+dotenv.config({ override: true });
 
 const base = process.env.SUPABASE_URL!;
 const service = process.env.SUPABASE_SERVICE_ROLE!;

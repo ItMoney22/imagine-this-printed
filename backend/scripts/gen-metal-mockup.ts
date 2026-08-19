@@ -5,7 +5,10 @@
 // storefront shows the art staged on a wall instead of the bare artwork.
 //
 // Run from backend/:  npx tsx scripts/gen-metal-mockup.ts
-import 'dotenv/config'
+// backend/load-env.ts, not `dotenv/config`: a bare dotenv load will NOT overwrite a
+// SUPABASE_*/OPENAI_* var that the parent shell already exported, so the script would
+// silently run against the wrong project. See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+import '../load-env.js'
 import { createClient } from '@supabase/supabase-js'
 import { editOpenAIImage } from '../services/image-flow/providers/openai-image.js'
 

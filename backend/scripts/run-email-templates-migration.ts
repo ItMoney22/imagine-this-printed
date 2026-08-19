@@ -1,9 +1,10 @@
 import { Pool } from 'pg'
 import * as fs from 'fs'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import * as dotenv from 'dotenv'
 
-dotenv.config({ path: '.env' })
+dotenv.config({ path: path.resolve(fileURLToPath(import.meta.url), '../../.env'), override: true })
 
 const databaseUrl = process.env.DATABASE_URL
 

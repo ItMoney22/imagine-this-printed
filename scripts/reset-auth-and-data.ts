@@ -20,7 +20,9 @@ import * as path from 'path';
 import fetch from 'node-fetch';
 
 // Load .env.admin
-dotenv.config({ path: path.resolve(process.cwd(), '.env.admin') });
+// override: this script DELETES data - it must never inherit another project's
+// credentials from the shell. See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+dotenv.config({ path: path.resolve(process.cwd(), '.env.admin'), override: true });
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE;

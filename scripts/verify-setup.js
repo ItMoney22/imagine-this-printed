@@ -9,7 +9,10 @@ import fs from 'fs/promises';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load environment variables
-dotenv.config({ path: join(__dirname, '../backend/.env') });
+// override on the backend file: dotenv will NOT replace a SUPABASE_* var the parent
+// shell already exported, so this verifier would report on the wrong project.
+// See docs/SECURITY-supabase-service-role-drift-547d0c0f.md
+dotenv.config({ path: join(__dirname, '../backend/.env'), override: true });
 dotenv.config({ path: join(__dirname, '../.env') });
 
 const checks = {

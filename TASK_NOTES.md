@@ -1,4 +1,60 @@
 # TASK_NOTES
+
+## Current request (2026-08-19, Sifu — Watchtower `547d0c0f`) — SUPABASE_SERVICE_ROLE_KEY "drift" + startup guard
+- Reported as: `backend/.env` holds a service-role key for project `yrjoblqqgrposgbvsbxm`
+  while ITP is `czzyrmizvjqlifcivrhn`; all local service-role calls 401. Recurrence of `f436cc1b`.
+- **Actual finding: the file was never wrong.** `backend/.env` is byte-identical to both
+  Render services and the vault (sha256/16 `7e810ddefe8e4968`), untouched since 08-16.
+  The wrong key lives in the **process environment**, inherited by every dispatch window
+  from the Watchtower engine (`david-trinidad-com/.env.local`). `dotenv.config()` without
+  `override` and `--env-file=` both refuse to replace an already-set variable, so the correct
+  file loses. Proven side by side against prod: file key 200 / ambient key 401 on both
+  `/rest/v1` and `/auth/v1/admin`.
+- Shipped: an offline fail-fast guard at backend boot, a cwd-independent + shadow-reporting
+  `load-env.ts`, `override: true` on 25 standalone scripts, and
+  `npm run verify:supabase-env` (which also fails if a script regresses).
+- Engine-side fix (stop leaking the dashboard's Supabase creds into dispatch windows) filed
+  as Watchtower `05c9d236-c6ac-4270-b4bd-2ccde1acf752` on `david-trinidad-com`.
+- Full write-up + evidence: `docs/SECURITY-supabase-service-role-drift-547d0c0f.md`.
+
+### File shortlist (approved scope — 2026-08-19 supabase env drift)
+- `backend/lib/supabase-env-guard.ts` (new) + `backend/lib/supabase-env-guard.test.ts` (new)
+- `backend/lib/supabase.ts` (call the guard before `createClient`)
+- `backend/load-env.ts` (module-relative path, vitest opt-out, shadow warning)
+- `backend/scripts/verify-supabase-env.ts` (new) + `backend/package.json` (npm script)
+- 25 standalone scripts under `backend/`, `backend/scripts/`, `scripts/`, `diagnostics/`
+  (env loading only — no logic touched)
+- `docs/SECURITY-supabase-service-role-drift-547d0c0f.md` (new), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-08-19 (SUPABASE ENV DRIFT — ROOT-CAUSED AND GUARDED): Chased the reported file
+  corruption and found none: `backend/.env`'s service-role key is byte-identical to Render
+  `srv-d7jpgut7vvec739bsid0`, `srv-d7jppnn7f7vs73bb4p80` and the vault, and the foreign ref
+  `yrjoblqqgrposgbvsbxm` appears nowhere in any env file — only in docs. It is in
+  `process.env`, inherited from the engine, and it beats the file because neither dotenv nor
+  `--env-file=` overrides an already-set variable. Added `backend/lib/supabase-env-guard.ts`
+  (base64url-decode the JWT payload, compare `ref` to the `SUPABASE_URL` sub-domain, no
+  network call) wired into `backend/lib/supabase.ts` at module load; fatal on a cross-project
+  ref and on an anon key in the service-role slot, deliberately tolerant of opaque
+  `sb_secret_*` keys, custom domains and vitest placeholders. `load-env.ts` now resolves
+  `backend/.env` from its own module path (a root-cwd start used to load the root `.env` and
+  override nothing), skips loading under vitest so a unit test can never receive production
+  credentials, and logs which variables it actually replaced. 25 standalone scripts that read
+  `SUPABASE_*` now load env with `override: true` or via `load-env.js` — including
+  `scripts/hard-reset-auth.ts` (deletes every user) and `backend/scripts/run-migration.ts`
+  (applies DDL), both of which were one stray shell variable away from hitting the wrong
+  database. New `npm run verify:supabase-env` (backend) checks the file, reports shadowing,
+  fails on any script that regresses, and with `--live` makes real REST/auth calls. VERIFIED:
+  the real backend booted locally on :4123 with the file's env, logged
+  `[supabase-env] OK - service_role key matches project "czzyrmizvjqlifcivrhn"`, and
+  `/api/health/database` returned 200 "Database connected successfully (185 users)" — a
+  genuine service-role query, no 401; the same entrypoint with the poisoned key on top
+  refused to start with the full diagnostic. `vitest run` 57 files / 757 tests pass
+  (21 new); `tsc --noEmit` clean in backend and at the root; eslint 0 errors on changed
+  files. Engine-side leak filed as `05c9d236-c6ac-4270-b4bd-2ccde1acf752`.
+
+---
+
 ## Current request (2026-08-18) — fix localhost sign-in
 - David could not sign in on `http://localhost:5173`; symptom was a persistent
   "Invalid login credentials" on email/password.
