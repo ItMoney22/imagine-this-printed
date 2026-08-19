@@ -5,6 +5,7 @@ import { API_BASE } from '../lib/api'
 import type { VendorProduct, Product } from '../types'
 import { CreatorAnalytics } from '../components/CreatorAnalytics'
 import { useToast } from '../hooks/useToast'
+import { STOREFRONT_CATEGORIES } from '../lib/product-kind'
 
 const VendorDashboard: React.FC = () => {
   const { user } = useAuth()
@@ -676,12 +677,9 @@ const VendorDashboard: React.FC = () => {
                   required
                 >
                   <option value="">Select Category</option>
-                  <option value="gaming">Gaming</option>
-                  <option value="eco">Eco-Friendly</option>
-                  <option value="office">Office</option>
-                  <option value="lifestyle">Lifestyle</option>
-                  <option value="3d-models">3D Models</option>
-                  <option value="tech">Technology</option>
+                  {STOREFRONT_CATEGORIES.map(c => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -1016,12 +1014,9 @@ const VendorDashboard: React.FC = () => {
                     required
                   >
                     <option value="">Select Category</option>
-                    <option value="gaming">Gaming</option>
-                    <option value="eco">Eco-Friendly</option>
-                    <option value="office">Office</option>
-                    <option value="lifestyle">Lifestyle</option>
-                    <option value="3d-models">3D Models</option>
-                    <option value="tech">Technology</option>
+                    {STOREFRONT_CATEGORIES.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
