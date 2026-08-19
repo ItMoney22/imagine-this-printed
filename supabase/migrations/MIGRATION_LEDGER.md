@@ -7,6 +7,66 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-08-19 — dead `public.vendor_products` table DROPPED (Jessica Steele, Watchtower `5b16357c`)
+
+- `20260819210000_drop_vendor_products.sql` — **APPLIED LIVE** 2026-08-19 via
+  `node --env-file=backend/.env scripts/apply-pending-migrations.mjs
+  --only=drop-vendor-products --apply --track` (new PLAN entry
+  `drop-vendor-products`). **Tracked** in
+  `supabase_migrations.schema_migrations` as version `20260819210000`.
+- **What it removes:** the whole table, and with it its 6 RLS policies, 4
+  indexes, the `update_vendor_products_updated_at` trigger, the pkey, the
+  `vendor_products_vendor_id_fkey -> user_profiles(id)` FK and every table
+  grant (including the stale `anon` INSERT/UPDATE/DELETE grants that the
+  89-table anon-grant sweep, task `b6d6720f`, would otherwise still have had
+  to revoke here). No separate `DROP POLICY` statements: policies are owned by
+  the table and die with it.
+- **Why it was safe.** Pre-drop, read-only against production: 0 rows; no
+  inbound FK; no dependent view or matview (`pg_depend` + `pg_rewrite`); no
+  function body mentioning it; no policy on any other table mentioning it; no
+  CHECK/FK constraint elsewhere mentioning it; not in the `supabase_realtime`
+  publication. `DROP TABLE` is issued with the default **RESTRICT**, not
+  CASCADE, on purpose — with zero dependents proven, a RESTRICT error is the
+  signal that something new started depending on the table. Do not "fix" such
+  an error by adding CASCADE.
+- **Why it existed at all.** `20260817010000_restore_admin_submission_tables.sql`
+  re-created it on 2026-08-17 only because `AdminDashboard.tsx` was still
+  reading it and 404ing; restoring it never gave it a writer. Commit `587a096`
+  repointed the admin vendors tab at `products WHERE vendor_id IS NOT NULL`
+  (which is what `VendorDashboard.tsx` actually writes) and kept a
+  transitional merge of legacy rows; this task removes that fallback from
+  `loadMetrics`, `loadVendorProductsData`, `approveVendorProduct` and
+  `rejectVendorProduct`, along with the `VendorSubmission.source`
+  discriminator. `VendorProduct` in `src/types/index.ts` is a frontend shape,
+  not this table, and is untouched.
+- **Ordering note:** `20260817010000` (the CREATE) is still unmerged. If it
+  lands on `main` after this file, a from-scratch replay still ends correct —
+  `20260817010000` (create) → `20260817020000` (drop shim cols) →
+  `20260819210000` (drop table) sorts in that order.
+- **Verified live after applying:** table `to_regclass` NULL; 0 policies,
+  0 indexes, 0 grants, 0 triggers, FK gone; PostgREST
+  `GET /rest/v1/vendor_products` → `404 42P01`, `GET
+  /rest/v1/products?vendor_id=not.is.null` → `200`; `products` still 2,468
+  rows, `user_profiles` still 185 (customer 182 / admin 2 / vendor 1),
+  `three_d_models` untouched. The drop was rehearsed first inside
+  `BEGIN … ROLLBACK` (rollback proven real with a throwaway `CREATE TABLE`
+  probe) and re-run twice in-transaction to prove idempotency. Then an 11/11
+  end-to-end suite over real HTTP with a real admin GoTrue session (magic link
+  generated with the service role and redeemed via `verifyOtp` — no password
+  touched): seed a vendor submission → it appears in the tab's query →
+  Approve sets `status='active'/is_active=true` and the derived `approved`
+  flips true → audit-log insert accepted without the removed `source` field →
+  Reject sets `status='rejected'/is_active=false` without deleting → test row
+  and its audit rows cleaned up, `products` back to 2,468.
+- **Found while doing this, NOT fixed:** the shared checkout's
+  `backend/.env` holds a `SUPABASE_SERVICE_ROLE_KEY` for a *different* project
+  (`ref: yrjoblqqgrposgbvsbxm`, not `czzyrmizvjqlifcivrhn`); it 401s "Invalid
+  API key" against both PostgREST and GoTrue admin. The correct ITP key is in
+  the vault at `itp.SUPABASE_SERVICE_ROLE_KEY`. Local-only as far as this task
+  could tell (production backend health is fine, so Render's copy is a
+  different value), but any agent running a service-role script off
+  `backend/.env` will hit it. Filed as a follow-up.
+
 ## 2026-08-19 — admin UPDATE policy on user_profiles applied (Marcus Wolfe, Watchtower `54fb9414`)
 
 - `20260819190000_admin_update_user_profiles_rls.sql` — **APPLIED LIVE** 2026-08-19.

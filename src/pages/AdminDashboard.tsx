@@ -63,10 +63,12 @@ const ROLE_BADGE_CLASS: Record<string, string> = {
   customer: 'bg-slate-100 text-slate-600',
 }
 
-// A vendor submission as this dashboard sees it. `source` records which table
-// the row came from so approve/reject writes back to the right one.
+// A vendor submission as this dashboard sees it: always a `public.products`
+// row with vendor_id set. (The legacy `public.vendor_products` table it used
+// to also read was dropped by 20260819210000_drop_vendor_products.sql — it
+// never had a writer and never held a row, so there is no second source and
+// no `source` discriminator any more.)
 type VendorSubmission = VendorProduct & {
-  source: 'products' | 'vendor_products'
   status?: string
   vendorEmail?: string
 }
@@ -562,11 +564,10 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'pending_approval')
 
-      // Get pending vendor products
-      const { count: pendingVendorProducts } = await supabase
-        .from('vendor_products')
-        .select('*', { count: 'exact', head: true })
-        .eq('approved', false)
+      // No separate vendor-submission counter: a vendor submission IS a
+      // `products` row (status 'draft'), so it is already inside
+      // pendingProducts above. Counting the dropped `vendor_products` table
+      // here used to double as a second source; it never held a row.
 
       // Get pending 3D models
       const { count: pendingModels } = await supabase
@@ -574,7 +575,7 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('approved', false)
 
-      const pendingApprovals = (pendingProducts || 0) + (pendingUserProducts || 0) + (pendingVendorProducts || 0) + (pendingModels || 0)
+      const pendingApprovals = (pendingProducts || 0) + (pendingUserProducts || 0) + (pendingModels || 0)
 
       // Get total 3D models
       const { count: modelsUploaded } = await supabase
@@ -1598,30 +1599,22 @@ const AdminDashboard: React.FC = () => {
 
   // Vendor submissions land in public.products with vendor_id set — that is what
   // VendorDashboard.tsx actually writes (both "Add to store" and the submit
-  // form). This tab used to read only the legacy `vendor_products` table, which
-  // nothing has written to since the vendor flow moved onto `products`, so an
-  // admin could never see (let alone approve) a real submission. Both are read
-  // here so anything already sitting in the legacy table still shows up.
+  // form). This tab used to read the legacy `vendor_products` table, which
+  // nothing ever wrote to once the vendor flow moved onto `products`, so an
+  // admin could never see (let alone approve) a real submission. That table was
+  // dropped by 20260819210000_drop_vendor_products.sql having never held a row;
+  // `products` is now the single source for this tab.
   const loadVendorProductsData = async () => {
     try {
-      const [submittedRes, legacyRes] = await Promise.all([
-        supabase
-          .from('products')
-          .select('*')
-          .not('vendor_id', 'is', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('vendor_products')
-          .select('*')
-          .order('created_at', { ascending: false }),
-      ])
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .not('vendor_id', 'is', null)
+        .order('created_at', { ascending: false })
 
-      if (submittedRes.error) throw submittedRes.error
-      // The legacy table is optional — a missing/blocked read must not hide the
-      // real submissions.
-      if (legacyRes.error) console.warn('[admin] legacy vendor_products read failed:', legacyRes.error.message)
+      if (error) throw error
 
-      const fromProducts: VendorSubmission[] = (submittedRes.data || []).map((p: any) => ({
+      const submissions: VendorSubmission[] = (data || []).map((p: any) => ({
         id: p.id,
         vendorId: p.vendor_id,
         title: p.name || '',
@@ -1637,29 +1630,10 @@ const AdminDashboard: React.FC = () => {
         productType: p.product_type || 'physical',
         digitalPrice: Number(p.digital_price) || 0,
         fileUrl: p.file_url || undefined,
-        source: 'products',
         status: p.status || 'draft',
       }))
 
-      const fromLegacy: VendorSubmission[] = (legacyRes.data || []).map((vp: any) => ({
-        id: vp.id,
-        vendorId: vp.vendor_id,
-        title: vp.title || '',
-        description: vp.description || '',
-        price: Number(vp.price) || 0,
-        images: vp.images || [],
-        category: vp.category || 'other',
-        approved: vp.approved || false,
-        commissionRate: vp.commission_rate || 15,
-        createdAt: vp.created_at,
-        source: 'vendor_products',
-      }))
-
-      setVendorProducts(
-        [...fromProducts, ...fromLegacy].sort(
-          (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-        )
-      )
+      setVendorProducts(submissions)
     } catch (error) {
       console.error('Error loading vendor products:', error)
     }
@@ -1830,33 +1804,22 @@ const AdminDashboard: React.FC = () => {
 
   const approveVendorProduct = async (submission: VendorSubmission) => {
     try {
-      if (submission.source === 'products') {
-        // products.approved is derived, not writable: sync_products_approved()
-        // overwrites it from (status='active' AND is_active), and the
-        // products_approved_matches_status CHECK enforces the same identity.
-        // status + is_active IS the publish gate.
-        const { data, error } = await supabase
-          .from('products')
-          .update({ status: 'active', is_active: true })
-          .eq('id', submission.id)
-          .select('id, approved')
+      // products.approved is derived, not writable: sync_products_approved()
+      // overwrites it from (status='active' AND is_active), and the
+      // products_approved_matches_status CHECK enforces the same identity.
+      // status + is_active IS the publish gate.
+      const { data, error } = await supabase
+        .from('products')
+        .update({ status: 'active', is_active: true })
+        .eq('id', submission.id)
+        .select('id, approved')
 
-        if (error) throw error
-        if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
-        if (data[0].approved !== true) throw new Error('Product saved but did not go live — check status/is_active.')
-      } else {
-        const { data, error } = await supabase
-          .from('vendor_products')
-          .update({ approved: true })
-          .eq('id', submission.id)
-          .select('id')
-
-        if (error) throw error
-        if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
-      }
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
+      if (data[0].approved !== true) throw new Error('Product saved but did not go live — check status/is_active.')
 
       setVendorProducts(prev => prev.map(p =>
-        p.id === submission.id ? { ...p, approved: true, status: p.source === 'products' ? 'active' : p.status } : p
+        p.id === submission.id ? { ...p, approved: true, status: 'active' } : p
       ))
 
       await supabase.from('audit_logs').insert({
@@ -1864,7 +1827,7 @@ const AdminDashboard: React.FC = () => {
         action: 'APPROVE_PRODUCT',
         entity: 'VendorProduct',
         entity_id: submission.id,
-        changes: { approved: true, source: submission.source, vendor_id: submission.vendorId },
+        changes: { approved: true, vendor_id: submission.vendorId },
         ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
@@ -1883,51 +1846,36 @@ const AdminDashboard: React.FC = () => {
     if (!confirm('Are you sure you want to reject this vendor product?')) return
 
     try {
-      if (submission.source === 'products') {
-        // Reject, don't delete. Ten tables FK to products.id ON DELETE CASCADE
-        // (reviews, variants, assets, etsy_listings, social_outbox, …), so a
-        // one-click delete here would silently take related rows with it. The
-        // row stays for the vendor to see and for an admin to reverse.
-        const { data, error } = await supabase
-          .from('products')
-          .update({ status: 'rejected', is_active: false })
-          .eq('id', submission.id)
-          .select('id')
+      // Reject, don't delete. Ten tables FK to products.id ON DELETE CASCADE
+      // (reviews, variants, assets, etsy_listings, social_outbox, …), so a
+      // one-click delete here would silently take related rows with it. The
+      // row stays for the vendor to see and for an admin to reverse.
+      const { data, error } = await supabase
+        .from('products')
+        .update({ status: 'rejected', is_active: false })
+        .eq('id', submission.id)
+        .select('id')
 
-        if (error) throw error
-        if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error('No row was updated — check your admin permissions.')
 
-        setVendorProducts(prev => prev.map(p =>
-          p.id === submission.id ? { ...p, approved: false, status: 'rejected' } : p
-        ))
-      } else {
-        const { error } = await supabase
-          .from('vendor_products')
-          .delete()
-          .eq('id', submission.id)
-
-        if (error) throw error
-        setVendorProducts(prev => prev.filter(p => p.id !== submission.id))
-      }
+      setVendorProducts(prev => prev.map(p =>
+        p.id === submission.id ? { ...p, approved: false, status: 'rejected' } : p
+      ))
 
       await supabase.from('audit_logs').insert({
         user_id: user?.id || 'admin',
         action: 'REJECT_PRODUCT',
         entity: 'VendorProduct',
         entity_id: submission.id,
-        changes: { rejected: true, source: submission.source, vendor_id: submission.vendorId },
+        changes: { rejected: true, vendor_id: submission.vendorId },
         ip_address: '192.168.1.100',
         user_agent: navigator.userAgent
       })
 
       await loadAuditLogsData()
       await loadMetrics()
-      toast.success(
-        'Vendor product rejected',
-        submission.source === 'products'
-          ? 'Marked rejected and taken off the store. Nothing was deleted.'
-          : 'The product has been deleted.'
-      )
+      toast.success('Vendor product rejected', 'Marked rejected and taken off the store. Nothing was deleted.')
     } catch (error: any) {
       console.error('Error rejecting vendor product:', error)
       toast.error('Failed to reject product', error.message)
@@ -2447,7 +2395,7 @@ const AdminDashboard: React.FC = () => {
                   const vendorName = [vendor?.firstName, vendor?.lastName].filter(Boolean).join(' ')
                   const isRejected = product.status === 'rejected'
                   return (
-                    <div key={`${product.source}:${product.id}`} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-soft hover:shadow-soft-lg transition-shadow flex flex-col">
+                    <div key={product.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-soft hover:shadow-soft-lg transition-shadow flex flex-col">
                       {product.images?.[0] ? (
                         <img
                           src={product.images[0]}
@@ -2478,7 +2426,6 @@ const AdminDashboard: React.FC = () => {
                         </p>
                         <p className="text-xs text-slate-400 mb-3">
                           {product.category} · submitted {product.createdAt ? new Date(product.createdAt).toLocaleDateString() : 'unknown'}
-                          {product.source === 'vendor_products' && ' · legacy submission'}
                         </p>
 
                         <div className="flex space-x-2 mt-auto">
