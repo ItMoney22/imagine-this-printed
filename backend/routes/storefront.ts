@@ -48,12 +48,21 @@ const BACK_PRINT_UPCHARGE_USD = (() => {
 // Multipart upload for creator product publishes: print files are PNG
 // (300 DPI at print size, transparent bg — DPI is enforced by the publishing
 // studio; ITP re-checks at review), mockups may be png/jpg/webp composites.
+// model_file is the optional 3D-print mesh (STL/GLB) a print3d lane (e.g.
+// Darrell V2) sends alongside `placement.print3d` — see POST /products below.
+const MODEL_FILE_EXTENSIONS = ['stl', 'glb']
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 80 * 1024 * 1024, files: 12 },
   fileFilter: (_req, file, cb) => {
     if (file.fieldname === 'front_print' || file.fieldname === 'back_print') {
       cb(null, file.mimetype === 'image/png')
+    } else if (file.fieldname === 'model_file') {
+      // Mesh content-types are inconsistent across senders (browsers/CDNs often
+      // report application/octet-stream for STL/GLB), so gate on the field name
+      // + file extension rather than mimetype.
+      const ext = (file.originalname.split('.').pop() || '').toLowerCase()
+      cb(null, MODEL_FILE_EXTENSIONS.includes(ext))
     } else {
       cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype))
     }
@@ -449,7 +458,15 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
 //   description  optional
 //   colors       optional — JSON array or CSV ("Black,White")
 //   sizes        optional — JSON array or CSV ("S,M,L,XL,2XL")
-//   placement    optional — JSON blob of designer transforms (stored verbatim)
+//   placement    optional — JSON blob of designer transforms (stored verbatim).
+//                For a 3D-print lane, placement.print3d ({ material, color_mode,
+//                magnet_sockets, size_tier, stl_url, glb_url, ... }) is lifted
+//                into metadata.print3d — see model_file below.
+//   model_file   optional — a 3D-print mesh (.stl or .glb) for a 3D-print
+//                product (categorySlug '3d-prints'). Uploaded to ITP storage
+//                and recorded as metadata.print3d.stl_url / glb_url (by
+//                extension), taking precedence over any URL already present
+//                in placement.print3d.
 //   externalRef  optional — the storefront's draft id, echoed for reconciliation
 //
 // The product is created AS the mapped creator: created_by_user_id=<creator>,
@@ -462,7 +479,8 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
   upload.fields([
     { name: 'front_print', maxCount: 1 },
     { name: 'back_print', maxCount: 1 },
-    { name: 'mockups', maxCount: 10 }
+    { name: 'mockups', maxCount: 10 },
+    { name: 'model_file', maxCount: 1 }
   ])(req, res, (err: any) => {
     if (err) return res.status(400).json({ error: 'Upload failed', message: err.message })
     next()
@@ -479,6 +497,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     const frontPrint = files.front_print?.[0]
     const backPrint = files.back_print?.[0]
     const mockupFiles = files.mockups || []
+    const modelFile = files.model_file?.[0]
 
     if (!frontPrint) {
       return res.status(400).json({ error: 'front_print PNG is required' })
@@ -598,6 +617,33 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       mockupUrls.push(uploaded.publicUrl)
     }
 
+    // 3D-print spec: placement.print3d (sent by the print3d lane) plus the
+    // mesh file, when uploaded, taking precedence over any URL placement
+    // already carried (placement's may be a short-lived signed url from the
+    // sender's own storage).
+    const placementPrint3d = (placement && typeof placement === 'object' && placement.print3d && typeof placement.print3d === 'object')
+      ? placement.print3d as Record<string, unknown>
+      : null
+    let modelUpload: { publicUrl: string; ext: 'stl' | 'glb' } | null = null
+    if (modelFile) {
+      const modelExt = (modelFile.originalname.split('.').pop() || '').toLowerCase() === 'glb' ? 'glb' : 'stl'
+      const modelContentType = modelExt === 'glb' ? 'model/gltf-binary' : 'model/stl'
+      const uploaded = await uploadImageFromBuffer(modelFile.buffer, `${basePath}/model.${modelExt}`, modelContentType)
+      modelUpload = { publicUrl: uploaded.publicUrl, ext: modelExt }
+    }
+    const print3d = (placementPrint3d || modelUpload) ? {
+      material: (typeof placementPrint3d?.material === 'string' && placementPrint3d.material) || 'PLA',
+      color_mode: placementPrint3d?.color_mode === 'color4' ? 'color4' : 'grey',
+      magnet_sockets: typeof placementPrint3d?.magnet_sockets === 'number' ? placementPrint3d.magnet_sockets : 2,
+      size_tier: typeof placementPrint3d?.size_tier === 'string' ? placementPrint3d.size_tier : null,
+      stl_url: modelUpload?.ext === 'stl'
+        ? modelUpload.publicUrl
+        : (typeof placementPrint3d?.stl_url === 'string' ? placementPrint3d.stl_url : null),
+      glb_url: modelUpload?.ext === 'glb'
+        ? modelUpload.publicUrl
+        : (typeof placementPrint3d?.glb_url === 'string' ? placementPrint3d.glb_url : null),
+    } : null
+
     // Resolve the category dynamically. Fall back to 'shirts' if not specified.
     const resolvedCategorySlug = (categorySlug && categorySlug.toLowerCase()) || 'shirts'
     const resolvedCategoryName = resolvedCategorySlug
@@ -664,6 +710,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
           storefront_vendor: vendor,
           external_ref: externalRef,
           placement,
+          ...(print3d ? { print3d } : {}),
           print_files: printFiles,
           mockup_url: mockupUrls[0] || null,
           // Direct-print product: the uploaded 300-DPI transparent PNG IS the
@@ -700,7 +747,8 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       retailUsd,
       costUsd,
       backPrint: !!backUpload,
-      mockups: mockupUrls.length
+      mockups: mockupUrls.length,
+      modelFile: !!modelUpload
     }, 'storefront: creator product submitted for approval')
 
     return res.status(201).json({
@@ -715,6 +763,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         ...(backUpload ? { back: backUpload.publicUrl } : {}),
         mockups: mockupUrls,
       },
+      ...(print3d ? { print3d } : {}),
     })
   } catch (error: any) {
     req.log?.error({ err: error }, 'storefront: product create crashed')
