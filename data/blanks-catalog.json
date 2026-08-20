@@ -1,0 +1,162 @@
+{
+  "catalog_name": "ITP Blank Shirt Catalog",
+  "description": "Blank/wholesale t-shirt line specs and Jiffy pricing for ITP's blanks storefront and garment-tier selector. Scraped read-only, no purchases made.",
+  "source": {
+    "vendor": "JiffyShirts",
+    "note": "jiffyshirts.com now 301-redirects permanently to jiffy.com (same company, rebranded domain). All URLs below are the live jiffy.com product pages.",
+    "captured_date": "2026-08-19",
+    "captured_by": "Zero Nine (Watchtower dispatch 14d214d5-a48a-4301-b3e5-d4a139d4e471)",
+    "currency": "USD"
+  },
+  "pricing_model_note": "Jiffy's bulk discount is NOT a simple per-item quantity break (e.g. 24+/48+/144+). It is applied per running CART DOLLAR SUBTOTAL for that product line: as the subtotal for a given style crosses $99 / $150 / $250 / $500 / $1,000 / $1,750 / $3,800, the per-unit price for every size/color in that line drops to the tier's listed rate. Each style below lists that ladder for its White colorway, its Gray/heather-adjacent colorway, and the cheapest ('from') price across all other colors, all quoted for the style's base size run (see `base_size_run`). Oversized (2XL+) sizes are not separately laddered on the product page; only their single-unit street price is available (see `base_price_by_size_group`). `base_price_by_size_group` is the White colorway, qty=1 'everyday' street price per exact size (already discounted off `msrp_usd` before any bulk cart-subtotal tier is reached) — it is NOT flat across a size run; e.g. Gildan 5000 size S prices lower than M-XL despite sharing the same MSRP.",
+  "items": [
+    {
+      "style_id": "gildan-5000",
+      "brand": "Gildan",
+      "style_code": "G500",
+      "alt_style_code": "5000",
+      "product_name": "Unisex Heavy Cotton T-Shirt",
+      "product_url": "https://www.jiffy.com/gildan-G500.html",
+      "fabric_weight_oz": 5.3,
+      "material_primary": "100% Cotton",
+      "material_variants": [
+        { "colors": "Most colors (White, Black, Navy, Royal, Red, etc.)", "composition": "100% Cotton" },
+        { "colors": "Ash", "composition": "99% Cotton / 1% Polyester" },
+        { "colors": "Antique (Cherry Red, Jade Dome, Irish Green, Sapphire, Orange), Sport Grey", "composition": "90% Cotton / 10% Polyester" },
+        { "colors": "All heather colors, Sunset, Safety Pink, Russet, Neon (Green, Blue), Midnight, Lilac, Blackberry, Tweed, Safety Green", "composition": "50% Cotton / 50% Polyester" },
+        { "colors": "Natural", "composition": "100% unprocessed, unbleached cotton (small black flecks/plant fibers are expected)" }
+      ],
+      "sizes": ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"],
+      "base_size_run": "S-XL",
+      "color_count": 81,
+      "colors": ["White", "Off White", "Ash", "Ice Gray", "Gravel", "Graphite Heather", "Sport Gray", "Tweed", "Charcoal", "Dark Heather", "Black", "Corn Silk", "Yellow Haze", "Daisy", "Old Gold", "Gold", "Tangerine", "Antique Orange", "High Viz Safety Orange", "Orange", "Sunset", "Tennessee Orange", "Texas Orange", "Light Pink", "Dusty Rose", "Coral Silk", "Azalea", "Safety Pink", "Heather Radiant Orchid", "Heliconia", "Berry", "Heather Red", "Antique Cherry Red", "Cardinal", "Maroon", "Red", "Garnet", "Mint Green", "Lime", "Neon Green", "Electric Green", "Kiwi", "Safety Green", "Military Green", "Antique Irish Green", "Heather Military Green", "Jade Dome", "Turf Green", "Antique Jade Dome", "Fan Dark Green", "Irish Green", "Forest Green", "Fan Marine Green", "Light Blue", "Sky", "Carolina Blue", "Aquatic", "Heather Sapphire", "Iris", "Antique Sapphire", "Tropical Blue", "Sapphire", "Midnight", "Indigo Blue", "Neon Blue", "Blue Dusk", "Royal", "Fan Deep Royal", "Heather Navy", "Navy", "Violet", "Cobalt", "Lilac", "Purple", "Blackberry", "Fan Dark Purple", "Sand", "Brown Savana", "Dark Chocolate", "Russet", "Natural"],
+      "base_price_by_size_group": [
+        { "sizes": "S", "msrp_usd": 5.04, "street_unit_price_usd": 1.86, "discount_pct": 63 },
+        { "sizes": "M-XL", "msrp_usd": 5.04, "street_unit_price_usd": 2.79, "discount_pct": 45 },
+        { "sizes": "2XL", "msrp_usd": 8.56, "street_unit_price_usd": 5.38, "discount_pct": 37 },
+        { "sizes": "3XL", "msrp_usd": 9.64, "street_unit_price_usd": 7.17, "discount_pct": 26 },
+        { "sizes": "4XL-5XL", "msrp_usd": 9.64, "street_unit_price_usd": 7.50, "discount_pct": 22 }
+      ],
+      "volume_price_breaks": [
+        { "cart_subtotal_threshold_usd": 99, "unit_price_white_usd": 1.85, "unit_price_gray_usd": 3.05, "unit_price_other_colors_from_usd": 2.79 },
+        { "cart_subtotal_threshold_usd": 150, "unit_price_white_usd": 1.84, "unit_price_gray_usd": 3.05, "unit_price_other_colors_from_usd": 2.79 },
+        { "cart_subtotal_threshold_usd": 250, "unit_price_white_usd": 1.83, "unit_price_gray_usd": 3.04, "unit_price_other_colors_from_usd": 2.79 },
+        { "cart_subtotal_threshold_usd": 500, "unit_price_white_usd": 1.81, "unit_price_gray_usd": 3.03, "unit_price_other_colors_from_usd": 2.78 },
+        { "cart_subtotal_threshold_usd": 1000, "unit_price_white_usd": 1.78, "unit_price_gray_usd": 3.01, "unit_price_other_colors_from_usd": 2.76 },
+        { "cart_subtotal_threshold_usd": 1750, "unit_price_white_usd": 1.76, "unit_price_gray_usd": 3.00, "unit_price_other_colors_from_usd": 2.76 },
+        { "cart_subtotal_threshold_usd": 3800, "unit_price_white_usd": 1.75, "unit_price_gray_usd": 2.99, "unit_price_other_colors_from_usd": 2.75 }
+      ],
+      "notes": "Classic structured/heavier tee, popular for screen printing and workwear. Per Jiffy's own comparison copy: choose 5000 over 64000 for structure/durability, 64000 for softness."
+    },
+    {
+      "style_id": "gildan-64000",
+      "brand": "Gildan",
+      "style_code": "G640",
+      "alt_style_code": "64000",
+      "product_name": "Softstyle Unisex T-Shirt",
+      "product_url": "https://www.jiffy.com/gildan-G640.html",
+      "fabric_weight_oz": 4.5,
+      "material_primary": "100% preshrunk ring-spun cotton",
+      "material_variants": [
+        { "colors": "Most colors", "composition": "100% preshrunk ring-spun cotton" },
+        { "colors": "Antique colors, Sport Grey", "composition": "90% ring-spun cotton / 10% Polyester" },
+        { "colors": "Graphite Heather", "composition": "50% ring-spun cotton / 50% Polyester" },
+        { "colors": "Heather colors (except Heather Oatmeal), Blackberry", "composition": "65% Polyester / 35% ring-spun cotton" },
+        { "colors": "Heather Oatmeal", "composition": "99% ring-spun cotton / 1% Polyester" },
+        { "colors": "Natural", "composition": "100% unprocessed, unbleached cotton (small black flecks/plant fibers are expected)" }
+      ],
+      "sizes": ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"],
+      "base_size_run": "XS-XL",
+      "color_count": 76,
+      "colors": ["White", "Off White", "Natural", "Ice Gray", "Sport Gray", "Charcoal", "Graphite Heather", "Dark Heather", "Heather Dark Grey", "Black", "Heather Oatmeal", "Cornsilk", "Daisy", "Gold", "Heather Orange", "Orange", "Fan Texas Orange", "Light Pink", "Fan Candy Pink", "Azalea", "Coral Silk", "Heather Heliconia", "Heliconia", "Antique Heliconia", "Heather Maroon", "Heather Red", "Antique Cherry Red", "Cherry Red", "Heather Cardinal", "Red", "Maroon", "Garnet", "Cardinal", "Pistachio", "Mint Green", "Sage", "Lime", "Heather Military Green", "Heather Irish Green", "Kiwi", "Military Green", "Kelly Green", "Jade Dome", "Turf Green", "Irish Green", "Forest Green", "Fan Marine Green", "Sky", "Light Blue", "Iris", "Carolina Blue", "Stone Blue", "Antique Sapphire", "Heather Indigo", "Sapphire", "Indigo", "Heather Galapagos Blue", "Neon Blue", "Metro Blue", "Heather Sapphire", "Tropical Blue", "Heather Royal", "Royal", "Fan Deep Royal", "Heather Navy", "Navy", "Paragon", "Heather Berry", "Heather Radiant Orchid", "Heather Purple", "Purple", "Fan Dark Purple", "Sand", "Dark Chocolate", "Prairie Dust", "Fan Dark Green"],
+      "base_price_by_size_group": [
+        { "sizes": "XS", "msrp_usd": 6.14, "street_unit_price_usd": 2.49, "discount_pct": 59 },
+        { "sizes": "S-XL", "msrp_usd": 6.14, "street_unit_price_usd": 3.25, "discount_pct": 47 },
+        { "sizes": "2XL", "msrp_usd": 9.18, "street_unit_price_usd": 5.98, "discount_pct": 35 },
+        { "sizes": "3XL", "msrp_usd": 11.82, "street_unit_price_usd": 8.07, "discount_pct": 32 },
+        { "sizes": "4XL-5XL", "msrp_usd": 11.82, "street_unit_price_usd": 8.38, "discount_pct": 29 }
+      ],
+      "volume_price_breaks": [
+        { "cart_subtotal_threshold_usd": 99, "unit_price_white_usd": 2.46, "unit_price_gray_usd": 3.88, "unit_price_other_colors_from_usd": 3.88 },
+        { "cart_subtotal_threshold_usd": 150, "unit_price_white_usd": 2.45, "unit_price_gray_usd": 3.86, "unit_price_other_colors_from_usd": 3.86 },
+        { "cart_subtotal_threshold_usd": 250, "unit_price_white_usd": 2.43, "unit_price_gray_usd": 3.82, "unit_price_other_colors_from_usd": 3.82 },
+        { "cart_subtotal_threshold_usd": 500, "unit_price_white_usd": 2.38, "unit_price_gray_usd": 3.75, "unit_price_other_colors_from_usd": 3.75 },
+        { "cart_subtotal_threshold_usd": 1000, "unit_price_white_usd": 2.33, "unit_price_gray_usd": 3.66, "unit_price_other_colors_from_usd": 3.65 },
+        { "cart_subtotal_threshold_usd": 1750, "unit_price_white_usd": 2.29, "unit_price_gray_usd": 3.60, "unit_price_other_colors_from_usd": 3.47 },
+        { "cart_subtotal_threshold_usd": 3800, "unit_price_white_usd": 2.27, "unit_price_gray_usd": 3.56, "unit_price_other_colors_from_usd": 3.36 }
+      ],
+      "notes": "Lighter, softer, more retail-style tee than the 5000. No pocket variant exists."
+    },
+    {
+      "style_id": "bella-canvas-3001",
+      "brand": "Bella + Canvas",
+      "style_code": "3001C",
+      "alt_style_code": "3001",
+      "product_name": "Unisex Jersey T-Shirt",
+      "product_url": "https://www.jiffy.com/bellacanvas-3001C.html",
+      "fabric_weight_oz": 4.2,
+      "material_primary": "100% Airlume combed and ring-spun cotton, 32 singles",
+      "material_variants": [
+        { "colors": "Most colors", "composition": "100% Airlume combed and ring-spun cotton" },
+        { "colors": "Ash", "composition": "99% Airlume combed and ring-spun cotton / 1% Polyester" }
+      ],
+      "sizes": ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"],
+      "base_size_run": "XS-XL",
+      "color_count": 94,
+      "colors_note": "Heather and blend colorways were moved to style 3001CVC and are not included in this 3001C solid-color list.",
+      "colors": ["White", "Natural", "Vintage White", "Dust", "Ash", "Silver", "Solid Athletic Gray", "Storm", "Dark Gray", "Asphalt", "Slate", "Black", "Vintage Black", "Pink Gravel", "Yellow", "Maize Yellow", "Mustard", "Gold", "Sunset", "Peach", "Terracotta", "Coral", "Orange", "Autumn", "Burnt Orange", "Soft Pink", "Lilac", "Pink", "Orchid", "Charity Pink", "Fuchsia", "Mauve", "Berry", "Vintage Red", "Poppy", "Canvas Red", "Red", "Cardinal", "Rust", "Maroon", "Oxblood", "Mint", "Spring Green", "Thyme", "Sage", "Strobe", "Synthetic Green", "Army", "Pine", "Teal", "Olive", "Leaf", "Kelly", "Military Green", "Forest", "Hunter Green", "Dark Olive", "Evergreen", "Atlantic", "Vintage Denim", "Light Blue", "Baby Blue", "Carolina Blue", "Dusty Blue", "Ocean Blue", "Aqua", "Columbia Blue", "Blue Storm", "Steel Blue", "Turquoise", "Electric Blue", "Deep Teal", "Marine", "Cool Blue", "Navy", "True Royal", "Vintage Navy", "Team Navy", "Lavender Dust", "Dark Lavender", "Light Violet", "Lavender Blue", "Royal Purple", "Purple Storm", "Team Purple", "Soft Cream", "Tan", "Chestnut", "Toast", "Clay", "Pebble", "Vintage Brown", "Cocoa", "Brown"],
+      "base_price_by_size_group": [
+        { "sizes": "XS", "msrp_usd": 8.98, "street_unit_price_usd": 4.78, "discount_pct": 47 },
+        { "sizes": "S", "msrp_usd": 8.98, "street_unit_price_usd": 4.29, "discount_pct": 52 },
+        { "sizes": "M-XL", "msrp_usd": 8.98, "street_unit_price_usd": 4.78, "discount_pct": 47 },
+        { "sizes": "2XL", "msrp_usd": 12.14, "street_unit_price_usd": 7.53, "discount_pct": 38 },
+        { "sizes": "3XL", "msrp_usd": 14.12, "street_unit_price_usd": 10.78, "discount_pct": 24 },
+        { "sizes": "4XL", "msrp_usd": 16.68, "street_unit_price_usd": 14.18, "discount_pct": 15 },
+        { "sizes": "5XL", "msrp_usd": 19.52, "street_unit_price_usd": 15.03, "discount_pct": 23 }
+      ],
+      "volume_price_breaks": [
+        { "cart_subtotal_threshold_usd": 99, "unit_price_white_usd": 4.24, "unit_price_gray_usd": 5.86, "unit_price_other_colors_from_usd": 4.58 },
+        { "cart_subtotal_threshold_usd": 150, "unit_price_white_usd": 4.22, "unit_price_gray_usd": 5.85, "unit_price_other_colors_from_usd": 4.55 },
+        { "cart_subtotal_threshold_usd": 250, "unit_price_white_usd": 4.18, "unit_price_gray_usd": 5.82, "unit_price_other_colors_from_usd": 4.51 },
+        { "cart_subtotal_threshold_usd": 500, "unit_price_white_usd": 4.10, "unit_price_gray_usd": 5.76, "unit_price_other_colors_from_usd": 4.42 },
+        { "cart_subtotal_threshold_usd": 1000, "unit_price_white_usd": 4.01, "unit_price_gray_usd": 5.68, "unit_price_other_colors_from_usd": 4.32 },
+        { "cart_subtotal_threshold_usd": 1750, "unit_price_white_usd": 3.94, "unit_price_gray_usd": 5.63, "unit_price_other_colors_from_usd": 4.24 },
+        { "cart_subtotal_threshold_usd": 3800, "unit_price_white_usd": 3.90, "unit_price_gray_usd": 5.60, "unit_price_other_colors_from_usd": 4.20 }
+      ],
+      "notes": "Premium retail-fit tee, side-seamed (not tubular). The most expensive of the four core lines at low volume; narrows toward Comfort Colors pricing at the top spend tier."
+    },
+    {
+      "style_id": "comfort-colors-1717",
+      "brand": "Comfort Colors",
+      "style_code": "C1717",
+      "alt_style_code": "1717",
+      "product_name": "Unisex Heavyweight RS T-Shirt",
+      "product_url": "https://www.jiffy.com/comfortcolors-C1717.html",
+      "fabric_weight_oz": 6.1,
+      "material_primary": "100% ring-spun cotton, garment-dyed",
+      "material_variants": [
+        { "colors": "All colors", "composition": "100% ring-spun cotton" }
+      ],
+      "sizes": ["S", "M", "L", "XL", "2XL", "3XL", "4XL"],
+      "base_size_run": "S-XL",
+      "color_count": 68,
+      "colors": ["White", "Gray", "Granite", "Graphite", "Pepper", "Black", "Sandstone", "Khaki", "Butter", "Neon Lemon", "Citrus", "Mustard", "Peachy", "Neon Red Orange", "Neon Cantaloupe", "Bright Salmon", "Terracotta", "Melon", "Bright Orange", "Burnt Orange", "Yam", "Blossom", "Neon Pink", "Crunchberry", "Watermelon", "Red", "Paprika", "Crimson", "Berry", "Chili", "Brick", "Island Reef", "Bay", "Chalky Mint", "Moss", "Seafoam", "Island Green", "Sage", "Blue Spruce", "Light Green", "Hemp", "Emerald", "Washed Denim", "Denim", "Chambray", "Hydrangea", "Lagoon Blue", "Flo Blue", "Yankey Blue", "Sapphire", "Mystic Blue", "Ice Blue", "Periwinkle", "Blue Jean", "China Blue", "Midnight", "Royal Caribe", "Dusk", "True Navy", "Navy", "Orchid", "Neon Violet", "Violet", "Grape", "Wine", "Espresso", "Rose Quartz", "Ivory"],
+      "base_price_by_size_group": [
+        { "sizes": "S-XL", "msrp_usd": 11.78, "street_unit_price_usd": 7.49, "discount_pct": 36 },
+        { "sizes": "2XL", "msrp_usd": 15.22, "street_unit_price_usd": 10.50, "discount_pct": 31 },
+        { "sizes": "3XL", "msrp_usd": 18.36, "street_unit_price_usd": 12.62, "discount_pct": 31 },
+        { "sizes": "4XL", "msrp_usd": 18.36, "street_unit_price_usd": 14.26, "discount_pct": 22 }
+      ],
+      "volume_price_breaks": [
+        { "cart_subtotal_threshold_usd": 99, "unit_price_white_usd": 7.41, "unit_price_gray_usd": 7.45, "unit_price_other_colors_from_usd": 5.72 },
+        { "cart_subtotal_threshold_usd": 150, "unit_price_white_usd": 7.37, "unit_price_gray_usd": 7.41, "unit_price_other_colors_from_usd": 5.71 },
+        { "cart_subtotal_threshold_usd": 250, "unit_price_white_usd": 7.30, "unit_price_gray_usd": 7.34, "unit_price_other_colors_from_usd": 5.69 },
+        { "cart_subtotal_threshold_usd": 500, "unit_price_white_usd": 7.17, "unit_price_gray_usd": 7.21, "unit_price_other_colors_from_usd": 5.64 },
+        { "cart_subtotal_threshold_usd": 1000, "unit_price_white_usd": 7.00, "unit_price_gray_usd": 7.04, "unit_price_other_colors_from_usd": 5.59 },
+        { "cart_subtotal_threshold_usd": 1750, "unit_price_white_usd": 6.89, "unit_price_gray_usd": 6.93, "unit_price_other_colors_from_usd": 5.55 },
+        { "cart_subtotal_threshold_usd": 3800, "unit_price_white_usd": 6.82, "unit_price_gray_usd": 6.86, "unit_price_other_colors_from_usd": 5.53 }
+      ],
+      "notes": "Premium/heavyweight tier, no 5XL offered. Garment-dyed after cut-and-sew (soft-washed finish); made in Mexico/Honduras from USA-grown cotton, dyed in Vermont. Priciest of the four core lines at every tier."
+    }
+  ]
+}

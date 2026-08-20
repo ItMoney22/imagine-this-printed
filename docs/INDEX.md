@@ -20,6 +20,7 @@ This index lists all active documentation. For historical/completed docs, see `d
 ### Core Project Docs
 | Document | Status | Description |
 |----------|--------|-------------|
+| [../data/README.md](../data/README.md) | CURRENT | Blanks catalog data (JiffyShirts specs + pricing for Gildan 5000/64000, Bella+Canvas 3001, Comfort Colors 1717) |
 | [AI_PRODUCT_BUILDER.md](AI_PRODUCT_BUILDER.md) | CURRENT | AI product builder overview |
 | [AI_PRODUCT_BUILDER_PIPELINE.md](AI_PRODUCT_BUILDER_PIPELINE.md) | CURRENT | Complete pipeline reference (production ready) |
 | [CUSTOMER_AI_PRODUCT_BUILDER.md](CUSTOMER_AI_PRODUCT_BUILDER.md) | CURRENT | Customer-facing AI builder docs |

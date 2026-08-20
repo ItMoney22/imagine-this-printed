@@ -1,0 +1,106 @@
+style_id,brand,style_code,size_group,break_type,cart_subtotal_threshold_usd,color_tier,unit_price_usd,msrp_usd,discount_pct
+gildan-5000,Gildan,G500,S,single_unit,,all,1.86,5.04,63
+gildan-5000,Gildan,G500,M-XL,single_unit,,all,2.79,5.04,45
+gildan-5000,Gildan,G500,2XL,single_unit,,all,5.38,8.56,37
+gildan-5000,Gildan,G500,3XL,single_unit,,all,7.17,9.64,26
+gildan-5000,Gildan,G500,4XL-5XL,single_unit,,all,7.5,9.64,22
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,99,white,1.85,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,99,gray,3.05,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,99,other_colors_from,2.79,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,150,white,1.84,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,150,gray,3.05,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,150,other_colors_from,2.79,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,250,white,1.83,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,250,gray,3.04,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,250,other_colors_from,2.79,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,500,white,1.81,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,500,gray,3.03,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,500,other_colors_from,2.78,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,1000,white,1.78,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,1000,gray,3.01,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,1000,other_colors_from,2.76,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,1750,white,1.76,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,1750,gray,3,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,1750,other_colors_from,2.76,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,3800,white,1.75,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,3800,gray,2.99,,
+gildan-5000,Gildan,G500,S-XL,bulk_cart_subtotal,3800,other_colors_from,2.75,,
+gildan-64000,Gildan,G640,XS,single_unit,,all,2.49,6.14,59
+gildan-64000,Gildan,G640,S-XL,single_unit,,all,3.25,6.14,47
+gildan-64000,Gildan,G640,2XL,single_unit,,all,5.98,9.18,35
+gildan-64000,Gildan,G640,3XL,single_unit,,all,8.07,11.82,32
+gildan-64000,Gildan,G640,4XL-5XL,single_unit,,all,8.38,11.82,29
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,99,white,2.46,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,99,gray,3.88,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,99,other_colors_from,3.88,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,150,white,2.45,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,150,gray,3.86,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,150,other_colors_from,3.86,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,250,white,2.43,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,250,gray,3.82,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,250,other_colors_from,3.82,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,500,white,2.38,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,500,gray,3.75,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,500,other_colors_from,3.75,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,1000,white,2.33,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,1000,gray,3.66,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,1000,other_colors_from,3.65,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,1750,white,2.29,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,1750,gray,3.6,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,1750,other_colors_from,3.47,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,3800,white,2.27,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,3800,gray,3.56,,
+gildan-64000,Gildan,G640,XS-XL,bulk_cart_subtotal,3800,other_colors_from,3.36,,
+bella-canvas-3001,Bella + Canvas,3001C,XS,single_unit,,all,4.78,8.98,47
+bella-canvas-3001,Bella + Canvas,3001C,S,single_unit,,all,4.29,8.98,52
+bella-canvas-3001,Bella + Canvas,3001C,M-XL,single_unit,,all,4.78,8.98,47
+bella-canvas-3001,Bella + Canvas,3001C,2XL,single_unit,,all,7.53,12.14,38
+bella-canvas-3001,Bella + Canvas,3001C,3XL,single_unit,,all,10.78,14.12,24
+bella-canvas-3001,Bella + Canvas,3001C,4XL,single_unit,,all,14.18,16.68,15
+bella-canvas-3001,Bella + Canvas,3001C,5XL,single_unit,,all,15.03,19.52,23
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,99,white,4.24,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,99,gray,5.86,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,99,other_colors_from,4.58,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,150,white,4.22,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,150,gray,5.85,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,150,other_colors_from,4.55,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,250,white,4.18,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,250,gray,5.82,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,250,other_colors_from,4.51,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,500,white,4.1,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,500,gray,5.76,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,500,other_colors_from,4.42,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,1000,white,4.01,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,1000,gray,5.68,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,1000,other_colors_from,4.32,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,1750,white,3.94,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,1750,gray,5.63,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,1750,other_colors_from,4.24,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,3800,white,3.9,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,3800,gray,5.6,,
+bella-canvas-3001,Bella + Canvas,3001C,XS-XL,bulk_cart_subtotal,3800,other_colors_from,4.2,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,single_unit,,all,7.49,11.78,36
+comfort-colors-1717,Comfort Colors,C1717,2XL,single_unit,,all,10.5,15.22,31
+comfort-colors-1717,Comfort Colors,C1717,3XL,single_unit,,all,12.62,18.36,31
+comfort-colors-1717,Comfort Colors,C1717,4XL,single_unit,,all,14.26,18.36,22
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,99,white,7.41,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,99,gray,7.45,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,99,other_colors_from,5.72,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,150,white,7.37,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,150,gray,7.41,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,150,other_colors_from,5.71,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,250,white,7.3,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,250,gray,7.34,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,250,other_colors_from,5.69,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,500,white,7.17,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,500,gray,7.21,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,500,other_colors_from,5.64,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,1000,white,7,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,1000,gray,7.04,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,1000,other_colors_from,5.59,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,1750,white,6.89,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,1750,gray,6.93,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,1750,other_colors_from,5.55,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,3800,white,6.82,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,3800,gray,6.86,,
+comfort-colors-1717,Comfort Colors,C1717,S-XL,bulk_cart_subtotal,3800,other_colors_from,5.53,,
