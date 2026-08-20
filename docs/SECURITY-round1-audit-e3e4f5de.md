@@ -20,16 +20,16 @@ was **still open**.
 | 1 | **Critical** | `/api/admin/imagination-products/*` had no authentication at all | **Fixed** |
 | 2 | **High** | `GET /api/profile/get` leaked the full `user_profiles` row (PII) to anyone | **Fixed** |
 | 3 | **High** | Frontend Shippo integration is designed to put a live postage key in the public bundle | Already fixed on an unmerged branch — blocked on task `be0019f2` |
-| 4 | **High** | Dependency tree: 2 critical / 29 high advisories across root + backend | Task filed |
+| 4 | **High** | Dependency tree: 2 critical / 29 high advisories across root + backend | Task `be391382` |
 | 5 | **Medium** | Support live-chat: sender identity taken from the request body (impersonation) | **Fixed** |
-| 6 | **Medium** | Guest support chat has no per-ticket capability — any ticket id reads/writes/escalates | Task filed |
+| 6 | **Medium** | Guest support chat has no per-ticket capability — any ticket id reads/writes/escalates | Task `73487f1e` |
 | 7 | **Medium** | `POST /api/gift-cards/redeem` unauthenticated, credited a body-supplied `userId` | **Fixed** |
 | 8 | **Medium** | `POST /api/coupons/apply` unauthenticated write against coupon usage counters | **Fixed** |
 | 9 | **Low** | `script-src` allowed `unpkg.com` + `ajax.googleapis.com`, neither used | **Fixed** |
 | 10 | **Low** | Shared-secret bearer compares were not constant time (print bridge, UGC inbound) | **Fixed** |
 | 11 | **Low** | `timingSafeEqual` on unequal-length buffers threw → 500 instead of 401 | **Fixed** |
 | 12 | **Low** | Manager cost-assistant reply rendered into `dangerouslySetInnerHTML` unescaped | **Fixed** |
-| 13 | **Low** | Migration files still contain the wide-open RLS policies dropped on live prod | Task filed |
+| 13 | **Low** | Migration files still contain the wide-open RLS policies dropped on live prod | Task `82d4ae2e` |
 
 ---
 
@@ -112,7 +112,8 @@ Same latent class, lower stakes, and NOT covered by that branch:
 Vite's default `envPrefix` means these are always `undefined` today, so nothing
 leaks — but adding a prefix, or a `define:` entry, would publish AWS credentials
 and the Postgres URL. Those readers are dead code (`src/utils/storage.ts` is
-documented as unused in `vite.config.ts`) and should be deleted; filed.
+documented as unused in `vite.config.ts`) and should be deleted — task `e6965776`,
+which also covers deleting the dead `src/utils/profile-service.ts` noted above.
 
 ### 4. High — dependency advisories
 
@@ -133,7 +134,7 @@ The ones that touch request-handling paths rather than build tooling:
 Not remediated here: the fixes are major-version bumps (React Router in
 particular), and this worktree's `node_modules` is a junction into the shared
 checkout, so an `npm audit fix` from here would mutate another session's tree.
-Filed as its own task.
+Filed as task `be391382-a0e5-4e1f-9cac-a8bc9f6c0d89`.
 
 ### 5-6. Medium — support live chat
 
@@ -261,3 +262,17 @@ Worth recording so round 2 doesn't re-audit them:
 - `npm run build` — succeeds.
 - `eslint` on all 12 changed files — 0 errors (139 pre-existing `no-explicit-any`
   style warnings).
+
+---
+
+## Watchtower tasks filed
+
+| Task | Severity | Title |
+|---|---|---|
+| `be391382-a0e5-4e1f-9cac-a8bc9f6c0d89` | High | Upgrade vulnerable dependencies (2 critical / 29 high) |
+| `73487f1e-3be0-4825-8d60-70a5d3a60a27` | Medium | Guest support chat has no per-ticket capability |
+| `82d4ae2e-cbfa-4331-9eda-51fa6a22d774` | Medium | Migration files still create the wide-open RLS policies dropped on prod |
+| `e6965776-4307-4a5c-9874-8ecce13c98b2` | Low | Delete the dead frontend modules reading AWS/DATABASE_URL env |
+
+Not filed, because a task already covers it:
+`be0019f2-9045-4be6-a1f4-1f7b11642e0d` (Shippo label route — finding 3).
