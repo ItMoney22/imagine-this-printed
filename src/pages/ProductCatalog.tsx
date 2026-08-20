@@ -67,6 +67,12 @@ function applyCategoryFilter(query: any, categoryId: string) {
       'category.ilike.%3d%,category.ilike.%toy%,metadata->>product_template.ilike.%3d%,metadata->>product_template.ilike.%toy%,metadata->>category.ilike.%3d%,metadata->>category.ilike.%toy%'
     )
   }
+  // Blank garments (sold as-is, no print) — seeded with metadata.garment.blank
+  // = true / legacy metadata.blank_only. A metadata-only bucket, not a
+  // products.category value, so it never splits rows out of the shirts tab.
+  if (categoryId === 'blanks') {
+    return query.or('metadata->garment->>blank.eq.true,metadata->>blank_only.eq.true')
+  }
   return query.in('category', categoryValuesFor(categoryId))
 }
 
@@ -235,6 +241,14 @@ const ProductCatalog: React.FC = () => {
       id: 'shirts', name: 'T-Shirts', icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 2L2 6v3h4v13h12V9h4V6l-4-4h-4l-2 2-2-2H6z" />
+        </svg>
+      )
+    },
+    {
+      // Metadata-only bucket: blank garments sold as-is (metadata.garment.blank).
+      id: 'blanks', name: 'Blank Shirts', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 2L2 6v3h4v13h12V9h4V6l-4-4h-4a2 2 0 01-4 0H6z" />
         </svg>
       )
     },

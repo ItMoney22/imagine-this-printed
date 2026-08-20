@@ -22,17 +22,25 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 // live DB or mail sender.
 // ---------------------------------------------------------------------------
 
-function makeFakeProductsDb(products: Array<{ id: string; category?: string; metadata?: any }>) {
+// Serves `products` (the original fixture), plus the palette lookups the
+// filament/paint plan added to notifyWorkers 2026-08-19: `user_3d_models`
+// (empty unless models are passed) and `print_materials` (always empty here —
+// plan generation is exercised by print-palette's own logic, not these tests).
+function makeFakeProductsDb(
+  products: Array<{ id: string; category?: string; metadata?: any }>,
+  models: Array<{ id: string; metadata?: any }> = []
+) {
   const inCalls: string[][] = []
   const db = {
     from(table: string) {
-      if (table !== 'products') throw new Error(`makeFakeProductsDb: unexpected table "${table}"`)
+      const rows: any[] = table === 'products' ? products : table === 'user_3d_models' ? models : []
       const builder: any = {
         select: () => builder,
-        in: async (col: string, vals: string[]) => {
-          inCalls.push(vals)
-          const matched = products.filter(p => vals.includes(p.id))
-          return { data: matched, error: null }
+        eq: () => builder,
+        gt: async () => ({ data: rows, error: null }),
+        in: async (_col: string, vals: string[]) => {
+          if (table === 'products') inCalls.push(vals)
+          return { data: rows.filter((p: any) => vals.includes(p.id)), error: null }
         }
       }
       return builder

@@ -8,6 +8,7 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import { addonsUnitTotal } from '../lib/product-kind'
+import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
@@ -399,8 +400,11 @@ const Checkout: React.FC = () => {
       return sum
     }, 0)
 
-    // USD total includes plus size upcharge + add-ons
-    const usdTotal = usdBaseTotal + plusSizeUpcharge + usdAddonsTotal
+    // Garment quality tier upcharge (mirrors CartContext + order-pricing.ts).
+    const usdTierTotal = usdItems.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
+
+    // USD total includes plus size upcharge + tier upcharge + add-ons
+    const usdTotal = usdBaseTotal + plusSizeUpcharge + usdTierTotal + usdAddonsTotal
 
     return {
       usdItems,
@@ -1519,6 +1523,11 @@ const Checkout: React.FC = () => {
                           {item.printLocation}
                         </span>
                       )}
+                      {item.selectedTier && getGarmentTier(item.selectedTier) && (
+                        <span className="text-xs px-2 py-0.5 bg-accent/20 text-accent rounded">
+                          {getGarmentTier(item.selectedTier)!.label}
+                        </span>
+                      )}
                       {item.paymentMethod === 'itc' && (
                         <span className="text-xs px-2 py-0.5 bg-secondary/20 text-secondary rounded flex items-center gap-1">
                           <img src="/itc-coin.png" alt="" className="w-3 h-3" />
@@ -1537,7 +1546,7 @@ const Checkout: React.FC = () => {
                     )}
                   </div>
                   <p className="font-semibold text-sm flex-shrink-0">
-                    ${((item.product.price + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                    ${((item.product.price + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                   </p>
                 </div>
               ))}

@@ -9,6 +9,7 @@ import { generate3DModel } from '../services/trellis-client.js'
 import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
+import { extractPalette } from '../services/print-palette.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
@@ -1566,6 +1567,22 @@ async function process3DModelConcept(job: any) {
 
     console.log('[worker] ✅ Watermarked concept uploaded to GCS:', publicUrl)
 
+    // Extract the ≤4-color palette from the ORIGINAL (un-watermarked) concept.
+    // This is what the AMS filament plan and matched paint kits key off later
+    // (print-bridge queue + notifyWorkers). Never blocks the job — null on any
+    // failure, and the metadata merge is skipped if the palette is absent.
+    const palette = await extractPalette(imageUrl)
+    let paletteMeta: Record<string, any> | undefined
+    if (palette && palette.length > 0) {
+      const { data: existingRow } = await supabase
+        .from('user_3d_models')
+        .select('metadata')
+        .eq('id', model_id)
+        .single()
+      paletteMeta = { ...(existingRow?.metadata ?? {}), palette }
+      console.log('[worker] 🎨 Palette extracted:', palette.map(p => p.hex).join(' '))
+    }
+
     // Update model with concept image
     await supabase
       .from('user_3d_models')
@@ -1573,6 +1590,7 @@ async function process3DModelConcept(job: any) {
         concept_image_url: publicUrl,
         status: 'awaiting_approval',
         itc_charged: ITC_3D_COSTS.concept,
+        ...(paletteMeta ? { metadata: paletteMeta } : {}),
         updated_at: new Date().toISOString()
       })
       .eq('id', model_id)

@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { sendEmail } from '../utils/email.js'
+import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -128,9 +129,26 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           itemMeta?.color_mode === 'color4' ? 'color4'
           : (model?.metadata as any)?.color_mode === 'color4' ? 'color4'
           : 'grey'
+        const customPaintKit: boolean =
+          itemMeta?.include_paint_kit === true || itemMeta?.include_paint_kit === 'true'
         const customNfcExperienceUrl: string | undefined = (model?.metadata as any)?.nfc?.experience_url
           ? (model.metadata as any).nfc.experience_url
           : `https://imaginethisprinted.com/ar/${modelId}`
+
+        // Material plans from the concept palette (≤4 colors, AMS limit).
+        // Full-color prints get a filament plan; paint kits get a paint plan.
+        // Both are null when the palette or print_materials table is absent.
+        const customPalette: PaletteEntry[] = Array.isArray((model?.metadata as any)?.palette)
+          ? (model!.metadata as any).palette
+          : []
+        const customFilamentPlan =
+          customColorMode === 'color4' && customPalette.length
+            ? await matchMaterials(customPalette, 'filament')
+            : null
+        const customPaintPlan =
+          customPaintKit && customPalette.length
+            ? await matchMaterials(customPalette, 'paint')
+            : null
 
         out.push({
           itpOrderId: o.id,
@@ -138,12 +156,18 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           title: printItem.name || 'Custom figurine',
           concept: model?.prompt || printItem.name || 'Custom 3D print',
           glbUrl: model?.glb_url || undefined,
+          stlUrl: model?.stl_url || undefined,
           referenceUrl: model?.concept_image_url || undefined,
           quantity: printItem.quantity || 1,
           material: 'PLA',
           colorMode: customColorMode,
           style: model?.style ?? 'cartoon',
           magnetSockets: 2,
+          magnetPlan: 'palms', // magnets go in both palms so accessories (weapons/pets) snap into the hands
+          paintKit: customPaintKit,
+          palette: customPalette.length ? customPalette : undefined,
+          filamentPlan: customFilamentPlan ?? undefined,
+          paintPlan: customPaintPlan ?? undefined,
           nfcUrl: customNfcExperienceUrl,
           customerName: o.customer_name || undefined,
           customerEmail: o.customer_email || undefined,
@@ -202,6 +226,25 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           const catalogNfcUrl: string | null =
             p.metadata?.print3d?.nfc_url ?? null
 
+          // Add-ons purchased with this toy (paint kit / magnet-mount weapon or
+          // pet packs). Lives in order_items.metadata.addons via checkout.
+          const itemRow: any = lineItems.find((li: any) => li.product_id === it.product_id)
+          const catalogAddons: { id: string; name: string; price: number }[] =
+            Array.isArray(itemRow?.metadata?.addons) ? itemRow.metadata.addons : []
+          const catalogPaintKit = catalogAddons.some(a => a?.id === 'toy_paint_kit')
+
+          const catalogPalette: PaletteEntry[] = Array.isArray(p.metadata?.print3d?.palette)
+            ? p.metadata.print3d.palette
+            : []
+          const catalogFilamentPlan =
+            catalogColorMode === 'color4' && catalogPalette.length
+              ? await matchMaterials(catalogPalette, 'filament')
+              : null
+          const catalogPaintPlan =
+            catalogPaintKit && catalogPalette.length
+              ? await matchMaterials(catalogPalette, 'paint')
+              : null
+
           out.push({
             itpOrderId: o.id,
             lineItemId: it.product_id,
@@ -215,6 +258,12 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             material: p.metadata?.print3d?.material || 'PLA',
             colorMode: catalogColorMode,
             magnetSockets: catalogMagnetSockets,
+            magnetPlan: 'palms',
+            addons: catalogAddons.length ? catalogAddons : undefined,
+            paintKit: catalogPaintKit,
+            palette: catalogPalette.length ? catalogPalette : undefined,
+            filamentPlan: catalogFilamentPlan ?? undefined,
+            paintPlan: catalogPaintPlan ?? undefined,
             nfcUrl: catalogNfcUrl,
             customerName: o.customer_name || undefined,
             customerEmail: o.customer_email || undefined,
@@ -335,16 +384,63 @@ export async function notifyWorkers(
   ))
   const catalogToyIds = await resolveCatalogToyProductIds(catalogCandidateIds)
   const printItems = filterPrintNotificationItems(items, catalogToyIds)
-  const itemLines = (printItems.length ? printItems : items).map(i => {
+  const lineSource = printItems.length ? printItems : items
+
+  // Pull each print item's palette + color mode so the email can say exactly
+  // which filament to load (full color, ≤4 AMS slots) and which paints to pack
+  // (paint kits). Batched lookups; every step degrades to the old plain line.
+  const modelIds = lineSource
+    .map(i => String(i.client_product_id || i.id || ''))
+    .filter(id => id.startsWith(PRINT_ITEM_PREFIX))
+    .map(id => id.slice(PRINT_ITEM_PREFIX.length))
+  const modelMetaById = new Map<string, any>()
+  if (modelIds.length) {
+    const { data } = await supabase.from('user_3d_models').select('id, metadata').in('id', modelIds)
+    for (const m of data || []) modelMetaById.set(m.id, m.metadata || {})
+  }
+  const productMetaById = new Map<string, any>()
+  if (catalogToyIds.size) {
+    const { data } = await supabase.from('products').select('id, metadata').in('id', Array.from(catalogToyIds))
+    for (const p of data || []) productMetaById.set(p.id, p.metadata || {})
+  }
+
+  const itemLineParts: string[] = []
+  for (const i of lineSource) {
     const rawId = String(i.client_product_id || i.id || '')
     const modelId = rawId.startsWith(PRINT_ITEM_PREFIX) ? rawId.slice(PRINT_ITEM_PREFIX.length) : null
+    const sourceMeta = modelId ? (modelMetaById.get(modelId) ?? {}) : (productMetaById.get(rawId) ?? {})
     const nfcUrl = i.metadata?.nfc_url
       || (modelId ? `https://imaginethisprinted.com/ar/${modelId}` : null)
-    const colorMode = i.metadata?.color_mode === 'color4' ? 'FULL COLOR (4 max)' : 'matte grey'
-    return `<li><strong>${i.name || i.product_name || 'Toy'}</strong> × ${i.quantity || 1} — ${colorMode}` +
+    const isColor4 = i.metadata?.color_mode === 'color4'
+      || sourceMeta?.color_mode === 'color4'
+      || sourceMeta?.print3d?.color_mode === 'color4'
+    const addons: any[] = Array.isArray(i.metadata?.addons) ? i.metadata.addons : (Array.isArray(i.addons) ? i.addons : [])
+    const hasPaintKit = i.metadata?.include_paint_kit === true
+      || i.metadata?.include_paint_kit === 'true'
+      || addons.some((a: any) => a?.id === 'toy_paint_kit')
+    const palette: PaletteEntry[] = Array.isArray(sourceMeta?.palette)
+      ? sourceMeta.palette
+      : Array.isArray(sourceMeta?.print3d?.palette) ? sourceMeta.print3d.palette : []
+
+    let filamentPlan: MaterialMatch[] | null = null
+    let paintPlan: MaterialMatch[] | null = null
+    if (palette.length && isColor4) filamentPlan = await matchMaterials(palette, 'filament')
+    if (palette.length && hasPaintKit) paintPlan = await matchMaterials(palette, 'paint')
+
+    const colorMode = isColor4 ? 'FULL COLOR (4 max)' : 'matte grey'
+    const filamentLine = describeMaterialPlan(filamentPlan, 'filament')
+    const paintLine = describeMaterialPlan(paintPlan, 'paint')
+    const accessoryAddons = addons.filter((a: any) => a?.id && a.id !== 'toy_paint_kit')
+    itemLineParts.push(
+      `<li><strong>${i.name || i.product_name || 'Toy'}</strong> × ${i.quantity || 1} — ${colorMode}` +
+      (filamentLine ? `<br/><strong>${filamentLine}</strong>` : '') +
+      (hasPaintKit ? `<br/>🎨 PAINT KIT ordered${paintLine ? ` — <strong>${paintLine}</strong>` : ' — pack paints matching the toy'}` : '') +
+      (accessoryAddons.length ? `<br/>🧲 Extra parts ordered: ${accessoryAddons.map((a: any) => a.name || a.id).join(', ')} (magnet-mount)` : '') +
       (nfcUrl ? `<br/>NFC URL to write: <a href="${nfcUrl}">${nfcUrl}</a>` : '') +
       `</li>`
-  }).join('')
+    )
+  }
+  const itemLines = itemLineParts.join('')
 
   const isPause = status === 'insert_pause'
   const subject = isPause
@@ -353,7 +449,7 @@ export async function notifyWorkers(
   const todo = isPause
     ? `<p><strong>The printer is paused.</strong> Please:</p>
        <ol>
-         <li>Place <strong>2 magnets</strong> into the sockets</li>
+         <li>Place the <strong>magnets</strong> into the sockets — one in <strong>each palm</strong> so weapons/pets snap into the hands (plus base socket if present)</li>
          <li>Write the <strong>NFC tag</strong> with the URL below (NFC Tools → Write → URL), place it in the base</li>
          <li>Resume the print</li>
        </ol>`
