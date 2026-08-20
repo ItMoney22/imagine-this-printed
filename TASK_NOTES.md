@@ -50,6 +50,16 @@ Branch: `earth/zero-nine/imagine-overhaul-gpt2` (worktree; shared checkout untou
   dashboard overview. Made the OpenAI client lazy (eager construction broke 2
   worker test suites when no key is set). Gate: backend tsc clean, vitest 42
   files green, frontend build clean.
+- 2026-08-20 — First wave DEPLOYED: merged origin/main (Shippo wave) with one
+  TASK_NOTES conflict, gate green on the integrated tree (541 tests), David
+  pushed 6f0e184..3e80a63 to main; Render + Vercel live-verified (route 401s,
+  portrait 200 on www). David: "she needs to do all the work e2e — im just
+  gonna sign into etsy and change drafts to active" → added the daily clock:
+  worker/mrs-imagine-daily.ts starts one full batch per day at
+  MRS_IMAGINE_DAILY_HOUR_UTC (default 11 UTC) with a 20h once-per-day guard +
+  stale-batch clearing; registered in worker/index.ts; on by default (8f46e56).
+  His "card not visible" was a stale browser bundle — the live Vercel asset
+  verifiably contains the new client (grepped it); hard refresh fixes.
 
 ## Current request (2026-08-20, Zero Nine — Watchtower be0019f2) — deploy + live-verify Shippo label route
 
