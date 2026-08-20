@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { createClient } from '@supabase/supabase-js'
+import { optionalAuth } from '../../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
 import {
     sendTicketReplyEmail,
@@ -10,6 +11,15 @@ import {
 dotenv.config()
 
 const router = Router()
+
+// Ticket ids are UUIDs. Validating the shape before a query keeps a malformed
+// id from reaching Postgres as a cast error (a 500 that leaks the driver
+// message) on the unauthenticated live-chat routes at the bottom of this file.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Upper bound on a single guest chat message. Well above anything a person
+// types, far below what an unauthenticated writer could use to bloat the table.
+const MAX_CHAT_MESSAGE_CHARS = 5000
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -858,21 +868,37 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
  * POST /api/admin/support/tickets/:id/messages
  * User sends a message in live chat
  */
-router.post('/tickets/:id/messages', async (req: Request, res: Response) => {
+// SECURITY: `sender_id` used to come straight from the request body, so anyone
+// could post a message into a ticket stamped as any user they named — the agent
+// console and the customer's own transcript both render that attribution. The
+// sender is now taken from the verified JWT (optionalAuth) and the body's
+// `userId` is ignored entirely; a genuine guest simply posts with sender_id
+// null, exactly as before. This endpoint stays unauthenticated by design (guest
+// live chat), which is why ticket ownership is still not enforced here — see
+// the Watchtower follow-up on giving guest chat a per-ticket capability token.
+router.post('/tickets/:id/messages', optionalAuth, async (req: Request, res: Response) => {
     try {
         const { id } = req.params
-        const { content, userId } = req.body
+        const { content } = req.body
+        // Never the body — see the note above.
+        const senderId = req.user?.sub ?? null
 
-        if (!content) {
+        if (!content || typeof content !== 'string' || !content.trim()) {
             return res.status(400).json({ error: 'Message content is required' })
+        }
+        if (content.length > MAX_CHAT_MESSAGE_CHARS) {
+            return res.status(400).json({ error: `Message must be ${MAX_CHAT_MESSAGE_CHARS} characters or fewer` })
+        }
+        if (!UUID_RE.test(id)) {
+            return res.status(404).json({ error: 'Ticket not found' })
         }
 
         const { data: message, error } = await supabase
             .from('ticket_messages')
             .insert({
                 ticket_id: id,
-                sender_id: userId || null,
-                sender_type: userId ? 'user' : 'user',
+                sender_id: senderId,
+                sender_type: 'user',
                 message: content,
                 is_internal: false
             })

@@ -1,5 +1,62 @@
 # TASK_NOTES
-## Current request (2026-08-19) — 3D toy gen → store + Etsy → sales signal
+## Current request (2026-08-19) — Round 1 security pass (Watchtower e3e4f5de)
+
+Loop r1 of a 3-round review. Systematic security audit + direct fixes for the
+small/safe items; everything architectural filed to the board. Full ranked
+findings live in `docs/SECURITY-round1-audit-e3e4f5de.md`.
+
+### Fixed on this branch
+- **Critical** — `/api/admin/imagination-products/*` had NO auth at all. Five
+  routes including `POST /init` (re-seeds the table), `PUT /:id` (reprices) and
+  `DELETE /size`. Checkout prices off that table. Added `requireAuth` +
+  `requireAdmin`, matching the sibling `admin/imagination-pricing.ts`.
+- **High** — `GET /api/profile/get` did `select('*')` on `user_profiles` through
+  the SERVICE ROLE client with no auth, so RLS never applied: email, legal name,
+  phone, shipping address, tax id, stripe account id, wallet balance and role for
+  any user id. Now owner/admin get the full row; everyone else gets the
+  `public_profiles` projection and only for `is_public = true`. Pinned by 4 new
+  tests.
+- **Medium** — support live-chat `POST /tickets/:id/messages` took `sender_id`
+  from the request body (impersonation). Sender now comes from the verified JWT.
+- **Medium** — `POST /api/gift-cards/redeem` and `POST /api/coupons/apply` were
+  unauthenticated writes that took a body-supplied `userId`. Both now require
+  auth and use the token subject.
+- **Low** — non-constant-time shared-secret compares (print bridge, UGC inbound);
+  `timingSafeEqual` length-mismatch throwing a 500 instead of a 401 in the
+  Replicate callback; unescaped `dangerouslySetInnerHTML` in ManagerDashboard;
+  unused `unpkg.com` + `ajax.googleapis.com` in the `script-src` CSP.
+
+### Deliberately NOT changed
+- `src/utils/shippo.ts` (browser-side Shippo key). Already deleted and replaced
+  server-side by commit `a2f069c` on
+  `earth/lucas-blaze/move-shippo-label-purcha-1199ada7-ms3evqf3`, blocked on
+  Watchtower `be0019f2`. Editing it here would only create a modify/delete
+  conflict.
+
+### Work log (append-only)
+- 2026-08-19 — Round 1 security pass. Audited all 372 backend routes for auth
+  coverage, both npm trees, the CSP + CORS + rate-limit config, injection sinks
+  (no `child_process` anywhere; all raw SQL is operator-run migration scripts),
+  every tracked file and all 628 commits for secrets (no service-role key, no
+  `sk_live_`, no AWS key ever committed — only the public anon key). Nine issues
+  fixed in code, four filed to the board. Gate: 58 test files / 752 tests pass,
+  FE+BE typecheck clean, `npm run build` OK, eslint 0 errors on changed files.
+
+### File shortlist (approved scope — 2026-08-19 security round 1)
+- `backend/routes/admin/imagination-products.ts`
+- `backend/routes/user.ts`, `backend/routes/user.profile-visibility.test.ts` (new)
+- `backend/routes/admin/support.ts`
+- `backend/routes/gift-cards.ts`
+- `backend/routes/coupons.ts`, `backend/routes/coupons.test.ts`
+- `backend/routes/print-bridge.ts`, `backend/routes/social.ts`
+- `backend/routes/ai/replicate-callback.ts`
+- `src/pages/ManagerDashboard.tsx`
+- `vercel.json`
+- `docs/SECURITY-round1-audit-e3e4f5de.md` (new), `TASK_NOTES.md`
+
+---
+
+## Previous request (2026-08-19) — 3D toy gen → store + Etsy → sales signal
 
 David: "finetune our 3d toy gen as we need to add them to the store and etsy,
 we need to see what sells and make sure we are printing money."

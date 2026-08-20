@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
+import { requireAuth } from '../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
 
 dotenv.config()
@@ -227,9 +228,19 @@ router.get('/validate', async (req: Request, res: Response) => {
 })
 
 // POST /api/coupons/apply - Apply coupon to an order (record usage)
-router.post('/apply', async (req: Request, res: Response) => {
+//
+// SECURITY: this was an unauthenticated write. `recordCouponUsage` increments
+// `coupons.current_uses` and inserts a usage row, so an anonymous caller could
+// burn a promotion to its usage cap (denial-of-discount) or forge usage history
+// against any `userId`/`orderId` it chose. Real checkout does NOT go through
+// here — usage is recorded server-side by services/order-payment.ts and
+// routes/wallet.ts after payment — so requiring a session costs nothing and
+// removes the anonymous path. The recorded user is the JWT subject, never a
+// body-supplied id.
+router.post('/apply', requireAuth, async (req: Request, res: Response) => {
     try {
-        const { couponId, userId, orderId, discountApplied } = req.body
+        const { couponId, orderId, discountApplied } = req.body
+        const userId = req.user?.sub ?? null
 
         if (!couponId) {
             return res.status(400).json({ error: 'Coupon ID is required' })

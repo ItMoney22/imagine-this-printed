@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express'
+import crypto from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { sendEmail } from '../utils/email.js'
 
@@ -20,6 +21,17 @@ import { sendEmail } from '../utils/email.js'
 
 const router = Router()
 
+// Constant-time compare. A plain `!==` on a shared secret leaks its prefix
+// through response timing, and this endpoint is exempt from the global rate
+// limiter (see middleware/rate-limits.ts) precisely because the bridge polls
+// it hard — so an attacker gets unlimited attempts to measure. Same helper
+// shape as middleware/requireStorefrontSecret.ts.
+function safeEqual(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
 function requireBridgeAuth(req: Request, res: Response, next: NextFunction): void {
   const token = process.env.PRINT_BRIDGE_TOKEN
   if (!token) {
@@ -27,7 +39,8 @@ function requireBridgeAuth(req: Request, res: Response, next: NextFunction): voi
     return
   }
   const header = req.headers.authorization || ''
-  if (header !== `Bearer ${token}`) {
+  const provided = header.startsWith('Bearer ') ? header.slice(7) : ''
+  if (!safeEqual(provided, token)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }

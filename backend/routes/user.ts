@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
-import { requireAuth } from "../middleware/supabaseAuth.js";
+import { requireAuth, optionalAuth } from "../middleware/supabaseAuth.js";
+import { getCachedRole } from "../lib/role-cache.js";
 import { supabase } from "../lib/supabase.js";
 import { uploadFile } from "../services/gcs-storage.js";
 
@@ -12,8 +13,58 @@ router.get("/me", requireAuth, async (req: Request, res: Response) => {
   return res.json({ ok: true, user, profile: null });
 });
 
-// GET /api/profile/get?userId=xxx
-router.get("/get", async (req: Request, res: Response): Promise<any> => {
+// Columns the public profile view exposes. Kept byte-for-byte in step with
+// `public.public_profiles` (supabase/migrations/20260806_security_round2.sql),
+// which deliberately omits email, first/last name, phone, shipping_*, tax_id,
+// stripe_account_id, credit_limit, itc_balance and role.
+export const PUBLIC_PROFILE_COLUMNS = [
+  'id', 'username', 'display_name', 'bio', 'profile_image', 'avatar_url',
+  'cover_image_url', 'location', 'website', 'social_links', 'social_tiktok',
+  'is_public', 'show_order_history', 'show_designs', 'show_models',
+  'show_activity', 'show_reviews', 'allow_messages', 'points', 'joined_date',
+  'created_at'
+].join(', ');
+
+/**
+ * Reads one profile at the visibility level the caller has earned.
+ *
+ * SECURITY: the route this backs ran unauthenticated with `select('*')` on
+ * `user_profiles` through the SERVICE ROLE client, so RLS never applied — any
+ * anonymous caller who knew (or harvested) a user id got that user's email,
+ * legal name, phone, shipping address, tax id, Stripe account id, wallet
+ * balance and role. That is exactly the PII exposure the 20260806 migration
+ * closed at the database layer by introducing the `public_profiles` view; this
+ * route had re-opened it at the API layer.
+ *
+ * Now: the owner (and admins) still get the full row. Everyone else gets the
+ * same projection `public_profiles` grants to anon, and only for profiles the
+ * user has actually marked public.
+ *
+ * Split out of the handler (and exported) so the projection and the private-
+ * profile refusal are unit-testable against a fake db, same style as
+ * print-bridge.ts's filterPrintNotificationItems.
+ */
+export async function fetchVisibleProfile(
+  db: { from: (table: string) => any },
+  opts: { userId: string; privileged: boolean }
+): Promise<{ profile: Record<string, any> } | { notFound: true }> {
+  const { data: profile, error } = await db
+    .from('user_profiles')
+    .select(opts.privileged ? '*' : PUBLIC_PROFILE_COLUMNS)
+    .eq('id', opts.userId)
+    .single();
+
+  if (error || !profile) return { notFound: true };
+
+  // Same 404 for "no such profile" and "profile is private" — a distinct
+  // response would confirm the account exists to an unauthenticated caller.
+  if (!opts.privileged && profile.is_public !== true) return { notFound: true };
+
+  return { profile };
+}
+
+// GET /api/profile/get?userId=xxx — see fetchVisibleProfile above.
+router.get("/get", optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const { userId } = req.query;
 
@@ -21,17 +72,20 @@ router.get("/get", async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    const { data: profile, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
+    const callerId = req.user?.sub ?? null;
+    let privileged = callerId === userId;
+    if (!privileged && callerId) {
+      // Role resolves from the server-trusted cache (user_profiles), never the
+      // JWT — see middleware/supabaseAuth.ts.
+      privileged = (await getCachedRole(callerId)) === 'admin';
+    }
 
-    if (error || !profile) {
+    const result = await fetchVisibleProfile(supabase, { userId, privileged });
+    if ('notFound' in result) {
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    return res.json({ ok: true, profile });
+    return res.json({ ok: true, profile: result.profile });
   } catch (error: any) {
     console.error('[user/profile/get] Error:', error);
     return res.status(500).json({ error: error.message });

@@ -1,8 +1,20 @@
 
 import { Router, Request, Response } from 'express';
+import { requireAuth } from '../../middleware/supabaseAuth.js';
+import { requireAdmin } from '../../middleware/requireAdmin.js';
 import { imaginationProducts } from '../../services/imagination-products.js';
 
 const router = Router();
+
+// SECURITY: this router is mounted at /api/admin/imagination-products and every
+// route below reads or MUTATES Imagination Station product config — the base
+// prices and size tiers that checkout charges against (services/imagination-
+// products.ts, consumed by routes/stripe.ts). It shipped with no auth at all,
+// so any anonymous caller could reprice the catalog, wipe a size tier, or
+// re-seed the whole table from config. Same guard pair the sibling
+// admin/imagination-pricing.ts router already used.
+router.use(requireAuth);
+router.use(requireAdmin);
 
 // Get all imagination products
 router.get('/', async (req: Request, res: Response) => {

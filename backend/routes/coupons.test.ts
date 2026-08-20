@@ -10,6 +10,11 @@ import { describe, it, expect } from 'vitest'
 // backend/worker/ai-jobs-worker.claim.test.ts.
 process.env.SUPABASE_URL ||= 'http://localhost:54321'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
+// coupons.ts now imports requireAuth (POST /apply is no longer an anonymous
+// write), and middleware/supabaseAuth.ts throws at load time when this is
+// unset. Same fail-fast boot guard, same dummy-value handling as
+// backend/routes/stripe-shipping-snapshot.test.ts.
+process.env.SUPABASE_JWT_SECRET ||= 'test-only-secret-do-not-use-in-prod-0123456789'
 
 const { validateCouponForOrder, recordCouponUsage } = await import('./coupons.js')
 

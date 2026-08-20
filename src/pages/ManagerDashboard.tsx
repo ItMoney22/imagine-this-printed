@@ -3,6 +3,25 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { costManagementService } from '../utils/cost-management'
 import type { CostVariables, ProductCostBreakdown, GPTCostQuery } from '../types'
 
+// The cost-assistant reply is rendered through dangerouslySetInnerHTML so the
+// **bold** / newline markers come out as real markup. That sink executes any
+// HTML the reply happens to contain, and the reply is model output built over
+// database values (product names, cost notes) that other roles can write --
+// i.e. an untrusted string reaching an HTML sink. Escape first, then add back
+// only the two tags this view is meant to produce.
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const renderAssistantHtml = (value: string): string =>
+  escapeHtml(value ?? '')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br/>')
+
 const ManagerDashboard: React.FC = () => {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<'variables' | 'calculator' | 'assistant'>('variables')
@@ -519,8 +538,8 @@ const ManagerDashboard: React.FC = () => {
                     </div>
                     <div className="flex justify-start">
                       <div className="bg-card p-3 rounded-lg max-w-2xl">
-                        <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ 
-                          __html: entry.response.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') 
+                        <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{
+                          __html: renderAssistantHtml(entry.response)
                         }} />
                       </div>
                     </div>

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
+import { requireAuth } from '../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
 
 dotenv.config()
@@ -59,12 +60,23 @@ router.get('/validate', async (req: Request, res: Response) => {
 })
 
 // POST /api/gift-cards/redeem - Redeem a gift card and credit ITC to user wallet
-router.post('/redeem', async (req: Request, res: Response) => {
+//
+// SECURITY: this was unauthenticated and credited whatever `userId` the body
+// carried, so anyone could (a) redeem a card without an account and (b) push
+// the balance onto an arbitrary third party's wallet. The credited account is
+// now always the JWT subject; the body's `userId` is ignored. The only caller
+// (src/pages/Wallet.tsx, behind ProtectedRoute) already sends the bearer token
+// via apiFetch, so this is not a client-visible change.
+router.post('/redeem', requireAuth, async (req: Request, res: Response) => {
     try {
-        const { code, userId } = req.body
+        const { code } = req.body
+        const userId = req.user?.sub
 
-        if (!code || !userId) {
-            return res.status(400).json({ error: 'Code and user ID are required' })
+        if (!userId) {
+            return res.status(401).json({ error: 'Not authenticated' })
+        }
+        if (!code || typeof code !== 'string') {
+            return res.status(400).json({ error: 'Code is required' })
         }
 
         // Get the gift card

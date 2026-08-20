@@ -31,10 +31,13 @@ function verifySignature(req: Request): boolean {
   hmac.update(payload)
   const expectedSignature = hmac.digest('hex')
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  )
+  // timingSafeEqual THROWS a RangeError on a length mismatch, and this helper
+  // is called inside the route's try block — so a forged signature of the wrong
+  // length used to surface as a 500 with an exception path instead of a clean
+  // 401. Compare lengths first, then the bytes in constant time.
+  const provided = Buffer.from(signature)
+  const expected = Buffer.from(expectedSignature)
+  return provided.length === expected.length && crypto.timingSafeEqual(provided, expected)
 }
 
 // POST /api/ai/replicate/callback

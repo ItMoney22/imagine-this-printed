@@ -1,6 +1,14 @@
 import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
+import crypto from 'crypto'
+
+/** Constant-time shared-secret compare (see requireStorefrontSecret.ts). */
+function safeEqualSecret(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided)
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
 
 // Same DEBUG_MARKETING gate as routes/marketing.ts — these admin-curated
 // flows aren't hot, but each request emits 1-2 trace lines that drown the
@@ -224,7 +232,10 @@ router.post('/ugc-inbound', async (req: Request, res: Response): Promise<any> =>
   try {
     const token = process.env.PRINT_BRIDGE_TOKEN
     const auth = req.header('authorization') || ''
-    if (!token || auth !== `Bearer ${token}`) {
+    const provided = auth.startsWith('Bearer ') ? auth.slice(7) : ''
+    // Constant-time compare — a `!==` on the shared secret leaks its prefix
+    // through response timing. Mirrors requireBridgeAuth in print-bridge.ts.
+    if (!token || !safeEqualSecret(provided, token)) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
