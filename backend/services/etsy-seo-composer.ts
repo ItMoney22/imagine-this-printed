@@ -25,14 +25,27 @@ import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
 
-const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || 'gpt-5.6-terra'
+// OpenRouter-first since 2026-08-20 (David's cost pass): copy is a text job
+// Gemini Flash handles for ~nothing, and it rides a SEPARATE wallet — the
+// first Mrs. Imagine batch saw OpenAI credits hit zero mid-run, which on this
+// client would silently degrade every pack to the mechanical fallback.
+// ETSY_SEO_MODEL still overrides on either client (use an OpenRouter slug,
+// e.g. "google/gemini-2.5-flash", when OPENROUTER_API_KEY is set).
+const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || (USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-5.6-terra')
 // gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
 // verified live during the sibling design-assistant.ts migration (see
 // handoff-joshua-knight-1785113728792.json).
 const isReasoningModel = /^(o[1-9]|gpt-5)/.test(COMPOSER_MODEL)
 export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
 
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+const openai = USE_OPENROUTER
+  ? new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: { 'HTTP-Referer': 'https://imaginethisprinted.com', 'X-Title': 'ITP Etsy Composer' },
+    })
+  : process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
 
 export interface EtsyPack {
   title: string
@@ -176,7 +189,9 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
         ]
       })
       const rawText = completion.choices[0]?.message?.content
-      if (rawText) fields = sanitizePack(JSON.parse(rawText), product)
+      // Gemini via OpenRouter sometimes fences JSON despite response_format.
+      const unfenced = rawText?.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+      if (unfenced) fields = sanitizePack(JSON.parse(unfenced), product)
     } catch (err: any) {
       console.error(`[etsy-composer] model call failed for ${productId} (falling back to mechanical):`, err?.message || err)
     }

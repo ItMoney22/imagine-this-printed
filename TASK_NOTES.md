@@ -60,6 +60,21 @@ Branch: `earth/zero-nine/imagine-overhaul-gpt2` (worktree; shared checkout untou
   stale-batch clearing; registered in worker/index.ts; on by default (8f46e56).
   His "card not visible" was a stale browser bundle — the live Vercel asset
   verifiably contains the new client (grepped it); hard refresh fixes.
+- 2026-08-20 — First live batch forensics (prod ledger 06ee0f36): 3/15 live,
+  12 "errors" that were ALL `429 no credits remaining` — the OpenAI balance
+  hit ZERO mid-batch. Even the 3 survivors' etsy-channel 52/100s were the
+  outage (vision judge unavailable → gate failed closed) → 0 Etsy drafts.
+  David's cost concern + "OpenAI only for the design work, OR for the rest"
+  → cost pass shipped: (1) ETSY_SHOTS_MODEL=nano-banana set on BOTH Render
+  services via API (shots $0.034 vs ~$0.25-0.30 gpt-image edit — biggest
+  line); (2) Mrs. Imagine brain + etsy-seo-composer now OpenRouter-first
+  (gemini-2.5-flash default, OPENROUTER_API_KEY already on Render, fence-
+  tolerant JSON parse); (3) dead-wallet abort — batch stops at the first
+  billing 429 and marks itself failed with a WALLET error instead of grinding
+  through the roster; (4) QA vision judge deliberately stays gpt-5.6-terra
+  (fail-closed, terra-calibrated) pending a calibration comparison. NEEDS
+  DAVID: add OpenAI credits (+ auto-recharge with a cap) — design gen is
+  still OpenAI and tomorrow's 11:00 UTC batch fails without it.
 
 ## Current request (2026-08-20, Zero Nine — Watchtower be0019f2) — deploy + live-verify Shippo label route
 

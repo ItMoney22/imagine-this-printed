@@ -49,9 +49,32 @@ import {
   type ResearchCategory,
 } from './etsy-market-research.js'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Writing brain rides OpenRouter when available (David 2026-08-20 cost pass:
+// OpenAI is for the design ART; briefs and copy are text jobs Gemini Flash
+// does for ~nothing, on a SEPARATE wallet — the first live batch saw OpenAI
+// credits hit zero mid-run, which killed research and copy along with
+// generation). MRS_IMAGINE_BRAIN_MODEL overrides on either client; use an
+// OpenRouter slug when OPENROUTER_API_KEY is set.
+const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+const brain = new OpenAI(
+  USE_OPENROUTER
+    ? {
+        apiKey: process.env.OPENROUTER_API_KEY,
+        baseURL: 'https://openrouter.ai/api/v1',
+        defaultHeaders: { 'HTTP-Referer': 'https://imaginethisprinted.com', 'X-Title': 'Mrs. Imagine' },
+      }
+    : { apiKey: process.env.OPENAI_API_KEY }
+)
 
-const BRAIN_MODEL = process.env.MRS_IMAGINE_BRAIN_MODEL || process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+const BRAIN_MODEL =
+  process.env.MRS_IMAGINE_BRAIN_MODEL ||
+  (USE_OPENROUTER ? 'google/gemini-2.5-flash' : process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra')
+
+/** Gemini via OpenRouter sometimes fences JSON despite response_format. */
+function parseJsonLoose(s: string | null | undefined): any {
+  const t = (s ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+  return JSON.parse(t || '{}')
+}
 const GARMENT_COUNT = () => Math.min(20, Math.max(1, Number(process.env.MRS_IMAGINE_GARMENT_COUNT) || 10))
 const METAL_COUNT = () => Math.min(10, Math.max(0, Number(process.env.MRS_IMAGINE_METAL_COUNT) || 5))
 const AUTO_ACTIVATE = () => process.env.MRS_IMAGINE_AUTO_ACTIVATE !== 'false'
@@ -109,7 +132,7 @@ export async function writeBriefs(
   signals: MarketSignal[],
   counts: { garments: number; metal: number }
 ): Promise<DesignBrief[]> {
-  const res = await openai.chat.completions.create({
+  const res = await brain.chat.completions.create({
     model: BRAIN_MODEL,
     messages: [
       {
@@ -138,7 +161,7 @@ export async function writeBriefs(
     ],
     response_format: { type: 'json_object' },
   })
-  const parsed = JSON.parse(res.choices[0]?.message?.content ?? '{}')
+  const parsed = parseJsonLoose(res.choices[0]?.message?.content)
   const garments: DesignBrief[] = (Array.isArray(parsed.garments) ? parsed.garments : [])
     .slice(0, counts.garments)
     .map((b: any, i: number) => ({
@@ -194,7 +217,7 @@ const GARMENT_NOUN: Record<GarmentType, string> = { tshirt: 't-shirt', hoodie: '
 
 async function writeCopy(brief: DesignBrief): Promise<{ title: string; description: string; tags: string[] }> {
   const productNoun = brief.kind === 'metal' ? 'metal wall-art print' : GARMENT_NOUN[brief.garment ?? 'tshirt']
-  const res = await openai.chat.completions.create({
+  const res = await brain.chat.completions.create({
     model: BRAIN_MODEL,
     messages: [
       {
@@ -217,7 +240,7 @@ async function writeCopy(brief: DesignBrief): Promise<{ title: string; descripti
     ],
     response_format: { type: 'json_object' },
   })
-  const parsed = JSON.parse(res.choices[0]?.message?.content ?? '{}')
+  const parsed = parseJsonLoose(res.choices[0]?.message?.content)
   const tags: string[] = Array.isArray(parsed.tags) ? parsed.tags.map((t: any) => String(t)) : []
   return {
     title: String(parsed.title ?? '').trim(),
@@ -653,8 +676,16 @@ async function runBatch(batchId: string, counts: { garments: number; metal: numb
   // Bounded concurrency — enough to overlap the long mockup waits without
   // hammering the worker or the OpenAI org limit.
   let cursor = 0
+  // Dead-wallet abort: the 2026-08-20 first batch ground through 12 straight
+  // "429 no credits remaining" errors after the first 3 designs drained the
+  // OpenAI balance. There is no recovering mid-batch — stop at the first
+  // billing failure so the ledger says WALLET, not "12 mysterious errors".
+  let walletDead: string | null = null
+  const isWalletError = (msg: string) =>
+    /no credits remaining|insufficient_quota|exceeded your current quota|billing/i.test(msg)
   const workers = Array.from({ length: Math.min(DESIGN_CONCURRENCY, briefs.length) }, async () => {
     for (;;) {
+      if (walletDead) return
       const i = cursor++
       if (i >= briefs.length) return
       const brief = briefs[i]
@@ -662,8 +693,13 @@ async function runBatch(batchId: string, counts: { garments: number; metal: numb
         const outcome = await buildOneDesign(brief, batchId, note)
         designs.push(outcome)
       } catch (e: any) {
-        designs.push({ key: brief.key, kind: brief.kind, status: 'error', detail: String(e?.message ?? e).slice(0, 300), attempts: 1 })
-        await note(`${brief.key}: ERROR ${String(e?.message ?? e).slice(0, 160)}`)
+        const msg = String(e?.message ?? e)
+        if (isWalletError(msg) && !walletDead) {
+          walletDead = msg.slice(0, 300)
+          await note(`WALLET EMPTY — aborting the rest of the batch (add OpenAI credits): ${msg.slice(0, 140)}`)
+        }
+        designs.push({ key: brief.key, kind: brief.kind, status: 'error', detail: msg.slice(0, 300), attempts: 1 })
+        if (!isWalletError(msg)) await note(`${brief.key}: ERROR ${msg.slice(0, 160)}`)
       }
       await save('designing')
     }
@@ -671,9 +707,18 @@ async function runBatch(batchId: string, counts: { garments: number; metal: numb
   await Promise.all(workers)
 
   const live = designs.filter((d) => d.status === 'live').length
-  await note(`batch done: ${live}/${designs.length} live, ${designs.filter((d) => d.status === 'draft_rework').length} rework, ${designs.filter((d) => d.status === 'error').length} errors`)
+  const skipped = briefs.length - designs.length
+  await note(
+    `batch done: ${live}/${briefs.length} live, ${designs.filter((d) => d.status === 'draft_rework').length} rework, ` +
+    `${designs.filter((d) => d.status === 'error').length} errors${skipped ? `, ${skipped} never attempted (wallet)` : ''}`
+  )
   await supabase
     .from('ai_jobs')
-    .update({ status: 'succeeded', output: { stage: 'done', progress: progress.slice(-80), designs }, updated_at: new Date().toISOString() })
+    .update({
+      status: walletDead ? 'failed' : 'succeeded',
+      ...(walletDead ? { error: `OpenAI wallet empty — batch aborted, ${skipped} design(s) never attempted: ${walletDead}` } : {}),
+      output: { stage: 'done', progress: progress.slice(-80), designs },
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', batchId)
 }
