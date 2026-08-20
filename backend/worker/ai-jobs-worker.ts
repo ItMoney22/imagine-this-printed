@@ -293,6 +293,9 @@ async function startJob(job: any) {
 
       const results = await runImageFlowMultiGenerate({
         prompt: promptInput,
+        // A pinned roster (the house gpt-image-2 takes) rides in on the job;
+        // absent it, pickFanOutModels keeps the creator multi-vendor behavior.
+        modelIds: (job.input?.modelIds as string[] | undefined) ?? undefined,
         category: productRow?.category ?? job.input?.category,
         shirtColor: job.input?.shirtColor,
         printStyle: job.input?.printStyle,

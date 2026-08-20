@@ -393,6 +393,33 @@ export const etsy = {
   },
 }
 
+// Mrs. Imagine — autonomous house designer: realtime Etsy research → designs
+// → mockups → QA self-review → Etsy draft queue. Admin-triggered here; the
+// Watchtower can also trigger her headless with the design-agent token.
+export const mrsImagine = {
+  request: async (path: string, init?: RequestInit) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const response = await fetch(`${API_BASE}/api/admin/mrs-imagine${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  run: async (counts?: { garments?: number; metal?: number }) =>
+    mrsImagine.request('/run', { method: 'POST', body: JSON.stringify(counts ?? {}) }),
+  runs: async () => mrsImagine.request('/runs'),
+  research: async () => mrsImagine.request('/research'),
+}
+
 // Image Flow API — generic gen/edit/bg-remove via gpt-image-2 etc.
 export const imageFlow = {
   edit: async (params: {

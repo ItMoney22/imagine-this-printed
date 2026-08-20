@@ -10,6 +10,7 @@ import {
   requiresCostGate,
   DEFAULT_EDIT_MODEL,
   type Purpose,
+  type Provider,
 } from '../models.js'
 import { generateKey, uploadFromUrl } from '../storage.js'
 import { resolveSource } from '../source-resolver.js'
@@ -54,7 +55,7 @@ export type EditResponse =
       path: string
       costUsd: number
       modelId: string
-      provider: 'replicate' | 'fal'
+      provider: Provider
       parentAssetId: string | null
       enhancedPrompt?: string
       enhancerCostUsd?: number
@@ -63,7 +64,7 @@ export type EditResponse =
       status: 'needs_confirmation'
       estimatedCostUsd: number
       modelId: string
-      provider: 'replicate' | 'fal'
+      provider: Provider
       reason: string
     }
 

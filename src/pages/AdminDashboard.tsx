@@ -16,6 +16,7 @@ import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminInventoryManagement from '../components/AdminInventoryManagement'
 import AdminOpsMonitor from '../components/AdminOpsMonitor'
 import AdminEtsyPanel from '../components/AdminEtsyPanel'
+import AdminMrsImagine from '../components/AdminMrsImagine'
 import AdminSocialOutbox from '../components/AdminSocialOutbox'
 import AdminDesignLibrary from '../components/AdminDesignLibrary'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
@@ -2098,6 +2099,7 @@ const AdminDashboard: React.FC = () => {
         {selectedTab === 'overview' && (
           <div className="space-y-6">
             <AdminOpsMonitor />
+            <AdminMrsImagine />
             <AdminEtsyPanel />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">

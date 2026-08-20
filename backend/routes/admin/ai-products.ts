@@ -6,8 +6,9 @@ import { normalizeProduct, PRODUCT_CATEGORY_SLUGS } from '../../services/ai-prod
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
-import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
+import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES, MR_IMAGINE_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
+import { houseDesignRoster } from '../../services/image-flow/models.js'
 import { startModelShots } from '../../services/etsy-model-shots.js'
 import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
@@ -87,10 +88,17 @@ export async function processImageJobInline(job: any): Promise<void> {
   }
 
   try {
-    await updateProgress('🧠 Tailoring your prompt per model, then generating with the 4 best-fit models in parallel...', 1, 3)
+    const roster = job.input?.forceSingleModel && job.input?.modelId
+      ? [job.input.modelId]
+      // House rule (David 2026-08-20): ITP-sold designs generate on
+      // gpt-image-2 only, OpenAI-direct — N independently-enhanced takes
+      // instead of the 4-vendor Replicate fan-out. Creator-studio jobs never
+      // reach this inline processor, so their roster is untouched.
+      : (job.input?.modelIds as string[] | undefined) ?? houseDesignRoster()
+    await updateProgress(`🧠 Tailoring your prompt, then generating ${roster.length} take${roster.length === 1 ? '' : 's'} in parallel...`, 1, 3)
     const results = await runImageFlowMultiGenerate({
       prompt: promptInput,
-      modelIds: job.input?.forceSingleModel && job.input?.modelId ? [job.input.modelId] : undefined,
+      modelIds: roster,
       category: product?.category ?? job.input?.category,
       shirtColor: job.input?.shirtColor,
       printStyle: job.input?.printStyle,
@@ -107,11 +115,17 @@ export async function processImageJobInline(job: any): Promise<void> {
 
     await updateProgress(`📤 Uploading ${succeeded.length} variants to cloud storage...`, 2, 3)
 
+    // Same-model takes (the gpt-image-2 house roster) get numbered labels so
+    // the picker still shows distinguishable variants.
+    const takeCounts = new Map<string, number>()
     for (const r of succeeded) {
       try {
+        const take = (takeCounts.get(r.modelId) ?? 0) + 1
+        takeCounts.set(r.modelId, take)
+        const dupes = succeeded.filter((s) => s.modelId === r.modelId).length > 1
         const ts = Date.now()
         const safeModel = r.modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-        const filename = `${productSlug}-${safeModel}-${ts}.png`
+        const filename = `${productSlug}-${safeModel}-${dupes ? `take${take}-` : ''}${ts}.png`
         const gcsPath = `graphics/${productSlug}/original/${filename}`
         const { publicUrl, path: storagePath } = await uploadImageFromUrl(r.url!, gcsPath)
         await supabase.from('product_assets').insert({
@@ -126,8 +140,8 @@ export async function processImageJobInline(job: any): Promise<void> {
           display_order: 99,
           metadata: {
             model_id: r.modelId,
-            model_name: r.modelLabel,
-            provider: 'replicate',
+            model_name: dupes ? `${r.modelLabel} · Take ${take}` : r.modelLabel,
+            provider: r.modelId.startsWith('openai/') ? 'openai' : 'replicate',
             original_prompt: promptInput,
             tailored_prompt: r.tailoredPrompt ?? null,
             multi_model: true,
@@ -599,7 +613,10 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           imageStyle,
           modelId,
           forceSingleModel: Boolean(forceSingleModel),
-          multiModel: true, // fan out to ADMIN_MULTI_MODEL_IDS
+          multiModel: true,
+          // House roster pinned ON the job so even a worker-side pickup (e.g.
+          // a manual requeue after an inline failure) stays gpt-image-2-only.
+          modelIds: forceSingleModel && modelId ? [modelId] : houseDesignRoster(),
         },
       },
     ]
@@ -749,7 +766,10 @@ async function saveDraftProductRow(opts: {
       price: 25.00,
       status: 'draft',
       images: [gcsUrl],
-      category: productType === 'tshirt' ? 't-shirts' : productType,
+      // Polos file under the established 'shirts' category (there is no polo
+      // category); shirts requires >=1 print location by CHECK constraint.
+      category: productType === 'tshirt' ? 't-shirts' : productType === 'polo' ? 'shirts' : productType,
+      ...(productType === 'polo' ? { print_locations: ['front_image'] } : {}),
       metadata: {
         ai_generated: true,
         one_shot: true,
@@ -1399,17 +1419,20 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
       }
 
-      // Always add Mr. Imagine mockup (garment paths only)
-      jobs.push({
-        product_id: id,
-        type: 'replicate_mockup_v2',
-        status: 'queued',
-        input: {
-          ...baseInput,
-          template: 'mr_imagine',
-          printPlacement: frontPlacement,
-        },
-      })
+      // Mr. Imagine mockup — only for garment types that have a static
+      // character base (polos don't; see MR_IMAGINE_SUPPORTED_PRODUCT_TYPES).
+      if (MR_IMAGINE_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'mr_imagine',
+            printPlacement: frontPlacement,
+          },
+        })
+      }
 
       // Back view for two-sided products — mockupRole pins the asset role so
       // it never fights the front flat lay for the mockup_flat_lay slot.

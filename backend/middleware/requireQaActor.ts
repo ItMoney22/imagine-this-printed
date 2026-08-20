@@ -28,7 +28,7 @@ declare global {
   }
 }
 
-const DEFAULT_AGENT_IDS = ['daily-designer', 'etsy-scout', 'mr-imagine', 'etsy-worker']
+const DEFAULT_AGENT_IDS = ['daily-designer', 'etsy-scout', 'mr-imagine', 'mrs-imagine', 'etsy-worker']
 
 const agentIds = (): Set<string> =>
   new Set(

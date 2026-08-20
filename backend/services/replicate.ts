@@ -28,7 +28,12 @@ export interface ReplicateTryOnInput {
 
 // Garment categories that support ghost mannequin mockups
 export const GHOST_MANNEQUIN_SUPPORTED_CATEGORIES = ['shirts', 'hoodies', 'tanks']
-export const GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES = ['tshirt', 'hoodie', 'tank']
+export const GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES = ['tshirt', 'hoodie', 'tank', 'polo']
+
+// Product types with static Mr. Imagine character bases (MR_IMAGINE_MOCKUPS
+// below). Polos have no character asset, so their fan-out must skip the
+// mr_imagine template or the composite job 404s on the base image.
+export const MR_IMAGINE_SUPPORTED_PRODUCT_TYPES = ['tshirt', 'hoodie', 'tank']
 
 // Mr. Imagine mockup base URLs - using public assets from the frontend
 // These should be publicly accessible URLs to the Mr. Imagine mockup images

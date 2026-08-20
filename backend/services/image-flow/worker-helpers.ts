@@ -2,8 +2,9 @@
 // a generated image URL. The worker handles its own GCS upload + DB writes.
 
 import { runReplicate } from './providers/replicate.js'
+import { runOpenAIImage, editOpenAIImage } from './providers/openai-image.js'
 import { buildInput } from './input-builder.js'
-import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
+import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS, type ImageModel } from './models.js'
 import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
 import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
@@ -20,9 +21,57 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
   const model = getModel(modelId)
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
-  const input = buildInput(model, { prompt: opts.prompt, extra: opts.extra })
-  const r = await runReplicate({ modelId: model.id, input })
-  return { url: r.imageUrls[0], modelId: model.id }
+  const r = await runRegisteredModel(model, { prompt: opts.prompt, extra: opts.extra })
+  return { url: r.url, modelId: model.id }
+}
+
+// --- Provider dispatch -------------------------------------------------------
+// House quality/size for OpenAI-direct generation (David 2026-08-20: pay for
+// quality on the stuff we sell). Replicate-routed models ignore these.
+const OPENAI_QUALITIES = ['low', 'medium', 'high', 'auto'] as const
+const OPENAI_SIZES = ['1024x1024', '1536x1024', '1024x1536', 'auto'] as const
+type OpenAIQuality = (typeof OPENAI_QUALITIES)[number]
+type OpenAISize = (typeof OPENAI_SIZES)[number]
+
+function houseOpenAIQuality(extra?: Record<string, unknown>): OpenAIQuality {
+  const q = String(extra?.quality ?? process.env.HOUSE_GPT_IMAGE_QUALITY ?? 'high').toLowerCase()
+  return (OPENAI_QUALITIES as readonly string[]).includes(q) ? (q as OpenAIQuality) : 'high'
+}
+
+function houseOpenAISize(extra?: Record<string, unknown>): OpenAISize {
+  // The registry's aspect_ratio nativeParam maps onto the model's real sizes.
+  const ar = String(extra?.aspect_ratio ?? '')
+  if (ar === '3:2') return '1536x1024'
+  if (ar === '2:3') return '1024x1536'
+  const size = String(process.env.HOUSE_GPT_IMAGE_SIZE || '1024x1024')
+  return (OPENAI_SIZES as readonly string[]).includes(size) ? (size as OpenAISize) : '1024x1024'
+}
+
+/**
+ * Run a registry model through its provider. provider:'openai' goes straight
+ * to the OpenAI Images API (no Replicate markup/queue — David 2026-08-20);
+ * everything else keeps the Replicate path. Same {url} shape either way, and
+ * both are "possibly temporary" to callers, who re-upload to their canonical
+ * GCS location (the OpenAI provider persists to a staging GCS path already).
+ */
+async function runRegisteredModel(
+  model: ImageModel,
+  req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number }
+): Promise<{ url: string }> {
+  if (model.provider === 'openai') {
+    const quality = houseOpenAIQuality(req.extra)
+    const size = houseOpenAISize(req.extra)
+    if (req.inputImages?.length) {
+      const [sourceUrl, ...refUrls] = req.inputImages
+      const r = await editOpenAIImage({ sourceUrl, refUrls, prompt: req.prompt, quality, size, moderation: 'low' })
+      return { url: r.url }
+    }
+    const r = await runOpenAIImage({ prompt: req.prompt, quality, size, moderation: 'low' })
+    return { url: r.url }
+  }
+  const input = buildInput(model, { prompt: req.prompt, inputImages: req.inputImages, extra: req.extra })
+  const r = await runReplicate({ modelId: model.id, input, timeoutMs: req.timeoutMs })
+  return { url: r.imageUrls[0] }
 }
 
 export interface MultiGenerateResult {
@@ -156,9 +205,8 @@ export async function runImageFlowMultiGenerate(opts: {
     ids.map(async (id, i) => {
       const model = getModel(id)
       if (!model) throw new Error(`unknown image-flow model: ${id}`)
-      const input = buildInput(model, { prompt: finalPrompts[i], extra: opts.extra })
-      const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
-      return { id: model.id, label: model.label, url: r.imageUrls[0] }
+      const r = await runRegisteredModel(model, { prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000 })
+      return { id: model.id, label: model.label, url: r.url }
     })
   )
 
@@ -178,7 +226,7 @@ export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'me
 export interface RunMockupOpts {
   template: MockupTemplate
   designImageUrl: string
-  productType: 'tshirt' | 'hoodie' | 'tank'
+  productType: 'tshirt' | 'hoodie' | 'tank' | 'polo'
   shirtColor: 'black' | 'white' | 'gray' | 'grey'
   /** For mr_imagine — URL of the Mr. Imagine character base. */
   characterImageUrl?: string
@@ -240,6 +288,7 @@ const PRODUCT_NAMES: Record<string, string> = {
   tshirt: 't-shirt',
   hoodie: 'hoodie',
   tank: 'tank top',
+  polo: 'polo shirt',
 }
 const COLOR_DESC: Record<string, string> = {
   black: 'black',
@@ -682,7 +731,6 @@ export async function runImageFlowEdit(opts: RunEditOpts): Promise<{ url: string
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
   const inputImages = [opts.sourceImageUrl, ...(opts.refImageUrls ?? [])]
-  const input = buildInput(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
-  const r = await runReplicate({ modelId: model.id, input })
-  return { url: r.imageUrls[0], modelId: model.id }
+  const r = await runRegisteredModel(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
+  return { url: r.url, modelId: model.id }
 }

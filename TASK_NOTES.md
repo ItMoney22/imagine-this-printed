@@ -1,4 +1,56 @@
 # TASK_NOTES
+## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
+
+David: "huge overhaul of how we design shirts… only do gpt image 2 [for] the
+stuff we are selling… openai api not replicate… create a misses imagine… she
+needs to go on etsy and look for realtime data… she must approve her work by
+looking at it the mockups and all then she walks the design right into the
+etsy drafts… easy for me to put it on tiktok too… sales sales sales."
+
+Design doc: `docs/plans/2026-08-20-imagine-design-overhaul-design.md`.
+Branch: `earth/zero-nine/imagine-overhaul-gpt2` (worktree; shared checkout untouched).
+
+### File shortlist (approved scope — 2026-08-20 imagine overhaul)
+- `backend/services/image-flow/models.ts` — Provider 'openai', house roster
+- `backend/services/image-flow/worker-helpers.ts` — openai dispatch + polo
+- `backend/services/image-flow/api/generate.ts`, `api/edit.ts` — openai dispatch
+- `backend/routes/admin/ai-products.ts` — house create pins gpt-image-2 roster; polo
+- `backend/worker/ai-jobs-worker.ts` — forward job.input.modelIds (multi fan-out)
+- `backend/services/etsy-market-research.ts` (+`.test.ts`) — NEW realtime Etsy search
+- `backend/services/mrs-imagine.ts` — NEW orchestrator (e2e chain productionized)
+- `backend/routes/admin/mrs-imagine.ts` — NEW route; `backend/index.ts` mount
+- `backend/middleware/requireQaActor.ts` — allowlist 'mrs-imagine'
+- `backend/.env.example` — new env vars
+- `public/mrs-imagine/*` — NEW persona art (gpt-image-2, matched to Mr. Imagine)
+- `src/components/AdminMrsImagine.tsx` — NEW admin card; `src/pages/AdminDashboard.tsx` mount; `src/lib/api.ts` client
+- `docs/plans/2026-08-20-imagine-design-overhaul-design.md`, `TASK_NOTES.md`
+- NOT touched: the 2026-08-19 uncommitted Etsy-taxonomy/print-bridge/Home.tsx
+  work sitting in the shared checkout — that is another session's.
+
+### Work log (append-only)
+- 2026-08-20 — Recon (2 explore agents) + live smoke test: gpt-image-2 confirmed
+  on David's key (HTTP 200, ~25s low). Found: house fan-out was 4 shuffled
+  Replicate models; openai-image.ts direct provider existed but only 3 call
+  sites; zero real Etsy research in repo. Design doc written; build started.
+- 2026-08-20 — Built the overhaul on the worktree branch: (1) image-flow
+  Provider split — gpt-image-2 is now provider 'openai', dispatched to the
+  direct OpenAI provider from worker-helpers/generate/edit; house builder pins
+  houseDesignRoster() (N× gpt-image-2 takes; creator-studio roster untouched);
+  polos wired (type unions, noun map, ghost support, mr_imagine skip, category
+  'shirts' + print_locations). (2) etsy-market-research.ts — first REAL Etsy
+  marketplace research (public listings/active; favorers/day heat, tag + phrase
+  aggregation) — PROVEN LIVE with the vault keystring (1.1M-listing query, real
+  favorer counts). (3) mrs-imagine.ts — full chain per design: research-briefed
+  gpt-image-2 gen → copy to gate thresholds → product → rembg → worker mockups
+  → storefront QA self-review (1 corrective regen) → pack + copyright gate +
+  model shots → etsy QA → storefront activate + etsy_listings queue → TikTok
+  outbox draft; batch ledger on an ai_jobs row (no DDL, born 'running' so the
+  worker never claims it). (4) Route /api/admin/mrs-imagine (run/runs/research)
+  with requireQaActor ('mrs-imagine' allowlisted) + AdminMrsImagine card on the
+  dashboard overview. Made the OpenAI client lazy (eager construction broke 2
+  worker test suites when no key is set). Gate: backend tsc clean, vitest 42
+  files green, frontend build clean.
+
 ## Current request (2026-08-19) — 3D toy gen → store + Etsy → sales signal
 
 David: "finetune our 3d toy gen as we need to add them to the store and etsy,
