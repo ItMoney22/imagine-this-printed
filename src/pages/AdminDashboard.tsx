@@ -14,6 +14,7 @@ import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/Adm
 import AdminImaginationProducts from './admin/ImaginationProducts'
 import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminInventoryManagement from '../components/AdminInventoryManagement'
+import AdminPrintMaterials from '../components/AdminPrintMaterials'
 import AdminOpsMonitor from '../components/AdminOpsMonitor'
 import AdminEtsyPanel from '../components/AdminEtsyPanel'
 import AdminMrsImagine from '../components/AdminMrsImagine'
@@ -78,8 +79,8 @@ const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorSubmission[]>([])
   // Users-tab filters: 180+ accounts render in one table, so finding the person
@@ -2077,7 +2078,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
           <nav className="flex flex-wrap gap-2">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'tryon', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'materials', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'tryon', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -2089,7 +2090,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'tryon' ? 'Virtual Try-On' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'tryon' ? 'Virtual Try-On' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab === 'materials' ? 'Filament & Paint' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -3160,6 +3161,13 @@ const AdminDashboard: React.FC = () => {
         {
           selectedTab === 'inventory' && (
             <AdminInventoryManagement />
+          )
+        }
+
+        {/* Materials Tab - filament spools + paint bottles (AMS color matching) */}
+        {
+          selectedTab === 'materials' && (
+            <AdminPrintMaterials />
           )
         }
 

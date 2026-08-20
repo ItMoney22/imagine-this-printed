@@ -22,8 +22,20 @@ export const METAL_ADDONS: { id: string; name: string; price: number; printed: b
   { id: 'gift_box',       name: 'Gift packaging',               price: 5,  printed: false, blurb: 'Arrives gift-boxed and ready to give.' },
 ]
 
+// Catalog of 3D-toy add-ons (David 2026-08-19): every toy prints with hidden
+// magnets in both palms, so extra parts snap on — and the paint kit ships
+// paints matched to the toy's own ≤4-color palette (metadata.print3d.palette).
+// Keep ids + prices in sync with TOY_ADDONS_CENTS in
+// backend/services/order-pricing.ts (server-verified, unknown id = hard error).
+export const TOY_ADDONS: { id: string; name: string; price: number; printed: boolean; blurb: string }[] = [
+  { id: 'toy_paint_kit',     name: 'Matched paint kit',          price: 15,   printed: false, blurb: 'The exact paints for THIS toy\'s colors — a fun paint-at-home project for kids.' },
+  { id: 'toy_weapon_pack',   name: 'Snap-on weapon pack',        price: 6.99, printed: true,  blurb: '3 magnet-mount weapons that snap right into your figure\'s hands.' },
+  { id: 'toy_pet_companion', name: 'Pet companion',              price: 9.99, printed: true,  blurb: 'A mini magnet-base sidekick printed to match your figure.' },
+  { id: 'toy_magnet_pair',   name: 'Extra magnet pair',          price: 2.99, printed: false, blurb: 'Spare 5mm magnets for your own snap-on creations.' },
+]
+
 export function getAddonById(id: string) {
-  return METAL_ADDONS.find(a => a.id === id) || null
+  return METAL_ADDONS.find(a => a.id === id) || TOY_ADDONS.find(a => a.id === id) || null
 }
 
 // Resolve the add-on ids stored on a product (metadata.addons) into the full
@@ -34,6 +46,13 @@ export function resolveProductAddons(product: Product): typeof METAL_ADDONS {
   return ids
     .map((id: string) => getAddonById(id))
     .filter((a): a is (typeof METAL_ADDONS)[number] => !!a)
+}
+
+// True when the product is a blank garment sold as-is (no print). Blanks are
+// seeded with metadata.garment = { blank: true, tier, brand, style_code } and
+// metadata.blank_style pinning them to blank_inventory for auto-decrement.
+export function isBlankProduct(product: Pick<Product, 'metadata'>): boolean {
+  return product?.metadata?.garment?.blank === true || product?.metadata?.blank_only === true
 }
 
 // Per-unit sum of selected add-on prices.

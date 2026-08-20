@@ -12,7 +12,7 @@
 // Shared clause constants — used by both the full t2i path and the remix i2i path
 // so both references always stay in sync.
 export const TOY_MODE_CLAUSE =
-  'Designed as a collectible vinyl-toy style figurine for 3D printing: chunky rounded proportions, thick sturdy limbs, no thin protruding parts or fragile details, feet/base wide enough to stand stably, smooth surfaces, bold simple shapes, full vibrant colors, single connected solid body, neutral plain background, centered full view of the entire figure'
+  'Designed as a collectible vinyl-toy style figurine for 3D printing: chunky rounded proportions, thick sturdy limbs, no thin protruding parts or fragile details, feet/base wide enough to stand stably, smooth surfaces, bold simple shapes, full vibrant colors, single connected solid body, neutral plain background, centered full view of the entire figure, charming expressive face with big friendly eyes, arms held slightly away from the body with open rounded C-grip hands able to hold snap-on accessories, distinct color regions with clean crisp borders between colors'
 
 export const COLOR4_CLAUSE =
   'Use a LIMITED FLAT PALETTE of at most 4 distinct solid colors total, large clean single-color regions with crisp boundaries, no gradients, no color blending, no tiny multicolor details — every region must be one of the 4 chosen colors'
