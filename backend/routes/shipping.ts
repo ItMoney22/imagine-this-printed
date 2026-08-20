@@ -22,8 +22,10 @@ const DELIVERY_TIERS = [
 // parcel weight is computed from the cart instead of being hardcoded to 1 lb.
 const SHIPPING_MARKUP = 0.05
 
-// Warehouse ship-from used when quoting carrier rates.
-const WAREHOUSE_ADDRESS_FROM = {
+// Warehouse ship-from used when quoting carrier rates AND when buying labels
+// (backend/routes/orders.ts imports it) so a quote and its label always leave
+// from the same address.
+export const WAREHOUSE_ADDRESS_FROM = {
   name: 'Imagine This Printed',
   street1: '640 Goodyear Ave',
   city: 'Rockmart',
