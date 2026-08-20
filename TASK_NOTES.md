@@ -112,6 +112,11 @@ Added mid-wave (David direct requests, same session):
 - `backend/routes/media.ts` (3d-models/<uuid>/concept.png ONLY through the
   permanent proxy — STL/GLB stay license-gated)
 - `backend/services/order-pricing.test.ts`, `backend/routes/print-bridge.test.ts`
+- `src/components/3d-models/Model3DCard.tsx` (free "Download GLB" hover button
+  was a paid-deliverable leak — now license-gated; David: "they need to pay")
+- `src/components/3d-models/Model3DViewer.tsx` (black-viewer fix: drop the
+  model-viewer-v4-removed environment-image="neutral"; GLB load failure now
+  falls back to the concept-image carousel instead of a black panel)
 
 ### Work log (append-only) — 2026-08-19 #2 wave
 - 2026-08-19 — Built the full slice on
