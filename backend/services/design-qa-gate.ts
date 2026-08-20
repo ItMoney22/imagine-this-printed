@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto'
 import { supabase } from '../lib/supabase.js'
 import {
   runPresentationQa,
+  looksLikeRender,
   type Channel,
   type PresentationInput,
   type PresentationVerdict,
@@ -104,9 +105,27 @@ export async function buildPresentationInput(productId: string, channel: Channel
 
   const metadata: Record<string, any> = (product as any).metadata ?? {}
   const images: string[] = Array.isArray(product.images) ? product.images.filter((i: unknown): i is string => typeof i === 'string') : []
-  // images[0] is the source artwork everywhere in this codebase — see
-  // etsy-model-shots.ts designSourceUrl().
-  const designUrl = images[0] ?? null
+  // The artwork that goes to the PRINTER, resolved in the same order the worker
+  // itself uses when rendering (ai-jobs-worker.ts: dtf > nobg > source).
+  //
+  // images[0] is documented as the source artwork (etsy-model-shots.ts
+  // designSourceUrl()) and is that for AI-built products, but it is NOT that on
+  // most of the live catalogue: measured 2026-08-19, slot 0 is a ghost-mannequin
+  // render on the majority of active garments. Grading a photograph of a shirt
+  // as if it were the design fails it for having an opaque background, which
+  // every photograph has — so fall back to slot 0 only when it is not a render.
+  const { data: artworkAssets } = await supabase
+    .from('product_assets')
+    .select('kind, url, created_at')
+    .eq('product_id', productId)
+    .in('kind', ['dtf', 'nobg', 'source'])
+    .order('created_at', { ascending: false })
+  const artworkOfKind = (kind: string): string | null => {
+    const hit = (artworkAssets ?? []).find(a => a.kind === kind && typeof a.url === 'string')
+    return (hit?.url as string) ?? null
+  }
+  const galleryArtwork = images[0] && !looksLikeRender(images[0]) ? images[0] : null
+  const designUrl = artworkOfKind('dtf') ?? artworkOfKind('nobg') ?? artworkOfKind('source') ?? galleryArtwork
 
   let mockupUrls: string[] = []
   if (channel === 'etsy') {
