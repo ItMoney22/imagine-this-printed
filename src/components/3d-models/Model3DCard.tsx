@@ -156,11 +156,16 @@ export function Model3DCard({ model, onView, onRefresh }: Model3DCardProps) {
           >
             <Eye className="w-5 h-5" />
           </button>
-          {model.status === 'ready' && (
+          {/* Download is a PAID deliverable (200/500 ITC license via the
+              detail modal). This overlay used to open the raw glb_url for
+              free — David 2026-08-19: "they need to pay for that". Only show
+              the shortcut once a license has been purchased; otherwise the
+              View modal carries the buy-download flow. */}
+          {model.status === 'ready' && (model.purchased_licenses?.length ?? 0) > 0 && (
             <button
-              onClick={() => window.open(model.glb_url || '', '_blank')}
+              onClick={() => onView(model)}
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
-              title="Download GLB"
+              title="Download (license purchased)"
             >
               <Download className="w-5 h-5" />
             </button>

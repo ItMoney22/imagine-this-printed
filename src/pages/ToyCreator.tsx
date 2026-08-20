@@ -565,8 +565,9 @@ export default function ToyCreator() {
   const [sizeTiers, setSizeTiers] = useState<SizeTierConfig[]>([])
   const [selectedTier, setSelectedTier] = useState<PrintSizeTier>('small')
 
-  // Color mode
-  const [colorMode, setColorMode] = useState<ColorMode>('grey')
+  // Color mode — defaults FULL COLOR (David 2026-08-19: "i want it fully
+  // printed in full color"); grey + paint-kit stays one click away.
+  const [colorMode, setColorMode] = useState<ColorMode>('color4')
 
   // Order state
   const [includePaintKit, setIncludePaintKit] = useState(false)

@@ -103,13 +103,17 @@ const LIMIT = 50
 interface PromoteModalProps {
   model: ToyModel
   onClose: () => void
-  onConfirm: (price: number) => Promise<void>
+  onConfirm: (price: number, activate: boolean) => Promise<void>
 }
 
 function PromoteModal({ model, onClose, onConfirm }: PromoteModalProps) {
   const [price, setPrice] = useState<string>(
     model.print_price_usd != null ? String(model.print_price_usd) : '25'
   )
+  // Default ON — the whole point of promoting is getting the toy in front of
+  // customers; before this flag promoted toys landed invisible (draft +
+  // inactive) with no activate button anywhere.
+  const [activate, setActivate] = useState(true)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -117,7 +121,7 @@ function PromoteModal({ model, onClose, onConfirm }: PromoteModalProps) {
     const parsed = parseFloat(price)
     if (isNaN(parsed) || parsed <= 0) return
     setLoading(true)
-    await onConfirm(parsed)
+    await onConfirm(parsed, activate)
     setLoading(false)
   }
 
@@ -152,10 +156,21 @@ function PromoteModal({ model, onClose, onConfirm }: PromoteModalProps) {
             </div>
           </div>
 
-          <p className="text-xs text-muted">
-            This creates an <span className="font-medium text-amber-400">inactive</span> catalog
-            product — activate it in Product Management when ready.
-          </p>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={activate}
+              onChange={e => setActivate(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="text-xs text-text">
+              List live in the <span className="font-medium text-primary">Toy Shop</span> immediately
+              <span className="block text-muted mt-0.5">
+                Unchecked = created <span className="font-medium text-amber-400">inactive</span>;
+                activate later in Product Management.
+              </span>
+            </span>
+          </label>
 
           <div className="flex gap-3 pt-1">
             <button
@@ -759,18 +774,20 @@ export default function AdminToyLab() {
     }
   }
 
-  async function handlePromote(model: ToyModel, price: number) {
+  async function handlePromote(model: ToyModel, price: number, activate: boolean) {
     try {
       const res = await apiFetch(
         `/api/3d-models/admin/${model.id}/promote`,
         {
           method: 'POST',
-          body: JSON.stringify({ price_usd: price }),
+          body: JSON.stringify({ price_usd: price, activate }),
         }
       )
       toast.success(
         'Promoted!',
-        `Created as inactive product (ID: ${res.product_id}) — activate it in Product Management.`
+        activate
+          ? `Live in the Toy Shop now (product ${res.product_id}).`
+          : `Created as inactive product (ID: ${res.product_id}) — activate it in Product Management.`
       )
       setPromoteTarget(null)
     } catch (err: unknown) {
@@ -837,7 +854,7 @@ export default function AdminToyLab() {
         <PromoteModal
           model={promoteTarget}
           onClose={() => setPromoteTarget(null)}
-          onConfirm={price => handlePromote(promoteTarget, price)}
+          onConfirm={(price, activate) => handlePromote(promoteTarget, price, activate)}
         />
       )}
 

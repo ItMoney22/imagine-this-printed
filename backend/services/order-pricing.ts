@@ -80,6 +80,34 @@ const METAL_ADDONS_CENTS: Record<string, number> = {
   gift_box: 500
 }
 
+// Mirrors src/lib/product-kind.ts TOY_ADDONS — magnet-mount accessory parts
+// and the matched paint kit for catalog 3D toys (David 2026-08-19: every
+// character carries palm magnets, so extra weapons/pets are sellable parts).
+const TOY_ADDONS_CENTS: Record<string, number> = {
+  toy_paint_kit: 1500,
+  toy_weapon_pack: 699,
+  toy_pet_companion: 999,
+  toy_magnet_pair: 299
+}
+
+// All server-verifiable per-unit add-ons, by id. Ids are globally unique
+// across catalogs (metal vs toy) so one lookup table is safe.
+const KNOWN_ADDONS_CENTS: Record<string, number> = {
+  ...METAL_ADDONS_CENTS,
+  ...TOY_ADDONS_CENTS
+}
+
+// Mirrors src/lib/garment-tiers.ts GARMENT_TIERS upcharges (dollars → cents).
+// Shirt quality upsell: base catalog price = the standard blank; premium
+// blanks add a fixed per-unit upcharge. Unrecognized tier = hard pricing
+// error, same posture as add-ons.
+const GARMENT_TIER_UPCHARGE_CENTS: Record<string, number> = {
+  standard: 0,
+  soft: 300,
+  premium: 500,
+  heavyweight: 700
+}
+
 // Mirrors src/pages/Checkout.tsx PLUS_SIZES / PLUS_SIZE_UPCHARGE.
 const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
 const PLUS_SIZE_UPCHARGE_CENTS = 250
@@ -168,6 +196,8 @@ export interface PricingCartItem {
   productId: string | null | undefined
   quantity: number
   selectedSize?: string | null
+  /** Garment quality tier id (src/lib/garment-tiers.ts) — apparel only. */
+  selectedTier?: string | null
   selectedAddonIds?: (string | null | undefined)[] | null
   // Only consulted for product lines whose authoritative formula isn't yet
   // ported server-side. Currently unused by imagination-sheet-*/3d-print-*
@@ -365,9 +395,18 @@ export function computeLineItemCents(
     perUnitCents += PLUS_SIZE_UPCHARGE_CENTS
   }
 
+  if (item.selectedTier) {
+    const tierCents = GARMENT_TIER_UPCHARGE_CENTS[item.selectedTier]
+    if (tierCents === undefined) {
+      errors.push(`Unrecognized garment tier "${item.selectedTier}" for item ${id}`)
+    } else {
+      perUnitCents += tierCents
+    }
+  }
+
   for (const addonId of item.selectedAddonIds || []) {
     if (!addonId) continue
-    const addonCents = METAL_ADDONS_CENTS[addonId]
+    const addonCents = KNOWN_ADDONS_CENTS[addonId]
     if (addonCents === undefined) {
       errors.push(`Unrecognized add-on "${addonId}" for item ${id}`)
       continue

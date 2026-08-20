@@ -108,6 +108,71 @@ describe('computeLineItemCents', () => {
     expect(cents).toBe(2000 + 250)
   })
 
+  describe('garment quality tiers (mirrors src/lib/garment-tiers.ts)', () => {
+    it('adds the per-unit tier upcharge for a recognized tier', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { cents, errors } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 2, selectedSize: 'M', selectedTier: 'premium' },
+        map
+      )
+      expect(errors).toEqual([])
+      expect(cents).toBe((2000 + 500) * 2) // $20 base + $5 Bella+Canvas, per unit
+    })
+
+    it('charges nothing extra for the standard tier and for no tier at all', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const standard = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'M', selectedTier: 'standard' },
+        map
+      )
+      const none = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'M' },
+        map
+      )
+      expect(standard.cents).toBe(2000)
+      expect(none.cents).toBe(2000)
+    })
+
+    it('hard-errors on an unrecognized tier instead of trusting it', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { errors } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'M', selectedTier: 'diamond_deluxe' },
+        map
+      )
+      expect(errors[0]).toMatch(/Unrecognized garment tier/)
+    })
+
+    it('stacks tier + plus-size upcharges per unit', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { cents } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: '3XL', selectedTier: 'heavyweight' },
+        map
+      )
+      expect(cents).toBe(2000 + 250 + 700) // base + plus size + Comfort Colors
+    })
+  })
+
+  describe('toy add-ons (mirrors src/lib/product-kind.ts TOY_ADDONS)', () => {
+    it('prices toy add-ons from the server catalog', () => {
+      const map = new Map([[PRODUCT_A, 30]])
+      const { cents, errors } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'medium', selectedAddonIds: ['toy_paint_kit', 'toy_weapon_pack', 'toy_pet_companion', 'toy_magnet_pair'] },
+        map
+      )
+      expect(errors).toEqual([])
+      expect(cents).toBe(3000 + 1500 + 699 + 999 + 299)
+    })
+
+    it('still rejects an unknown add-on id after the toy catalog merge', () => {
+      const map = new Map([[PRODUCT_A, 30]])
+      const { errors } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'medium', selectedAddonIds: ['toy_rocket_launcher'] },
+        map
+      )
+      expect(errors[0]).toMatch(/Unrecognized add-on/)
+    })
+  })
+
   describe('imagination-sheet / 3d-print pricing (Watchtower task 188ead33 GAP 1)', () => {
     it('prices an imagination sheet from the resolved server map, ignoring a lowball client price entirely', () => {
       const customMap = new Map([['imagination-sheet-abc', 12.34]])

@@ -430,7 +430,7 @@ router.post(
   async (req: Request, res: Response): Promise<any> => {
     try {
       const { id } = req.params
-      const { price_usd } = req.body
+      const { price_usd, activate } = req.body
 
       const { data: model, error: fetchError } = await supabase
         .from('user_3d_models')
@@ -460,10 +460,23 @@ router.post(
         ? price_usd
         : (model.print_price_usd ?? PRINT_PRICING.base_price)
 
-      const description =
-        `A 3D-printed collectible toy figure printed in grey PLA. ` +
-        `Add a paint kit at checkout for a fun family painting project! ` +
-        `Generated from: "${model.prompt.substring(0, 120)}"`
+      const colorMode = (model.metadata as any)?.color_mode ?? 'grey'
+      const description = colorMode === 'color4'
+        ? `A 3D-printed collectible toy figure printed in FULL COLOR (up to 4 colors). ` +
+          `Hidden magnets in both palms — snap-on weapons, pets and extra parts available as add-ons. ` +
+          `Or add a matched paint kit for a fun family painting project! ` +
+          `Generated from: "${model.prompt.substring(0, 120)}"`
+        : `A 3D-printed collectible toy figure printed in grey PLA. ` +
+          `Hidden magnets in both palms — snap-on weapons, pets and extra parts available as add-ons. ` +
+          `Add a paint kit at checkout for a fun family painting project! ` +
+          `Generated from: "${model.prompt.substring(0, 120)}"`
+
+      // Product gallery: concept art first, then the Tripo render of the real
+      // mesh so customers see what actually prints.
+      const images: string[] = []
+      if (model.concept_image_url) images.push(model.concept_image_url)
+      const tripoPreview = (model.metadata as any)?.preview_url
+      if (typeof tripoPreview === 'string' && tripoPreview) images.push(tripoPreview)
 
       const { data: product, error: insertError } = await supabase
         .from('products')
@@ -472,9 +485,12 @@ router.post(
           description,
           category: '3d-prints',
           price,
-          images: model.concept_image_url ? [model.concept_image_url] : [],
-          status: 'draft',
-          is_active: false,
+          images,
+          // activate: true lists the toy live in the Toy Shop immediately
+          // (David 2026-08-19: promoted toys were landing invisible with no
+          // one-click activate anywhere). Default stays draft/inactive.
+          status: activate === true ? 'active' : 'draft',
+          is_active: activate === true,
           // Credit the original creator: the royalty webhook keys on these two
           // fields — without them a promoted toy sells with NO 15% payout to
           // the user who designed it.
@@ -487,9 +503,17 @@ router.post(
               stl_url: model.stl_url ?? null,
               source_model_id: model.id,
               print_height_mm: model.print_height_mm ?? null,
-              color_mode: (model.metadata as any)?.color_mode ?? 'grey',
-              magnet_sockets: 2
+              color_mode: colorMode,
+              magnet_sockets: 2,
+              // ≤4-color palette from the concept art — the print floor's
+              // filament plan and matched paint kits key off this.
+              palette: Array.isArray((model.metadata as any)?.palette)
+                ? (model.metadata as any).palette
+                : null
             },
+            // Purchasable add-ons on the product page (src/lib/product-kind.ts
+            // TOY_ADDONS): matched paint kit + magnet-mount extra parts.
+            addons: ['toy_paint_kit', 'toy_weapon_pack', 'toy_pet_companion', 'toy_magnet_pair'],
             source: 'toy_creator_promotion'
           }
         })

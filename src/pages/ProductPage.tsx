@@ -13,7 +13,8 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct } from '../lib/product-kind'
+import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 
 // Customer-facing labels for products.print_locations values. Mirrors the
@@ -42,6 +43,9 @@ const ProductPage: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
   const [selectedPrintLocation, setSelectedPrintLocation] = useState<string>('')
+  // Garment quality tier (printed apparel only) — defaults to the standard
+  // blank so checkout works with zero interaction; premium tiers upcharge.
+  const [selectedTier, setSelectedTier] = useState<string>(DEFAULT_GARMENT_TIER_ID)
   /** Placement → the mockup rendered at that print scale (currently pocket only). */
   const [placementShots, setPlacementShots] = useState<Record<string, string>>({})
   const [selectedAddons, setSelectedAddons] = useState<CartAddon[]>([])
@@ -307,6 +311,12 @@ const ProductPage: React.FC = () => {
     return 'apparel'
   })()
   const isApparel = productKind === 'apparel'
+  // Blank garments are sold as-is (no print, no quality upsell — the blank IS
+  // its tier, priced outright). Seeded with metadata.garment.blank = true.
+  const isBlank = isBlankProduct(product)
+  // Tier picker shows on printed apparel only.
+  const showGarmentTiers = isApparel && !isBlank
+  const tierUpcharge = showGarmentTiers ? garmentTierUpcharge(selectedTier) : 0
 
   // Optional add-on upsells configured at approval (metal-art easel stand,
   // wall mount, etc.). Empty for products without any.
@@ -407,7 +417,7 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined, showGarmentTiers ? selectedTier : undefined)
       trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
@@ -428,7 +438,7 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined, showGarmentTiers ? selectedTier : undefined)
       // Buy Now still puts the item in the cart, so it counts in the funnel.
       trackCartForTryOn()
       navigate('/checkout')
@@ -643,6 +653,45 @@ const ProductPage: React.FC = () => {
                 </div>
               )
             })()}
+
+            {/* Shirt quality tier — printed apparel only. Base price = the
+                standard Gildan blank; premium blanks upcharge per unit. */}
+            {showGarmentTiers && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">
+                  Shirt Quality
+                  <span className="ml-2 text-muted font-normal">— pick your blank</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {GARMENT_TIERS.map(tier => {
+                    const isSelected = selectedTier === tier.id
+                    return (
+                      <button
+                        key={tier.id}
+                        onClick={() => setSelectedTier(tier.id)}
+                        className={`text-left px-3 py-2 rounded-md border-2 transition-all ${isSelected
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
+                          : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5'
+                          }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sm text-text">{tier.label}</span>
+                          <span className={`text-xs font-semibold ${tier.upcharge > 0 ? 'text-amber-400' : 'text-muted'}`}>
+                            {tier.upcharge > 0 ? `+$${tier.upcharge.toFixed(2)}` : 'included'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted mt-0.5">{tier.brand} {tier.styleCode} — {tier.blurb}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+                {tierUpcharge > 0 && (
+                  <p className="text-xs text-muted mt-1.5">
+                    Unit price with this blank: <span className="text-text font-semibold">${(product.price + tierUpcharge).toFixed(2)}</span>
+                  </p>
+                )}
+              </div>
+            )}
 
             {productKind === 'metal' && product.metadata?.finish && (
               <div className="mb-4">

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer, useState, useCallback, us
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
 import { addonsUnitTotal, addonsSignature } from '../lib/product-kind'
+import { garmentTierUpcharge } from '../lib/garment-tiers'
 
 interface CartState {
   items: CartItem[]
@@ -109,7 +110,7 @@ function loadCouponFromStorage(): AppliedCoupon | null {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -130,7 +131,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation'] } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation']; selectedTier?: string } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -187,13 +188,17 @@ const calculateTotal = (items: CartItem[]): number => {
   // unit and apply to every item regardless of the 3-for-$25 deal.
   const addonsTotal = items.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
 
-  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal
+  // Garment quality tier upcharge (Gildan classic vs Softstyle / Bella+Canvas /
+  // Comfort Colors). Per unit; mirrors GARMENT_TIER_UPCHARGE_CENTS server-side.
+  const tierTotal = items.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
+
+  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal + tierTotal
 }
 
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
@@ -201,6 +206,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
         item.selectedColor === selectedColor &&
         item.paymentMethod === paymentMethod &&
         item.printLocation === printLocation &&
+        item.selectedTier === selectedTier &&
         addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons)
       )
 
@@ -219,6 +225,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           selectedSize,
           selectedColor,
           printLocation,
+          selectedTier,
           selectedAddons,
           customDesign,
           designData,
@@ -304,8 +311,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [appliedCoupon])
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier } })
   }
 
   const removeFromCart = (itemId: string) => {
@@ -339,6 +346,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       selectedSize: item.selectedSize || item.variations?.size,
       selectedColor: item.selectedColor || item.variations?.color,
       printLocation: item.printLocation || item.print_location || item.variations?.printLocation,
+      selectedTier: item.selectedTier || item.tier || undefined,
       customDesign: item.customDesign,
       designData: item.designData,
       paymentMethod: item.paymentMethod || 'usd'
