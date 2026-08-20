@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 import OpenAI from 'openai'
 import { checkMockup, coverageIsExempt } from './mockup-qa.js'
-import { measureImages, type ImageMetricsResult } from './image-metrics.js'
+import { measureImages, measureOpacity, type ImageMetricsResult, type OpacityResult } from './image-metrics.js'
 import { MAX_TAGS, MAX_TITLE_LEN } from './etsy-listing-fields.js'
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
@@ -39,6 +39,7 @@ export type Channel = 'storefront' | 'etsy'
 export const CRITERIA = [
   'mockup_quality',
   'design_placement',
+  'print_background',
   'typography',
   'seo',
   'pricing',
@@ -108,6 +109,68 @@ export const WARN_SHARPNESS = Number(process.env.QA_WARN_SHARPNESS || 300)
 /** Etsy allows 10 photos and listings with more of them convert better. */
 export const MIN_MOCKUPS = Number(process.env.QA_MIN_MOCKUPS || 1)
 export const WARN_MOCKUPS = Number(process.env.QA_WARN_MOCKUPS || 3)
+
+// ---------------------------------------------------------------------------
+// SHOT COVERAGE — "are these the RIGHT photos", not just "are there enough".
+//
+// The renderer writes every mockup to mockups/{slug}/{template}/{file}
+// (ai-jobs-worker.ts), so the shot type is recoverable from the URL without a
+// schema change or a second vision call. Hyphenated and underscored spellings
+// both occur in live paths ('ghost-mannequin' and 'ghost_mannequin'), so the
+// parser normalises before comparing.
+// ---------------------------------------------------------------------------
+export const ON_BODY_TEMPLATES = new Set(['ghost_mannequin', 'mr_imagine', 'lifestyle', 'model'])
+/** Below this many DISTINCT shot types a garment listing looks thin. */
+export const MIN_DISTINCT_SHOTS = Number(process.env.QA_MIN_DISTINCT_SHOTS || 2)
+
+/**
+ * True when a URL is a RENDER of the product rather than the artwork that goes
+ * to the printer. Load-bearing: on most live products images[0] is a
+ * ghost-mannequin shot, and measuring a photograph of a shirt as if it were the
+ * design blocks it for having an opaque background — which every photo has.
+ */
+export const looksLikeRender = (url: string | null | undefined): boolean => {
+  const u = String(url ?? '')
+  return /\/mockups?\//i.test(u) || /\bmockup[-_]?\d*\.[a-z]+/i.test(u)
+}
+
+export function shotTemplatesFrom(urls: string[]): string[] {
+  const out: string[] = []
+  for (const u of urls) {
+    const m = /\/mockups\/[^/]+\/([^/]+)\//.exec(String(u))
+    if (m) out.push(m[1].replace(/-/g, '_').toLowerCase())
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// PRINT BACKGROUND — measured, like everything else in this file.
+//
+// A garment print is artwork with dead air around it. A poster is a rectangle.
+// The border ring separates them: art meant for a tee leaves its edges empty,
+// an opaque render fills them. MEASURED on five real designs, 2026-08-19:
+//   bass badge      painted checkerboard  opaqueBorder 1.00  transparent 0.00
+//   vet-tech cat    painted checkerboard  opaqueBorder 1.00  transparent 0.00
+//   trail-runner v1 opaque sky            opaqueBorder 1.00  transparent 0.00
+//   trail-runner v2 real alpha            opaqueBorder 0.41  transparent 0.50
+//   trail-runner v3 real alpha            opaqueBorder 0.02  transparent 0.23
+// Nothing real lands between 0.41 and 1.00, so 0.9 cannot fail a design with
+// genuine dead air and cannot pass a solid rectangle. Worth stating plainly:
+// THREE OF THESE FIVE were unprintable, and two of the three were the ones that
+// looked best on screen — a painted checkerboard fools the eye completely.
+// ---------------------------------------------------------------------------
+export const BLOCK_OPAQUE_BORDER = Number(process.env.QA_BLOCK_OPAQUE_BORDER || 0.9)
+export const WARN_OPAQUE_BORDER = Number(process.env.QA_WARN_OPAQUE_BORDER || 0.5)
+/** A design this see-through has real dead air, whatever its border reads. */
+export const MIN_TRANSPARENT_FRACTION = Number(process.env.QA_MIN_TRANSPARENT_FRACTION || 0.02)
+/** Border ring this pale, on a file ALREADY judged opaque, means a white/light
+ *  plate behind otherwise good art rather than a full-bleed scene. MEASURED:
+ *    lion DTF white plate     borderMeanLuma 255.0  -> strip the background
+ *    trail-runner full-bleed  borderMeanLuma 114.8  -> re-brief the design
+ *  (A transparent emblem also reads 251.5, but never reaches this branch — it
+ *  is only consulted once opaqueBorderFraction and transparentFraction have
+ *  already established there is no dead air at all.) */
+export const LIGHT_PLATE_LUMA = Number(process.env.QA_LIGHT_PLATE_LUMA || 200)
 
 // ---------------------------------------------------------------------------
 // SEO RULES
@@ -244,7 +307,12 @@ const normaliseTag = (t: string): string => clean(t).toLowerCase().replace(/[^a-
 // but they are separate criteria because they fail for different reasons and
 // have different fixes: "shoot more/bigger photos" vs "re-render, it's soft".
 // ---------------------------------------------------------------------------
-export function checkMockupQuality(metrics: ImageMetricsResult[], urlCount: number): CriterionVerdict {
+export function checkMockupQuality(
+  metrics: ImageMetricsResult[],
+  urlCount: number,
+  shotTemplates: string[] = [],
+  garment = true
+): CriterionVerdict {
   const findings: Finding[] = []
   const readable = metrics.filter((m): m is Extract<ImageMetricsResult, { ok: true }> => m.ok)
   const unreadable = metrics.filter(m => !m.ok)
@@ -263,6 +331,31 @@ export function checkMockupQuality(metrics: ImageMetricsResult[], urlCount: numb
       fix: `Add ${WARN_MOCKUPS - urlCount} more shot(s) — a second colourway, a detail crop, or a flat-lay.`,
       evidence: { image_count: urlCount, recommended: WARN_MOCKUPS }
     })
+  }
+
+  // Shot COVERAGE. Only judged when every photo could be classified: a mixed
+  // set (etsy_shots URLs, a hand-uploaded image) would otherwise be graded on
+  // the subset that happens to sit under a recognisable path, and a listing
+  // could be blocked for a flat-lay-only set it does not actually have.
+  const classified = urlCount > 0 && shotTemplates.length === urlCount
+  const distinctShots = [...new Set(shotTemplates)]
+  if (garment && classified) {
+    const onBody = distinctShots.filter(t => ON_BODY_TEMPLATES.has(t))
+    if (!onBody.length) {
+      findings.push({
+        severity: 'block',
+        issue: `No on-body photo — all ${urlCount} shot(s) are ${distinctShots.join(', ')}.`,
+        fix: 'Render at least one ghost-mannequin or on-model shot. A garment listing with no on-body photo leaves the shopper guessing at fit and drape.',
+        evidence: { shot_templates: distinctShots, on_body_templates: [...ON_BODY_TEMPLATES] }
+      })
+    } else if (distinctShots.length < MIN_DISTINCT_SHOTS) {
+      findings.push({
+        severity: 'warn',
+        issue: `Every photo is the same kind of shot (${distinctShots.join(', ')}).`,
+        fix: `Add a different angle — a flat-lay next to an on-body shot reads as a real product. ${MIN_DISTINCT_SHOTS}+ distinct shot types is the target.`,
+        evidence: { shot_templates: distinctShots }
+      })
+    }
   }
 
   for (const bad of unreadable) {
@@ -302,7 +395,9 @@ export function checkMockupQuality(metrics: ImageMetricsResult[], urlCount: numb
     measured: {
       image_count: urlCount,
       readable: readable.length,
-      resolutions: readable.map(m => `${m.width}x${m.height}`)
+      resolutions: readable.map(m => `${m.width}x${m.height}`),
+      shot_templates: distinctShots,
+      shots_classified: classified
     }
   }
 }
@@ -600,6 +695,154 @@ export function checkPricing(input: Pick<PresentationInput, 'category' | 'price'
 }
 
 // ---------------------------------------------------------------------------
+// (g) PRINT BACKGROUND — did the background actually come off?
+//
+// Two independent reads, because each catches what the other misses. The alpha
+// measurement is objective and free but only sees the SOURCE file, so it cannot
+// catch a renderer compositing the art onto a panel. The vision read sees the
+// finished garment but is a judgement call. Either one is enough to block.
+//
+// Deliberately skipped for non-garments (a metal panel IS a rectangle) and for
+// all-over prints (full-bleed is the point), reusing the same exemption the
+// coverage checker uses so the two cannot disagree.
+// ---------------------------------------------------------------------------
+export function checkPrintBackground(
+  opacity: OpacityResult | null,
+  vision: VisionRead | null,
+  garment: boolean,
+  placement?: string | null
+): CriterionVerdict {
+  if (!garment) {
+    return {
+      ok: true,
+      summary: 'Not a printed garment — there is no background to strip.',
+      findings: [],
+      measured: { applicable: false }
+    }
+  }
+  if (coverageIsExempt(placement)) {
+    return {
+      ok: true,
+      summary: 'All-over print — full-bleed artwork is intentional here.',
+      findings: [],
+      measured: { applicable: false, placement: placement ?? null }
+    }
+  }
+
+  const findings: Finding[] = []
+  const measured: Record<string, unknown> = {}
+
+  // Defence in depth: even if the caller hands over a render, never grade it as
+  // artwork. A photograph of a shirt is opaque by definition.
+  if (opacity?.ok && looksLikeRender(opacity.url)) {
+    measured.artwork_resolved = false
+    findings.push({
+      severity: 'warn',
+      issue: 'The URL supplied as the source artwork is a product render, not the design file, so the print background could not be measured.',
+      fix: 'Attach the design as a product_asset of kind dtf, nobg or source so the gate can measure what actually goes to the printer.',
+      evidence: { url: opacity.url }
+    })
+  } else if (opacity?.ok) {
+    measured.has_alpha_channel = opacity.hasAlphaChannel
+    measured.transparent_fraction = opacity.transparentFraction
+    measured.opaque_border_fraction = opacity.opaqueBorderFraction
+
+    measured.checkerboard_background = opacity.checkerboardBackground
+    measured.border_pattern = opacity.borderPattern
+
+    const solidBorder = opacity.opaqueBorderFraction >= BLOCK_OPAQUE_BORDER
+    const noDeadAir = opacity.transparentFraction < MIN_TRANSPARENT_FRACTION
+    if (opacity.checkerboardBackground) {
+      // Called out separately because it is the most deceptive failure in the
+      // set: the file LOOKS transparent to a human and to a vision model, the
+      // generative mockup renderer quietly drops it, and the defect only shows
+      // up on the transfer the customer receives.
+      findings.push({
+        severity: 'block',
+        issue: 'The artwork has a PAINTED checkerboard background — it looks transparent on screen but every pixel is solid ink, and it would print as a grey-and-white chequered block.',
+        fix: 'The image model faked transparency instead of emitting an alpha channel. Run the design through background removal (replicate_rembg) and re-render the mockups from the resulting transparent PNG.',
+        evidence: { url: opacity.url, border_pattern: opacity.borderPattern, has_alpha_channel: opacity.hasAlphaChannel }
+      })
+    } else if (solidBorder && noDeadAir) {
+      // Two different defects wear the same measurement, and they need
+      // different fixes: art that is FINE but sits on a solid white plate just
+      // needs the background stripped; a full-bleed scene has no background to
+      // strip and needs re-briefing. A pale, even border ring tells them apart.
+      const lightPlate = opacity.borderMeanLuma >= LIGHT_PLATE_LUMA
+      findings.push({
+        severity: 'block',
+        issue: lightPlate
+          ? `The artwork sits on a solid light background (border luminance ${Math.round(opacity.borderMeanLuma)}/255, ${Math.round(opacity.opaqueBorderFraction * 100)}% opaque), so it prints as a pale rectangle around the design on any garment that is not the same colour.`
+          : opacity.hasAlphaChannel
+            ? `The artwork has no transparent area — ${Math.round(opacity.opaqueBorderFraction * 100)}% of its outer edge is solid ink, so it prints as a rectangle on the garment.`
+            : 'The artwork file has no alpha channel at all, so it can only print as a solid rectangle on the garment.',
+        fix: lightPlate
+          ? 'The design itself is fine — strip the background. Run it through background removal (replicate_rembg) and re-render the mockups from the resulting transparent PNG.'
+          : 'There is no background to strip here: the artwork fills the frame. Re-brief it as a CONTAINED subject — a badge, an emblem, an isolated character — which comes back with dead air around it. A full-bleed scene never can.',
+        evidence: {
+          url: opacity.url,
+          opaque_border_fraction: opacity.opaqueBorderFraction,
+          transparent_fraction: opacity.transparentFraction,
+          border_mean_luma: opacity.borderMeanLuma,
+          has_alpha_channel: opacity.hasAlphaChannel
+        }
+      })
+    } else if (opacity.opaqueBorderFraction >= WARN_OPAQUE_BORDER) {
+      findings.push({
+        severity: 'warn',
+        issue: `${Math.round(opacity.opaqueBorderFraction * 100)}% of the artwork's outer edge is solid, so the print will reach the edge of its area on at least one side.`,
+        fix: 'Check the design is meant to bleed that far. If not, re-run background removal or add margin.',
+        evidence: { url: opacity.url, opaque_border_fraction: opacity.opaqueBorderFraction }
+      })
+    }
+  } else if (opacity && !opacity.ok) {
+    findings.push({
+      severity: 'warn',
+      issue: `The source artwork could not be opened to measure its background (${opacity.error}).`,
+      fix: 'Check the design URL resolves. Without it this criterion rests on the vision read alone.',
+      evidence: { url: opacity.url }
+    })
+  } else {
+    findings.push({
+      severity: 'warn',
+      issue: 'No source artwork was supplied, so the background could not be measured directly.',
+      fix: 'Submit the design URL alongside the mockups.'
+    })
+  }
+
+  if (vision?.backgroundPanel) {
+    findings.push({
+      severity: 'block',
+      issue: vision.backgroundIssue || 'The design sits inside a visible block of background colour instead of printing straight onto the garment.',
+      fix: 'Strip the background and re-render. A panel or halo around the art is the single clearest tell of a cheap print-on-demand listing.',
+      evidence: { source: 'vision' }
+    })
+  }
+  if (vision && !vision.printOnFabric) {
+    findings.push({
+      severity: 'block',
+      issue: vision.fabricIssue || 'The print does not sit in the fabric — it reads as a sticker laid on top of the garment.',
+      fix: 'Re-render so the print follows the garment folds and drape, with no hard cut edge where it meets the fabric.',
+      evidence: { source: 'vision' }
+    })
+  }
+
+  // Fail-closed: with neither read available there is no evidence either way.
+  if (!vision && !opacity?.ok) return unverifiedVerdict('The print background')
+
+  measured.vision_checked = Boolean(vision)
+  const blocking = findings.filter(f => f.severity === 'block')
+  return {
+    ok: blocking.length === 0,
+    summary: blocking.length
+      ? blocking[0].issue
+      : 'The artwork prints onto the garment with the fabric showing through around it.',
+    findings,
+    measured
+  }
+}
+
+// ---------------------------------------------------------------------------
 // (b) PLACEMENT + (c) TYPOGRAPHY + the realism half of (a) — the vision pass.
 //
 // One extra model call on top of the fidelity/coverage comparison that
@@ -615,6 +858,12 @@ export interface VisionRead {
   hasText: boolean
   typographyOk: boolean
   typographyIssue: string
+  /** The art sits inside a visible block of background colour. */
+  backgroundPanel: boolean
+  backgroundIssue: string
+  /** The print reads as ink in the fabric rather than a sticker laid on top. */
+  printOnFabric: boolean
+  fabricIssue: string
 }
 
 export async function readPresentation(
@@ -655,8 +904,18 @@ export async function readPresentation(
                 'glance? Set typographyOk to false for letters that are broken, smeared, warped into nonsense, ' +
                 'colliding, or so low-contrast against the garment that they disappear. Set hasText to false and ' +
                 'typographyOk to true when the design has no words at all.\n\n' +
+                '4. BACKGROUND — the artwork should be printed straight onto the garment, with the fabric ' +
+                'showing through everywhere the art is not. Set backgroundPanel to true if the design sits ' +
+                'inside a visible block of background colour that is not the garment: a rectangular or square ' +
+                'panel, a photo pasted onto the chest, a hard sticker edge, or a pale halo tracing a box ' +
+                'around the art. Judge the BACKGROUND BEHIND the art, not the shape of the art itself — a ' +
+                'design that IS a circle, a badge or an emblem is fine. Set printOnFabric to false if the ' +
+                'print does not follow the fabric folds and drape, or meets the garment with a hard cut ' +
+                'edge.\n\n' +
                 'Respond in JSON: {"realistic": bool, "realismIssue": string, "centered": bool, ' +
-                '"placementIssue": string, "hasText": bool, "typographyOk": bool, "typographyIssue": string}. ' +
+                '"placementIssue": string, "hasText": bool, "typographyOk": bool, "typographyIssue": string, ' +
+                '"backgroundPanel": bool, "backgroundIssue": string, "printOnFabric": bool, ' +
+                '"fabricIssue": string}. ' +
                 'Each issue string is one short sentence naming the single worst defect, or an empty string when ' +
                 'that point passes.'
             },
@@ -664,7 +923,7 @@ export async function readPresentation(
           ]
         }
       ],
-      ...(isReasoningModel(VISION_MODEL) ? { max_completion_tokens: 900 } : { max_tokens: 400, temperature: 0 }),
+      ...(isReasoningModel(VISION_MODEL) ? { max_completion_tokens: 1100 } : { max_tokens: 550, temperature: 0 }),
       response_format: { type: 'json_object' }
     })
 
@@ -679,7 +938,11 @@ export async function readPresentation(
       placementIssue: clean(parsed?.placementIssue).slice(0, 200),
       hasText: parsed?.hasText === true,
       typographyOk: parsed?.typographyOk !== false,
-      typographyIssue: clean(parsed?.typographyIssue).slice(0, 200)
+      typographyIssue: clean(parsed?.typographyIssue).slice(0, 200),
+      backgroundPanel: parsed?.backgroundPanel === true,
+      backgroundIssue: clean(parsed?.backgroundIssue).slice(0, 200),
+      printOnFabric: parsed?.printOnFabric !== false,
+      fabricIssue: clean(parsed?.fabricIssue).slice(0, 200)
     }
   } catch (err: any) {
     console.warn(`[presentation-qa] vision read failed (${err?.message || err})`)
@@ -710,12 +973,13 @@ const unverifiedVerdict = (what: string): CriterionVerdict => ({
 // The gate.
 // ---------------------------------------------------------------------------
 const SCORE_WEIGHTS: Record<CriterionId, number> = {
-  mockup_quality: 20,
-  design_placement: 20,
-  typography: 15,
-  seo: 20,
-  pricing: 10,
-  image_sharpness: 15
+  mockup_quality: 18,
+  design_placement: 18,
+  print_background: 12,
+  typography: 12,
+  seo: 18,
+  pricing: 9,
+  image_sharpness: 13
 }
 
 export async function runPresentationQa(input: PresentationInput): Promise<PresentationVerdict> {
@@ -733,18 +997,22 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
   const garment = isGarment(input.category)
   const placementForCoverage = garment ? input.placement : NO_PLACEMENT
 
-  const [metrics, vision, fidelity] = await Promise.all([
+  const [metrics, vision, fidelity, opacity] = await Promise.all([
     measureImages(urls),
     primary ? readPresentation(primary, input.placement, garment) : Promise.resolve(null),
     primary && input.designUrl
       ? checkMockup(input.designUrl, primary, placementForCoverage, input.printSizeInches)
-      : Promise.resolve(null)
+      : Promise.resolve(null),
+    // The SOURCE artwork, not a mockup — this asks whether the file that goes to
+    // the printer has a background, which no render of it can answer.
+    input.designUrl ? measureOpacity(input.designUrl) : Promise.resolve(null)
   ])
 
-  const mockupQuality = checkMockupQuality(metrics, urls.length)
+  const mockupQuality = checkMockupQuality(metrics, urls.length, shotTemplatesFrom(urls), garment)
   const sharpness = checkSharpness(metrics)
   const seo = checkSeo(input)
   const pricing = checkPricing(input)
+  const printBackground = checkPrintBackground(opacity, vision, garment, input.placement)
 
   // Realism rides on the mockup_quality criterion: both answer "is this a photo
   // we can put in front of a shopper".
@@ -851,6 +1119,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
   const criteria: Record<CriterionId, CriterionVerdict> = {
     mockup_quality: mockupQuality,
     design_placement: placement,
+    print_background: printBackground,
     typography,
     seo,
     pricing,

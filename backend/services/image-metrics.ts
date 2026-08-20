@@ -63,6 +63,62 @@ export interface ImageMetricsFailure {
 
 export type ImageMetricsResult = ImageMetrics | ImageMetricsFailure
 
+/** Edge the alpha sample is resampled to. 256 is plenty — this measures large
+ *  regions (is the whole border solid?), not fine detail, and a smaller sample
+ *  keeps the per-pixel loop cheap. */
+export const OPACITY_SAMPLE_PX = 256
+/** Alpha at or below this reads as see-through to a shopper. */
+export const TRANSPARENT_ALPHA = 16
+/** Alpha at or above this reads as solid ink. */
+export const OPAQUE_ALPHA = 240
+
+/** Thresholds for spotting a PAINTED checkerboard — the fake-transparency
+ *  pattern an image model draws when it cannot emit a real alpha channel. The
+ *  file looks transparent to a human AND to a vision model, but every pixel is
+ *  solid ink and prints as a grey-and-white chequered block.
+ *
+ *  MEASURED 2026-08-19 over the border lines of five real designs (best segment):
+ *    bass badge      painted checker  sep  17.2  spread  2.0  alt  23  low 234.8
+ *    vet-tech cat    painted checker  sep  26.7  spread  1.6  alt  99  low 226.1
+ *    trail-runner v1 opaque sky       sep  86.8  spread  8.8  alt  36  low 125.8
+ *    trail-runner v2 real alpha       sep  90.7  spread 18.6  alt  40  low  57.7
+ *    trail-runner v3 real alpha       sep 179.5  spread 19.6  alt   4  low  74.4
+ *
+ *  Note which numbers actually do the work: SEPARATION does not discriminate —
+ *  the opaque sky separates harder (86.8) than either checkerboard. What
+ *  separates them is that a checkerboard is two FLAT, PALE tones: spread stays
+ *  under 2 where real artwork runs 8.8-19.6, and the darker tone is still above
+ *  200 where artwork sits at 57-126. Both gaps are wide and empty. */
+export const CHECKER_MIN_SEPARATION = 12
+export const CHECKER_MAX_SPREAD = 6
+export const CHECKER_MIN_LUMA = 200
+export const CHECKER_MIN_ALTERNATIONS = 20
+
+export interface OpacityMetrics {
+  url: string
+  ok: true
+  /** The file declares an alpha channel at all. A PNG without one CANNOT print
+   *  as anything but a rectangle. */
+  hasAlphaChannel: boolean
+  /** Share of all pixels that are effectively see-through. */
+  transparentFraction: number
+  /** Share of the outer one-pixel ring that is effectively solid. This is the
+   *  number that identifies a full-bleed rectangle: artwork meant for a garment
+   *  has dead air at its edges, a poster does not. */
+  opaqueBorderFraction: number
+  /** The border is a painted checkerboard: the file LOOKS transparent to a human
+   *  and to a vision model, but every pixel is solid ink and would print. */
+  checkerboardBackground: boolean
+  /** Mean luminance of the border ring, 0-255. A high value on an opaque file
+   *  means a solid WHITE/light background — art that just needs the background
+   *  stripped — as opposed to a full-bleed scene, which needs re-briefing. */
+  borderMeanLuma: number
+  /** The two-cluster split behind that call, so it can be argued with. */
+  borderPattern: { clusterLow: number; clusterHigh: number; separation: number; spread: number; alternations: number } | null
+}
+
+export type OpacityResult = OpacityMetrics | ImageMetricsFailure
+
 /**
  * Variance of the Laplacian over a single-channel 8-bit buffer.
  *
@@ -181,6 +237,175 @@ export async function measureImage(url: string): Promise<ImageMetricsResult> {
       bytes: buf.byteLength,
       sharpness: Number(variance.toFixed(2)),
       edgeEnergy: Number(meanAbs.toFixed(2))
+    }
+  } catch (err: any) {
+    return { url, ok: false, error: String(err?.message || err).slice(0, 200) }
+  }
+}
+
+/**
+ * Two-cluster analysis of one line of pixels, used to tell a painted
+ * checkerboard from ordinary image noise. Run at FULL resolution: the 256px
+ * alpha sample interpolates small checker cells into a flat grey and hides the
+ * very pattern this is looking for.
+ */
+export function borderPatternOf(luma: number[]): {
+  clusterLow: number
+  clusterHigh: number
+  separation: number
+  spread: number
+  alternations: number
+} | null {
+  if (luma.length < 8) return null
+  const lo = Math.min(...luma)
+  const hi = Math.max(...luma)
+  const mid = (lo + hi) / 2
+  const low = luma.filter(v => v < mid)
+  const high = luma.filter(v => v >= mid)
+  if (!low.length || !high.length) return null
+  const mean = (a: number[]) => a.reduce((t, v) => t + v, 0) / a.length
+  const clusterLow = mean(low)
+  const clusterHigh = mean(high)
+  const dev = (a: number[], m: number) => mean(a.map(v => Math.abs(v - m)))
+  let alternations = 0
+  for (let i = 1; i < luma.length; i++) {
+    if ((luma[i] >= mid) !== (luma[i - 1] >= mid)) alternations++
+  }
+  return {
+    clusterLow: Number(clusterLow.toFixed(1)),
+    clusterHigh: Number(clusterHigh.toFixed(1)),
+    separation: Number((clusterHigh - clusterLow).toFixed(1)),
+    spread: Number(Math.max(dev(low, clusterLow), dev(high, clusterHigh)).toFixed(1)),
+    alternations
+  }
+}
+
+/**
+ * Measure how much of an image is actually see-through.
+ *
+ * WHY THIS EXISTS: on 2026-08-19 a design generated with an opaque background,
+ * printed as a cream rectangle stuck on a black tee, and scored 94/100 — the
+ * gate graded placement and fidelity, and that print WAS centred and faithful.
+ * Nothing measured whether there was a background at all. gpt-image-2 rejects
+ * `background:'transparent'` outright, so opaque output is a routine outcome of
+ * the normal generation path, not an edge case.
+ *
+ * Never throws: like measureImage, an unreadable file is a RESULT the reviewer
+ * reports, not an exception that aborts the review.
+ */
+export async function measureOpacity(url: string): Promise<OpacityResult> {
+  try {
+    const buf = await fetchImageBytes(url)
+    const meta = await sharp(buf).metadata()
+    const hasAlphaChannel = Boolean(meta.hasAlpha)
+
+    // ensureAlpha so the loop below can always read 4 bytes per pixel; on a
+    // file with no alpha channel that yields a fully-opaque one, which is
+    // exactly the right answer for this measurement.
+    const { data, info } = await sharp(buf)
+      .ensureAlpha()
+      .resize(OPACITY_SAMPLE_PX, OPACITY_SAMPLE_PX, { fit: 'inside', withoutEnlargement: true })
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    if (info.channels !== 4) throw new Error(`expected 4 channels after ensureAlpha, got ${info.channels}`)
+
+    const w = info.width
+    const h = info.height
+    let transparent = 0
+    let borderTotal = 0
+    let borderOpaque = 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const a = data[(y * w + x) * 4 + 3]
+        if (a <= TRANSPARENT_ALPHA) transparent++
+        if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
+          borderTotal++
+          if (a >= OPAQUE_ALPHA) borderOpaque++
+        }
+      }
+    }
+
+    // Border pattern at FULL resolution — one row off the top edge and one
+    // column off the left. Inset by a pixel so a stray encoder edge row cannot
+    // stand in for the artwork's actual border.
+    // Each border LINE is analysed on its own, never concatenated. Measured on
+    // the bass-badge design: its circular artwork touches the left column, and
+    // pooling that column with the clean top row dragged the low cluster from
+    // 226 down to 70 and hid a textbook checkerboard. One clean line is proof.
+    const lines: number[][] = []
+    try {
+      const fullW = meta.width ?? 0
+      const fullH = meta.height ?? 0
+      if (fullW > 8 && fullH > 8) {
+        // flatten BEFORE greyscale, for the reason documented at measureImage:
+        // .greyscale() on an RGBA source keeps the alpha channel and .raw()
+        // then emits TWO bytes per pixel. Reading that as luminance made the
+        // genuinely-transparent emblem design look like a 235/248 checkerboard.
+        // Flattening also gives the right answer semantically: transparent
+        // pixels are uniform here, so only PAINTED patterns survive.
+        const edge = async (left: number, top: number, width: number, height: number): Promise<number[] | null> => {
+          const b = await sharp(buf)
+            .extract({ left, top, width, height })
+            .flatten({ background: '#ffffff' })
+            .greyscale()
+            .raw()
+            .toBuffer()
+          return b.length === width * height ? [...b] : null
+        }
+        const edges = await Promise.all([
+          edge(0, 1, fullW, 1),
+          edge(0, fullH - 2, fullW, 1),
+          edge(1, 0, 1, fullH),
+          edge(fullW - 2, 0, 1, fullH)
+        ])
+        for (const e of edges) {
+          if (!e) continue
+          lines.push(e)
+          // Artwork often touches an edge mid-line (the bass badge's circle runs
+          // into the left column), which drags the two-cluster split onto
+          // dark-art-vs-light-background and hides the pattern. The corner
+          // eighths are almost always pure background, so they get their own look.
+          const eighth = Math.floor(e.length / 8)
+          if (eighth >= 8) {
+            lines.push(e.slice(0, eighth))
+            lines.push(e.slice(-eighth))
+          }
+        }
+      }
+    } catch {
+      // Leave `lines` empty — an unreadable edge is not evidence either way.
+    }
+
+    const isChecker = (bp: ReturnType<typeof borderPatternOf>): boolean =>
+      Boolean(
+        bp &&
+        bp.separation >= CHECKER_MIN_SEPARATION &&
+        bp.spread <= CHECKER_MAX_SPREAD &&
+        bp.clusterLow >= CHECKER_MIN_LUMA &&
+        bp.alternations >= CHECKER_MIN_ALTERNATIONS
+      )
+
+    // Mean luminance of the outermost ring, from the full-length edges only.
+    const fullEdges = lines.filter(l => l.length > (meta.width ?? 0) / 2)
+    const borderMeanLuma = fullEdges.length
+      ? Number((fullEdges.flat().reduce((t, v) => t + v, 0) / fullEdges.flat().length).toFixed(1))
+      : 0
+
+    const patterns = lines.map(borderPatternOf)
+    const checker = patterns.find(isChecker) ?? null
+    const checkerboardBackground = Boolean(checker)
+    // Report the line that decided it; otherwise the first readable one.
+    const borderPattern = checker ?? patterns.find(Boolean) ?? null
+
+    return {
+      url,
+      ok: true,
+      hasAlphaChannel,
+      transparentFraction: Number((transparent / Math.max(1, w * h)).toFixed(4)),
+      opaqueBorderFraction: Number((borderOpaque / Math.max(1, borderTotal)).toFixed(4)),
+      checkerboardBackground,
+      borderMeanLuma,
+      borderPattern
     }
   } catch (err: any) {
     return { url, ok: false, error: String(err?.message || err).slice(0, 200) }

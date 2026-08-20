@@ -3,7 +3,11 @@ import {
   checkSeo,
   checkPricing,
   checkMockupQuality,
+  checkPrintBackground,
   checkSharpness,
+  shotTemplatesFrom,
+  BLOCK_OPAQUE_BORDER,
+  MIN_DISTINCT_SHOTS,
   priceBandFor,
   MIN_SHORT_EDGE_PX,
   WARN_SHORT_EDGE_PX,
@@ -215,6 +219,148 @@ describe('checkMockupQuality', () => {
 
   it('blocks a presentation with no photos at all', () => {
     expect(checkMockupQuality([], 0).ok).toBe(false)
+  })
+
+  // --- shot coverage: "are these the RIGHT photos" ------------------------
+  it('blocks a garment whose every photo is a flat-lay — nothing shows fit', () => {
+    const verdict = checkMockupQuality([metric(), metric()], 2, ['flat_lay', 'flat_lay'], true)
+    expect(verdict.ok).toBe(false)
+    expect(blocks(verdict).join(' ')).toMatch(/on-body/i)
+  })
+
+  it('passes once one on-body shot is present', () => {
+    const verdict = checkMockupQuality([metric(), metric()], 2, ['flat_lay', 'ghost_mannequin'], true)
+    expect(verdict.ok).toBe(true)
+  })
+
+  it(`warns when every shot is the same type, below ${MIN_DISTINCT_SHOTS} distinct`, () => {
+    const verdict = checkMockupQuality([metric(), metric()], 2, ['ghost_mannequin', 'ghost_mannequin'], true)
+    expect(verdict.ok).toBe(true)
+    expect(verdict.findings.some(f => f.severity === 'warn' && /same kind of shot/i.test(f.issue))).toBe(true)
+  })
+
+  it('never judges coverage on a partly-classified set — a mixed source must not be blocked', () => {
+    // Two photos, only one under a recognisable /mockups/{slug}/{template}/ path.
+    const verdict = checkMockupQuality([metric(), metric()], 2, ['flat_lay'], true)
+    expect(verdict.ok).toBe(true)
+    expect(verdict.measured?.shots_classified).toBe(false)
+  })
+
+  it('does not demand an on-body shot of something that is not a garment', () => {
+    const verdict = checkMockupQuality([metric()], 1, ['flat_lay'], false)
+    expect(verdict.ok).toBe(true)
+  })
+})
+
+describe('shotTemplatesFrom', () => {
+  it('reads the template out of the renderer GCS path, normalising the spelling', () => {
+    expect(shotTemplatesFrom([
+      'https://storage.googleapis.com/b/mockups/my-slug/ghost-mannequin/my-slug-ghost-mannequin-1.png',
+      'https://storage.googleapis.com/b/mockups/my-slug/flat_lay/my-slug-flat_lay-2.png'
+    ])).toEqual(['ghost_mannequin', 'flat_lay'])
+  })
+
+  it('returns nothing for a URL that is not renderer output, rather than guessing', () => {
+    expect(shotTemplatesFrom(['https://example.test/uploads/photo.png'])).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PRINT BACKGROUND. The criterion that would have caught the 2026-08-19 batch:
+// three of five designs were unprintable and all three scored 94/100 without it.
+// ---------------------------------------------------------------------------
+const opacity = (over: Partial<{ hasAlphaChannel: boolean; transparentFraction: number; opaqueBorderFraction: number; checkerboardBackground: boolean }> = {}) => ({
+  url: 'https://example.test/design.png',
+  ok: true as const,
+  hasAlphaChannel: over.hasAlphaChannel ?? true,
+  transparentFraction: over.transparentFraction ?? 0.23,
+  opaqueBorderFraction: over.opaqueBorderFraction ?? 0.02,
+  checkerboardBackground: over.checkerboardBackground ?? false,
+  borderPattern: null
+})
+
+const vision = (over: Partial<{ backgroundPanel: boolean; printOnFabric: boolean }> = {}) => ({
+  realistic: true,
+  realismIssue: '',
+  centered: true,
+  placementIssue: '',
+  hasText: false,
+  typographyOk: true,
+  typographyIssue: '',
+  backgroundPanel: over.backgroundPanel ?? false,
+  backgroundIssue: '',
+  printOnFabric: over.printOnFabric ?? true,
+  fabricIssue: ''
+})
+
+describe('checkPrintBackground', () => {
+  it('passes artwork with real dead air around it', () => {
+    const verdict = checkPrintBackground(opacity(), vision(), true, 'front-center')
+    expect(verdict.ok).toBe(true)
+    expect(blocks(verdict)).toEqual([])
+  })
+
+  it('blocks a solid rectangle — the defect that scored 94/100 before this existed', () => {
+    const verdict = checkPrintBackground(
+      opacity({ hasAlphaChannel: false, transparentFraction: 0, opaqueBorderFraction: 1 }),
+      vision(), true, 'front-center'
+    )
+    expect(verdict.ok).toBe(false)
+    expect(blocks(verdict).join(' ')).toMatch(/rectangle|alpha channel/i)
+  })
+
+  it('names a PAINTED checkerboard specifically — it looks transparent but prints', () => {
+    const verdict = checkPrintBackground(
+      opacity({ hasAlphaChannel: false, transparentFraction: 0, opaqueBorderFraction: 1, checkerboardBackground: true }),
+      vision(), true, 'front-center'
+    )
+    expect(verdict.ok).toBe(false)
+    const said = blocks(verdict).join(' ')
+    expect(said).toMatch(/checkerboard/i)
+    // The fix has to name background removal, or the message is just a complaint.
+    expect(verdict.findings.some(f => /rembg|background removal/i.test(f.fix))).toBe(true)
+  })
+
+  it('blocks when vision sees a background panel even though the file measures clean', () => {
+    const verdict = checkPrintBackground(opacity(), vision({ backgroundPanel: true }), true, 'front-center')
+    expect(verdict.ok).toBe(false)
+  })
+
+  it('blocks a print that sits on the fabric like a sticker', () => {
+    const verdict = checkPrintBackground(opacity(), vision({ printOnFabric: false }), true, 'front-center')
+    expect(verdict.ok).toBe(false)
+  })
+
+  it('exempts an all-over print — full bleed is the point there', () => {
+    const verdict = checkPrintBackground(
+      opacity({ hasAlphaChannel: false, transparentFraction: 0, opaqueBorderFraction: 1 }),
+      vision(), true, 'all-over'
+    )
+    expect(verdict.ok).toBe(true)
+    expect(coverageIsExempt('all-over')).toBe(true)
+  })
+
+  it('exempts a non-garment — a metal panel IS a rectangle', () => {
+    const verdict = checkPrintBackground(
+      opacity({ hasAlphaChannel: false, transparentFraction: 0, opaqueBorderFraction: 1 }),
+      vision(), false, null
+    )
+    expect(verdict.ok).toBe(true)
+  })
+
+  it(`warns rather than blocks a partly-bled edge below ${BLOCK_OPAQUE_BORDER}`, () => {
+    const verdict = checkPrintBackground(
+      opacity({ opaqueBorderFraction: 0.6, transparentFraction: 0.3 }),
+      vision(), true, 'front-center'
+    )
+    expect(verdict.ok).toBe(true)
+    expect(verdict.findings.some(f => f.severity === 'warn')).toBe(true)
+  })
+
+  it('warns, not blocks, when no source artwork was supplied but vision still ran', () => {
+    const verdict = checkPrintBackground(null, vision(), true, 'front-center')
+    expect(verdict.ok).toBe(true)
+    expect(verdict.findings.some(f => f.severity === 'warn')).toBe(true)
   })
 })
 

@@ -64,9 +64,18 @@ we need to see what sells and make sure we are printing money."
 - `backend/routes/print-bridge.ts`, `backend/routes/print-bridge.test.ts` (merged)
 - `backend/routes/storefront.ts`, `backend/.env.example` (merged)
 - `TASK_NOTES.md`
-- Still-unscoped (blockers 2/3 + economics gate) — to be added before editing:
-  `backend/services/etsy.ts`, `backend/services/glb-to-stl.ts`,
-  `backend/routes/3d-models.ts`
+- ADDED 2026-08-19 for blocker 2 (Etsy taxonomy) + home-page discoverability,
+  on David's instruction "fix the etsy taxonomy so toys can list and also there
+  is no call to action how does 1 even get to that page from the front page":
+  - `backend/shared/etsy-tiers.ts` — category->taxonomy defaults live beside the
+    existing per-tier defaults (6617/6844); pure module, so the logic stays
+    unit-testable without Supabase.
+  - `backend/shared/etsy-tiers.test.ts` — cover the new resolution order.
+  - `backend/services/etsy.ts` — `taxonomyIdFor` delegates to the shared helper.
+  - `backend/.env.example` — document the resolved ids.
+  - `src/pages/Home.tsx` — the Toy Creator call-to-action.
+- Still-unscoped (blocker 3 STL download tier + economics gate) — to be added
+  before editing: `backend/services/glb-to-stl.ts`, `backend/routes/3d-models.ts`
 
 ---
 
@@ -1225,3 +1234,152 @@ OrderManagement route, and `/account/orders` is behind `ProtectedRoute`.
   horizontal overflow) via a throwaway component harness that stubs only the three I/O modules and
   proxies `/api` to the real production backend. Feature remains DARK — no `FASHN_API_KEY` on either
   Render service; approval 303ab404 still governs that.
+
+- 2026-08-19 (zero-nine — design e2e recovery after a session crash, and what it proved about
+  design quality): the crashed session (20:07Z) died just after launching briefs 2 and 3 of
+  `backend/scripts/design-e2e.ts`; the node process survived and BOTH completed, so no work was
+  lost — recovered by reading the DB rather than re-running. Three drafts existed, each with 4
+  rendered mockups, a storefront + etsy QA review, and a TikTok `social_outbox` row at status
+  'draft'. Nothing live, nothing posted. Verified the gate is REAL rather than a rubber stamp: all
+  six `presentation-qa.ts` criteria (`mockup_quality`, `design_placement`, `typography`, `seo`,
+  `pricing`, `image_sharpness`) recorded `unverified: false` with measured evidence from a live
+  `gpt-5.6-terra` vision call. NOTE for anyone reading a `design_qa_reviews.criteria` row: Postgres
+  jsonb sorts keys BY LENGTH, so the two vision criteria sort last and look absent under output
+  truncation — they had run. Then looked at the artwork directly instead of trusting the scores,
+  which found what the scores could not: the trail-runner design had generated with an OPAQUE
+  background and printed as a cream rectangle stuck on a black tee, and still scored 94/100.
+  Confirmed structurally that the gate cannot catch this — `grep -niE "alpha|opaque|opacity|transparen"`
+  over `presentation-qa.ts` returns nothing; it scores placement and fidelity, and that print WAS
+  centred and faithful. Root cause: gpt-image-2 REJECTS `background:'transparent'` ("not supported
+  for this model"), so the script and the production one-shot generator
+  (`routes/admin/ai-products.ts:790`) both pass `'auto'` and carry the intent in prompt text only;
+  `auto` is a coin flip (clean alpha for the cat and bass briefs, opaque square for the third).
+  Background removal exists (`replicate_rembg` -> `kind='nobg'`, which the mockup renderer prefers
+  over `source`) but in production is reachable ONLY through the manual admin endpoint
+  `POST /api/admin/products/ai/:id/remove-background` — the automated path never enqueues it, which
+  is the concrete answer to "how do I know 30/day will be good": roughly a third would ship as
+  squares, each scoring 94/100 on the way out. Wired `replicate_rembg` into the e2e chain between
+  generation and mockup fan-out (mockups now render from the `nobg` asset, gallery artwork is the
+  transparent PNG) — and that rerun proved the GATE WORKS: with nothing isolable to cut, rembg
+  shredded the sky into horizontal bands and `design_placement` BLOCKED it at 74/100 ("stripe bands
+  that are not in the source artwork"). The real lesson is upstream of the pipeline: a brief must
+  describe a CONTAINED SUBJECT (badge, emblem, isolated character), never a full-bleed scene, which
+  is a rectangle by construction with no background to remove. Reframed the trail-runner brief as a
+  circular badge emblem — the same shape as the bass design, which had scored highest — and it
+  passed storefront 94/100 and etsy 88/100 on submission #1, verified by eye as a clean transparent
+  badge on black. All four e2e drafts remain status='draft'; the two defective trail-runner drafts
+  (093058fc…, 79ba5381…) were left in place because the prod-row delete was blocked by the safety
+  classifier — David's call. STILL OPEN: `presentation-qa.ts` has no background-opacity criterion
+  (the durable backstop), and the production generator still does not auto-enqueue rembg.
+  `backend/scripts/design-e2e.ts` remains UNTRACKED and uncommitted.
+
+- 2026-08-19 (zero-nine — background-opacity criterion added to the presentation QA gate, at
+  David's explicit direction: "add the opacity check to the gate it needs to make sure it has the
+  right mockups and that they look right on a shirt". SCOPE EXTENSION beyond design-e2e.ts, granted
+  in-session): added a SEVENTH criterion `print_background` to `services/presentation-qa.ts`, plus
+  shot-coverage grading inside `mockup_quality`, plus two new vision questions. Weights rebalanced
+  to keep the score out of 100 (mockup_quality 18, design_placement 18, print_background 12,
+  typography 12, seo 18, pricing 9, image_sharpness 13). The criterion takes TWO independent reads
+  and either can block: (1) a deterministic alpha measurement of the SOURCE artwork via a new
+  `measureOpacity()` in `services/image-metrics.ts` — alpha channel present, transparent pixel
+  fraction, and the fraction of the outer 1px ring that is solid; (2) the vision reviewer, extended
+  with a BACKGROUND question returning `backgroundPanel` (art sits in a visible block of colour)
+  and `printOnFabric` (print follows the drape rather than reading as a sticker). Proven on the
+  five real e2e products: the opaque trail-runner drew blocks from BOTH reads independently
+  ("no alpha channel" from the measurement, "visible rectangular panel with a hard edge" from
+  vision), the emblem passed 95/100, and the two previously-praised designs FAILED — see below.
+  THE FINDING THAT MATTERS: the bass badge and vet-tech cat, which had been reported as having
+  "clean transparent backgrounds", have NO ALPHA CHANNEL AT ALL (3-channel PNGs). What looks like
+  transparency is a PAINTED checkerboard — gpt-image-2 draws the chequered pattern instead of
+  emitting alpha, which fools a human, fools the vision reviewer, and is silently discarded by the
+  generative mockup renderer, so the defect only appears on the transfer the customer receives.
+  Detected explicitly via `borderPatternOf()`, a two-cluster split run per border LINE at full
+  resolution. Two calibration bugs were found and fixed while building it: pooling all four border
+  lines let the bass badge's artwork contaminate the clusters and hid a textbook checkerboard
+  (fixed by analysing each line, plus corner eighths, separately), and `.greyscale()` on an RGBA
+  source emits TWO channels — the exact trap already documented at `measureImage` — which made the
+  genuinely-transparent emblem read as a 235/248 checkerboard (fixed by flattening before
+  greyscale). All comment blocks carry MEASURED numbers per this file's stated contract; the first
+  drafts had illustrative figures and were corrected against real output. A THIRD bug was caught by
+  measuring the live catalogue: `buildPresentationInput` set `designUrl = images[0]`, but on most
+  live products slot 0 is a ghost-mannequin RENDER, so the criterion was grading photographs of
+  shirts and would have blocked nearly the whole catalogue for having an opaque background — which
+  every photograph has. Fixed: `designUrl` now resolves `product_assets` dtf > nobg > source (the
+  same order the worker prints from), falling back to slot 0 only when it is not a render, with a
+  `looksLikeRender()` guard inside the criterion as defence in depth. LIVE BLAST RADIUS, measured
+  against resolved artwork on the 35 active garments: 16 of the 30 that have artwork on file would
+  now block — 14 opaque/light-plate, 2 painted checkerboard — 14 pass clean, 5 have no artwork
+  asset (warn only, never blocked). Spot-checked "Roar to the Skies Lion Tee": its dtf-optimized
+  PRINT file is well-drawn contained art sitting on a solid white plate (borderMeanLuma 255,
+  0.15% transparent), and `dtf-optimizer.ts` knocks out BLACK for black shirts but never white, so
+  that white rectangle reaches the transfer. Because that fix differs from the full-bleed case, the
+  block message branches on `LIGHT_PLATE_LUMA`: pale plate -> "strip the background", dark
+  full-bleed -> "re-brief as a contained subject". 18 new tests; full suite 348/348 green.
+  UNCOMMITTED on main, NOT deployed — prod still runs the six-criterion gate.
+
+- 2026-08-19 (zero-nine — blocker 2 CLOSED + the Toy Creator finally has a front door):
+  **Etsy taxonomy.** The recorded diagnosis ("taxonomyIdFor() has no mapping for 3d-prints") was
+  only half of it — `taxonomyIdFor` was never a hardcoded table, it reads `ETSY_TAXONOMY_MAP`.
+  The actual defect is a placeholder trap: `backend/.env.example` ships the map seeded as
+  `{"shirts":0,...,"3d-prints":0}`, and the old lookup accepted any FINITE number, so the
+  placeholder `0` counted as "configured", returned 0, suppressed the `ETSY_DEFAULT_TAXONOMY_ID`
+  fallback, and the caller's `if (!taxonomyId)` threw `No Etsy taxonomy id for category
+  "3d-prints" — set ETSY_TAXONOMY_MAP` on a map that WAS set. Every category seeded with 0 has
+  the same trap, not just toys. Fixed by moving resolution into the pure shared module as
+  `taxonomyIdForCategory()` (`backend/shared/etsy-tiers.ts`, beside the existing 6617/6844 tier
+  defaults) with the order: ETSY_TAXONOMY_MAP entry `> 0` -> built-in `CATEGORY_TAXONOMY_DEFAULTS`
+  -> ETSY_DEFAULT_TAXONOMY_ID -> null. `backend/services/etsy.ts` keeps `taxonomyIdFor` as a
+  one-line delegate so the admin route and publisher call sites are untouched.
+  Ids were RESOLVED LIVE, not guessed — `node backend/scripts/etsy-poc.mjs taxonomy --q figurine`
+  against the real Etsy taxonomy (the script reads the vault itself, so no key ever entered the
+  session): **1799** Art & Collectibles > Dolls & Miniatures > Figurines is the new default for
+  `3d-prints`, chosen over 1585 (Toys & Games > Toys > Dolls & Action Figures > Action Figures)
+  because a Toy Creator print is a made-to-order collectible figurine, not a licensed action
+  figure — one ETSY_TAXONOMY_MAP entry flips it if shop data disagrees. Also resolved and
+  DOCUMENTED but deliberately NOT wired: **12380** Craft Supplies & Tools > Patterns & How To >
+  Craft Machine Files > 3D Printer Files, the node the STL download tier will need. 3d-prints
+  stays primary-only (`tiersForCategory` unchanged) because blocker 3 is still open — the
+  download tier's `sourceDesignFile()` returns a 300dpi PNG and `tierCopy` sells "sublimation /
+  HTV", so enabling it today would list a PNG as if it were the mesh.
+  8 new tests in `backend/shared/etsy-tiers.test.ts`, including one that feeds the exact
+  `.env.example` template string and asserts 1799 — that test fails against the old resolver.
+  **Front-page CTA.** David: "there is no call to action how does 1 even get to that page from the
+  front page thats lame." Confirmed: `/toy-creator` was reachable only from the navbar button and
+  a card inside `/account/designs` (UserDesignDashboard) — nothing on `Home.tsx` at all, so a
+  logged-out visitor had no path to it. Added a Toy Creator section to `src/pages/Home.tsx`
+  directly under `<Hero />` (above "How It Works"), in the Toy Creator's own cyan/emerald identity
+  rather than site purple: badge, "Invent a creature. / We print it for real.", the three beats
+  (describe or build / ~60s / printed and shipped), primary CTA -> `/toy-creator`, secondary ->
+  `/models`, and a "from $5.99" anchor taken from the LIVE `/api/3d-models/size-tiers` response
+  (mini 50 ITC $5.99 -> large 220 ITC $29.99), with `hub-toys.webp` plus the mind-owl / body-dragon
+  part art to show the splice.
+  VERIFIED: backend `tsc --noEmit` clean, `npm run build` OK, repo-source suite 57 files / 772
+  tests green (the 12 failures in a bare `vitest run` are all inside other sessions'
+  `.claude/worktrees/` checkouts, not repo source), eslint 0 errors on the three changed files,
+  and the section rendered + the CTA routed to /toy-creator in a real browser on the dev server.
+  NOT verified end-to-end against Etsy: `products` still holds zero 3D toys, and posting a real
+  draft listing is an outward-facing action David has not authorised — the resolver is proven by
+  unit test, not by a live listing. Nothing committed or pushed.
+
+- 2026-08-20 (zero-nine — full-colour trace + the STL the fleet never got): David asked whether
+  "full color" was fixed. It was never in scope — traced it instead. Finding: colour NEVER reaches
+  generation. `/generate-3d` queues `{model_id, user_id, source_image_url, size_tier}` with no
+  `color_mode` (3d-models.ts:781), and `generateTripo3D` always sends `texture:true, pbr:true`
+  (tripo3d.ts:163) taking `pbr_model.url` in preference, so the mesh is textured either way.
+  Picking full colour changes only price (+30% ceil to .99), the product name/description, and the
+  `colorMode:'color4'` flag on the print job. **David ruled this CORRECT AS DESIGNED** — colour is
+  a fulfilment flag (grey PLA vs 4-colour AMS at print time off one textured GLB), NOT a separate
+  colour-separated asset. So there is no generation bug to fix here; do not "fix" it later.
+  REAL defect found and fixed: `print-bridge.ts` selects `stl_url` on the model row (line 119) and
+  then dropped it when building the custom line, so every Toy Creator order reached Saturn's fleet
+  GLB-only while the catalog line had always sent both. A grey print slices from the STL, so this
+  forced a manual convert per job. Added `stlUrl: model?.stl_url` to the custom-mini push.
+  Backend typecheck clean, print-bridge + etsy-tiers 42/42 green.
+  STILL OPEN, flagged not fixed: `/generate-3d` queues type `3d_model_tripo_v2` with an explicit
+  comment (3d-models.ts:774) that this is so the PRODUCTION Render worker IGNORES it — Render was
+  on the old `tcli_*` Studio token, not a `tsk_*` Platform key. Local `backend/.env` has a correct
+  `tsk_*`. If Render is still stale, NO toy generation completes in prod, which matches the live
+  evidence (18 models ever, last 2026-06-13). Could not verify — no Render env access from here.
+  NOTE: both `backend/.env` and `.env.local` point at PROD supabase (czzyrmizvjqlifcivrhn), so any
+  local test generation writes real rows and burns real Tripo credits. David approved one real
+  end-to-end run (full colour, small tier) — NOT yet executed. Nothing committed or pushed.
