@@ -83,7 +83,7 @@ const isRead = (req: Request) => req.method === 'GET' || req.method === 'HEAD'
  * Backstop for every route. Wide enough that no legitimate session notices,
  * narrow enough to blunt a scripted sweep of the whole API surface.
  */
-export const globalLimiter = makeLimiter({
+export const globalLimiter: RequestHandler = makeLimiter({
   name: 'global',
   windowMs: 15 * 60 * 1000,
   limit: envInt('RATE_LIMIT_GLOBAL_MAX', 1000)
@@ -97,7 +97,7 @@ export const globalLimiter = makeLimiter({
  * Note: the primary login and password-reset flows run against Supabase Auth
  * directly from the browser and are rate-limited by Supabase, not here.
  */
-export const authLimiter = makeLimiter({
+export const authLimiter: RequestHandler = makeLimiter({
   name: 'auth',
   windowMs: 15 * 60 * 1000,
   limit: envInt('RATE_LIMIT_AUTH_MAX', 60)
@@ -107,7 +107,7 @@ export const authLimiter = makeLimiter({
  * Admin surfaces. An admin dashboard load fans out to a dozen endpoints and
  * the ops monitor polls, so this is sized per 5 minutes rather than per minute.
  */
-export const adminLimiter = makeLimiter({
+export const adminLimiter: RequestHandler = makeLimiter({
   name: 'admin',
   windowMs: 5 * 60 * 1000,
   limit: envInt('RATE_LIMIT_ADMIN_MAX', 300)
@@ -118,7 +118,7 @@ export const adminLimiter = makeLimiter({
  * Abuse here costs real money, so writes are metered tightly; status polls are
  * GETs and stay free so a long-running job's UI never stalls.
  */
-export const aiLimiter = makeLimiter({
+export const aiLimiter: RequestHandler = makeLimiter({
   name: 'ai',
   windowMs: 10 * 60 * 1000,
   limit: envInt('RATE_LIMIT_AI_MAX', 60),
@@ -129,7 +129,7 @@ export const aiLimiter = makeLimiter({
  * Coupon / gift-card code checks — a classic brute-force target (guess codes
  * until one validates). Reads are metered too: validation happens over GET.
  */
-export const codeCheckLimiter = makeLimiter({
+export const codeCheckLimiter: RequestHandler = makeLimiter({
   name: 'code-check',
   windowMs: 10 * 60 * 1000,
   limit: envInt('RATE_LIMIT_CODE_CHECK_MAX', 40)
@@ -139,7 +139,7 @@ export const codeCheckLimiter = makeLimiter({
  * Unauthenticated public writes (support tickets, community posts). Keeps the
  * spam floor low without touching browsing.
  */
-export const publicWriteLimiter = makeLimiter({
+export const publicWriteLimiter: RequestHandler = makeLimiter({
   name: 'public-write',
   windowMs: 10 * 60 * 1000,
   limit: envInt('RATE_LIMIT_PUBLIC_WRITE_MAX', 30),

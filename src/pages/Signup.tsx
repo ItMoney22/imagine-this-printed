@@ -9,6 +9,7 @@ const Signup: React.FC = () => {
   const [lastName, setLastName] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [messageIsError, setMessageIsError] = useState(false)
   const { signUp, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -25,8 +26,9 @@ const Signup: React.FC = () => {
     e.preventDefault()
     setLoading(true)
     setMessage('')
+    setMessageIsError(false)
 
-    console.log('🔄 Signup: Form submitted', { 
+    console.log('🔄 Signup: Form submitted', {
       email, 
       hasPassword: !!password, 
       firstName, 
@@ -42,9 +44,10 @@ const Signup: React.FC = () => {
           error: result.error
         })
         setMessage(result.error)
+        setMessageIsError(true)
         return
       }
-      
+
       console.log('✅ Signup: Account creation successful')
       setMessage('Account created! Please check your email to verify your account.')
     } catch (error: any) {
@@ -55,6 +58,7 @@ const Signup: React.FC = () => {
         stack: error?.stack
       })
       setMessage(error?.message || 'Failed to create account. Please try again.')
+      setMessageIsError(true)
     } finally {
       setLoading(false)
     }
@@ -131,8 +135,8 @@ const Signup: React.FC = () => {
 
         {message && (
           <div className={`mt-4 p-3 rounded-md ${
-            message.includes('error') || message.includes('Error') 
-              ? 'bg-red-50 text-red-700 border border-red-200' 
+            messageIsError
+              ? 'bg-red-50 text-red-700 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
             {message}

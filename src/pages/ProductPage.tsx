@@ -55,6 +55,7 @@ const ProductPage: React.FC = () => {
 
   // Load product and source image from database
   useEffect(() => {
+    let cancelled = false
     const loadProduct = async () => {
       if (!id) {
         setLoading(false)
@@ -75,6 +76,8 @@ const ProductPage: React.FC = () => {
         const assetsResult = productResult.data
           ? await supabase.from('product_assets').select('url, kind, asset_role').eq('product_id', productResult.data.id).in('kind', ['source', 'nobg', 'mockup'])
           : { data: null }
+
+        if (cancelled) return
 
         if (productResult.data) {
           const data = productResult.data
@@ -134,13 +137,15 @@ const ProductPage: React.FC = () => {
           }
         }
       } catch (error) {
+        if (cancelled) return
         console.error('Error loading product:', error)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     loadProduct()
+    return () => { cancelled = true }
   }, [id])
 
   // Client-side SEO: title, description, keywords, and canonical for the loaded

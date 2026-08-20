@@ -10,6 +10,7 @@ const VendorPayouts: React.FC = () => {
   const [analytics, setAnalytics] = useState<any>(null)
   const [stripeStatus, setStripeStatus] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedTab, setSelectedTab] = useState<'overview' | 'payouts' | 'analytics' | 'settings'>('overview')
   const [filter, setFilter] = useState<'all' | 'pending' | 'processing' | 'paid'>('all')
   const [isRequesting, setIsRequesting] = useState(false)
@@ -22,10 +23,11 @@ const VendorPayouts: React.FC = () => {
 
   const loadData = async () => {
     if (!user) return
-    
+
     try {
       setIsLoading(true)
-      
+      setLoadError(null)
+
       // Load all data in parallel
       const [payoutsData, summaryData, analyticsData, statusData] = await Promise.all([
         vendorPayoutService.getVendorPayouts(user.id),
@@ -40,6 +42,10 @@ const VendorPayouts: React.FC = () => {
       setStripeStatus(statusData)
     } catch (error) {
       console.error('Error loading payout data:', error)
+      // summary/analytics stay null on failure, and several tabs render
+      // nothing (or a false "Setup Required" state) when they're null with
+      // no indication anything went wrong — surface it instead.
+      setLoadError('Failed to load payout data. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -110,8 +116,18 @@ const VendorPayouts: React.FC = () => {
         <p className="text-muted">Manage your earnings and payout schedule</p>
       </div>
 
-      {/* Stripe Connect Status */}
-      {!stripeStatus?.isOnboarded && (
+      {loadError && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
+          <p className="text-red-800">{loadError}</p>
+          <button onClick={() => loadData()} className="btn-secondary">Retry</button>
+        </div>
+      )}
+
+      {/* Stripe Connect Status — only shown once we actually know the
+          account isn't onboarded; a failed fetch leaves stripeStatus null
+          too, which would otherwise show this same "Setup Required" banner
+          to an already-onboarded vendor during a transient outage. */}
+      {!loadError && !stripeStatus?.isOnboarded && (
         <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -227,7 +243,12 @@ const VendorPayouts: React.FC = () => {
                   <p className="text-2xl font-semibold text-text">
                     {vendorPayoutService.formatCurrency(summary.totalFees)}
                   </p>
-                  <p className="text-sm text-muted">10.5% total fees</p>
+                  <p className="text-sm text-muted">
+                    {/* payoutAmount is net-of-fees, so gross = totalAmount + totalFees */}
+                    {(summary.totalAmount + summary.totalFees) > 0
+                      ? `${((summary.totalFees / (summary.totalAmount + summary.totalFees)) * 100).toFixed(1)}% total fees`
+                      : 'No fees yet'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -268,7 +289,11 @@ const VendorPayouts: React.FC = () => {
                 </div>
                 <div className="flex justify-between border-t pt-3">
                   <span className="font-medium text-text">Total Fees</span>
-                  <span className="font-medium text-text">10.5%</span>
+                  <span className="font-medium text-text">
+                    {(summary.totalAmount + summary.totalFees) > 0
+                      ? `${((summary.totalFees / (summary.totalAmount + summary.totalFees)) * 100).toFixed(1)}%`
+                      : '—'}
+                  </span>
                 </div>
               </div>
             </div>

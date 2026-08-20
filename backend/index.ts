@@ -90,6 +90,25 @@ import {
   rateLimitingEnabled
 } from './middleware/rate-limits.js'
 
+// Process-level crash guard. Express 4 does NOT forward a rejected promise
+// from an `async (req, res) => {...}` route handler to the error middleware —
+// an unguarded `await` that throws becomes an unhandled rejection. Node 20
+// defaults to --unhandled-rejections=throw, so without this handler that one
+// bad request would crash the ENTIRE API process (every concurrent request,
+// not just the offending one) with no log line explaining why (see the
+// identical comment in backend/worker/index.ts). Unlike the worker — where a
+// crash-and-restart is cheap because there's no request in flight to drop —
+// this process serves live HTTP traffic, so we log with the full stack and
+// keep serving rather than exit; a dropped promise here still leaves the one
+// request hanging/erroring, but the rest of the API stays up.
+process.on('unhandledRejection', (reason) => {
+  console.error('[api] 💥 Unhandled rejection:', reason instanceof Error ? reason.stack : reason)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('[api] 💥 Uncaught exception:', error?.stack || error)
+})
+
 // .env already loaded via ./load-env.js at the top of this file (must run before
 // service imports that construct SDK clients at module-load time).
 console.log('[boot] OPENAI_API_KEY suffix: ...' + (process.env.OPENAI_API_KEY?.slice(-6) ?? 'unset'))

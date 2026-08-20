@@ -37,12 +37,13 @@ const ProfileEdit: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (user) {
-      loadUserProfile()
-    }
+    if (!user) return
+    let cancelled = false
+    loadUserProfile(() => cancelled)
+    return () => { cancelled = true }
   }, [user])
 
-  const loadUserProfile = async () => {
+  const loadUserProfile = async (isCancelled: () => boolean = () => false) => {
     try {
       setIsLoading(true)
       setError(null)
@@ -65,6 +66,8 @@ const ProfileEdit: React.FC = () => {
         throw profileError
       }
 
+      if (isCancelled()) return
+
       console.log('[ProfileEdit] Profile loaded:', userProfile)
 
       // Map to form data
@@ -74,9 +77,15 @@ const ProfileEdit: React.FC = () => {
         bio: userProfile.bio || '',
         location: userProfile.location || '',
         website: userProfile.website || '',
-        socialLinks: userProfile.social_links || {
-          twitter: '',
-          instagram: '',
+        // The `social_links` JSONB column is vestigial — nothing in the
+        // backend ever writes to it (saveProfile below writes the flat
+        // social_twitter/social_instagram columns instead). Reading from it
+        // here always produced a blank form regardless of what the user had
+        // actually saved, and saving then wiped the real columns with those
+        // blanks. Read from the same flat columns everything else uses.
+        socialLinks: {
+          twitter: userProfile.social_twitter || '',
+          instagram: userProfile.social_instagram || '',
           linkedin: ''
         },
         isPublic: userProfile.is_public !== false,
@@ -94,10 +103,11 @@ const ProfileEdit: React.FC = () => {
         setPreviewUrl(userProfile.avatar_url)
       }
     } catch (error: any) {
+      if (isCancelled()) return
       console.error('[ProfileEdit] Error loading profile:', error)
       setError('Failed to load profile: ' + error.message)
     } finally {
-      setIsLoading(false)
+      if (!isCancelled()) setIsLoading(false)
     }
   }
 

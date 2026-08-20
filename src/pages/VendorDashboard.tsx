@@ -798,9 +798,9 @@ const VendorDashboard: React.FC = () => {
               {uploadedImages.length > 0 && (
                 <div className="mt-3 grid grid-cols-4 gap-3">
                   {uploadedImages.map((img, index) => (
-                    <div key={index} className="relative group">
+                    <div key={img.url} className="relative group">
                       <img src={img.url} alt={`Preview ${index + 1}`} className="w-full h-20 object-cover rounded border card-border" />
-                      <button 
+                      <button
                         type="button"
                         onClick={() => setUploadedImages(prev => prev.filter((_, i) => i !== index))}
                         className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
@@ -985,7 +985,7 @@ const VendorDashboard: React.FC = () => {
                 {editImages.length > 0 ? (
                   <div className="grid grid-cols-4 gap-3 mb-3">
                     {editImages.map((img, index) => (
-                      <div key={index} className="relative group">
+                      <div key={img.url} className="relative group">
                         <img
                           src={img.url}
                           alt={`${editingProduct.title} ${index + 1}`}

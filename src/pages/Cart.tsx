@@ -5,6 +5,15 @@ import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { addonsUnitTotal } from '../lib/product-kind'
 
+// Mirrors CartContext.tsx's calculateTotal (and Checkout.tsx's own copy) so
+// this page's per-line price actually sums to the Subtotal shown below it.
+const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
+const PLUS_SIZE_UPCHARGE = 2.50
+const isPlusSize = (size?: string): boolean => {
+  if (!size) return false
+  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
+}
+
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
   const navigate = useNavigate()
@@ -122,7 +131,10 @@ const Cart: React.FC = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold">
-                      ${((item.product.price + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                      ${(
+                        (item.product.price + addonsUnitTotal(item.selectedAddons)) * item.quantity +
+                        (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE * item.quantity : 0)
+                      ).toFixed(2)}
                     </p>
                     <button
                       onClick={() => removeFromCart(item.id)}

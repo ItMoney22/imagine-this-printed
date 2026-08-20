@@ -41,7 +41,9 @@ const KioskInterface: React.FC<KioskInterfaceProps> = ({ previewData }) => {
       // shows whatever real, approved products exist for the draft's
       // vendorId rather than fabricated stock photos.
       setKiosk(previewData)
-      kioskService.getVendorProducts(previewData.vendorId).then(setProducts)
+      kioskService.getVendorProducts(previewData.vendorId)
+        .then(setProducts)
+        .catch(() => setProducts([]))
       setIsLoading(false)
     } else if (kioskId && sessionKiosk && sessionToken) {
       loadKioskData()

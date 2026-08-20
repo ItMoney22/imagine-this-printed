@@ -673,6 +673,10 @@ const CRM: React.FC = () => {
                             onClick={() => {
                               setSelectedCustomer(customer)
                               setShowCustomerModal(true)
+                              // A draft note typed for the previous customer
+                              // but never submitted must not carry over and
+                              // get posted against this one.
+                              setNewNote('')
                             }}
                             className="px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-sm font-medium rounded-lg transition-colors"
                           >

@@ -93,12 +93,13 @@ const UserProfilePage = () => {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (username || isAccountRoute) {
-      loadProfile()
-    }
+    if (!(username || isAccountRoute)) return
+    let cancelled = false
+    loadProfile(() => cancelled)
+    return () => { cancelled = true }
   }, [username, isAccountRoute, user])
 
-  const loadProfile = async () => {
+  const loadProfile = async (isCancelled: () => boolean = () => false) => {
     setIsLoading(true)
     setError(null)
 
@@ -137,6 +138,10 @@ const UserProfilePage = () => {
         .single()
 
       if (profileError) throw profileError
+      // A newer invocation (e.g. the route's :username param changed again
+      // before this one resolved) has taken over — don't let this stale
+      // response overwrite what it already set.
+      if (isCancelled()) return
 
       setProfile(profileData)
       const isOwn = isAccountRoute || !!(user && user.id === profileData.id)
@@ -156,11 +161,12 @@ const UserProfilePage = () => {
       await Promise.all(parallelLoads)
 
     } catch (err: any) {
+      if (isCancelled()) return
       console.error('Error loading profile:', err)
       setError(err.message || 'Failed to load profile')
       setProfile(null)
     } finally {
-      setIsLoading(false)
+      if (!isCancelled()) setIsLoading(false)
     }
   }
 
@@ -384,6 +390,33 @@ const UserProfilePage = () => {
     }
   }
 
+  // Map profile for header (memoized to avoid re-creating object on every
+  // render). Must run before the early returns below — calling a hook after
+  // a conditional return means this component renders with a different hook
+  // count depending on isLoading/error, which crashes React ("Rendered fewer
+  // hooks than expected") when the route reuses the instance across params
+  // (e.g. /profile/alice -> /profile/bob re-enters the loading branch).
+  const headerProfile = useMemo(() => {
+    if (!profile) return null
+    return {
+      id: profile.id,
+      username: profile.username,
+      display_name: profile.display_name || '',
+      avatar_url: profile.avatar_url,
+      cover_image_url: profile.cover_image_url,
+      bio: profile.bio || '',
+      location: profile.location || '',
+      website: profile.website || '',
+      role: profile.role,
+      joined_date: profile.created_at,
+      social_links: {
+        twitter: profile.social_twitter || undefined,
+        instagram: profile.social_instagram || undefined,
+        tiktok: profile.social_tiktok || undefined
+      }
+    }
+  }, [profile])
+
   // Loading state
   if (isLoading) {
     return (
@@ -450,25 +483,6 @@ const UserProfilePage = () => {
     )
   }
 
-  // Map profile for header (memoized to avoid re-creating object on every render)
-  const headerProfile = useMemo(() => ({
-    id: profile.id,
-    username: profile.username,
-    display_name: profile.display_name || '',
-    avatar_url: profile.avatar_url,
-    cover_image_url: profile.cover_image_url,
-    bio: profile.bio || '',
-    location: profile.location || '',
-    website: profile.website || '',
-    role: profile.role,
-    joined_date: profile.created_at,
-    social_links: {
-      twitter: profile.social_twitter || undefined,
-      instagram: profile.social_instagram || undefined,
-      tiktok: profile.social_tiktok || undefined
-    }
-  }), [profile])
-
   // Tabs configuration
   const tabs: { id: TabType; label: string; icon: React.ReactNode; hidden?: boolean }[] = [
     {
@@ -502,7 +516,7 @@ const UserProfilePage = () => {
     <div className="min-h-screen bg-slate-50 pb-16">
       {/* Profile Header */}
       <ProfileHeader
-        profile={headerProfile}
+        profile={headerProfile!}
         stats={stats}
         topDesigns={designs.slice(0, 5)}
         isOwnProfile={isOwnProfile}

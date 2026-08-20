@@ -12,6 +12,7 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [messageIsError, setMessageIsError] = useState(false)
   const { signIn, signInWithGoogle, signInWithMagicLink, resetPassword, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -34,6 +35,7 @@ const Login: React.FC = () => {
     e.preventDefault()
     setLoading(true)
     setMessage('')
+    setMessageIsError(false)
 
     console.log('🔄 Login: Form submitted', { mode, email, hasPassword: !!password })
 
@@ -45,19 +47,24 @@ const Login: React.FC = () => {
         if (error) {
           console.error('❌ Login: Sign in failed:', error)
           setMessage(error)
+          setMessageIsError(true)
           return
         }
 
         console.log('✅ Login: Sign in successful, redirecting...')
         setMessage('Signed in successfully!')
-        const from = location.state?.from?.pathname || '/'
-        navigate(from, { replace: true })
+        // Don't navigate here — the redirect effect above owns navigation
+        // once `user` populates, and it's the only place that knows to send
+        // vendors to /vendor/dashboard. Navigating here too raced it: a
+        // vendor would land on `from`/`/` for a frame, then get yanked to
+        // /vendor/dashboard a moment later when the effect caught up.
       } else if (mode === 'reset') {
         console.log('🔄 Login: Attempting password reset...')
         const { error } = await resetPassword(email)
         if (error) {
           console.error('❌ Login: Password reset failed:', error)
           setMessage(error)
+          setMessageIsError(true)
           return
         }
         console.log('✅ Login: Password reset email sent')
@@ -66,6 +73,7 @@ const Login: React.FC = () => {
     } catch (error: any) {
       console.error('❌ Login: Form submission error:', error)
       setMessage(error?.message || 'An unexpected error occurred')
+      setMessageIsError(true)
     } finally {
       setLoading(false)
     }
@@ -76,6 +84,7 @@ const Login: React.FC = () => {
     setEmail('')
     setPassword('')
     setMessage('')
+    setMessageIsError(false)
   }
 
   const switchMode = (newMode: 'signin' | 'reset') => {
@@ -86,16 +95,19 @@ const Login: React.FC = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setMessage('')
+    setMessageIsError(false)
 
     try {
       const { error } = await signInWithGoogle()
       if (error) {
         setMessage(error)
+        setMessageIsError(true)
       }
       // Note: For OAuth, the redirect will handle success, so we don't need to do anything here
     } catch (error: any) {
       console.error('❌ Google sign-in error:', error)
       setMessage(error?.message || 'Google sign-in failed')
+      setMessageIsError(true)
     } finally {
       setLoading(false)
     }
@@ -104,22 +116,26 @@ const Login: React.FC = () => {
   const handleMagicLinkSignIn = async () => {
     if (!email) {
       setMessage('Please enter your email address')
+      setMessageIsError(true)
       return
     }
 
     setLoading(true)
     setMessage('')
+    setMessageIsError(false)
 
     try {
       const { error } = await signInWithMagicLink(email)
       if (error) {
         setMessage(error)
+        setMessageIsError(true)
       } else {
         setMessage('Check your email for a sign-in link!')
       }
     } catch (error: any) {
       console.error('❌ Magic link error:', error)
       setMessage(error?.message || 'Magic link failed')
+      setMessageIsError(true)
     } finally {
       setLoading(false)
     }
@@ -227,7 +243,7 @@ const Login: React.FC = () => {
         )}
 
         {message && (
-          <div className={`mt-4 p-3 rounded-md ${message.includes('error') || message.includes('Error')
+          <div className={`mt-4 p-3 rounded-md ${messageIsError
               ? 'bg-red-50 text-red-700 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
             }`}>

@@ -16,6 +16,11 @@ const VendorMessages: React.FC = () => {
   const [showQuickReplies, setShowQuickReplies] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Tracks which conversation is currently selected so an in-flight
+  // loadMessages/sendMessage response can tell whether it's still relevant
+  // by the time it resolves — a plain closure over `selectedConversation`
+  // isn't enough since the user can switch conversations again mid-request.
+  const selectedConversationIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -28,33 +33,41 @@ const VendorMessages: React.FC = () => {
   }, [messages])
 
   useEffect(() => {
+    selectedConversationIdRef.current = selectedConversation?.id ?? null
     if (selectedConversation) {
       loadMessages(selectedConversation.id)
       markAsRead(selectedConversation.id)
     }
   }, [selectedConversation])
 
-  const loadConversations = async () => {
+  const loadConversations = async (opts?: { background?: boolean }) => {
     if (!user) return
-    
+
     try {
-      setIsLoading(true)
+      // Sending a message or uploading a file re-fetches the conversation
+      // list in the background to refresh previews/unread counts — that
+      // must not blank the entire pane (list + thread + compose box) with
+      // the full-page spinner meant for the initial load.
+      if (!opts?.background) setIsLoading(true)
       const data = await messagingService.getConversations(user.id)
       setConversations(data)
-      
+
       if (data.length > 0 && !selectedConversation) {
         setSelectedConversation(data[0])
       }
     } catch (error) {
       console.error('Error loading conversations:', error)
     } finally {
-      setIsLoading(false)
+      if (!opts?.background) setIsLoading(false)
     }
   }
 
   const loadMessages = async (conversationId: string) => {
     try {
       const data = await messagingService.getMessages(conversationId)
+      // A newer conversation was selected before this resolved — don't let
+      // this stale response stomp what's now on screen.
+      if (selectedConversationIdRef.current !== conversationId) return
       setMessages(data)
     } catch (error) {
       console.error('Error loading messages:', error)
@@ -64,11 +77,12 @@ const VendorMessages: React.FC = () => {
   const sendMessage = async (content?: string) => {
     const messageContent = content || newMessage.trim()
     if (!selectedConversation || !messageContent || !user || isSending) return
+    const conversationId = selectedConversation.id
 
     try {
       setIsSending(true)
       const message = await messagingService.sendMessage(
-        selectedConversation.id,
+        conversationId,
         user.id,
         {
           content: messageContent,
@@ -76,12 +90,16 @@ const VendorMessages: React.FC = () => {
         }
       )
 
-      setMessages(prev => [...prev, message])
+      // Only append if the vendor is still looking at the conversation the
+      // message was actually sent to.
+      if (selectedConversationIdRef.current === conversationId) {
+        setMessages(prev => [...prev, message])
+      }
       setNewMessage('')
       setShowQuickReplies(false)
-      
+
       // Update conversation list
-      loadConversations()
+      loadConversations({ background: true })
     } catch (error) {
       console.error('Error sending message:', error)
       alert('Failed to send message. Please try again.')
@@ -122,13 +140,14 @@ const VendorMessages: React.FC = () => {
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
     if (!files || !selectedConversation || !user) return
+    const conversationId = selectedConversation.id
 
     try {
       setIsSending(true)
       const fileArray = Array.from(files)
-      
+
       const message = await messagingService.sendMessage(
-        selectedConversation.id,
+        conversationId,
         user.id,
         {
           content: `Sent ${fileArray.length} file(s)`,
@@ -137,8 +156,10 @@ const VendorMessages: React.FC = () => {
         }
       )
 
-      setMessages(prev => [...prev, message])
-      loadConversations()
+      if (selectedConversationIdRef.current === conversationId) {
+        setMessages(prev => [...prev, message])
+      }
+      loadConversations({ background: true })
     } catch (error) {
       console.error('Error uploading files:', error)
       alert('Failed to upload files. Please try again.')
