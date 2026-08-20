@@ -7,6 +7,7 @@ import { processReferralFirstPurchase } from '../services/referral-service.js'
 import { attachProductFiles } from '../services/product-files.js'
 import { verifyOrderStatusToken } from '../utils/order-status-token.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
+import { WAREHOUSE_ADDRESS_FROM } from './shipping.js'
 
 const router = Router()
 
@@ -663,6 +664,294 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
     })
   } catch (error: any) {
     console.error('[orders/complete] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Shipping label purchase
+//
+// This used to run IN THE BROWSER (src/utils/shippo.ts via
+// VITE_SHIPPO_API_TOKEN). Anything VITE_-prefixed is compiled into the public
+// bundle, so a live Shippo token would have shipped to every visitor — which is
+// why the token was never set and label generation silently served mocks. The
+// purchase now runs here with the server-only SHIPPO_API_TOKEN, and the order
+// row is written with the service-role client so the update is not subject to
+// the RLS policies that blocked the browser from persisting it at all.
+// ---------------------------------------------------------------------------
+
+const SHIPPO_BASE_URL = 'https://api.goshippo.com'
+
+// Same USPS/UPS filter the checkout quote uses (backend/routes/shipping.ts) so
+// admins buy a label from the set of carriers the customer was quoted.
+function isQuotableRate(rate: any): boolean {
+  const svc = rate?.servicelevel?.token?.toLowerCase() || ''
+  const provider = rate?.provider?.toLowerCase() || ''
+  return (provider === 'usps' && (svc.includes('priority') || svc.includes('express') || svc.includes('ground'))) ||
+         (provider === 'ups' && (svc.includes('ground') || svc.includes('2nd') || svc.includes('next') || svc.includes('saver')))
+}
+
+/**
+ * Normalize the order's shipping_address JSONB into Shippo's address shape.
+ * Orders have been written by several checkout generations, so accept both the
+ * `{ address, zipCode, firstName, lastName }` shape the storefront writes and
+ * the `{ street1/address1, zip }` shape used elsewhere.
+ */
+function toShippoAddress(order: any) {
+  const addr = order?.shipping_address || {}
+  const name = order.customer_name
+    || addr.name
+    || [addr.firstName, addr.lastName].filter(Boolean).join(' ').trim()
+    || 'Customer'
+
+  return {
+    name,
+    company: addr.company || '',
+    street1: addr.street1 || addr.address1 || addr.address || addr.line1 || '',
+    street2: addr.street2 || addr.address2 || addr.line2 || '',
+    city: addr.city || '',
+    state: addr.state || addr.province || '',
+    zip: addr.zip || addr.zipCode || addr.postal_code || addr.postalCode || '',
+    country: addr.country || 'US',
+    phone: addr.phone || '',
+    email: order.customer_email || addr.email || ''
+  }
+}
+
+/** Parcel weight in lb — 0.5 lb per unit, matching the checkout quote default. */
+function parcelWeightLb(items: any[]): number {
+  const total = (items || []).reduce((sum, item) => {
+    const qty = Number(item?.quantity) || 1
+    const unit = Number(item?.weight) || 0.5
+    return sum + unit * qty
+  }, 0)
+  return Math.max(0.5, total)
+}
+
+/**
+ * POST /api/orders/:orderId/shipping-label
+ *
+ * Creates the shipment, buys the label with the server-side SHIPPO_API_TOKEN,
+ * persists tracking/label details on the order (service role, bypasses RLS) and
+ * returns the label to the caller.
+ *
+ * Body (all optional): { rateId?: string, weightLb?: number }
+ *
+ * Buying a label spends real money, so this is admin/manager only and refuses
+ * to buy a second label for an order that already has one.
+ */
+router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const { rateId, weightLb: weightOverride } = req.body || {}
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single()
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    // Never buy twice. Return what we already have so the UI can just show it.
+    const existingLabel = order.shipping_label_url || order.metadata?.shipping_label?.label_url
+    if (existingLabel) {
+      return res.json({
+        ok: true,
+        alreadyPurchased: true,
+        label: {
+          labelUrl: existingLabel,
+          trackingNumber: order.tracking_number || null,
+          carrier: order.tracking_company || null,
+          estimatedDelivery: order.estimated_delivery || null
+        }
+      })
+    }
+
+    const addressTo = toShippoAddress(order)
+    const missing = (['street1', 'city', 'state', 'zip'] as const).filter(field => !addressTo[field])
+    if (missing.length > 0) {
+      return res.status(400).json({ error: `Order shipping address is incomplete (missing: ${missing.join(', ')})` })
+    }
+
+    const { data: items } = await supabase
+      .from('order_items')
+      .select('quantity')
+      .eq('order_id', orderId)
+
+    const metaItems: any[] = Array.isArray(order.metadata?.items) ? order.metadata.items : []
+    const weight = Number(weightOverride) > 0
+      ? Number(weightOverride)
+      : parcelWeightLb((items && items.length > 0) ? items : metaItems)
+
+    const token = process.env.SHIPPO_API_TOKEN
+
+    // Mock mode — keeps the admin flow usable without a token, exactly as the
+    // old browser code did. Deliberately does NOT touch the order: a fake
+    // tracking number on a real order would surface to the customer.
+    if (!token) {
+      console.warn('[orders/shipping-label] SHIPPO_API_TOKEN not set — returning a demo label, order not updated')
+      return res.json({
+        ok: true,
+        mock: true,
+        persisted: false,
+        message: 'Shippo is not configured on the server (SHIPPO_API_TOKEN). This is a demo label and the order was not updated.',
+        label: {
+          labelUrl: 'https://shippo-delivery-east.s3.amazonaws.com/mock-label.pdf',
+          trackingNumber: 'MOCK123456789',
+          trackingUrl: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=MOCK123456789',
+          carrier: 'USPS',
+          service: 'Priority Mail',
+          cost: 8.5,
+          estimatedDelivery: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+          weightLb: Math.round(weight * 100) / 100
+        }
+      })
+    }
+
+    // 1. Create the shipment to get live rates.
+    const shipmentRes = await fetch(`${SHIPPO_BASE_URL}/shipments/`, {
+      method: 'POST',
+      headers: { 'Authorization': `ShippoToken ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        address_from: WAREHOUSE_ADDRESS_FROM,
+        address_to: addressTo,
+        parcels: [{
+          length: '10', width: '8', height: '4', distance_unit: 'in',
+          weight: weight.toFixed(2), mass_unit: 'lb'
+        }],
+        async: false
+      })
+    })
+
+    if (!shipmentRes.ok) {
+      const detail = await shipmentRes.text().catch(() => '')
+      console.error('[orders/shipping-label] Shippo /shipments failed:', shipmentRes.status, detail)
+      return res.status(502).json({ error: `Shippo could not create the shipment (${shipmentRes.status})` })
+    }
+
+    const shipment = await shipmentRes.json() as { rates?: any[] }
+    const allRates = shipment.rates || []
+    const usable = allRates.filter(isQuotableRate)
+    const candidates = usable.length > 0 ? usable : allRates
+
+    if (candidates.length === 0) {
+      console.error('[orders/shipping-label] Shippo returned no rates for order', orderId)
+      return res.status(502).json({ error: 'No carrier rates available for this address. Check the USPS/UPS carrier accounts connected in Shippo.' })
+    }
+
+    // Caller may pin a rate; otherwise buy the cheapest usable one.
+    const chosen = rateId
+      ? candidates.find((rate: any) => rate.object_id === rateId)
+      : [...candidates].sort((a: any, b: any) => parseFloat(a.amount) - parseFloat(b.amount))[0]
+
+    if (!chosen) {
+      return res.status(400).json({ error: 'Requested rate is not available for this shipment' })
+    }
+
+    // 2. Buy the label.
+    const txRes = await fetch(`${SHIPPO_BASE_URL}/transactions/`, {
+      method: 'POST',
+      headers: { 'Authorization': `ShippoToken ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rate: chosen.object_id, label_file_type: 'PDF', async: false })
+    })
+
+    const transaction = await txRes.json().catch(() => ({})) as any
+
+    if (!txRes.ok || transaction?.status !== 'SUCCESS' || !transaction?.label_url) {
+      const messages = Array.isArray(transaction?.messages)
+        ? transaction.messages.map((m: any) => m?.text).filter(Boolean).join('; ')
+        : ''
+      console.error('[orders/shipping-label] Shippo /transactions failed:', txRes.status, transaction?.status, messages)
+      return res.status(502).json({ error: messages || `Shippo could not purchase the label (${txRes.status})` })
+    }
+
+    const label = {
+      id: transaction.object_id,
+      orderId,
+      labelUrl: transaction.label_url,
+      trackingNumber: transaction.tracking_number || null,
+      trackingUrl: transaction.tracking_url_provider || null,
+      carrier: chosen.provider || null,
+      service: chosen.servicelevel?.name || chosen.servicelevel?.token || null,
+      cost: parseFloat(chosen.amount) || 0,
+      estimatedDelivery: transaction.eta || null,
+      weightLb: Math.round(weight * 100) / 100,
+      createdAt: new Date().toISOString()
+    }
+
+    // 3. Persist on the order with the service-role client (bypasses RLS).
+    const now = new Date().toISOString()
+    const orderUpdate: Record<string, any> = {
+      tracking_number: label.trackingNumber,
+      shipping_label_url: label.labelUrl,
+      tracking_company: label.carrier,
+      estimated_delivery: label.estimatedDelivery,
+      status: 'shipped',
+      fulfillment_status: 'fulfilled',
+      shipped_at: now,
+      updated_at: now,
+      metadata: {
+        ...(order.metadata && typeof order.metadata === 'object' ? order.metadata : {}),
+        shipping_label: {
+          transaction_id: label.id,
+          label_url: label.labelUrl,
+          tracking_url: label.trackingUrl,
+          carrier: label.carrier,
+          service: label.service,
+          cost: label.cost,
+          weight_lb: label.weightLb,
+          purchased_at: now,
+          purchased_by: req.user?.sub || null
+        }
+      }
+    }
+
+    let persisted = true
+    let persistError: string | null = null
+    let { error: updateError } = await supabase.from('orders').update(orderUpdate).eq('id', orderId)
+
+    // orders.shipping_label_url was read by the UI for months but never created
+    // by a migration (see supabase/migrations/20260727_orders_shipping_label_url.sql).
+    // The label is already bought at this point, so on a missing-column error
+    // retry without it rather than losing a paid label — metadata.shipping_label
+    // still carries the URL and the response always returns it.
+    if (updateError && /shipping_label_url/.test(updateError.message || '')) {
+      console.error('[orders/shipping-label] orders.shipping_label_url is missing — apply supabase/migrations/20260727_orders_shipping_label_url.sql')
+      const { shipping_label_url: _omitted, ...withoutLabelColumn } = orderUpdate
+      void _omitted
+      const retry = await supabase.from('orders').update(withoutLabelColumn).eq('id', orderId)
+      updateError = retry.error
+    }
+
+    if (updateError) {
+      // Do NOT fail the request — the label is paid for. Hand it back with a
+      // loud flag so the admin can still print and file it.
+      persisted = false
+      persistError = updateError.message
+      console.error('[orders/shipping-label] Label purchased but order update failed:', updateError)
+    }
+
+    await supabase.from('audit_logs').insert({
+      user_id: req.user?.sub,
+      action: 'shipping_label_purchased',
+      entity: 'order',
+      entity_id: orderId,
+      changes: {
+        carrier: label.carrier,
+        service: label.service,
+        cost: label.cost,
+        tracking_number: label.trackingNumber,
+        persisted
+      },
+      created_at: now
+    })
+
+    return res.json({ ok: true, mock: false, persisted, persistError, label })
+  } catch (error: any) {
+    console.error('[orders/shipping-label] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

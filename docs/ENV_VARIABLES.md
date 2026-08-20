@@ -31,6 +31,12 @@ Frontend environment variables are defined in `.env` file at the root of the pro
 - Public authentication tokens
 - Non-sensitive configuration values
 
+**Removed:** `VITE_SHIPPO_API_TOKEN` no longer exists and must not be re-added. A
+Shippo token is a live carrier-billing credential, so publishing it in the bundle
+would let anyone buy labels on the account. Both carrier rate quoting and label
+purchase run server-side on `SHIPPO_API_TOKEN` — see
+[Shipping - Shippo](#shipping---shippo-optional) under Backend Variables.
+
 ### Required Frontend Variables
 
 #### Supabase Configuration
@@ -312,6 +318,31 @@ what must exist, not literal copy-paste values):
 Verify status in Resend Dashboard > Domains — all three must show "Verified"
 before relying on inbox placement. An unverified sending domain doesn't
 necessarily fail to send, but lands in spam far more often.
+
+### Shipping - Shippo (Optional)
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `SHIPPO_API_TOKEN` | Shippo API token (⚠️ KEEP SECRET) | `shippo_live_...` or `shippo_test_...` | No |
+| `GOOGLE_MAPS_API_KEY` | Distance Matrix key for local-delivery tiers (⚠️ KEEP SECRET) | `AIza...` | No |
+
+**Where to find the Shippo token:**
+
+1. Go to [Shippo API settings](https://apps.goshippo.com/settings/api)
+2. Copy the live token (`shippo_live_`) for production, `shippo_test_` for staging
+3. Connect USPS and UPS carrier accounts in the Shippo dashboard — without them
+   Shippo returns no rates, and there is nothing to buy a label from
+
+**Usage:**
+
+- `POST /api/shipping/rates` — live USPS/UPS quotes at checkout, priced off the
+  cart's real weight. Falls back to weight-aware estimates when unset.
+- `POST /api/orders/:orderId/shipping-label` — admin/manager label purchase from
+  Order Management. When unset, the endpoint returns a clearly-flagged demo
+  label and deliberately leaves the order untouched.
+
+⚠️ **Backend only.** This must never be exposed as `VITE_SHIPPO_API_TOKEN`; a
+`VITE_`-prefixed value is inlined into the public browser bundle.
 
 ### AI Product Builder (Optional)
 
