@@ -42,6 +42,7 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
       .eq('metadata->>user_submitted', 'true')
       .eq('status', 'pending_approval')
       .order('created_at', { ascending: false })
+      .limit(500)
 
     if (error) {
       console.error('[admin-approvals] ❌ Error fetching pending:', error)

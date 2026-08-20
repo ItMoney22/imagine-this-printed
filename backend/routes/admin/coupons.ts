@@ -29,6 +29,7 @@ router.get('/', async (req: Request, res: Response) => {
             .from('discount_codes')
             .select('*')
             .order('created_at', { ascending: false })
+            .limit(1000)
 
         if (error) throw error
 

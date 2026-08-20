@@ -66,6 +66,7 @@ router.get('/', requireAuth, requireRole(['founder', 'admin']), async (req: Requ
       .from('founder_invoices')
       .select('*')
       .order('created_at', { ascending: false })
+      .limit(500)
 
     // Founders only see their own invoices
     if (userRole === 'founder') {

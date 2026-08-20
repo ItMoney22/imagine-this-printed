@@ -41,6 +41,7 @@ router.get('/', async (req: Request, res: Response): Promise<any> => {
       .from('product_mockups')
       .select('*')
       .order('created_at', { ascending: false })
+      .limit(200)
 
     // Apply filters if provided
     if (category) {

@@ -48,6 +48,7 @@ router.get('/', async (req: Request, res: Response) => {
             .from('gift_cards')
             .select('*')
             .order('created_at', { ascending: false })
+            .limit(1000)
 
         if (status === 'redeemed') {
             query = query.eq('is_active', false)

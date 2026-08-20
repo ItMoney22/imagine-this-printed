@@ -731,6 +731,7 @@ router.get('/my-products', requireAuth, async (req: Request, res: Response): Pro
       .select('*, product_assets(url, kind, is_primary)')
       .eq('created_by_user_id', userId)
       .order('created_at', { ascending: false })
+      .limit(200)
 
     if (error) {
       return res.status(500).json({ error: 'Failed to fetch products' })

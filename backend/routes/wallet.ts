@@ -315,6 +315,7 @@ router.get('/payout-requests', requireAuth, async (req: Request, res: Response):
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
+      .limit(100)
 
     if (error) {
       console.error('[wallet/payout-requests] Error:', error)
@@ -1355,6 +1356,7 @@ router.get('/admin/connect/overview', requireAuth, async (req: Request, res: Res
         created_at
       `)
       .order('created_at', { ascending: false })
+      .limit(200)
 
     if (accountsError) {
       console.error('[admin/connect/overview] Accounts error:', accountsError)
