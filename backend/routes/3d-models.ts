@@ -869,12 +869,29 @@ router.post('/:id/purchase-download', requireAuth, async (req: Request, res: Res
       })
     }
 
-    // Deduct ITC
-    await supabase.rpc('deduct_itc', {
+    // Deduct ITC. 'deduct_itc' does not exist as a Postgres function anywhere
+    // in this project's migrations, so this call always failed (PGRST202)
+    // and — because the result was never checked — execution fell straight
+    // through to granting the license below regardless: every purchase was
+    // silently free. 'decrement_itc' is the real atomic RPC (see
+    // supabase/migrations/20260428_decrement_itc_atomic.sql, already used by
+    // POST /api/wallet/deduct-itc); it returns the new balance on success or
+    // null when the wallet is missing or the balance is insufficient.
+    const { data: newItcBalance, error: deductError } = await supabase.rpc('decrement_itc', {
       p_user_id: user.id,
       p_amount: cost,
-      p_reason: `3D model ${license_type} download license`
     })
+    if (deductError) {
+      console.error('[3d-models] ITC deduction RPC error:', deductError)
+      return res.status(500).json({ error: 'Failed to deduct ITC' })
+    }
+    if (newItcBalance === null) {
+      return res.status(402).json({
+        error: 'Insufficient ITC balance',
+        required: cost,
+        current: wallet?.itc_balance || 0
+      })
+    }
 
     // Update model with purchased license
     const newLicenses = [...purchasedLicenses, license_type]

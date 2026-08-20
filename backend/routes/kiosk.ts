@@ -345,7 +345,11 @@ router.post('/orders/:orderId/complete', requireKioskSession, async (req: Reques
       .from('orders')
       .update({
         status: 'completed',
-        payment_status: 'completed',
+        // 'paid' is the canonical payment_status value read everywhere else
+        // in the codebase (print-bridge's 3D-print queue, order-monitor,
+        // vendor-analytics, refund logic). 'completed' here made a kiosk
+        // order marked-paid-at-the-register invisible to all of that.
+        payment_status: 'paid',
         payment_intent_id: paymentIntentId || null,
         metadata: { ...existing.metadata, completedAt }
       })
