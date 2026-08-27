@@ -365,7 +365,8 @@ npm start
 
 ### VPS Deployment
 
-Currently running on VPS at 168.231.69.85:8080
+> [!IMPORTANT]
+> The VPS at 168.231.69.85 has been retired and is no longer active.
 
 Health check endpoints:
 ```bash

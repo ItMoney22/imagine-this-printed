@@ -531,10 +531,10 @@ After deploying changes:
 
 ## Current Deployment
 
-🚀 **Successfully deployed on VPS at IP: 168.231.69.85**
-- **URL**: https://www.imaginethisprinted.com
-- **Status**: ✅ Running with full feature set
-- **Port**: 8080
+> [!IMPORTANT]
+> The VPS at 168.231.69.85 has been retired.
+- **URL**: https://www.imaginethisprinted.com (No longer hosted on this VPS)
+- **Status**: 🔴 Retired / Offline
 
 ## What's Available Now
 
@@ -561,7 +561,7 @@ After deploying changes:
 
 ## Next Steps for Production
 
-1. **Domain Setup**: Connect your domain to point to 168.231.69.85:8080
+1. **Domain Setup**: Connect your domain to point to your production server
 2. **Supabase Configuration**: 
    - Set up your Supabase project
    - Update environment variables
