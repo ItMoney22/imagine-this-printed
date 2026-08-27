@@ -16,7 +16,7 @@ async function fixProductImagesSync() {
 
   try {
     // Read migration SQL
-    const migrationPath = path.join(__dirname, '../../migrations/fix_sync_product_images.sql')
+    const migrationPath = path.join(__dirname, '../../supabase/migrations/20251209000001_sync_product_images.sql')
 
     if (!fs.existsSync(migrationPath)) {
       console.error('❌ Migration file not found:', migrationPath)
@@ -41,7 +41,7 @@ async function fixProductImagesSync() {
       console.log('\n⚠️  The exec_sql RPC function may not exist.')
       console.log('\n📝 Manual steps required:')
       console.log('1. Go to Supabase Dashboard > SQL Editor')
-      console.log('2. Copy the SQL from: migrations/fix_sync_product_images.sql')
+      console.log('2. Copy the SQL from: supabase/migrations/20251209000001_sync_product_images.sql')
       console.log('3. Paste and run it manually')
       console.log('\nAlternatively, run individual sync commands below:\n')
 

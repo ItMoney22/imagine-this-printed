@@ -68,7 +68,7 @@ async function setupRLS() {
     console.log('======================\n');
     console.log('Reading RLS policies migration...');
     const rlsSQL = await fs.readFile(
-      path.join(__dirname, '../prisma/migrations/002_rls_policies.sql'),
+      path.join(__dirname, '../../supabase/migrations/002_rls_policies.sql'),
       'utf-8'
     );
 
@@ -87,12 +87,12 @@ async function setupRLS() {
     console.log('RLS policies must be applied manually using one of these methods:\n');
     console.log('  1. Supabase Dashboard > SQL Editor');
     console.log('     - Go to your Supabase project dashboard');
-    console.log('     - Copy the SQL from: backend/prisma/migrations/002_rls_policies.sql');
+    console.log('     - Copy the SQL from: supabase/migrations/002_rls_policies.sql');
     console.log('     - Paste into SQL Editor and click "Run"\n');
     console.log('  2. Supabase CLI (recommended):');
     console.log('     $ supabase db push\n');
     console.log('  3. Direct PostgreSQL connection:');
-    console.log('     $ psql "postgres://..." < backend/prisma/migrations/002_rls_policies.sql\n');
+    console.log('     $ psql "postgres://..." < supabase/migrations/002_rls_policies.sql\n');
     console.log('  4. Claude Code tool:');
     console.log('     Use mcp__supabase__apply_migration with your project ID\n');
 

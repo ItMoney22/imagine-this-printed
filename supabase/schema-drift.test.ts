@@ -9,12 +9,22 @@
 // shape, so a future edit can't silently reintroduce one of the phantom columns
 // or drop a real one.
 //
-// Sources covered: prisma/schema.prisma, backend/prisma/schema.prisma,
-// COMPLETE_DATABASE_SETUP.sql. (supabase/migrations/001_initial_schema.sql is
-// deliberately NOT re-asserted here — it's a historical, already-applied
-// migration left in its original wrong shape on purpose; the corrective
-// migration layers on top of it, matching this repo's existing
-// 004_schema_fixes.sql / 005_rls_fixes.sql convention.)
+// Sources covered: backend/prisma/schema.prisma,
+// archive/database/COMPLETE_DATABASE_SETUP.sql.
+// (supabase/migrations/001_initial_schema.sql is deliberately NOT re-asserted
+// here — it's a historical, already-applied migration left in its original
+// wrong shape on purpose; the corrective migration layers on top of it,
+// matching this repo's existing 004_schema_fixes.sql / 005_rls_fixes.sql
+// convention.)
+//
+// Updated 2026-08-17 by the schema consolidation merge (Watchtower task
+// c7bea05e, folding in c759b3d4): the root `prisma/schema.prisma` was deleted
+// — `backend/prisma/schema.prisma` is now the only Prisma source, and its
+// models are a strict superset of what the root file declared, including the
+// corrected ItcTransaction/UserWallet shapes this guard exists to protect.
+// COMPLETE_DATABASE_SETUP.sql moved to archive/database/ in the same
+// consolidation; it is still asserted here because it remains checked in and
+// would otherwise be free to drift back into documenting phantom columns.
 
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
@@ -86,16 +96,10 @@ function assertHasRequired(block: string, required: string[], file: string, tabl
 describe('itc_transactions / user_wallets schema drift guard', () => {
   const sources: Array<{ file: string; itcMarker: string; walletMarker: string; close: string }> = [
     {
-      file: 'COMPLETE_DATABASE_SETUP.sql',
+      file: 'archive/database/COMPLETE_DATABASE_SETUP.sql',
       itcMarker: 'CREATE TABLE public.itc_transactions (',
       walletMarker: 'CREATE TABLE public.user_wallets (',
       close: '\n);',
-    },
-    {
-      file: 'prisma/schema.prisma',
-      itcMarker: 'model ItcTransaction {',
-      walletMarker: 'model UserWallet {',
-      close: '\n}',
     },
     {
       file: 'backend/prisma/schema.prisma',

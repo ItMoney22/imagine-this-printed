@@ -15,7 +15,7 @@ async function displayTriggerSetupGuide() {
   try {
     console.log('Verifying trigger SQL file exists...');
     const triggersSQL = await fs.readFile(
-      path.join(__dirname, '../prisma/migrations/003_user_triggers.sql'),
+      path.join(__dirname, '../../supabase/migrations/003_user_triggers.sql'),
       'utf-8'
     );
 
@@ -46,7 +46,7 @@ async function displayTriggerSetupGuide() {
   console.log('3. Click "SQL Editor" in the left sidebar');
   console.log('4. Click "New query"');
   console.log('5. Open and copy entire contents of:');
-  console.log('   backend/prisma/migrations/003_user_triggers.sql');
+  console.log('   supabase/migrations/003_user_triggers.sql');
   console.log('6. Paste into the SQL editor');
   console.log('7. Click "Run"');
   console.log('8. Confirm: "Query successful" message appears\n');
@@ -56,7 +56,7 @@ async function displayTriggerSetupGuide() {
   console.log('If you have PostgreSQL CLI installed:');
   console.log('');
   console.log('  psql "postgresql://postgres:[PASSWORD]@db.[PROJECT_ID].supabase.co:5432/postgres?sslmode=require" \\');
-  console.log('    -f backend/prisma/migrations/003_user_triggers.sql');
+  console.log('    -f supabase/migrations/003_user_triggers.sql');
   console.log('');
   console.log('Replace [PASSWORD] with your database password and [PROJECT_ID] with your project ID.\n');
 

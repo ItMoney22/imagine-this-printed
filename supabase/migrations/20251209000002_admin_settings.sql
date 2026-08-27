@@ -1,4 +1,8 @@
 -- Migration: Create admin_settings table for storing application configuration
+-- Ported into the canonical timeline during schema consolidation (Watchtower task c759b3d4)
+-- from orphaned backend/migrations/create_admin_settings.sql. Live-used by
+-- backend/services/minimax-voice.ts. Also defines the shared update_updated_at_column()
+-- trigger function relied on by later migrations.
 -- This table stores key-value pairs for admin-configurable settings like voice synthesis parameters
 
 CREATE TABLE IF NOT EXISTS admin_settings (
@@ -26,6 +30,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_admin_settings_updated_at ON admin_settings;
 CREATE TRIGGER update_admin_settings_updated_at
   BEFORE UPDATE ON admin_settings
   FOR EACH ROW
@@ -35,6 +40,7 @@ CREATE TRIGGER update_admin_settings_updated_at
 ALTER TABLE admin_settings ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Only admins and managers can read settings
+DROP POLICY IF EXISTS admin_settings_read_policy ON admin_settings;
 CREATE POLICY admin_settings_read_policy ON admin_settings
   FOR SELECT
   USING (
@@ -46,6 +52,7 @@ CREATE POLICY admin_settings_read_policy ON admin_settings
   );
 
 -- Policy: Only admins and managers can update settings
+DROP POLICY IF EXISTS admin_settings_update_policy ON admin_settings;
 CREATE POLICY admin_settings_update_policy ON admin_settings
   FOR UPDATE
   USING (

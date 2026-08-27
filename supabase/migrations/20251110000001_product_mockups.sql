@@ -1,6 +1,9 @@
 -- Migration: Add product_mockups table
 -- Purpose: Store mockup templates with print area configuration for Product Designer
 -- Created: 2025-11-10
+-- Ported into the canonical timeline from orphaned migrations/add_product_mockups_table.sql
+-- (schema consolidation, Watchtower task c759b3d4). Live-used by backend/routes/mockups.ts and
+-- backend/routes/designer.ts. Trigger/policies made idempotent for re-run safety.
 
 -- Create product_mockups table
 CREATE TABLE IF NOT EXISTS public.product_mockups (
@@ -40,6 +43,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_product_mockups_updated_at ON public.product_mockups;
 CREATE TRIGGER trigger_update_product_mockups_updated_at
     BEFORE UPDATE ON public.product_mockups
     FOR EACH ROW
@@ -49,6 +53,7 @@ CREATE TRIGGER trigger_update_product_mockups_updated_at
 ALTER TABLE public.product_mockups ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policy: Public read access for active mockups
+DROP POLICY IF EXISTS "Public can view active mockups" ON public.product_mockups;
 CREATE POLICY "Public can view active mockups"
     ON public.product_mockups
     FOR SELECT
@@ -56,6 +61,7 @@ CREATE POLICY "Public can view active mockups"
 
 -- RLS Policy: Admin-only write access (insert, update, delete)
 -- Check if user has admin role in user_profiles table
+DROP POLICY IF EXISTS "Admin can insert mockups" ON public.product_mockups;
 CREATE POLICY "Admin can insert mockups"
     ON public.product_mockups
     FOR INSERT
@@ -67,6 +73,7 @@ CREATE POLICY "Admin can insert mockups"
         )
     );
 
+DROP POLICY IF EXISTS "Admin can update mockups" ON public.product_mockups;
 CREATE POLICY "Admin can update mockups"
     ON public.product_mockups
     FOR UPDATE
@@ -85,6 +92,7 @@ CREATE POLICY "Admin can update mockups"
         )
     );
 
+DROP POLICY IF EXISTS "Admin can delete mockups" ON public.product_mockups;
 CREATE POLICY "Admin can delete mockups"
     ON public.product_mockups
     FOR DELETE

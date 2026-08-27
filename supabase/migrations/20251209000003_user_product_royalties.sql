@@ -1,4 +1,8 @@
 -- Migration: User Royalty System (10% ITC per sale)
+-- Ported into the canonical timeline during schema consolidation (Watchtower task c759b3d4)
+-- from orphaned backend/migrations/create_user_royalty_system.sql. Live-used by
+-- backend/routes/admin/user-product-approvals.ts and backend/routes/user-products.ts.
+-- Depends on update_updated_at_column() from 20251209000002_admin_settings.sql.
 -- Tracks user-generated products and credits creators when products sell
 
 -- Add creator tracking to products table
@@ -32,6 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_royalties_order ON user_product_royalties(order_i
 CREATE INDEX IF NOT EXISTS idx_royalties_status ON user_product_royalties(status);
 
 -- Create updated_at trigger
+DROP TRIGGER IF EXISTS update_user_product_royalties_updated_at ON user_product_royalties;
 CREATE TRIGGER update_user_product_royalties_updated_at
   BEFORE UPDATE ON user_product_royalties
   FOR EACH ROW
@@ -42,11 +47,13 @@ ALTER TABLE user_product_royalties ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 -- Users can view their own royalties
+DROP POLICY IF EXISTS user_royalties_read_own ON user_product_royalties;
 CREATE POLICY user_royalties_read_own ON user_product_royalties
   FOR SELECT
   USING (user_id = auth.uid());
 
 -- Admins can view all royalties
+DROP POLICY IF EXISTS user_royalties_read_admin ON user_product_royalties;
 CREATE POLICY user_royalties_read_admin ON user_product_royalties
   FOR SELECT
   USING (

@@ -7,6 +7,11 @@
 -- restored from backend/supabase/migrations/20251130153953_add_metadata_column_to_product_assets.sql,
 -- which matches what's already live (product_assets.metadata exists in
 -- production, verified via information_schema). Idempotent, safe to re-run.
+--
+-- NOTE (schema consolidation, Watchtower task c759b3d4): the duplicate copies
+-- that held the real SQL -- backend/supabase/migrations/20251130153953_add_metadata_column_to_product_assets.sql
+-- and backend/migrations/add-metadata-column-to-product-assets.sql -- are
+-- deleted by that consolidation; this file is now the only copy.
 
 ALTER TABLE product_assets
 ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
@@ -16,3 +21,10 @@ COMMENT ON COLUMN product_assets.metadata IS 'Stores AI model information (model
 
 -- Create an index on the metadata column for faster queries
 CREATE INDEX IF NOT EXISTS idx_product_assets_metadata ON product_assets USING GIN (metadata);
+
+-- Example metadata structure:
+-- {
+--   "model_id": "google/imagen-4",
+--   "model_name": "Google Imagen 4",
+--   "generated_at": "2025-11-29T12:00:00Z"
+-- }
