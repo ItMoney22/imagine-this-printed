@@ -329,31 +329,30 @@ export function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: stri
   const bgDesc = isWhiteGarment
     ? 'a soft neutral light-gray seamless studio background (#d6d8dc)'
     : 'a pure white (#FFFFFF) seamless background'
-  // Positive insurance that a light garment is rendered light, plus matching
-  // negatives so the model can't fall back to a dark garment for contrast.
-  const lightAssertion = isWhiteGarment
-    ? ` The ${productName} fabric is genuinely bright white (#FFFFFF) cotton — render it as a clearly white, well-lit garment that stands out against the gray backdrop; never darken, shade, or tint it gray or black.`
-    : ''
-  const darkGarmentNeg = isWhiteGarment
-    ? ', black garment, dark garment, gray garment, charcoal shirt, navy shirt, underexposed garment, dim garment'
-    : ''
 
-  // Negative variants name the specific failure mode (a purple furry character
-  // / "Mr. Imagine") because Imagen treats explicit named exclusions much more
-  // strictly than abstract ones when they're in the negative_prompt field.
-  // (In the positive prompt the same names act as priming, which is why we
-  // moved them out.)
-  // Ghost slot ALSO needs anti-flat pressure. Without it this list only said
-  // "no wearer", so Imagen was free to satisfy the prompt with a flat garment —
-  // which is why the ghost and flat_lay slots kept coming back looking like the
-  // same photo (David 2026-07-29: "doesn't look like we got the ghost
-  // mannequin"). The positive asks for volume; nothing was pushing away from
-  // flatness, and Step B then faithfully preserves whatever Step A produced.
+  // Explicit, watertight color assertions and negative color filters to prevent garment color misses.
+  let colorAssertion = ''
+  let colorNeg = ''
+
+  if (opts.shirtColor === 'white') {
+    colorAssertion = ` The ${productName} fabric is genuinely bright white (#FFFFFF) cotton — render it as a clearly white, well-lit garment that stands out against the gray backdrop; never darken, shade, or tint it gray, black, brown, rust, or navy.`
+    colorNeg = ', black garment, dark garment, gray garment, charcoal shirt, navy shirt, brown garment, rust garment, underexposed garment, dim garment'
+  } else if (opts.shirtColor === 'black') {
+    colorAssertion = ` The ${productName} fabric is genuinely deep solid black (#000000) cotton — render it as a clearly black, well-saturated garment; never lighten, fade, tint, or shade it brown, rust, gray, blue, navy, or white.`
+    colorNeg = ', white garment, gray garment, heather gray garment, brown garment, rust garment, navy garment, blue garment, colorful garment, colorful shirt, light garment'
+  } else if (opts.shirtColor === 'gray' || opts.shirtColor === 'grey') {
+    colorAssertion = ` The ${productName} fabric is genuinely neutral heather gray or athletic gray cotton — render it as a clearly gray garment; never darken it to black or lighten it to white, and never tint or shade it brown, rust, blue, or navy.`
+    colorNeg = ', black garment, deep black garment, white garment, bright white garment, brown garment, rust garment, navy garment, blue garment, colorful garment, colorful shirt'
+  }
+
+  // Prevent hallucinations: chest pockets, buttons, zippers, branding tags, and studio equipment/cameras.
+  const commonExclusions = 'logos, text, graphics, print on fabric, brand branding, design print, printed pattern, watermark, pocket, chest pocket, pocket outline, front pocket, button, zipper, collar tags, neck label, camera, dslr, tripod, photography equipment, camera lens, camera strap, photo gear, studio equipment, lighting stand, overlay props'
+
   const flatNeg = 'flat lay, flat garment, laid flat, lying flat, folded garment, folded shirt, top-down view, overhead shot, birds-eye view, flattened fabric, deflated garment, empty limp fabric, creased flat cotton, two-dimensional garment, garment on a table, garment on the floor, hanger, coat hanger, clothes hanger'
 
-  const noWearerNeg = `real human, person, face, head, hands, arms, legs, skin, model, wearer, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric, ${flatNeg}${darkGarmentNeg}`
+  const noWearerNeg = `real human, person, face, head, hands, arms, legs, skin, model, wearer, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, ${commonExclusions}, ${flatNeg}${colorNeg}`
 
-  const noWearerOrFormNeg = `human, body, head, face, hands, arms, legs, skin, model, wearer, mannequin shape, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, logos, text, graphics, print on fabric, multiple garments${darkGarmentNeg}`
+  const noWearerOrFormNeg = `human, body, head, face, hands, arms, legs, skin, model, wearer, mannequin shape, mascot, character, cartoon character, animal, furry creature, purple character, Mr. Imagine, multiple garments, ${commonExclusions}${colorNeg}`
 
   if (opts.template === 'ghost_mannequin') {
     return {
@@ -361,13 +360,13 @@ export function buildEmptyGarmentPromptPair(opts: RunMockupOpts): { prompt: stri
       // STRAIGHT ON at chest height. Leaving the angle unspecified let Imagen
       // pick a top-down framing, which reads as a flat lay no matter how much
       // volume language follows.
-      prompt: `Professional ghost-mannequin / invisible-mannequin product photograph of a single plain ${fabricColor} ${productName}, standing upright and photographed STRAIGHT ON at chest height with the camera level — eye-level front view, never from above — on ${bgDesc}. The garment is inflated into a full three-dimensional human torso form and holds that shape in mid-air: shoulders filled out and squared, chest and belly rounded with real internal volume, natural waist taper, sleeves rounded as if arms fill them, and a hollow open collar looking down into the inside of the garment. It must read unmistakably as a solid 3D garment floating with the body removed — clear depth, side planes visible, soft self-shadowing inside the folds. Standard Amazon / Shopify listing photography. Soft grounding shadow beneath, clean even studio e-commerce lighting.${lightAssertion} Just the empty hollow garment, centered, e-commerce catalog quality.`,
+      prompt: `Professional ghost-mannequin / invisible-mannequin product photograph of a single plain ${fabricColor} ${productName}, standing upright and photographed STRAIGHT ON at chest height with the camera level — eye-level front view, never from above — on ${bgDesc}. The garment is inflated into a full three-dimensional human torso form and holds that shape in mid-air: shoulders filled out and squared, chest and belly rounded with real internal volume, natural waist taper, sleeves rounded as if arms fill them, and a hollow open collar looking down into the inside of the garment. It must read unmistakably as a solid 3D garment floating with the body removed — clear depth, side planes visible, soft self-shadowing inside the folds. Standard Amazon / Shopify listing photography. Soft grounding shadow beneath, clean even studio e-commerce lighting.${colorAssertion} Just the empty hollow garment, centered, e-commerce catalog quality.`,
       negativePrompt: noWearerNeg,
     }
   }
   // flat_lay
   return {
-    prompt: `Professional flat-lay catalog photograph of a single plain ${fabricColor} ${productName}, laid flat by itself on ${bgDesc}. Camera shoots straight down — top-down overhead view. Fabric lies flat with slight natural texture and minor wrinkles, soft even studio lighting, subtle grounding shadow.${lightAssertion} Just the empty garment laid flat, nothing else in the frame.`,
+    prompt: `Professional flat-lay catalog photograph of a single plain ${fabricColor} ${productName}, laid flat by itself on ${bgDesc}. Camera shoots straight down — top-down overhead view. Fabric lies flat with slight natural texture and minor wrinkles, soft even studio lighting, subtle grounding shadow.${colorAssertion} Just the empty garment laid flat, nothing else in the frame.`,
     negativePrompt: noWearerOrFormNeg,
   }
 }
@@ -645,12 +644,15 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
   const sceneModel = getModel(sceneModelId)
   if (!sceneModel) throw new Error(`unknown image-flow model: ${sceneModelId}`)
   const { prompt: scenePrompt, negativePrompt: sceneNeg } = buildEmptyGarmentPromptPair(opts)
+  console.log(`[image-flow] 🧪 2-step Step A prompt: "${scenePrompt}"`)
+  console.log(`[image-flow] 🧪 2-step Step A negativePrompt: "${sceneNeg}"`)
   const sceneInput = buildInput(sceneModel, {
     prompt: scenePrompt,
     extra: { negative_prompt: sceneNeg },
   })
   const sceneRes = await runReplicate({ modelId: sceneModel.id, input: sceneInput })
   const emptyGarmentUrl = sceneRes.imageUrls[0]
+  console.log(`[image-flow] 🧪 2-step Step A empty garment URL: ${emptyGarmentUrl}`)
 
   // Step B: composite the design onto the empty garment via Nano Banana 2 Lite.
   // Same model that already drives the mr_imagine slot reliably.
