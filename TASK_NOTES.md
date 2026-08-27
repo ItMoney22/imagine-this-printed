@@ -1,31 +1,35 @@
 # TASK_NOTES
 ## Current request
-- Audit the live Etsy shop at `https://imaginethisprinted1.etsy.com` and identify the highest-impact improvements to trust, policy safety, discoverability, and conversion.
+- Prepare the implementation handoff for Watchtower task `f6c1b2a0-5252-4da6-ad99-43ff2840bdc2`: fix Smart Fill collision detection and gang-sheet coverage using every layer's actual position, dimensions, and rotation, and add regression tests.
 
 ## Current status
-- Combined UX/accessibility audit completed on 2026-07-26 across the shop home, the only active listing, listing details, and About/policies.
-- Public state: one active $25 listing, no sales/reviews, no visible banner, a small text-heavy icon, a one-line About section, and no owner photo.
-- Urgent listing issues: the hero is a generated mascot scene rather than a real finished-product photo, and no size or color selector was visible before `Add to cart`.
-- Strong foundations: specific DTF/Georgia/processing copy, clear arrival estimate, accepted returns, $5 shipping, care instructions, custom-work invitation, and AI disclosure.
-- Recommended next pass is shop/listing content work only; no live edits, paid activations, ad spend, or repo implementation changes are approved yet.
+- Scout complete; implementation is not performed by this Codex terminal under `AGENTS.md`.
+- Root cause confirmed: frontend omits position/rotation and can omit unselected occupied layers; backend anchors every existing rectangle at the origin; coverage multiplies every layer by the chosen template area.
+- Required contract expansion identified: send all occupied layer geometry plus explicit duplicate-source IDs so selection behavior remains intact.
+- Test target identified: new `backend/services/imagination-layout.test.ts` executed by root Vitest.
 
 ## File shortlist (approved scope)
 ### Read first
 - `AGENTS.md`
 - `CLAUDE.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/services/etsy-seo-composer.ts`
-- `backend/services/etsy-model-shots.ts`
-- `backend/services/etsy.ts`
-- `src/components/AdminEtsyPanel.tsx`
+- `src/pages/ImaginationStation.tsx`
+- `src/lib/api.ts`
+- `backend/routes/imagination-station.ts`
+- `backend/services/imagination-layout.ts`
+- `src/components/imagination/SheetCanvas.tsx` (read-only geometry reference)
 
 Note: older scope expansions below are historical context, not current edit approval.
 
 ### Edit allowed
-- `TASK_NOTES.md` (one concise milestone/work-log bullet after a separately approved implementation pass)
-- No repo code files.
-- No live Etsy edits or paid listing activations without David's explicit approval.
+- `src/pages/ImaginationStation.tsx`
+- `src/lib/api.ts`
+- `backend/routes/imagination-station.ts`
+- `backend/services/imagination-layout.ts`
+- `backend/services/imagination-layout.test.ts` (new)
+- `TASK_NOTES.md` (milestone log only)
+
+## Work log (append-only) — current Smart Fill request
+- 2026-07-26 (Watchtower `f6c1b2a0-5252-4da6-ad99-43ff2840bdc2`): Scouted the Smart Fill frontend payload, API type, backend route, layout service, canvas rotation origin, and repo test commands; overwrote `CLAUDE_TASK.md` with a pickup-ready implementation/test plan and updated this approved scope. No source code was modified.
 
 ### Scope expansion — UI dropdown (added 2026-06-29 by Zero Nine, per direct owner request)
 - Rationale: the original brief was scoped "No UI changes" (schema/backend only). The owner (David) then directly

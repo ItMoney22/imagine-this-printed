@@ -1,87 +1,91 @@
 # Claude Task Brief
 ## Request
-- Improve the live Etsy shop at `https://imaginethisprinted1.etsy.com` using the evidence-backed audit below.
-- This brief is analysis and planning only. Do not change the live Etsy shop, activate drafts, spend listing fees, or edit repo implementation files until David explicitly approves execution.
+- Fix Smart Fill collision detection and gang-sheet coverage for Watchtower task `f6c1b2a0-5252-4da6-ad99-43ff2840bdc2`.
+- Send every occupied layer's real `position_x`, `position_y`, `width`, `height`, and `rotation` to the backend, place duplicates without overlap, and calculate coverage from occupied geometry rather than template-count multiplication.
+- Add focused automated tests for collision, rotation, placement, and coverage regressions.
 
 ## Repo detection
-- JavaScript/TypeScript project with a Vite + React frontend and an Express/TypeScript backend in `backend/`.
-- The repo already contains an Etsy publishing pipeline, an Etsy-native listing composer, a review queue, copyright checks, and generated model-shot support.
-- `TASK_NOTES.md` records 17 Etsy drafts and a current opt-in workflow; the public shop showed only one active listing during the 2026-07-26 audit.
-- Root commands from `package.json`: `npm run typecheck`, `npm run test`, `npm run build`, and `npm run lint`.
-- No code or automated test command is required for this live-shop audit.
+- Git worktree on branch `earth/mason-blaze/fix-smart-fill-collision-f6c1b2a0-ms2cmbsc`.
+- Vite + React + TypeScript frontend with an Express + TypeScript backend in `backend/`.
+- Smart Fill is invoked by `src/pages/ImaginationStation.tsx`, typed in `src/lib/api.ts`, validated by `backend/routes/imagination-station.ts`, and implemented in `backend/services/imagination-layout.ts`.
+- Root Vitest is available through `npm test`; frontend and backend have separate typecheck commands.
+- No existing Smart Fill unit test was found.
 
 ## Relevant files (Claude MUST read these first)
 - `AGENTS.md`
 - `CLAUDE.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md` (focus on the 2026-07-25/26 Etsy entries)
-- `backend/services/etsy-seo-composer.ts`
-- `backend/services/etsy-model-shots.ts`
-- `backend/services/etsy.ts`
-- `src/components/AdminEtsyPanel.tsx`
+- `src/pages/ImaginationStation.tsx` (Smart Fill handler around lines 1046-1103)
+- `src/lib/api.ts` (layout API types around lines 580-585)
+- `backend/routes/imagination-station.ts` (Smart Fill route around lines 1156-1197)
+- `backend/services/imagination-layout.ts` (layer contract and `smartFill`)
+- `src/components/imagination/SheetCanvas.tsx` (read-only geometry reference: Konva uses `position_x`/`position_y` as the un-offset rotation origin)
 
 ## Files to edit (STRICT)
-- No repo code files are approved for this audit.
-- `TASK_NOTES.md` may receive one concise milestone/work-log bullet after a separately approved implementation pass.
-- Live Etsy edits are not approved yet. If David approves them later, limit the first pass to shop branding/profile fields and listing `4544353578`; activating additional paid listings requires separate confirmation.
+- `src/pages/ImaginationStation.tsx`
+- `src/lib/api.ts`
+- `backend/routes/imagination-station.ts`
+- `backend/services/imagination-layout.ts`
+- `backend/services/imagination-layout.test.ts` (new)
+- Do not edit any other repo file. If another file is genuinely necessary, update `TASK_NOTES.md` with the path and rationale before touching it.
 
 ## Context from scouting
-- Audit flow captured on 2026-07-26:
-  1. Shop home: one active $25 listing, no reviews, no sales, no visible shop banner, and a detailed logo that becomes illegible at Etsy's small icon size.
-  2. Listing top: the hero is a generated purple mascot wearing the shirt; four images are present, but the visible gallery does not establish the real finished garment, print texture, fit, or size.
-  3. Listing purchase/details: no size or color selector was visible before `Add to cart`; the listing does show Georgia shipping, an arrival estimate, accepted returns, $5 shipping, care instructions, and an AI-use disclosure.
-  4. About/policies: the announcement contains useful specifics (DTF, Rockmart, 1–3 business days, custom work), but the About section is one sentence, the seller card uses a letter avatar rather than a person/photo, and the policy area is sparse.
-- Highest-risk issue: the shop says shirts are printed in-house, while the first listing image is an artistic rendering. Etsy's Listing Image Requirements say the first image should show the actual finished product; mockup exceptions are limited. Use a real photographed shirt as image 1 and treat generated/model mockups as secondary only after checking the applicable exception.
-- The announcement says every design is "drawn up in-house," while the listing calls the design AI-assisted. Replace this with transparent language such as "directed and curated in-house" and keep the required AI disclosure in each relevant listing.
-- The current title is long and keyword-stacked. Etsy's April 2026 title guidance favors clear, easy-to-scan titles because search now considers the full listing, including tags, attributes, description, first image, and reviews.
-- Suggested buyer-facing title: `Simply Be You Retro Varsity T-Shirt | Unisex Graphic Tee`.
-- Suggested focused shop promise: `Playful confidence tees and custom designs, printed to order in Georgia.` Keep 3D prints out of the lead promise until that category has enough active products to support it.
-- Official references:
-  - `https://www.etsy.com/legal/policy/listing-image-requirements/253962679005`
-  - `https://www.etsy.com/legal/sellers/`
-  - `https://www.etsy.com/seller-handbook/article/1399426136697`
-  - `https://www.etsy.com/seller-handbook/article/358680450619`
-  - `https://www.etsy.com/seller-handbook/article/22636178725`
+- `handleSmartFill` currently maps only the selected layers (or all layers when nothing is selected) to `{ id, width, height }`. This both omits geometry and makes unselected layers invisible to collision detection.
+- Preserve selected-layer behavior by separating the complete occupied-layer list from duplicate-source selection. Recommended contract: send every layer in `layers` and the selected IDs in optional `sourceLayerIds`; when there is no selection, all layer IDs are eligible. The backend chooses the smallest eligible source as it does today.
+- `src/lib/api.ts` currently types Smart Fill layers as only `{ id, width, height }`; its request type must match the new payload.
+- Backend `LayerDimensions` has optional rotation but no position fields. The route validates only ID/width/height, so malformed or missing geometry can reach pricing/layout logic.
+- The current collision check anchors every existing rectangle at `(0, 0)`, does not account for rotation, and checks only the original `layers` list.
+- Canvas geometry uses a top-left Konva origin with no offset. Rotation-aware AABBs therefore need to rotate all four corners around `(position_x, position_y)` and take min/max X/Y; simply swapping width and height at 90 degrees is insufficient because positive rotation can extend left of the origin.
+- The placement loop should test each candidate against both original occupied AABBs and already accepted duplicate AABBs, keep the complete candidate AABB inside the sheet, and treat edge-touching as non-overlap. Apply the configured padding consistently as inter-item clearance.
+- Coverage at line 244 multiplies every original layer by the chosen template area. This is wrong for mixed layer dimensions and can exceed or misstate real sheet occupancy.
+- Calculate coverage from the union of all original and accepted duplicate footprints clipped to the sheet, so overlaps are not double-counted, out-of-sheet area is excluded, and the result is clamped to `0..100`. Use the same rotation-aware AABB representation as collision detection for consistent Smart Fill geometry.
+- If no duplicate grid cell fits, still return coverage for existing occupied layers; do not return hard-coded zero merely because `cols` or `rows` is zero.
+- The route performs wallet deduction only after layout returns. Keep input validation before pricing/wallet work, and require finite positive sheet/layer dimensions plus finite positions/rotation so invalid geometry cannot cause a charge.
 
 ## Plan (step-by-step)
-1. Fix purchase readiness on listing `4544353578`:
-   - Verify size and color variations are configured and visible.
-   - Add a readable size chart and state garment brand/model, fabric composition, weight, available sizes/colors, print dimensions, and processing time.
-   - Replace image 1 with a real photo of the actual finished shirt.
-   - Build a 7–10 image sequence: real hero, front, back, close-up of DTF texture, model/fit reference with model size, size chart, color options, packaging/process, and an optional final brand card.
-   - Add a short real-product video if available.
-2. Tighten listing copy:
-   - Use the concise title above or a close variant.
-   - Put the shopper benefit and physical product facts in the first two description lines.
-   - Move secondary phrases such as casual streetwear and gift intent into tags, attributes, and later description copy.
-   - Preserve the AI disclosure and make it consistent with the shop announcement.
-3. Complete the trust layer:
-   - Add a simple, legible 500×500 shop icon.
-   - Add a cohesive banner featuring real finished products and a short value promise.
-   - Add Christina's clear owner photo and a fuller About story with workspace, printing, and packing photos/video.
-   - Explain who designs, prints, quality-checks, and ships each order.
-4. Build inventory depth only after the first listing passes QA:
-   - Select 6–12 coherent designs from the existing draft queue.
-   - Keep the initial assortment centered on one promise, such as playful/affirming graphic tees.
-   - Do not activate any draft until its real-product imagery, variations, title, tags, attributes, description, shipping, return policy, and IP review are complete.
-   - Feature the strongest four listings once enough inventory is live.
-5. Measure before buying ads:
-   - Record visits, favorites, listing clicks, add-to-carts, and conversion for 30 days.
-   - Test one variable at a time, starting with the first photo and title.
+1. Expand the frontend Smart Fill request contract:
+   - Send all occupied layers with `id`, `width`, `height`, `position_x`, `position_y`, and `rotation`.
+   - Send `sourceLayerIds` for selected duplicate sources; default to all layer IDs when nothing is selected.
+   - Update the `imaginationApi.smartFill` TypeScript signature to match.
+2. Harden the Smart Fill route:
+   - Validate finite positive sheet dimensions, finite non-negative padding, and each layer's complete finite geometry before reading wallet/pricing data.
+   - Validate optional `sourceLayerIds` as IDs that exist in the occupied layer list.
+   - Pass source selection into the layout service without dropping occupied layers.
+3. Refactor Smart Fill geometry into small testable helpers in `backend/services/imagination-layout.ts`:
+   - Build a rotation-aware AABB from the four rotated corners around the stored Konva origin.
+   - Implement strict AABB overlap/clearance checks and sheet-boundary checks.
+   - Keep original occupied AABBs and append each accepted duplicate AABB so every placement is checked against all prior occupancy.
+4. Correct template selection and placement:
+   - Choose the smallest eligible source from `sourceLayerIds`, falling back to all layers only when the field is omitted.
+   - Generate candidates within sheet bounds and reject any that collide with an original or newly placed layer.
+   - Keep returned `sourceId`, coordinates, and rotation consistent with the selected template.
+5. Replace template-count coverage math:
+   - Compute the clipped union area of all original and duplicate AABBs with a deterministic sweep/interval merge.
+   - Divide by sheet area, round as the current API expects, and clamp to `0..100`.
+   - Compute existing coverage even when no duplicate can fit.
+6. Add focused Vitest coverage in `backend/services/imagination-layout.test.ts`:
+   - A centered existing layer blocks the corresponding candidate instead of a phantom top-left rectangle.
+   - Non-overlapping, edge-touching, and rotated layers produce correct AABB decisions.
+   - Every returned duplicate is inside the sheet and pairwise non-overlapping with originals and other duplicates.
+   - Selected source IDs affect the duplicated template while all layers remain collision obstacles.
+   - Mixed-size layers use actual geometry; overlapping and partly out-of-sheet occupancy are unioned/clipped once; coverage stays within `0..100`.
+   - Existing coverage is returned when no duplicate can fit.
+7. Run the targeted test, both TypeScript checks, and the production build. Fix only failures caused by this change.
 
 ## Acceptance criteria (checkboxes)
-- [ ] Listing `4544353578` has visible size and color choices before `Add to cart`.
-- [ ] The first listing image is a real photo of the actual finished shirt, not a mascot scene or artistic rendering.
-- [ ] The listing has a coherent 7–10 image sequence plus a size chart; any generated mockup is secondary and policy-appropriate.
-- [ ] The title is clear and scannable, with secondary keywords moved into tags, attributes, and description.
-- [ ] The description names the garment, materials, fit, sizes, colors, print method, care, processing, shipping, returns, and AI role.
-- [ ] The shop has a legible icon, banner, owner photo, fuller About story, and process imagery.
-- [ ] The announcement and listing disclosures describe the design process consistently.
-- [ ] At least 6 coherent listings pass the same QA checklist before activation is proposed.
-- [ ] No live Etsy edit, paid activation, ad spend, or repo code change occurs without David's approval.
+- [ ] Smart Fill requests include `position_x`, `position_y`, and `rotation` for every occupied layer.
+- [ ] Selected-layer duplication remains supported without hiding unselected occupied layers from collision detection.
+- [ ] Backend validation rejects incomplete, non-finite, or invalid geometry before pricing/wallet work.
+- [ ] Rotation-aware AABB checks use each layer's actual position and dimensions.
+- [ ] New duplicates stay inside the sheet and never overlap original layers or one another.
+- [ ] Coverage reflects the clipped union of actual occupied geometry, handles mixed sizes, does not double-count overlaps, and remains between 0% and 100%.
+- [ ] A no-room result reports existing coverage rather than zero.
+- [ ] Focused automated tests cover the phantom-origin regression, rotation, duplicate collisions, source selection, and coverage.
+- [ ] Frontend typecheck, backend typecheck, targeted tests, and production build pass with no new failures.
 
 ## Commands to run
-- Manual shop check: open `https://imaginethisprinted1.etsy.com`.
-- Manual listing check: open `https://www.etsy.com/listing/4544353578/retro-varsity-shirt-simply-be-you`.
-- Verify desktop storefront, listing gallery, variations, `Add to cart`, About, and Shop Policies.
-- No repo test/build command is required unless a later approved pass changes the Etsy integration code.
+```powershell
+npm test -- backend/services/imagination-layout.test.ts
+npm run typecheck
+npm --prefix backend run typecheck
+npm run build
+```
