@@ -504,6 +504,15 @@ export interface ShotState {
   approved: boolean
   status: 'queued' | 'running' | 'done' | 'failed'
   error?: string
+  /** Explicitly skipped by the admin (a failed shot they chose not to redo) —
+   *  settled, not approved. Counts toward approvals.mockups the same way an
+   *  approved shot does, and the reducer's areMockupsResolved treats it the
+   *  same as `approved` for gating Listing. */
+  skipped?: boolean
+  /** `details` only — the `product` shot's assetId this card was rendered
+   *  from, so a later redo of `product` can tell a stale details render
+   *  apart from a fresh one. */
+  sourceAssetId?: string
 }
 
 export interface ColorAdvice {
@@ -654,16 +663,33 @@ export const stepFlow = {
       method: 'POST',
     }),
 
-  /** Approves (or rejects) one shot's asset. */
+  /** Approves (or rejects) one shot's asset. `skipped` marks a failed shot as
+   *  settled without redoing it — `assetId` is optional so an orphaned/never-
+   *  rendered shot can still be skipped. */
   approveShot: (
     productId: string,
     key: ShotKey,
     approved: boolean,
-    assetId: string
+    assetId?: string,
+    skipped?: boolean
   ): Promise<{ step_flow: StepFlowMeta }> =>
     stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ approved, assetId }),
+      body: JSON.stringify({ approved, assetId, skipped }),
+    }),
+
+  /** Batch approve/skip — POST /:id/step/shots/approve. "Approve all" fires
+   *  this ONCE instead of N parallel per-key approveShot calls racing each
+   *  other's read-modify-write of the same step_flow.shots object. */
+  approveShots: (
+    productId: string,
+    keys: ShotKey[],
+    approved: boolean,
+    skipped?: boolean
+  ): Promise<{ step_flow: StepFlowMeta }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ keys, approved, skipped }),
     }),
 
   /** Publishes: status active, images from buildProductGallery, stamps approvals.listing. */

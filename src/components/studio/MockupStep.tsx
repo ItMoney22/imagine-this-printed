@@ -5,7 +5,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import { COLORS } from '../../../backend/shared/catalog-capability'
-import { getShots, type ShotKey, type ShotState, type StepFlowAction, type StepFlowMeta, type StepFlowState } from './stepFlowReducer'
+import {
+  areMockupsResolved,
+  getShots,
+  type ShotKey,
+  type ShotState,
+  type StepFlowAction,
+  type StepFlowMeta,
+  type StepFlowState,
+} from './stepFlowReducer'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 
 interface MockupStepProps {
@@ -38,18 +46,22 @@ const shotLabel = (key: ShotKey): string => {
   return key
 }
 
-const STATUS_STYLE: Record<ShotState['status'], string> = {
+const STATUS_STYLE: Record<string, string> = {
   queued: 'bg-muted/20 text-muted',
   running: 'bg-blue-500/20 text-blue-400',
   done: 'bg-emerald-500/20 text-emerald-400',
   failed: 'bg-red-500/20 text-red-400',
+  approved: 'bg-emerald-500/20 text-emerald-400',
+  // Distinct from `failed` — a skipped shot is a settled, deliberate choice,
+  // not an error the admin still needs to look at.
+  skipped: 'bg-amber-500/20 text-amber-400',
+  blocked: 'bg-red-500/20 text-red-400',
 }
 
 const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => {
   const [firing, setFiring] = useState(false)
   const [busyKey, setBusyKey] = useState<ShotKey | null>(null)
   const [approvingAll, setApprovingAll] = useState(false)
-  const [skipped, setSkipped] = useState<Set<ShotKey>>(new Set())
   const [error, setError] = useState<string | null>(null)
   // Keys we've already asked the server to queue this session — guards
   // against both React StrictMode's double-invoke and re-firing a key whose
@@ -74,6 +86,10 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setFiring(true)
     stepFlow
       .shots(state.productId, missing)
+      // The server may come back with `jobs: []` when every requested key is
+      // already queued/running/done (idempotent no-op) — that's not an
+      // error, just nothing new to do; `refresh()` picks up whatever state
+      // the shots are already in.
       .then(() => refresh())
       .catch((err: any) => {
         setError(err?.message || 'Failed to start mockups')
@@ -102,11 +118,6 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     if (!state.productId) return
     setBusyKey(key)
     setError(null)
-    setSkipped((prev) => {
-      const next = new Set(prev)
-      next.delete(key)
-      return next
-    })
     try {
       await stepFlow.redoShot(state.productId, key)
       await refresh()
@@ -117,6 +128,25 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     }
   }
 
+  /** A failed shot (or an orphaned `details` card) the admin chooses not to
+   *  redo — persisted server-side via ShotState.skipped so it survives a
+   *  refresh/resume instead of living only in component state. */
+  const handleSkip = async (key: ShotKey, shot: ShotState) => {
+    if (!state.productId) return
+    setBusyKey(key)
+    setError(null)
+    try {
+      await stepFlow.approveShot(state.productId, key, false, shot.assetId, true)
+      await refresh()
+    } catch (err: any) {
+      setError(err?.message || `Failed to skip ${shotLabel(key)}`)
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  // One batch call instead of N parallel per-key approves — those used to
+  // race each other's read-modify-write of the same step_flow.shots object.
   const handleApproveAll = async () => {
     if (!state.productId) return
     const pending = entries.filter(([, s]) => s.status === 'done' && !s.approved && s.assetId)
@@ -124,7 +154,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setApprovingAll(true)
     setError(null)
     try {
-      await Promise.all(pending.map(([key, s]) => stepFlow.approveShot(state.productId!, key, true, s.assetId!)))
+      await stepFlow.approveShots(state.productId, pending.map(([key]) => key), true)
       await refresh()
     } catch (err: any) {
       setError(err?.message || 'Failed to approve all shots')
@@ -140,12 +170,11 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   const isOrphanedDetails = (key: ShotKey, shot: ShotState) => key === 'details' && productFailed && !shot.approved
 
   // Every fired shot must be explicitly resolved before Continue enables —
-  // approved, or skipped. A failed (or orphaned-details) shot no longer
-  // counts as auto-resolved just by virtue of having failed; the admin has
-  // to hit Skip so nothing silently ships without that shot.
-  const canContinue =
-    entries.length > 0 &&
-    entries.every(([key, shot]) => shot.approved || skipped.has(key))
+  // approved, or skipped (the server-persisted ShotState.skipped flag). A
+  // failed (or orphaned-details) shot no longer counts as auto-resolved just
+  // by virtue of having failed; the admin has to hit Skip so nothing
+  // silently ships without that shot.
+  const canContinue = areMockupsResolved(state)
 
   return (
     <StepCard>
@@ -170,9 +199,15 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {entries.map(([key, shot]) => {
             const busy = busyKey === key
-            const isSkipped = skipped.has(key)
             const orphaned = isOrphanedDetails(key, shot)
-            const canSkip = (shot.status === 'failed' || orphaned) && !isSkipped
+            // A shot can carry `skipped:true` from before a redo — if it's
+            // back in flight (queued/running), that in-progress status wins
+            // over the stale skip flag so the card doesn't read "skipped"
+            // while a fresh render is on the way.
+            const inFlight = shot.status === 'queued' || shot.status === 'running'
+            const isSkipped = !!shot.skipped && !inFlight
+            const canSkip = (shot.status === 'failed' || orphaned) && !isSkipped && !shot.approved
+            const badgeLabel = shot.approved ? 'approved' : isSkipped ? 'skipped' : orphaned ? 'blocked' : shot.status
             return (
               <div key={key} className="rounded-xl border border-border-subtle overflow-hidden flex flex-col">
                 <div className="aspect-square bg-card-elevated flex items-center justify-center">
@@ -187,8 +222,8 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                 <div className="p-2.5 flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-text truncate">{shotLabel(key)}</span>
-                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[orphaned ? 'failed' : shot.status]}`}>
-                      {shot.approved ? 'approved' : isSkipped ? 'skipped' : orphaned ? 'blocked' : shot.status}
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[badgeLabel] ?? STATUS_STYLE.queued}`}>
+                      {badgeLabel}
                     </span>
                   </div>
                   {shot.status === 'failed' && shot.error && <p className="text-[10px] text-red-400 truncate" title={shot.error}>{shot.error}</p>}
@@ -221,11 +256,12 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                     {canSkip && (
                       <button
                         type="button"
-                        onClick={() => setSkipped((prev) => new Set(prev).add(key))}
-                        className="inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg text-muted hover:text-text"
+                        onClick={() => handleSkip(key, shot)}
+                        disabled={busy}
+                        className="inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg text-muted hover:text-text disabled:opacity-50"
                         title="Move on without this shot"
                       >
-                        <X className="w-3 h-3" /> Skip
+                        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />} Skip
                       </button>
                     )}
                   </div>

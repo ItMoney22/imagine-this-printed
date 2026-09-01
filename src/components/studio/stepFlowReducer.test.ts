@@ -128,7 +128,7 @@ describe('canReachStep', () => {
     expect(canReachStep(withApproval, 'mockups')).toBe(true)
   })
 
-  it('listing requires either approvals.mockups or every fired shot resolved (approved or failed)', () => {
+  it('listing requires either approvals.mockups or every fired shot resolved (approved or explicitly skipped)', () => {
     const midFlight = stateWith({
       productId: 'p1',
       stepFlow: stepFlowMeta({
@@ -140,7 +140,9 @@ describe('canReachStep', () => {
     })
     expect(canReachStep(midFlight, 'listing')).toBe(false)
 
-    const resolved = stateWith({
+    // A bare `failed` status does NOT count as resolved on its own — the
+    // admin has to hit Skip so nothing silently ships without that shot.
+    const failedNotSkipped = stateWith({
       productId: 'p1',
       stepFlow: stepFlowMeta({
         shots: {
@@ -149,7 +151,18 @@ describe('canReachStep', () => {
         },
       }),
     })
-    expect(canReachStep(resolved, 'listing')).toBe(true)
+    expect(canReachStep(failedNotSkipped, 'listing')).toBe(false)
+
+    const skipped = stateWith({
+      productId: 'p1',
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: true, status: 'done', assetId: 'a1' },
+          hanger: { approved: false, status: 'failed', error: 'boom', skipped: true },
+        },
+      }),
+    })
+    expect(canReachStep(skipped, 'listing')).toBe(true)
 
     const stamped = stateWith({
       productId: 'p1',
@@ -230,8 +243,9 @@ describe('stepFlowReducer', () => {
 
   it('HYDRATE with advance:true jumps to the furthest reachable step (resume-by-productId)', () => {
     // Simulates loading `?productId=p1` on mount for a product that already
-    // has design + garments approved and every fired shot resolved, but has
-    // not been through Listing yet.
+    // has design + garments approved and every fired shot resolved (the
+    // failed hanger shot was explicitly skipped), but has not been through
+    // Listing yet.
     const res = response({
       productId: 'p1',
       stepFlow: {
@@ -239,7 +253,7 @@ describe('stepFlowReducer', () => {
         garment: 'tshirt',
         shots: {
           product: { approved: true, status: 'done', assetId: 'a1', url: 'https://x/product.png' },
-          hanger: { approved: false, status: 'failed', error: 'render failed' },
+          hanger: { approved: false, status: 'failed', error: 'render failed', skipped: true },
         },
       },
       assets: [asset({ id: 'a1', kind: 'nobg', url: 'https://x/nobg.png' })],
@@ -383,12 +397,38 @@ describe('areMockupsResolved / hasNonTerminalWork', () => {
     expect(areMockupsResolved(stateWith())).toBe(false)
   })
 
-  it('is true once every shot is approved or failed', () => {
+  it('is false while a failed shot has not been explicitly skipped — a bare `failed` status does not resolve it', () => {
     const state = stateWith({
       stepFlow: stepFlowMeta({
         shots: {
           product: { approved: true, status: 'done' },
           hanger: { approved: false, status: 'failed' },
+        },
+      }),
+    })
+    expect(areMockupsResolved(state)).toBe(false)
+  })
+
+  it('is true once a failed shot is explicitly skipped (the persisted ShotState.skipped flag)', () => {
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: true, status: 'done' },
+          hanger: { approved: false, status: 'failed', skipped: true },
+        },
+      }),
+    })
+    expect(areMockupsResolved(state)).toBe(true)
+  })
+
+  it('is true once every shot is approved — e.g. via a single batch approve-all call', () => {
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: true, status: 'done', assetId: 'a1' },
+          hanger: { approved: true, status: 'done', assetId: 'a2' },
+          model: { approved: true, status: 'done', assetId: 'a3' },
+          details: { approved: true, status: 'done', assetId: 'a4' },
         },
       }),
     })

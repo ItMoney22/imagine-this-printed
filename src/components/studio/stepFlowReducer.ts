@@ -12,7 +12,10 @@
 // POST .../step/publish explicitly say they stamp an approval). For those two
 // this reducer uses a concrete, resumable signal instead of an approval
 // string: a no-bg asset existing (rembg landed) gates Garments, and "every
-// fired shot is approved or failed" gates Listing.
+// fired shot is approved or explicitly skipped" gates Listing — a bare
+// `failed` status does NOT count on its own; the admin has to hit Skip
+// (which persists server-side via ShotState.skipped) so nothing silently
+// ships without that shot.
 //
 // design→garments is a NOBG-ONLY gate — it deliberately does NOT also accept
 // approvals.design as a fallback. The backend stamps approvals.design at
@@ -168,13 +171,15 @@ export function getShots(
   return mergeShots(state.stepFlow?.shots, state.assets, state.jobs)
 }
 
-/** True once every fired shot is either approved or has failed (a failed shot
- *  can be explicitly skipped rather than blocking the flow forever). */
+/** True once every fired shot is explicitly settled — approved, or skipped
+ *  (the server's persisted ShotState.skipped flag). A bare `failed` status
+ *  does NOT count on its own: a failed shot blocks the flow until the admin
+ *  hits Skip, so nothing silently ships without that shot. */
 export function areMockupsResolved(state: Pick<StepFlowState, 'stepFlow' | 'assets' | 'jobs'>): boolean {
   const shots = getShots(state)
   const entries = Object.values(shots).filter((s): s is ShotState => !!s)
   if (entries.length === 0) return false
-  return entries.every((s) => s.approved || s.status === 'failed')
+  return entries.every((s) => s.approved || s.skipped === true)
 }
 
 /** The job types this flow actually queues — filters out any stray row from
