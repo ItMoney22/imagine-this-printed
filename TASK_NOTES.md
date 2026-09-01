@@ -22,6 +22,10 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
 - `src/pages/AdminDashboard.tsx` (Products tab/modal), `src/components/admin/AdminProductEditModal.tsx`,
   `src/components/admin/ImageLightbox.tsx` (new)
 - `TASK_NOTES.md`
+- `backend/services/ai-product.ts` — ADDED 2026-09-01 during the smoke run: `normalizeProduct`
+  was OpenAI-direct with no fallback, and with the OpenAI wallet at $0 that single
+  text call 429'd and killed the whole `/create` route. Routed through the OpenRouter
+  writing brain first (David's cost-first rule), OpenAI as fallback.
 
 ### Work log (append-only)
 - 2026-09-01 — Audited on origin/main (local main was 5 commits behind; the GPT

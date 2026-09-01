@@ -4,6 +4,32 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+// Cost-first text brain (David 2026-06-12: cheap models via OpenRouter for
+// anything that is "just writing"). normalizeProduct is pure JSON copywriting,
+// so it goes through OpenRouter when a key is configured and falls back to
+// OpenAI-direct only if that call fails. Found the hard way on 2026-09-01:
+// with the OpenAI wallet at $0 this one call 429'd and took the ENTIRE product
+// builder down, even for Replicate-rendered designs.
+const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
+const openrouter = USE_OPENROUTER
+  ? new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+      // Header values must be ASCII — a non-Latin-1 char here throws
+      // "Cannot convert argument to a ByteString" on every request.
+      defaultHeaders: {
+        'HTTP-Referer': 'https://imaginethisprinted.com',
+        'X-Title': 'Imagine This Printed - Product Normalizer',
+      },
+    })
+  : null
+const OPENROUTER_TEXT_MODEL = process.env.OPENROUTER_TEXT_MODEL || 'google/gemini-2.5-flash'
+
+/** Strip ```json fences some OpenRouter models wrap around JSON-mode replies. */
+function stripFences(text: string): string {
+  return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+}
+
 // gpt-4o / gpt-4o-mini are retired from OpenAI's current model + pricing
 // pages (hard shutdown 2026-10-23 for the gpt-4 family). Env-configurable
 // with current defaults so a future migration is a one-var change.
@@ -148,18 +174,37 @@ Print settings (these describe HOW the artwork is printed — they do NOT change
 - Shirt color: ${input.shirtColor || 'black'} (design colors should complement/contrast with this)
 - Print placement: ${input.printPlacement || 'front-center'} (${placementDescriptions[input.printPlacement || 'front-center']})`
 
-  const completion = await openai.chat.completions.create({
-    model: OPENAI_TEXT_MODEL,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
-    response_format: { type: 'json_object' },
-    ...(isReasoningModel(OPENAI_TEXT_MODEL) ? {} : { temperature: 0.7 }),
-  })
+  const messages = [
+    { role: 'system' as const, content: SYSTEM_PROMPT },
+    { role: 'user' as const, content: userPrompt },
+  ]
 
-  const result = completion.choices[0].message.content!
-  const normalized = JSON.parse(result) as NormalizedProduct
+  let result: string | null = null
+  if (openrouter) {
+    try {
+      const completion = await openrouter.chat.completions.create({
+        model: OPENROUTER_TEXT_MODEL,
+        messages,
+        response_format: { type: 'json_object' },
+        temperature: 0.7,
+      })
+      result = completion.choices[0]?.message?.content ?? null
+      if (!result) throw new Error('empty completion')
+    } catch (err: any) {
+      console.warn('[ai-product] OpenRouter normalize failed, falling back to OpenAI:', err?.message ?? err)
+      result = null
+    }
+  }
+  if (!result) {
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_TEXT_MODEL,
+      messages,
+      response_format: { type: 'json_object' },
+      ...(isReasoningModel(OPENAI_TEXT_MODEL) ? {} : { temperature: 0.7 }),
+    })
+    result = completion.choices[0].message.content!
+  }
+  const normalized = JSON.parse(stripFences(result)) as NormalizedProduct
 
   console.log('[ai-product] ✅ Product normalized:', {
     title: normalized.title,
