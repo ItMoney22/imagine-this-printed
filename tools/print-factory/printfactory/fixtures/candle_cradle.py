@@ -26,6 +26,12 @@ from printfactory.fixtures.base import Fixture, FixtureError, register
 from printfactory.metrics import fits_build_volume, tip_risk
 from printfactory.spec import MIN_WALL_MM
 
+# The locked retail size ladder. These are measured jars, not round numbers:
+# 76mm small, 89mm is the standard 3.5" reference jar every candle brand ships,
+# 104mm is the large 3-wick (Bath & Body Works / Yankee). Lives here because it
+# is product data about THIS fixture, not a property of the batch runner.
+SIZE_LADDER = {"S": 76.0, "M": 89.0, "L": 104.0}
+
 # Outside this range it is not a candle jar. 50mm is a votive, 150mm is bigger
 # than any retail 3-wick; both ends mean the caller has the wrong product.
 MIN_JAR_DIA = 50.0
