@@ -40,6 +40,33 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
   succeeded on 8/31. Wrote the design + a four-track plan and the shared
   `catalog-capability.ts` module.
 
+- 2026-09-01 — Tracks A–D landed (464d307, ef79642, a27c69c, 4dd32cc) and were
+  reviewed; review fixes committed (924d348, aae08b3). **Live smoke against a
+  local backend on this branch (port 4100, prod Supabase) ran the whole flow**
+  on "neon koi fish swimming through a galaxy": brief → create → rembg →
+  color-advice → garments → shots; product 4c0ea310 left as a draft for David
+  to open in the new editor. Bugs found ONLY by running it: (1) an em dash in
+  the OpenRouter `X-Title` header threw on every request, so the prompt writer
+  silently fell back to its template (aae08b3); (2) the local backend/.env
+  carried a rotated OpenRouter key (`PREV_2026-07-06`) — the live ITP key is in
+  the vault; (3) **the OpenAI wallet is at $0** — gpt-image-2, the vision QA
+  check and Mrs. Imagine's daily batch all 429; `normalizeProduct` was
+  OpenAI-direct with no fallback so that single text call killed `/create` even
+  for Replicate-rendered designs — now OpenRouter-first (60cb838); (4) the
+  builder rewrote the brief three times (normalizer → per-model enhancer → DTF
+  "transparent background" wrap, which fights the brief's solid background) —
+  step-flow jobs now carry `rawPrompt` and only a solid-background clause
+  (ec88aed); "Try another" is one inline take, not the 3-take roster; (5) the
+  worker resolved garment color metadata-first, so the `color:white` run
+  rendered black — job input now outranks the product primary (401c1cb);
+  (6) the nano-banana fallback's Replicate stream→buffer joined chunks only
+  when the first chunk looked like a PNG, so a JPEG shot uploaded as a 590-byte
+  header and the "QA unavailable, accept" policy waved it through — rewritten
+  with a decode gate (401c1cb). Hanger + white variant then verified by calling
+  `runImageFlowMockup` directly through the new code (both correct). Replicate
+  flagged the literal "hip-hop street monkey" brief as sensitive (E005) on
+  flux-2-pro; gpt-image-2 is untested until the wallet is funded.
+
 ## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
 
 David: "huge overhaul of how we design shirts… only do gpt image 2 [for] the
