@@ -8,8 +8,9 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
 import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES, MR_IMAGINE_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
-import { houseDesignRoster } from '../../services/image-flow/models.js'
+import { houseDesignRoster, DEFAULT_GENERATE_MODEL } from '../../services/image-flow/models.js'
 import { startModelShots } from '../../services/etsy-model-shots.js'
+import stepFlowRouter from './ai-products-step-flow.js'
 import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
 import { suggestProductTrends, suggestSimpleWordPhrases, type TrendFamily, type TrendSource } from '../../services/product-trends.js'
@@ -188,6 +189,12 @@ export async function processImageJobInline(job: any): Promise<void> {
 
 const router = Router()
 
+// Imagine Studio Step Flow (David 2026-09-01: replace the classic wizard with
+// a step-by-step, approve-per-step flow). Routes live in their own file —
+// see ai-products-step-flow.ts — and are mounted here so they share this
+// router's base path (/api/admin/products/ai).
+router.use(stepFlowRouter)
+
 // GET /api/admin/products/ai/models - Get available image generation models
 router.get('/models', requireAuth, async (req: Request, res: Response): Promise<any> => {
   res.json({
@@ -292,12 +299,26 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       imagePromptOverride,
       skipImageGeneration = false,
       sourceImageDataUrl,
-      deterministicTextDesign
+      deterministicTextDesign,
+      // Step Flow (David 2026-09-01): `takes` overrides how many candidates
+      // this call generates (1-3, cost-first default is 1 take of
+      // gpt-image-2); `stepFlow` carries the idea + brief written in Step 1
+      // through to `metadata.step_flow` so the flow can resume from any point.
+      takes,
+      stepFlow,
     } = req.body
 
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required' })
     }
+
+    // Step Flow `takes` override — clamped 1-3 (gpt-image-2 is the priciest
+    // model in the stack; cost-first). Absent/invalid -> undefined, meaning
+    // "use the normal houseDesignRoster() length", unchanged from before.
+    const takesRequested = Number(takes)
+    const takesClamped = Number.isFinite(takesRequested) && takesRequested > 0
+      ? Math.min(3, Math.max(1, Math.round(takesRequested)))
+      : null
 
     // T-shirt multi-select print placements → products.print_locations.
     // Keep only known values; the final shirts-need->=1 guard is applied below,
@@ -480,6 +501,20 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           // Personalizable template: design ships with an EMPTY photo slot;
           // staff drop the customer's photo in per order (Etsy flow).
           ...(isTemplate ? { is_template: true, personalization: 'customer_photo' } : {}),
+          // Step Flow (David 2026-09-01): Step 1's idea + brief, so the flow
+          // can resume from GET /:id/step at any point. Absent when this
+          // product was created outside the step flow (classic wizard, etc).
+          ...(stepFlow && typeof stepFlow === 'object'
+            ? {
+                step_flow: {
+                  version: 1,
+                  idea: typeof stepFlow.idea === 'string' ? stepFlow.idea : '',
+                  brief: stepFlow.brief ?? null,
+                  shots: {},
+                  approvals: {},
+                },
+              }
+            : {}),
         },
       })
       .select()
@@ -616,7 +651,12 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           multiModel: true,
           // House roster pinned ON the job so even a worker-side pickup (e.g.
           // a manual requeue after an inline failure) stays gpt-image-2-only.
-          modelIds: forceSingleModel && modelId ? [modelId] : houseDesignRoster(),
+          // Step Flow's `takes` override (clamped 1-3 above) replaces the
+          // roster length in both branches when the caller passed one;
+          // absent `takes`, behaviour is exactly what it was before.
+          modelIds: forceSingleModel && modelId
+            ? Array.from({ length: takesClamped ?? 1 }, () => modelId)
+            : (takesClamped ? Array.from({ length: takesClamped }, () => DEFAULT_GENERATE_MODEL) : houseDesignRoster()),
         },
       },
     ]
