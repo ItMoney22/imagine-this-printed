@@ -152,6 +152,15 @@ export async function runImageFlowMultiGenerate(opts: {
   /** Skip the per-model LLM prompt rewrite (use the raw prompt everywhere). */
   skipEnhance?: boolean
   /**
+   * Step Flow (David 2026-09-01): the brief's designPrompt is already the
+   * "best prompt" — hand it to the model VERBATIM. No per-model rewrite and
+   * no DTF garment wrap, because the wrap says "TRANSPARENT background" while
+   * the brief says "SOLID white/black background" and gpt-image-2 resolves
+   * that conflict by painting a fake checkerboard (the QA gate's
+   * print_background defect). Only `backgroundClause` is appended.
+   */
+  rawPrompt?: boolean
+  /**
    * Hard background instruction appended to EACH model's prompt AFTER the
    * per-model rewrite — so the rule (e.g. "solid black background, no
    * transparency") always survives verbatim, exactly like the DTF garment
@@ -175,7 +184,7 @@ export async function runImageFlowMultiGenerate(opts: {
   const tailored = await Promise.all(
     ids.map(async (id) => {
       const model = getModel(id)
-      if (!model || opts.skipEnhance) return opts.prompt
+      if (!model || opts.skipEnhance || opts.rawPrompt) return opts.prompt
       try {
         const r = await enhancePrompt({ prompt: opts.prompt, purpose: 'product', model })
         return r.enhanced?.trim() || opts.prompt
@@ -187,7 +196,9 @@ export async function runImageFlowMultiGenerate(opts: {
   )
 
   const finalPrompts = tailored.map((t) =>
-    isGarment
+    opts.rawPrompt
+      ? (opts.backgroundClause ? `${t}\n\n${opts.backgroundClause}` : t)
+      : isGarment
       ? buildDTFPrompt(
           t,
           (opts.shirtColor === 'gray' ? 'grey' : opts.shirtColor) ?? 'black',
@@ -198,7 +209,9 @@ export async function runImageFlowMultiGenerate(opts: {
         : t
   )
 
-  if (isGarment) {
+  if (opts.rawPrompt) {
+    console.log('[image-flow] 📝 Raw prompt (Step Flow brief) — no rewrite, no DTF wrap')
+  } else if (isGarment) {
     console.log('[image-flow] 🎨 Wrapping prompt with DTF rules for category:', opts.category)
   }
 

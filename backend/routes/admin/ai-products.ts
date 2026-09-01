@@ -104,6 +104,8 @@ export async function processImageJobInline(job: any): Promise<void> {
       shirtColor: job.input?.shirtColor,
       printStyle: job.input?.printStyle,
       imageStyle: job.input?.imageStyle,
+      rawPrompt: Boolean(job.input?.rawPrompt),
+      backgroundClause: typeof job.input?.backgroundClause === 'string' ? job.input.backgroundClause : undefined,
     })
 
     const succeeded = results.filter((r) => r.status === 'succeeded' && r.url)
@@ -379,6 +381,23 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     if (typeof imagePromptOverride === 'string' && imagePromptOverride.trim()) {
       normalized.image_prompt = imagePromptOverride.trim()
     }
+
+    // Step Flow: the brief's designPrompt IS the image prompt. The normalizer
+    // still writes title/description/tags, but must not rewrite the art brief.
+    const stepBriefPrompt: string | null =
+      stepFlow && typeof stepFlow === 'object' && typeof stepFlow.brief?.designPrompt === 'string' && stepFlow.brief.designPrompt.trim()
+        ? stepFlow.brief.designPrompt.trim()
+        : null
+    if (stepBriefPrompt && !(typeof imagePromptOverride === 'string' && imagePromptOverride.trim())) {
+      normalized.image_prompt = stepBriefPrompt
+    }
+    const stepBackground: 'white' | 'black' | null =
+      stepBriefPrompt && (stepFlow.brief?.background === 'white' || stepFlow.brief?.background === 'black')
+        ? stepFlow.brief.background
+        : null
+    const stepBackgroundClause = stepBackground
+      ? `Render the artwork on a SOLID, FLAT, uniform ${stepBackground} background that fills the entire canvas edge to edge. No gradient, no vignette, no drop shadow, no checkerboard, no simulated or painted transparency, no border, no frame.`
+      : undefined
 
     // Photo-template products (Imagine Studio, 2026-07-31): the caller pins the
     // category instead of letting normalization guess. Whitelisted — this is
@@ -657,6 +676,9 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           modelIds: forceSingleModel && modelId
             ? Array.from({ length: takesClamped ?? 1 }, () => modelId)
             : (takesClamped ? Array.from({ length: takesClamped }, () => DEFAULT_GENERATE_MODEL) : houseDesignRoster()),
+          // Step Flow: verbatim brief + solid-background clause (see
+          // runImageFlowMultiGenerate.rawPrompt for why the DTF wrap is skipped).
+          ...(stepBriefPrompt ? { rawPrompt: true, backgroundClause: stepBackgroundClause } : {}),
         },
       },
     ]
@@ -1724,6 +1746,50 @@ router.post('/:id/regenerate-images', requireAuth, requireAdmin, async (req: Req
     }
 
     req.log?.info({ productId: id }, '[ai-products] 🔄 Regenerating images for product')
+
+    // Step Flow "Try another" (David 2026-09-01): ONE more take on the same
+    // single model with the same verbatim brief, processed inline exactly like
+    // /create — never the 3-take house roster or a worker fan-out.
+    const stepFlowMeta = product.metadata?.step_flow
+    if (stepFlowMeta && typeof stepFlowMeta === 'object') {
+      const priorJob = await supabase
+        .from('ai_jobs')
+        .select('input')
+        .eq('product_id', product.id)
+        .eq('type', 'replicate_image_v2')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const prior = (priorJob.data?.input ?? {}) as Record<string, unknown>
+      const stepModelId = (typeof prior.modelId === 'string' && prior.modelId) || product.metadata.modelId || DEFAULT_GENERATE_MODEL
+      const stepJob = {
+        product_id: product.id,
+        type: 'replicate_image_v2',
+        status: 'running',
+        input: {
+          ...prior,
+          prompt: product.metadata.image_prompt,
+          width: 1024,
+          height: 1024,
+          modelId: stepModelId,
+          forceSingleModel: true,
+          multiModel: true,
+          modelIds: [stepModelId],
+          rawPrompt: true,
+          nonce: Date.now().toString(36),
+        },
+      }
+      const { data: stepJobs, error: stepErr } = await supabase.from('ai_jobs').insert([stepJob]).select()
+      if (stepErr || !stepJobs?.[0]) {
+        req.log?.error({ error: stepErr }, '[ai-products] ❌ Step Flow regen job creation error')
+        return res.status(500).json({ error: 'Failed to create regeneration job' })
+      }
+      void processImageJobInline(stepJobs[0]).catch((err: any) => {
+        req.log?.error({ error: err?.message ?? err, jobId: stepJobs[0].id }, '[ai-products] ❌ Step Flow regen failed')
+      })
+      req.log?.info({ jobId: stepJobs[0].id, model: stepModelId }, '[ai-products] ✅ Step Flow regeneration take started')
+      return res.json({ job: stepJobs[0] })
+    }
 
     // Create new image generation job using stored metadata
     const job = {
