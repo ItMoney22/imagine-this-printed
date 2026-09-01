@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase.js'
 import { generateMockup, removeBackgroundSync, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
-import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate } from '../services/image-flow/worker-helpers.js'
+import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
 import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
@@ -920,7 +920,7 @@ async function startJob(job: any) {
       await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
       const mockupResult = await runImageFlowMockup({
-        template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall',
+        template: template as MockupTemplate,
         designImageUrl: garmentImageUrl!,
         productType: productType as 'tshirt' | 'hoodie' | 'tank',
         shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
@@ -968,7 +968,7 @@ async function startJob(job: any) {
           await updateJobProgress(job.id, `🔁 Mockup came back wrong (${reason}) — re-rendering...`, 2, 4)
           try {
             const retry = await runImageFlowMockup({
-              template: template as 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall',
+              template: template as MockupTemplate,
               designImageUrl: garmentImageUrl!,
               productType: productType as 'tshirt' | 'hoodie' | 'tank',
               shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
