@@ -14,8 +14,9 @@
 // The classic wizard remains fully intact behind the Classic toggle.
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import confetti from 'canvas-confetti'
-import { Mic, Square, Wand2, Layers, RotateCcw, AlertTriangle, Check, Radio } from 'lucide-react'
+import { Mic, Square, Wand2, Layers, RotateCcw, AlertTriangle, Check, Radio, ListChecks } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useMrImagineLive, type MrImagineToolDef } from '../hooks/useMrImagineLive'
 import { aiProducts, apiFetch } from '../lib/api'
@@ -23,6 +24,7 @@ import { supabase } from '../lib/supabase'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import OneShotProductModal from '../components/OneShotProductModal'
 import BulkProductModal from '../components/BulkProductModal'
+import StepFlowBuilder from '../components/studio/StepFlowBuilder'
 import type { AIJob, ProductTrendFamily, TshirtPrintLocation } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -496,10 +498,26 @@ const MrImagineOrb: React.FC<{ status: string; busy: boolean }> = ({ status, bus
 // Page
 // ---------------------------------------------------------------------------
 
+type BuilderMode = 'steps' | 'studio' | 'classic'
+
+const VALID_MODES: BuilderMode[] = ['steps', 'studio', 'classic']
+
 const AdminAIProductBuilder: React.FC = () => {
   const { user } = useAuth()
-  const [mode, setMode] = useState<'studio' | 'classic'>(() =>
-    (localStorage.getItem('itp-ai-builder-mode') === 'classic' ? 'classic' : 'studio'))
+  const [searchParams] = useSearchParams()
+  // Step Flow is the default face now — Live Studio (voice) and the classic
+  // wizard stay one click away. `?mode=` always wins (a deep link from the
+  // product editor's "Continue in Step Flow" relies on this), then the
+  // localStorage remembered choice, then the default.
+  const [mode, setMode] = useState<BuilderMode>(() => {
+    const fromQuery = searchParams.get('mode')
+    if (fromQuery && (VALID_MODES as string[]).includes(fromQuery)) return fromQuery as BuilderMode
+    const stored = localStorage.getItem('itp-ai-builder-mode')
+    return (VALID_MODES as string[]).includes(stored || '') ? (stored as BuilderMode) : 'steps'
+  })
+  // `?productId=` resumes the Step Flow builder at whatever step that draft
+  // last reached (AdminProductEditModal's "Continue in Step Flow" deep link).
+  const stepFlowProductId = searchParams.get('productId')
   const [oneShotOpen, setOneShotOpen] = useState(false)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [build, dispatch] = useReducer(buildReducer, initialBuild)
@@ -1078,14 +1096,22 @@ const AdminAIProductBuilder: React.FC = () => {
             IMAGINE STUDIO
           </h1>
           <p className="text-base sm:text-lg text-muted max-w-2xl mx-auto">
-            {mode === 'studio'
-              ? 'Talk it. Watch Mr. Imagine build it — shirts, metal art, 3D prints.'
-              : 'Classic wizard — describe, refine, and ship production-ready mockups.'}
+            {mode === 'steps'
+              ? 'One idea in. Approve each step. Product and Etsy listing out.'
+              : mode === 'studio'
+                ? 'Talk it. Watch Mr. Imagine build it — shirts, metal art, 3D prints.'
+                : 'Classic wizard — describe, refine, and ship production-ready mockups.'}
           </p>
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             {/* mode toggle */}
             <div className="inline-flex rounded-xl border border-white/10 bg-card/60 p-1 backdrop-blur-sm">
+              <button
+                onClick={() => setMode('steps')}
+                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${mode === 'steps' ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-glowSm' : 'text-muted hover:text-text'}`}
+              >
+                <span className="inline-flex items-center gap-1.5"><ListChecks className="w-3.5 h-3.5" /> Step Flow</span>
+              </button>
               <button
                 onClick={() => setMode('studio')}
                 className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${mode === 'studio' ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-glowSm' : 'text-muted hover:text-text'}`}
@@ -1120,6 +1146,8 @@ const AdminAIProductBuilder: React.FC = () => {
               <AdminCreateProductWizard />
             </div>
           </div>
+        ) : mode === 'steps' ? (
+          <StepFlowBuilder productId={stepFlowProductId} />
         ) : (
           <>
             {/* Hex step tracker */}

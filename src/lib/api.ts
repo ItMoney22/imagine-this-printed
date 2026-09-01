@@ -354,13 +354,32 @@ export const aiProducts = {
   },
 }
 
+// Etsy pack shape returned by the SEO composer (mirrors AdminEtsyPanel's local
+// EtsyPack — no shared type module exists yet, so this is intentionally a
+// second small copy rather than a cross-file coupling).
+export interface EtsyComposePack {
+  title: string
+  tags: string[]
+  description: string
+  price: number
+  colors?: string[]
+  composed_at: string
+  model: string
+  edited_at?: string
+}
+
+export type EtsyTier = 'primary' | 'transfer' | 'download'
+
 // Etsy API — enqueue a product for Rico's flow (copyright gate → draft → Christina notify).
 export const etsy = {
-  queue: async (productId: string) => {
+  // SEO composer — Step Flow's Listing step calls this to get an editable
+  // title/description/tags/price draft. Reused unchanged from AdminEtsyPanel's
+  // Compose button (POST /api/admin/etsy/compose/:id, no body).
+  compose: async (productId: string): Promise<{ pack: EtsyComposePack }> => {
     const { data } = await supabase.auth.getSession()
     const token = data.session?.access_token
 
-    const response = await fetch(`${API_BASE}/api/admin/etsy/queue/${productId}`, {
+    const response = await fetch(`${API_BASE}/api/admin/etsy/compose/${productId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -371,6 +390,35 @@ export const etsy = {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Unknown error' }))
       throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  // `tiers` is optional and additive — omitting it keeps the pre-existing
+  // AdminDashboard.tsx call site (`etsy.queue(productId)`, defaults to
+  // ['primary'] server-side) working unchanged.
+  queue: async (productId: string, tiers?: EtsyTier[]) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/etsy/queue/${productId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: tiers ? JSON.stringify({ tiers }) : undefined,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      // Status is attached so the Etsy step can tell a QA-gate 422 (inline
+      // reasons) apart from any other failure.
+      const err = new Error(error.error || `HTTP ${response.status}`) as Error & { status?: number; body?: any }
+      err.status = response.status
+      err.body = error
+      throw err
     }
 
     return response.json()
@@ -391,6 +439,217 @@ export const etsy = {
 
     return response.json()
   },
+}
+
+// ---------------------------------------------------------------------------
+// Step Flow — Imagine Studio's step-by-step builder (Idea → Design →
+// Garments → Mockups → Listing → Etsy). Routes are mounted under
+// /api/admin/products/ai/(step/brief | :id/step/*), all requireAuth +
+// requireAdmin. See docs/plans/2026-09-01-imagine-studio-step-flow-plan.md
+// ("Shared contracts") — the types below mirror that table exactly.
+//
+// Every write here is deliberately "fire, then GET /:id/step and re-hydrate"
+// rather than trusting each write's own partial response, because
+// step_flow.approvals on the server is the single source of truth the
+// reducer gates on (see components/studio/stepFlowReducer.ts).
+// ---------------------------------------------------------------------------
+
+export type StepFlowGarmentId = 'tshirt' | 'hoodie'
+export type StepFlowColorId =
+  | 'black'
+  | 'white'
+  | 'navy'
+  | 'heather-grey'
+  | 'red'
+  | 'forest-green'
+  | 'royal-blue'
+
+export interface StepBrief {
+  designPrompt: string
+  background: 'white' | 'black'
+  title: string
+  styleTags: string[]
+  garmentHint: StepFlowGarmentId
+  rationale: string
+}
+
+export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}`
+
+export interface ShotState {
+  jobId?: string
+  assetId?: string
+  url?: string
+  approved: boolean
+  status: 'queued' | 'running' | 'done' | 'failed'
+  error?: string
+}
+
+export interface ColorAdvice {
+  id: StepFlowColorId
+  label: string
+  hex: string
+  grade: 'great' | 'ok' | 'poor'
+  score: number
+  reason: string
+}
+
+export interface ArtworkStats {
+  meanLuma: number
+  darkShare: number
+  lightShare: number
+  coverage: number
+  dominantHue: number | null
+}
+
+export type StepFlowApprovals = Partial<Record<'design' | 'garments' | 'mockups' | 'listing', string>>
+
+export interface StepFlowMeta {
+  version: 1
+  idea: string
+  brief: StepBrief
+  garment?: StepFlowGarmentId
+  colors?: { primary: StepFlowColorId; extras: StepFlowColorId[] }
+  advice?: ColorAdvice[]
+  shots: Partial<Record<ShotKey, ShotState>>
+  approvals: StepFlowApprovals
+}
+
+// product_assets row (the columns the flow actually reads).
+export interface StepFlowAsset {
+  id: string
+  kind?: string | null
+  asset_role?: string | null
+  url?: string | null
+  is_primary?: boolean | null
+  display_order?: number | null
+  created_at?: string | null
+  metadata?: Record<string, any> | null
+}
+
+// ai_jobs row (the columns the flow actually reads).
+export interface StepFlowJob {
+  id: string
+  product_id: string
+  type: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped'
+  input?: Record<string, any>
+  output?: Record<string, any>
+  error?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface StepFlowProductSnapshot {
+  id: string
+  name?: string | null
+  category?: string | null
+  metadata?: Record<string, any>
+  [key: string]: any
+}
+
+export interface StepFlowGetResponse {
+  product: StepFlowProductSnapshot
+  step_flow: StepFlowMeta
+  assets: StepFlowAsset[]
+  jobs: StepFlowJob[]
+}
+
+async function stepFlowRequest(path: string, init: RequestInit = {}) {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.headers || {}),
+    },
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+    const err = new Error(error.error || `HTTP ${response.status}`) as Error & { status?: number; body?: any }
+    err.status = response.status
+    err.body = error
+    throw err
+  }
+  return response.json()
+}
+
+export const stepFlow = {
+  /** POST /api/admin/products/ai/step/brief — idea → best-prompt brief. Runs before a product exists. */
+  brief: (idea: string): Promise<{ brief: StepBrief }> =>
+    stepFlowRequest('/api/admin/products/ai/step/brief', {
+      method: 'POST',
+      body: JSON.stringify({ idea }),
+    }),
+
+  /** GET /api/admin/products/ai/:id/step — resume: product + step_flow + assets + jobs, merged. */
+  get: (productId: string): Promise<StepFlowGetResponse> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step`),
+
+  /** Marks the chosen take primary and queues background removal — never queues mockups. */
+  selectDesign: (
+    productId: string,
+    assetId: string
+  ): Promise<{ ok: boolean; asset: StepFlowAsset; rembgJob: StepFlowJob | null }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/select-design`, {
+      method: 'POST',
+      body: JSON.stringify({ assetId }),
+    }),
+
+  /** Measures the nobg (falls back to source) asset and ranks ITP colors by contrast to the artwork. */
+  colorAdvice: (productId: string): Promise<{ advice: ColorAdvice[]; artwork: ArtworkStats }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/color-advice`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  /** Approves garment + colors; writes product_type/shirt_color/colors/print_placement/category. */
+  garments: (
+    productId: string,
+    payload: { garment: StepFlowGarmentId; primaryColor: StepFlowColorId; extraColors: StepFlowColorId[] }
+  ): Promise<{ ok: boolean; step_flow: StepFlowMeta }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/garments`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** Fires mockup jobs. Omit `keys` to queue every key for the approved garment/colors. */
+  shots: (productId: string, keys?: ShotKey[]): Promise<{ jobs: Array<{ key: ShotKey; jobId: string | null }> }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots`, {
+      method: 'POST',
+      body: JSON.stringify(keys ? { keys } : {}),
+    }),
+
+  /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved) until the redo lands. */
+  redoShot: (productId: string, key: ShotKey): Promise<{ job: StepFlowJob }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/redo`, {
+      method: 'POST',
+    }),
+
+  /** Approves (or rejects) one shot's asset. */
+  approveShot: (
+    productId: string,
+    key: ShotKey,
+    approved: boolean,
+    assetId: string
+  ): Promise<{ step_flow: StepFlowMeta }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ approved, assetId }),
+    }),
+
+  /** Publishes: status active, images from buildProductGallery, stamps approvals.listing. */
+  publish: (
+    productId: string,
+    payload: { title: string; description: string; tags: string[]; price: number }
+  ): Promise<{ product: StepFlowProductSnapshot }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/publish`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 }
 
 // Mrs. Imagine — autonomous house designer: realtime Etsy research → designs
