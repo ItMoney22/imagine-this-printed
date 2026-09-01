@@ -37,7 +37,7 @@ const client = new OpenAI(
         baseURL: 'https://openrouter.ai/api/v1',
         defaultHeaders: {
           'HTTP-Referer': 'https://imaginethisprinted.com',
-          'X-Title': 'Imagine Studio — Step Flow Brief',
+          'X-Title': 'Imagine Studio - Step Flow Brief',
         },
       }
     : { apiKey: process.env.OPENAI_API_KEY }
