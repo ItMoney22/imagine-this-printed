@@ -352,6 +352,28 @@ export const aiProducts = {
 
     return response.json()
   },
+
+  // Deletes a draft product outright — used by the Step Flow's Tweak action
+  // to clean up the orphaned old draft after a fresh one is created, only
+  // when the old draft never had a design approved on it.
+  delete: async (productId: string): Promise<{ ok: boolean }> => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+
+    const response = await fetch(`${API_BASE}/api/admin/products/ai/${productId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+      throw new Error(error.error || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  },
 }
 
 // Etsy pack shape returned by the SEO composer (mirrors AdminEtsyPanel's local
@@ -506,7 +528,10 @@ export type StepFlowApprovals = Partial<Record<'design' | 'garments' | 'mockups'
 export interface StepFlowMeta {
   version: 1
   idea: string
-  brief: StepBrief
+  // The backend returns `brief: null` for products that weren't born in the
+  // flow (e.g. the Admin editor's "Continue in Step Flow" deep link on a
+  // classic-wizard product) — every reader must be null-safe.
+  brief: StepBrief | null
   garment?: StepFlowGarmentId
   colors?: { primary: StepFlowColorId; extras: StepFlowColorId[] }
   advice?: ColorAdvice[]

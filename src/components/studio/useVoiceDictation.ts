@@ -18,6 +18,9 @@ interface SpeechRecognitionEventLike {
   resultIndex: number
   results: ArrayLike<SpeechRecognitionResultLike>
 }
+interface SpeechRecognitionErrorEventLike {
+  error?: string
+}
 interface SpeechRecognitionLike extends EventTarget {
   continuous: boolean
   interimResults: boolean
@@ -25,7 +28,7 @@ interface SpeechRecognitionLike extends EventTarget {
   start(): void
   stop(): void
   onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: unknown) => void) | null
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
   onend: (() => void) | null
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike
@@ -47,6 +50,7 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
 export function useVoiceDictation(onChange: (fullText: string) => void) {
   const supported = useRef(getSpeechRecognitionCtor() !== null).current
   const [listening, setListening] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
@@ -59,6 +63,7 @@ export function useVoiceDictation(onChange: (fullText: string) => void) {
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) return
 
+    setError(null)
     finalTextRef.current = baseText
     const recognition = new Ctor()
     recognition.continuous = true
@@ -79,7 +84,17 @@ export function useVoiceDictation(onChange: (fullText: string) => void) {
       const fullText = interim ? [finalTextRef.current.trim(), interim].filter(Boolean).join(' ') : finalTextRef.current
       onChangeRef.current(fullText)
     }
-    recognition.onerror = () => setListening(false)
+    recognition.onerror = (event) => {
+      setListening(false)
+      const code = event?.error
+      setError(
+        code === 'not-allowed' || code === 'service-not-allowed'
+          ? 'Microphone blocked — allow mic access in your browser to dictate.'
+          : code === 'no-speech'
+            ? 'No speech detected — try again.'
+            : 'Voice dictation failed — try again or type instead.'
+      )
+    }
     recognition.onend = () => setListening(false)
 
     recognitionRef.current = recognition
@@ -95,5 +110,5 @@ export function useVoiceDictation(onChange: (fullText: string) => void) {
   // Stop the mic if the component unmounts mid-dictation.
   useEffect(() => () => { recognitionRef.current?.stop() }, [])
 
-  return { supported, listening, start, stop }
+  return { supported, listening, error, start, stop }
 }

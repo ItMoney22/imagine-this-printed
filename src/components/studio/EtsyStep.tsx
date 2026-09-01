@@ -40,7 +40,10 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
       setResult({ queued: res.queued ?? [], skipped: res.skipped ?? [] })
     } catch (err: any) {
       if (err?.status === 422) {
-        setGateReason(err?.body?.error || 'This design failed the presentation QA gate.')
+        const base = err?.body?.error || 'This design failed the presentation QA gate.'
+        const code = err?.body?.qa_gate?.code
+        const nextStep = err?.body?.next_step
+        setGateReason([base, code ? `Code: ${code}.` : null, nextStep ? `Next: ${nextStep}.` : null].filter(Boolean).join(' '))
       } else {
         setError(err?.message || 'Failed to queue to Etsy')
       }

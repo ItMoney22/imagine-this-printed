@@ -5,13 +5,25 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import { COLORS } from '../../../backend/shared/catalog-capability'
-import { areMockupsResolved, getShots, type ShotKey, type ShotState, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
+import { getShots, type ShotKey, type ShotState, type StepFlowAction, type StepFlowMeta, type StepFlowState } from './stepFlowReducer'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 
 interface MockupStepProps {
   state: StepFlowState
   dispatch: React.Dispatch<StepFlowAction>
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
+}
+
+/** Every shot key the approved garment/colors should have — product, hanger,
+ *  model, details, plus one `color:<id>` per approved extra color. Used to
+ *  compute what's still missing so a color added after the first mockup
+ *  shoot (Garments → back → add a color → re-approve) still gets its shot
+ *  fired instead of silently never appearing. */
+function expectedShotKeys(stepFlow: StepFlowMeta | null): ShotKey[] {
+  const keys: ShotKey[] = ['product', 'hanger', 'model', 'details']
+  const extras = stepFlow?.colors?.extras ?? []
+  for (const colorId of extras) keys.push(`color:${colorId}` as ShotKey)
+  return keys
 }
 
 const shotLabel = (key: ShotKey): string => {
@@ -39,23 +51,38 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   const [approvingAll, setApprovingAll] = useState(false)
   const [skipped, setSkipped] = useState<Set<ShotKey>>(new Set())
   const [error, setError] = useState<string | null>(null)
-  const firedRef = useRef(false)
+  // Keys we've already asked the server to queue this session — guards
+  // against both React StrictMode's double-invoke and re-firing a key whose
+  // shot just hasn't landed in `shots` yet (the async request is in flight).
+  const requestedKeysRef = useRef<Set<ShotKey>>(new Set())
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getShots only reads these three fields
   const shots = useMemo(() => getShots(state), [state.stepFlow, state.assets, state.jobs])
   const entries = Object.entries(shots) as Array<[ShotKey, ShotState]>
 
+  // Fire whatever expected keys are missing from `shots` — on first entry
+  // (nothing fired yet) that's every key; if the admin goes back to
+  // Garments, adds an extra color, and re-approves, it's just the new
+  // `color:<id>`.
   useEffect(() => {
-    if (!state.productId || firedRef.current || entries.length > 0) return
-    firedRef.current = true
+    if (!state.productId) return
+    const expected = expectedShotKeys(state.stepFlow)
+    const present = new Set(Object.keys(shots) as ShotKey[])
+    const missing = expected.filter((key) => !present.has(key) && !requestedKeysRef.current.has(key))
+    if (missing.length === 0) return
+    missing.forEach((key) => requestedKeysRef.current.add(key))
     setFiring(true)
     stepFlow
-      .shots(state.productId)
+      .shots(state.productId, missing)
       .then(() => refresh())
-      .catch((err: any) => setError(err?.message || 'Failed to start mockups'))
+      .catch((err: any) => {
+        setError(err?.message || 'Failed to start mockups')
+        // Allow a retry on the next render instead of getting stuck silent.
+        missing.forEach((key) => requestedKeysRef.current.delete(key))
+      })
       .finally(() => setFiring(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.productId, entries.length])
+  }, [state.productId, state.stepFlow?.colors, shots])
 
   const handleApprove = async (key: ShotKey, shot: ShotState) => {
     if (!state.productId || !shot.assetId) return
@@ -106,7 +133,19 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     }
   }
 
-  const canContinue = areMockupsResolved(state)
+  // `product` failing leaves `details` orphaned — it's rendered synchronously
+  // by the server once `product` lands an asset, so with no `product` asset
+  // it stays `queued` forever and never reaches `failed` on its own.
+  const productFailed = shots.product?.status === 'failed'
+  const isOrphanedDetails = (key: ShotKey, shot: ShotState) => key === 'details' && productFailed && !shot.approved
+
+  // Every fired shot must be explicitly resolved before Continue enables —
+  // approved, or skipped. A failed (or orphaned-details) shot no longer
+  // counts as auto-resolved just by virtue of having failed; the admin has
+  // to hit Skip so nothing silently ships without that shot.
+  const canContinue =
+    entries.length > 0 &&
+    entries.every(([key, shot]) => shot.approved || skipped.has(key))
 
   return (
     <StepCard>
@@ -132,12 +171,14 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
           {entries.map(([key, shot]) => {
             const busy = busyKey === key
             const isSkipped = skipped.has(key)
+            const orphaned = isOrphanedDetails(key, shot)
+            const canSkip = (shot.status === 'failed' || orphaned) && !isSkipped
             return (
               <div key={key} className="rounded-xl border border-border-subtle overflow-hidden flex flex-col">
                 <div className="aspect-square bg-card-elevated flex items-center justify-center">
                   {shot.url ? (
                     <img src={shot.url} alt={shotLabel(key)} className="w-full h-full object-contain" />
-                  ) : shot.status === 'failed' ? (
+                  ) : shot.status === 'failed' || orphaned ? (
                     <AlertTriangle className="w-8 h-8 text-red-400" />
                   ) : (
                     <Loader2 className="w-6 h-6 text-muted animate-spin" />
@@ -146,11 +187,16 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                 <div className="p-2.5 flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-text truncate">{shotLabel(key)}</span>
-                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[shot.status]}`}>
-                      {shot.approved ? 'approved' : isSkipped ? 'skipped' : shot.status}
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[orphaned ? 'failed' : shot.status]}`}>
+                      {shot.approved ? 'approved' : isSkipped ? 'skipped' : orphaned ? 'blocked' : shot.status}
                     </span>
                   </div>
                   {shot.status === 'failed' && shot.error && <p className="text-[10px] text-red-400 truncate" title={shot.error}>{shot.error}</p>}
+                  {orphaned && (
+                    <p className="text-[10px] text-red-400 truncate" title="The product shot failed, so the details card can't be rendered.">
+                      Blocked — the product shot failed
+                    </p>
+                  )}
                   <div className="flex items-center gap-1.5">
                     {shot.status === 'done' && !shot.approved && (
                       <button
@@ -172,7 +218,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Redo
                       </button>
                     )}
-                    {shot.status === 'failed' && !isSkipped && (
+                    {canSkip && (
                       <button
                         type="button"
                         onClick={() => setSkipped((prev) => new Set(prev).add(key))}

@@ -2,9 +2,8 @@
 import React, { useMemo, useState } from 'react'
 import { Check, Loader2, RefreshCw, Wand2 } from 'lucide-react'
 import { aiProducts, stepFlow } from '../../lib/api'
-import type { AIProductCreationRequest } from '../../types'
+import { createStepFlowProduct } from './createStepFlowProduct'
 import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
-import type { StepBrief } from './types'
 import { ApproveButton, Checkerboard, InlineError, SecondaryButton, StepCard } from './shared'
 
 interface DesignStepProps {
@@ -13,19 +12,12 @@ interface DesignStepProps {
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
 }
 
-type StepFlowCreateRequest = Omit<AIProductCreationRequest, 'background' | 'category'> & {
-  background?: 'white' | 'black'
-  category?: AIProductCreationRequest['category'] | 't-shirts'
-  takes?: 1 | 2 | 3
-  stepFlow?: { idea: string; brief: StepBrief }
-}
-
 const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => {
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
   const [tweaking, setTweaking] = useState(false)
   const [tweakOpen, setTweakOpen] = useState(false)
-  const [tweakPrompt, setTweakPrompt] = useState(state.stepFlow?.brief.designPrompt ?? '')
+  const [tweakPrompt, setTweakPrompt] = useState(state.stepFlow?.brief?.designPrompt ?? '')
   const [error, setError] = useState<string | null>(null)
 
   // Both selectors only read state.assets — state.assets is the exhaustive dep.
@@ -73,28 +65,31 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
 
   // regenerate-images can't take a new prompt today — a Tweak spins up a
   // fresh draft product with the edited prompt and swaps productId onto it,
-  // per the plan's documented fallback.
+  // per the plan's documented fallback. Unavailable when this draft has no
+  // brief (e.g. it was opened via "Continue in Step Flow" from a
+  // classic-wizard product) — there's no prompt to tweak from.
   const handleTweak = async () => {
-    if (!state.stepFlow || !tweakPrompt.trim()) return
+    const flow = state.stepFlow
+    const existingBrief = flow?.brief
+    if (!flow || !existingBrief || !tweakPrompt.trim()) return
     setError(null)
     setTweaking(true)
+    const oldProductId = state.productId
+    // Only clean up the old draft if nothing was approved on it yet — once a
+    // design was picked (nobg landed), it's a real draft in its own right,
+    // not scratch work to discard.
+    const oldHadApprovedDesign = getNobgAsset(state) !== null
     try {
-      const brief = { ...state.stepFlow.brief, designPrompt: tweakPrompt.trim() }
-      const request: StepFlowCreateRequest = {
-        prompt: brief.designPrompt,
-        modelId: 'openai/gpt-image-2',
-        forceSingleModel: true,
-        takes: 1,
-        background: brief.background,
-        productType: brief.garmentHint,
-        shirtColor: brief.background === 'white' ? 'black' : 'white',
-        category: brief.garmentHint === 'hoodie' ? 'hoodies' : 't-shirts',
-        stepFlow: { idea: state.stepFlow.idea, brief },
-      }
-      const { productId } = await aiProducts.create(request as unknown as AIProductCreationRequest)
+      const brief = { ...existingBrief, designPrompt: tweakPrompt.trim() }
+      const { productId } = await createStepFlowProduct(flow.idea, brief)
       dispatch({ type: 'PRODUCT_CREATED', productId })
       await refresh({ productId, advance: true })
       setTweakOpen(false)
+      if (oldProductId && !oldHadApprovedDesign) {
+        aiProducts.delete(oldProductId).catch(() => {
+          // Best-effort cleanup — an orphaned draft is untidy, not harmful.
+        })
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to start the tweaked design')
     } finally {
@@ -106,7 +101,9 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
     <StepCard>
       <h2 className="text-xl font-bold text-text mb-1">Pick your design</h2>
       <p className="text-sm text-muted mb-4">
-        On a solid {state.stepFlow?.brief.background ?? ''} background — the background is stripped once you approve.
+        {state.stepFlow?.brief?.background
+          ? `On a solid ${state.stepFlow.brief.background} background — the background is stripped once you approve.`
+          : 'The background is stripped once you approve.'}
       </p>
 
       {isGenerating && candidates.length === 0 && (
@@ -155,10 +152,18 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
             {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Try another
           </SecondaryButton>
-          <SecondaryButton onClick={() => setTweakOpen((v) => !v)} disabled={tweaking}>
+          <SecondaryButton
+            onClick={() => setTweakOpen((v) => !v)}
+            disabled={tweaking || !state.stepFlow?.brief}
+          >
             <Wand2 className="w-3.5 h-3.5" /> Tweak
           </SecondaryButton>
         </div>
+      )}
+      {candidates.length > 0 && !nobgAsset && !state.stepFlow?.brief && (
+        <p className="text-[11px] text-muted mt-1.5">
+          Tweak isn't available for a draft opened outside the Idea step — there's no prompt to edit.
+        </p>
       )}
 
       {tweakOpen && (

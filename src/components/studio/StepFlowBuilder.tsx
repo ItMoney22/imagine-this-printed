@@ -2,6 +2,7 @@
 // product + Etsy listing out. See
 // docs/plans/2026-09-01-imagine-studio-step-flow-plan.md ("Track C").
 import React, { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { stepFlow } from '../../lib/api'
 import {
   canReachStep,
@@ -29,6 +30,7 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
   const [state, dispatch] = useReducer(stepFlowReducer, initialStepFlowState)
   const stateRef = useRef(state)
   stateRef.current = state
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const refresh = useCallback(async (opts?: { productId?: string; advance?: boolean }) => {
     const id = opts?.productId ?? stateRef.current.productId
@@ -41,14 +43,31 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
     }
   }, [])
 
-  // Resume: a productId in the URL loads straight to the furthest step
-  // this product has actually reached.
+  // Resume: a productId in the URL loads straight to the furthest step this
+  // product has actually reached. Skips the refetch when we're already
+  // sitting on that exact product (e.g. right after the URL-sync effect
+  // below writes the productId we just created back into the URL, handing
+  // the same value straight back as this prop).
   useEffect(() => {
     if (!productId) return
+    if (stateRef.current.productId === productId && stateRef.current.product) return
     dispatch({ type: 'SET_LOADING', loading: true })
     void refresh({ productId, advance: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId])
+
+  // Keep `?productId=` (and `?mode=steps`) in sync with whatever draft is
+  // actually loaded, so a refresh mid-flow resumes instead of losing the
+  // draft. Fires after PRODUCT_CREATED (first generate) and again after a
+  // Tweak swaps in a fresh product id — both just change state.productId.
+  useEffect(() => {
+    if (!state.productId) return
+    if (searchParams.get('productId') === state.productId && searchParams.get('mode') === 'steps') return
+    const next = new URLSearchParams(searchParams)
+    next.set('mode', 'steps')
+    next.set('productId', state.productId)
+    setSearchParams(next, { replace: true })
+  }, [state.productId, searchParams, setSearchParams])
 
   // Poll while anything server-side is still in flight; stop the moment
   // everything's terminal, and always clear the interval on unmount.

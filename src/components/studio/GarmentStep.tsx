@@ -4,7 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
-import { GARMENTS, colorsForGarment, type ColorId, type GarmentId } from '../../../backend/shared/catalog-capability'
+import { GARMENTS, colorsForGarment, normalizeGarment, type ColorId, type GarmentId } from '../../../backend/shared/catalog-capability'
 import type { ColorAdvice, StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { ApproveButton, InlineError, StepCard } from './shared'
 
@@ -22,10 +22,18 @@ const GRADE_STYLE: Record<ColorAdvice['grade'], string> = {
 
 const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
   const [garment, setGarment] = useState<GarmentId>(
-    (state.stepFlow?.garment as GarmentId | undefined) ?? state.stepFlow?.brief.garmentHint ?? 'tshirt'
+    (state.stepFlow?.garment as GarmentId | undefined) ??
+      state.stepFlow?.brief?.garmentHint ??
+      // A draft with no step-flow brief (e.g. opened via "Continue in Step
+      // Flow" from a classic-wizard product) still has a product_type.
+      normalizeGarment(state.product?.metadata?.product_type) ??
+      'tshirt'
   )
   const [primaryColor, setPrimaryColor] = useState<ColorId | null>(state.stepFlow?.colors?.primary ?? null)
   const [extraColors, setExtraColors] = useState<ColorId[]>(state.stepFlow?.colors?.extras ?? [])
+  // Once the admin picks a primary color themselves, the auto-pick-the-best
+  // effect below backs off for good — it never second-guesses a real choice.
+  const [primaryTouched, setPrimaryTouched] = useState(false)
   const [loadingAdvice, setLoadingAdvice] = useState(false)
   const [approving, setApproving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,17 +61,33 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
       .sort((a, b) => (b.advice?.score ?? 0) - (a.advice?.score ?? 0))
   }, [garment, advice])
 
-  // Once advice lands (or the garment changes), default primary to the
-  // best-graded color if nothing is picked yet / the current pick isn't offered.
+  // Once real advice lands, default primary to the best-graded color — but
+  // only while the admin hasn't touched the field themselves. Keyed on the
+  // advice payload (not rankedColors.length, which is just the catalog's
+  // color count and never changes when the same 7 colors get re-sorted —
+  // that bug picked the catalog-first color, usually black, at mount and
+  // never revisited once real advice came in).
   useEffect(() => {
     if (rankedColors.length === 0) return
     const stillOffered = primaryColor && rankedColors.some((r) => r.color.id === primaryColor)
-    if (!stillOffered) {
-      setPrimaryColor(rankedColors[0].color.id)
-      setExtraColors([])
+    if (stillOffered) return
+    if (primaryTouched) {
+      // The admin's own pick is no longer offered on this garment (they
+      // switched garments) — don't guess on their behalf, just clear it and
+      // let them re-pick from what's actually offered.
+      if (primaryColor) {
+        setPrimaryColor(null)
+        setExtraColors([])
+      }
+      return
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [garment, rankedColors.length])
+    // Nothing chosen yet and the admin hasn't touched the field — only
+    // auto-pick once real advice has arrived; before that, the render below
+    // shows a "measuring artwork…" state instead of a premature default.
+    if (advice.length === 0) return
+    setPrimaryColor(rankedColors[0].color.id)
+    setExtraColors([])
+  }, [garment, advice, rankedColors, primaryColor, primaryTouched])
 
   const toggleExtra = (id: ColorId) => {
     if (id === primaryColor) return
@@ -106,13 +130,13 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
         ))}
       </div>
 
-      {loadingAdvice && (
+      {(loadingAdvice || (advice.length === 0 && !error)) && (
         <div className="flex items-center gap-2 text-sm text-muted py-6 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Scoring colors against your artwork…
+          <Loader2 className="w-4 h-4 animate-spin" /> Measuring your artwork…
         </div>
       )}
 
-      {!loadingAdvice && rankedColors.length > 0 && (
+      {!loadingAdvice && (advice.length > 0 || error) && rankedColors.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {rankedColors.map(({ color, advice: a }) => {
             const isPrimary = primaryColor === color.id
@@ -145,6 +169,7 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
                       onChange={() => {
                         setPrimaryColor(color.id)
                         setExtraColors((prev) => prev.filter((c) => c !== color.id))
+                        setPrimaryTouched(true)
                       }}
                     />
                     Primary

@@ -1,11 +1,11 @@
 // Step 5 — Listing: SEO copy from the composer, editable, next to a
 // storefront-style preview built from the approved mockups.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { etsy, stepFlow } from '../../lib/api'
 import { getShots, type ShotKey, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
-import { listingDraftFromPack, type ListingDraft } from './types'
-import { ApproveButton, InlineError, StepCard } from './shared'
+import { listingDraftFromPack, type EtsyComposePack, type ListingDraft } from './types'
+import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 
 interface ListingStepProps {
   state: StepFlowState
@@ -32,20 +32,49 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
   const [error, setError] = useState<string | null>(null)
   const composedRef = useRef(false)
 
+  const applyPack = (pack: EtsyComposePack) => {
+    const d = listingDraftFromPack(pack)
+    setDraft(d)
+    setTagsText(d.tags.join(', '))
+  }
+
+  // `etsy.compose` is a paid LLM call — re-running it on every mount would
+  // both cost money and wipe any hand-edits the admin already made. Seed
+  // from the product's saved pack when one exists (e.g. resuming a draft, or
+  // returning from a later step); only call the composer when there's
+  // nothing to seed from. `Re-compose` below is the explicit escape hatch.
   useEffect(() => {
     if (!state.productId || composedRef.current) return
     composedRef.current = true
+    const existingPack = state.product?.metadata?.etsy_pack as EtsyComposePack | undefined
+    if (existingPack) {
+      applyPack(existingPack)
+      return
+    }
     setComposing(true)
     etsy
       .compose(state.productId)
-      .then(({ pack }) => {
-        const d = listingDraftFromPack(pack)
-        setDraft(d)
-        setTagsText(d.tags.join(', '))
-      })
+      .then(({ pack }) => applyPack(pack))
       .catch((err: any) => setError(err?.message || 'Failed to compose listing copy'))
       .finally(() => setComposing(false))
+    // composedRef guards this to a single run; state.product is only read
+    // once, at that first run, same pattern as the rest of this file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.productId])
+
+  const handleRecompose = async () => {
+    if (!state.productId) return
+    setError(null)
+    setComposing(true)
+    try {
+      const { pack } = await etsy.compose(state.productId)
+      applyPack(pack)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to compose listing copy')
+    } finally {
+      setComposing(false)
+    }
+  }
 
   const previewImages = useMemo(() => {
     const shots = getShots(state)
@@ -79,7 +108,15 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
 
   return (
     <StepCard>
-      <h2 className="text-xl font-bold text-text mb-1">Listing</h2>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <h2 className="text-xl font-bold text-text">Listing</h2>
+        {draft && (
+          <SecondaryButton onClick={handleRecompose} disabled={composing}>
+            {composing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Re-compose
+          </SecondaryButton>
+        )}
+      </div>
       <p className="text-sm text-muted mb-4">SEO copy is generated, then it's yours to edit before it goes live.</p>
 
       {composing && (

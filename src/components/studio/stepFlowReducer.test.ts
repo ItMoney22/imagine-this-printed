@@ -91,7 +91,12 @@ describe('canReachStep', () => {
     expect(canReachStep(stateWith({ productId: 'p1' }), 'design')).toBe(true)
   })
 
-  it('garments requires either approvals.design or a landed no-bg asset', () => {
+  it('garments requires the no-bg asset to have landed — approvals.design alone is not enough', () => {
+    // The backend stamps approvals.design at select-design time, before the
+    // rembg job that produces the no-bg asset even starts, so trusting that
+    // stamp alone would unlock Garments (and let color-advice measure the
+    // solid-background source) while "Removing the background…" is still
+    // running.
     const noNobg = stateWith({ productId: 'p1', stepFlow: stepFlowMeta() })
     expect(canReachStep(noNobg, 'garments')).toBe(false)
 
@@ -102,11 +107,11 @@ describe('canReachStep', () => {
     })
     expect(canReachStep(withNobg, 'garments')).toBe(true)
 
-    const withApproval = stateWith({
+    const approvalOnly = stateWith({
       productId: 'p1',
       stepFlow: stepFlowMeta({ approvals: { design: '2026-09-01T00:00:00Z' } }),
     })
-    expect(canReachStep(withApproval, 'garments')).toBe(true)
+    expect(canReachStep(approvalOnly, 'garments')).toBe(false)
   })
 
   it('mockups requires either approvals.garments or a chosen garment on step_flow', () => {
@@ -170,6 +175,7 @@ describe('furthestReachableStep', () => {
     const state = stateWith({
       productId: 'p1',
       stepFlow: stepFlowMeta({ approvals: { design: 't', garments: 't' } }),
+      assets: [asset({ id: 'a1', kind: 'nobg', url: 'https://x/nobg.png' })],
     })
     expect(furthestReachableStep(state)).toBe('mockups')
   })
@@ -178,6 +184,7 @@ describe('furthestReachableStep', () => {
     const state = stateWith({
       productId: 'p1',
       stepFlow: stepFlowMeta({ approvals: { design: 't', garments: 't', mockups: 't', listing: 't' } }),
+      assets: [asset({ id: 'a1', kind: 'nobg', url: 'https://x/nobg.png' })],
     })
     expect(furthestReachableStep(state)).toBe('etsy')
   })
@@ -215,6 +222,7 @@ describe('stepFlowReducer', () => {
       productId: 'p1',
       step: 'mockups',
       stepFlow: stepFlowMeta({ approvals: { design: 't', garments: 't' } }),
+      assets: [asset({ id: 'a1', kind: 'nobg', url: 'https://x/nobg.png' })],
     })
     const next = stepFlowReducer(state, { type: 'GO_TO_STEP', step: 'garments' })
     expect(next.step).toBe('garments')
@@ -234,6 +242,7 @@ describe('stepFlowReducer', () => {
           hanger: { approved: false, status: 'failed', error: 'render failed' },
         },
       },
+      assets: [asset({ id: 'a1', kind: 'nobg', url: 'https://x/nobg.png' })],
     })
     const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
     expect(next.productId).toBe('p1')
@@ -265,7 +274,11 @@ describe('stepFlowReducer', () => {
     // A fresh GET that (implausibly) comes back with listing un-stamped —
     // etsy is no longer reachable, but listing still is (it only needs
     // approvals.mockups), so that's where the clamp lands.
-    const res = response({ productId: 'p1', stepFlow: { approvals: { design: 't', garments: 't', mockups: 't' } } })
+    const res = response({
+      productId: 'p1',
+      stepFlow: { approvals: { design: 't', garments: 't', mockups: 't' } },
+      assets: [asset({ id: 'a1', kind: 'nobg', url: 'https://x/nobg.png' })],
+    })
     const next = stepFlowReducer(state, { type: 'HYDRATE', response: res })
     expect(next.step).toBe('listing')
   })
@@ -390,6 +403,38 @@ describe('areMockupsResolved / hasNonTerminalWork', () => {
   it('hasNonTerminalWork is true while any shot is queued or running, even with no matching job row', () => {
     const state = stateWith({
       stepFlow: stepFlowMeta({ shots: { model: { approved: false, status: 'running' } } }),
+    })
+    expect(hasNonTerminalWork(state)).toBe(true)
+  })
+
+  it('hasNonTerminalWork ignores a queued/running job of a type this flow never queues', () => {
+    const state = stateWith({ jobs: [job({ id: 'j1', type: 'some_other_feature_job', status: 'running' })] })
+    expect(hasNonTerminalWork(state)).toBe(false)
+  })
+
+  it('hasNonTerminalWork stops polling on an orphaned `details` shot once `product` has failed', () => {
+    // `details` is rendered synchronously once `product` lands an asset —
+    // if `product` failed outright, `details` is stuck `queued` forever with
+    // no job of its own, and must not keep the poll loop alive.
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: false, status: 'failed', error: 'render failed' },
+          details: { approved: false, status: 'queued' },
+        },
+      }),
+    })
+    expect(hasNonTerminalWork(state)).toBe(false)
+  })
+
+  it('hasNonTerminalWork still polls a queued `details` shot while `product` has not failed', () => {
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: true, status: 'done', assetId: 'a1' },
+          details: { approved: false, status: 'queued' },
+        },
+      }),
     })
     expect(hasNonTerminalWork(state)).toBe(true)
   })

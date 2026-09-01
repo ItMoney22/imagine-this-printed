@@ -2,10 +2,10 @@
 // prompt for gpt-image-2, then the design job fires.
 import React, { useState } from 'react'
 import { Mic, Square, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
-import { aiProducts, stepFlow } from '../../lib/api'
-import type { AIProductCreationRequest } from '../../types'
+import { stepFlow } from '../../lib/api'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
 import type { StepBrief } from './types'
+import { createStepFlowProduct } from './createStepFlowProduct'
 import { useVoiceDictation } from './useVoiceDictation'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 
@@ -15,18 +15,6 @@ interface IdeaStepProps {
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
 }
 
-// The create route's typed request doesn't know about takes/stepFlow yet, and
-// its `background`/`category` unions predate this flow's 'white'|'black'
-// solid-background render and the catalog-capability 't-shirts' category id —
-// extending it locally here keeps src/types/index.ts untouched, which is
-// outside this track's file ownership this round.
-type StepFlowCreateRequest = Omit<AIProductCreationRequest, 'background' | 'category'> & {
-  background?: 'white' | 'black'
-  category?: AIProductCreationRequest['category'] | 't-shirts'
-  takes?: 1 | 2 | 3
-  stepFlow?: { idea: string; brief: StepBrief }
-}
-
 const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const [writingBrief, setWritingBrief] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -34,9 +22,13 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const [brief, setBrief] = useState<StepBrief | null>(null)
   const [briefOpen, setBriefOpen] = useState(true)
 
-  const { supported: voiceSupported, listening, start: startVoice, stop: stopVoice } = useVoiceDictation((text) =>
-    dispatch({ type: 'SET_IDEA', idea: text })
-  )
+  const {
+    supported: voiceSupported,
+    listening,
+    error: voiceError,
+    start: startVoice,
+    stop: stopVoice,
+  } = useVoiceDictation((text) => dispatch({ type: 'SET_IDEA', idea: text }))
 
   const idea = state.idea
 
@@ -60,21 +52,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     setError(null)
     setCreating(true)
     try {
-      const request: StepFlowCreateRequest = {
-        prompt: brief.designPrompt,
-        modelId: 'openai/gpt-image-2',
-        forceSingleModel: true,
-        takes: 1,
-        background: brief.background,
-        productType: brief.garmentHint,
-        shirtColor: brief.background === 'white' ? 'black' : 'white',
-        category: brief.garmentHint === 'hoodie' ? 'hoodies' : 't-shirts',
-        stepFlow: { idea: idea.trim(), brief },
-      }
-      // `request` intentionally carries a couple of fields whose types the
-      // shared AIProductCreationRequest doesn't know about yet (see the type
-      // note above) — the backend `/create` route reads them by name.
-      const { productId } = await aiProducts.create(request as unknown as AIProductCreationRequest)
+      const { productId } = await createStepFlowProduct(idea.trim(), brief)
       dispatch({ type: 'PRODUCT_CREATED', productId })
       await refresh({ productId, advance: true })
     } catch (err: any) {
@@ -107,6 +85,8 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
               type="button"
               onClick={() => (listening ? stopVoice() : startVoice(idea))}
               title={listening ? 'Stop dictation' : 'Speak your idea'}
+              aria-label={listening ? 'Stop voice dictation' : 'Start voice dictation'}
+              aria-pressed={listening}
               className={`inline-flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
                 listening ? 'bg-red-500 text-white animate-pulse' : 'bg-primary/10 text-primary hover:bg-primary/20'
               }`}
@@ -119,6 +99,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
       {!voiceSupported && (
         <p className="text-xs text-muted mt-1.5">Voice input isn't supported in this browser — typing works everywhere.</p>
       )}
+      {voiceError && <p className="text-xs text-red-400 mt-1.5">{voiceError}</p>}
 
       <div className="mt-4">
         <ApproveButton onClick={handleWriteBrief} disabled={!idea.trim() || writingBrief} busy={writingBrief}>

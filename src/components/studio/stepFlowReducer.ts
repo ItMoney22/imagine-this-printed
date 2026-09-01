@@ -10,11 +10,18 @@
 // dedicated "stamp this approval" route in the shared contract table
 // (only garments→mockups via POST .../step/garments and listing→etsy via
 // POST .../step/publish explicitly say they stamp an approval). For those two
-// this reducer falls back to a concrete, resumable signal instead of an
-// approval string: a no-bg asset existing (rembg landed) gates Garments, and
-// "every fired shot is approved or failed" gates Listing. Both fall back
-// gracefully to approvals.design / approvals.mockups too, in case the backend
-// ends up stamping them after all — see the report back to Track B.
+// this reducer uses a concrete, resumable signal instead of an approval
+// string: a no-bg asset existing (rembg landed) gates Garments, and "every
+// fired shot is approved or failed" gates Listing.
+//
+// design→garments is a NOBG-ONLY gate — it deliberately does NOT also accept
+// approvals.design as a fallback. The backend stamps approvals.design at
+// select-design time, BEFORE the rembg job that strips the background even
+// starts, so trusting that stamp would unlock Garments (and let color-advice
+// measure the artwork) while "Removing the background…" is still running —
+// the color scoring would run against the solid-background source instead of
+// the transparent print file. mockups→listing keeps its approvals.mockups
+// fallback, in case the backend ends up stamping it after all.
 import type {
   ColorAdvice,
   DesignCandidate,
@@ -170,18 +177,34 @@ export function areMockupsResolved(state: Pick<StepFlowState, 'stepFlow' | 'asse
   return entries.every((s) => s.approved || s.status === 'failed')
 }
 
+/** The job types this flow actually queues — filters out any stray row from
+ *  another feature so it can never keep the poll loop alive. */
+const FLOW_JOB_TYPES = new Set(['replicate_image_v2', 'replicate_remove_bg', 'replicate_mockup_v2', 'step_flow_model_shot'])
+
 /** True while any job or shot is still in flight — the poll loop's condition. */
 export function hasNonTerminalWork(state: Pick<StepFlowState, 'stepFlow' | 'assets' | 'jobs'>): boolean {
-  if (state.jobs.some((j) => j.status === 'queued' || j.status === 'running')) return true
+  if (state.jobs.some((j) => FLOW_JOB_TYPES.has(j.type) && (j.status === 'queued' || j.status === 'running'))) return true
   const shots = getShots(state)
-  return Object.values(shots).some((s) => s?.status === 'queued' || s?.status === 'running')
+  // `details` is rendered synchronously by the server once the `product`
+  // shot lands an asset (see plan "Job conventions") — it has no job row of
+  // its own. If `product` failed, `details` is orphaned: stuck `queued`
+  // forever with nothing that will ever resolve it, so it must not keep the
+  // poll loop running (MockupStep's Skip button is what clears it for good).
+  const productFailed = shots.product?.status === 'failed'
+  return Object.entries(shots).some(([key, s]) => {
+    if (!s) return false
+    if (key === 'details' && productFailed) return false
+    return s.status === 'queued' || s.status === 'running'
+  })
 }
 
 /**
  * Reachability, step by step. `idea` is always reachable; every later step
- * needs its predecessor's exit condition. `garments` and `listing` don't have
- * a documented approval stamp in the shared contract (see file header), so
- * they use a concrete fallback signal in addition to the approval string.
+ * needs its predecessor's exit condition. `design`, `garments` and `listing`
+ * don't have a documented approval stamp in the shared contract (see file
+ * header): `design` uses the nobg asset alone (no approval fallback — it's
+ * stamped too early to trust), `garments` and `listing` use a concrete
+ * fallback signal alongside the approval string.
  */
 export function canReachStep(
   state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs'>,
@@ -194,7 +217,10 @@ export function canReachStep(
     case 'idea':
       return !!state.productId
     case 'design':
-      return !!approvals.design || getNobgAsset(state) !== null
+      // No approvals.design fallback — see the file header. The nobg asset
+      // landing is the only trustworthy signal that the background has
+      // actually been stripped.
+      return getNobgAsset(state) !== null
     case 'garments':
       return !!approvals.garments || !!state.stepFlow?.garment
     case 'mockups':
