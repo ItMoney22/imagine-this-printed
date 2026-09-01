@@ -830,7 +830,13 @@ async function startJob(job: any) {
       .single()
     const productMeta = (mockupProduct?.metadata as any) || {}
 
-    const shirtColor = productMeta.shirt_color || job.input?.shirtColor || imageJob?.input?.shirtColor || 'black'
+    // Job-first for the garment color (Step Flow, David 2026-09-01): a
+    // `color:<id>` run asks for THIS render in another color, so the job's
+    // shirtColor outranks the product's primary. Every pre-existing caller
+    // copies metadata.shirt_color into input.shirtColor anyway, so this is
+    // behaviour-preserving for them. (Smoke 2026-09-01: metadata-first rendered
+    // the "white" variant in black.)
+    const shirtColor = job.input?.shirtColor || productMeta.shirt_color || imageJob?.input?.shirtColor || 'black'
     const productType = productMeta.product_type || job.input?.productType || imageJob?.input?.productType || 'tshirt'
     // Placement is the ONE setting where THIS JOB outranks the product default.
     // The product's print_placement describes what the product IS; a mockup job

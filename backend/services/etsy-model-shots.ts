@@ -18,6 +18,7 @@
 // shots run sequentially to stay rate-limit friendly).
 // ---------------------------------------------------------------------------
 import Replicate from 'replicate'
+import sharp from 'sharp'
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from './gcs-storage.js'
@@ -827,33 +828,78 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
 // Normalize Replicate output (string | array | async iterator, URL or raw
 // bytes) into a Buffer — same quirks the realistic-mockups route handles.
 async function outputToBuffer(output: any): Promise<Buffer> {
-  let value: string | null = null
-  if (typeof output === 'string') {
-    value = output
-  } else if (Array.isArray(output) && output.length > 0) {
-    value = typeof output[0] === 'string' ? output[0] : output[0]?.url ?? String(output[0])
-  } else if (output && typeof output === 'object' && Symbol.asyncIterator in output) {
-    const chunks: string[] = []
-    for await (const item of output as AsyncIterable<any>) {
-      if (typeof item === 'string') chunks.push(item)
-      else if (item && typeof item === 'object' && 'url' in item) chunks.push(item.url)
-      else if (item != null) chunks.push(String(item))
+  // Replicate returns one of: a URL string, a FileOutput (has .url()), an
+  // array of either, a data: URI, or an async iterable of byte chunks
+  // (Uint8Array) / strings. The old version stringified chunks and joined
+  // them ONLY when the first chunk matched the PNG magic in decimal — a JPEG
+  // stream kept just its first chunk, so the nano-banana fallback uploaded a
+  // 590-byte header and called it a shot (smoke 2026-09-01). Handle every
+  // shape, concatenate all bytes, and refuse anything that does not decode.
+  const decimalBytes = /^\d{1,3}(,\d{1,3})+$/
+  const toBytes = (item: any): Buffer | null =>
+    Buffer.isBuffer(item) ? item
+      : item instanceof Uint8Array ? Buffer.from(item)
+      : item instanceof ArrayBuffer ? Buffer.from(new Uint8Array(item))
+      : null
+  const urlOf = (o: any): string | null => {
+    if (typeof o === 'string') return /^https?:\/\//.test(o) ? o : null
+    if (o && typeof o === 'object' && 'url' in o) {
+      const u = typeof o.url === 'function' ? o.url() : o.url
+      return u ? String(u) : null
     }
-    if (chunks.length) {
-      value = chunks[0]?.match(/^137,80,78,71/) ? chunks.join(',') : chunks[0]
-    }
-  } else if (output && typeof output === 'object' && 'url' in output) {
-    value = typeof (output as any).url === 'function' ? String((output as any).url()) : String((output as any).url)
+    return null
   }
-  if (!value) throw new Error('No usable output from the image model')
-
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    const res = await fetch(value)
+  const fetchUrl = async (u: string): Promise<Buffer> => {
+    const res = await fetch(u)
     if (!res.ok) throw new Error(`Failed to download generated shot (${res.status})`)
     return Buffer.from(await res.arrayBuffer())
   }
-  // Raw comma-separated byte stream (chunked binary quirk)
-  return Buffer.from(value.split(',').map(b => parseInt(b.trim(), 10)))
+  const fromString = async (v: string): Promise<Buffer | null> => {
+    if (/^https?:\/\//.test(v)) return fetchUrl(v)
+    if (v.startsWith('data:')) return Buffer.from(v.slice(v.indexOf(',') + 1), 'base64')
+    if (decimalBytes.test(v)) return Buffer.from(v.split(',').map((b) => parseInt(b, 10)))
+    return null
+  }
+
+  let buffer: Buffer | null = toBytes(output)
+  if (!buffer && typeof output === 'string') buffer = await fromString(output)
+  if (!buffer && output && typeof output === 'object' && !Array.isArray(output) && urlOf(output)) {
+    buffer = await fetchUrl(urlOf(output)!)
+  }
+  if (!buffer && Array.isArray(output) && output.length > 0) {
+    // A list of outputs: the first item is the image (or a chunk list).
+    const first = output[0]
+    buffer = toBytes(first) ?? (typeof first === 'string' ? await fromString(first) : null)
+    if (!buffer && urlOf(first)) buffer = await fetchUrl(urlOf(first)!)
+  }
+  if (!buffer && output && typeof output === 'object' && Symbol.asyncIterator in output) {
+    const bufs: Buffer[] = []
+    const strs: string[] = []
+    for await (const item of output as AsyncIterable<any>) {
+      const b = toBytes(item)
+      if (b) bufs.push(b)
+      else if (typeof item === 'string') strs.push(item)
+      else if (urlOf(item)) { buffer = await fetchUrl(urlOf(item)!); break }
+    }
+    if (!buffer && bufs.length) buffer = Buffer.concat(bufs)
+    if (!buffer && strs.length) {
+      const joined = strs.join(',')
+      buffer = decimalBytes.test(joined) ? Buffer.from(joined.split(',').map((b) => parseInt(b, 10))) : await fromString(strs[0])
+    }
+  }
+  if (!buffer || buffer.length === 0) throw new Error('No usable output from the image model')
+
+  // Decode gate: a shot that is not a real, reasonably sized image must fail
+  // here so the fallback/retry machinery sees it — never reach the uploader.
+  try {
+    const meta = await sharp(buffer).metadata()
+    if (!meta.width || !meta.height || meta.width < 256 || meta.height < 256) {
+      throw new Error(`image too small (${meta.width}x${meta.height})`)
+    }
+  } catch (err: any) {
+    throw new Error(`Generated shot is not a valid image (${buffer.length} bytes): ${err?.message || err}`)
+  }
+  return buffer
 }
 
 async function stockModelUrl(preferred: string): Promise<string> {
