@@ -138,6 +138,78 @@ class CandleCradle(Fixture):
             "weight_pocket_depth": pocket_depth,
         }
 
+    def cut_plan(self, params: dict) -> list:
+        """The subtractive features, as pure data, in cutting order.
+
+        Extracted from build() so it has ONE definition. build() cuts these;
+        a shell fusion has to cut them AGAIN, because a union with a solid
+        shell refills every one of them - and a refilled weight pocket is not
+        a cosmetic problem, it is a sand chamber you cannot put sand in.
+        Re-deriving these extents in the composer instead would be two
+        definitions of the same cavity, drifting apart on the first edit.
+
+        `open_top` marks a cut that must stay open to the sky: after a union
+        the top of the MODEL can be above the top of the cradle, and a bore
+        that stops at the cradle rim caps the jar in.
+        """
+        height = params["height"]
+        wall = params["wall_mm"]
+        platform_depth = params["platform_depth"]
+        cavity_dia = params["base_width"] - 2 * wall
+
+        cuts = [{
+            "name": "bore",
+            "dia": params["bore_dia"],
+            "z0": height - platform_depth,
+            "z1": height + _OVERSHOOT_MM,
+            "open_top": True,
+        }]
+
+        cavity_floor = wall
+        if params["weight_pocket"]:
+            pocket_top = params["weight_pocket_depth"]
+            cuts.append({
+                "name": "weight_pocket",
+                "dia": cavity_dia,
+                "z0": -_OVERSHOOT_MM,
+                "z1": pocket_top,
+                "open_top": False,
+            })
+            cavity_floor = pocket_top + wall
+
+        cavity_ceiling = height - platform_depth - wall
+        if cavity_ceiling - cavity_floor > 0:
+            cuts.append({
+                "name": "cavity",
+                "dia": cavity_dia,
+                "z0": cavity_floor,
+                "z1": cavity_ceiling,
+                "open_top": False,
+            })
+        return cuts
+
+    def build_body(self, params: dict, ctx):
+        """The uncut solid barrel, before any feature is subtracted.
+
+        Split out for shell fusion, and the reason is measured. A shell is
+        unioned against THIS, not against the finished cradle. Union it against
+        the finished cradle instead and the generated figure ends up sitting
+        inside the lightening cavity with a 0.4mm gap between its surface and
+        the cavity wall - thinner than the 0.6mm remesh voxel, so the gap
+        cannot be represented, and every subsequent cut fails on the resulting
+        topology (measured: 803 non-manifold edges on the weight pocket, then
+        2,325 on the cavity, with the volume RISING after a subtraction).
+
+        Unioned against the uncut barrel that interior surface is simply
+        consumed - a shape inside a solid contributes nothing to the union -
+        and the features cut afterwards are cutting clean cylinders through
+        clean material, exactly as they do on a bare cradle. Same product,
+        zero non-manifold edges.
+        """
+        import bpy
+        return _cylinder(bpy, dia=params["base_width"], z0=0.0,
+                         z1=params["height"], name="cradle")
+
     def build(self, params: dict, ctx):
         """Blender only. Straight barrel, three subtractive cuts.
 
@@ -156,39 +228,16 @@ class CandleCradle(Fixture):
         import bpy
         from printfactory import blender_ops as ops
 
-        base_width = params["base_width"]
-        height = params["height"]
-        wall = params["wall_mm"]
-        platform_depth = params["platform_depth"]
+        body = self.build_body(params, ctx)
 
-        body = _cylinder(bpy, dia=base_width, z0=0.0, z1=height, name="cradle")
-
-        # 1. the bore: the recess the jar actually sits in, cut into the top face.
-        bore = _cylinder(bpy, dia=params["bore_dia"],
-                         z0=height - platform_depth, z1=height + _OVERSHOOT_MM,
-                         name="bore_cut")
-        ops.boolean(body, bore, "DIFFERENCE")
-
-        cavity_dia = base_width - 2 * wall
-        cavity_floor = wall
-
-        # 2. the sand chamber, opening downward through the bottom face.
-        if params["weight_pocket"]:
-            pocket_top = params["weight_pocket_depth"]
-            pocket = _cylinder(bpy, dia=cavity_dia,
-                               z0=-_OVERSHOOT_MM, z1=pocket_top,
-                               name="pocket_cut")
-            ops.boolean(body, pocket, "DIFFERENCE")
-            cavity_floor = pocket_top + wall
-
-        # 3. the lightening cavity between the divider and the platform floor.
-        #    Sealed on purpose - it is what turns a 2kg billet into a ~270g part.
-        cavity_ceiling = height - platform_depth - wall
-        if cavity_ceiling - cavity_floor > 0:
-            cavity = _cylinder(bpy, dia=cavity_dia,
-                               z0=cavity_floor, z1=cavity_ceiling,
-                               name="cavity_cut")
-            ops.boolean(body, cavity, "DIFFERENCE")
+        #  1. the bore: the recess the jar sits in, cut into the top face.
+        #  2. the sand chamber, opening downward through the bottom face.
+        #  3. the lightening cavity between the divider and the platform floor.
+        #     Sealed on purpose - it is what turns a 2kg billet into a ~270g part.
+        for cut in self.cut_plan(params):
+            tool = _cylinder(bpy, dia=cut["dia"], z0=cut["z0"], z1=cut["z1"],
+                             name=f"{cut['name']}_cut")
+            ops.boolean(body, tool, "DIFFERENCE")
 
         return body
 

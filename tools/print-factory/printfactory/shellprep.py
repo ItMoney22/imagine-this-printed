@@ -113,3 +113,36 @@ def retry_voxel_sizes(voxel_mm: float, retries: int = 1) -> list:
     for _ in range(retries):
         sizes.append(sizes[-1] / 2.0)
     return sizes
+
+
+# How far above the platform floor an obstruction may sit before the jar is
+# considered blocked. Half a millimetre: less than two printed layers, which is
+# about the fuzz a voxel remesh leaves on a nominally flat floor.
+BORE_CLEARANCE_TOL_MM = 0.5
+
+
+def bore_blockage(probe: dict, bore_floor_z: float, jar_dia: float,
+                  tol: float = BORE_CLEARANCE_TOL_MM):
+    """Read a downward ray probe of the jar column. None means the jar fits.
+
+    Pure so the gate that decides whether a product is worth printing can be
+    tested without launching Blender. `probe` is whatever blender_ops
+    .probe_column() returned.
+
+    Two distinct failures, and the second is easy to miss: an obstruction ABOVE
+    the platform floor means the jar stops early (the fused shell's own head
+    sitting in the recess); a ray that hits NOTHING means there is no floor
+    under the jar at all, which reads as "wonderfully clear" to any check that
+    only looks at how deep the hits went.
+    """
+    if probe.get("misses"):
+        return (f"{probe['misses']}/{probe['samples']} probe rays passed clean "
+                "through the model - the jar recess has no floor to stand on")
+    top = probe.get("first_hit_z_max")
+    if top is None:
+        return "the probe recorded no hits at all; there is nothing to sit on"
+    if top > bore_floor_z + tol:
+        return (f"a {jar_dia}mm jar stops at z={top:.2f} but the platform floor "
+                f"is at z={bore_floor_z:.2f} - {top - bore_floor_z:.2f}mm of "
+                "obstruction fills the recess this product exists to provide")
+    return None

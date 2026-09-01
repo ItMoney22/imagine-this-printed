@@ -29,3 +29,33 @@ def tip_risk(height_mm: float, base_width_mm: float) -> bool:
     if base_width_mm <= 0:
         raise ValueError("base_width_mm must be positive")
     return (height_mm / base_width_mm) > MAX_HEIGHT_TO_BASE
+
+
+# Below this a "solid" is a rounding artefact, not a part: 1 mm3 is a cube a
+# millimetre on a side, four times under a single 0.4mm extrusion.
+MIN_PRINTABLE_VOLUME_MM3 = 1.0
+
+
+def degenerate_reasons(stats: dict, bbox_mm: dict) -> list:
+    """Reasons the mesh is not a part at all. Empty list means it is real.
+
+    This exists because of one specific way a boolean run fails silently: the
+    solver consumes the whole model. What is left has zero edges, so
+    `non_manifold_edges == 0`, so `manifold` reports True, `warnings` comes back
+    empty and `ok` comes back True - a job that produced nothing looks like the
+    cleanest run of the day, and an STL with no triangles goes to the printer.
+    """
+    reasons = []
+    if stats.get("tri_count", 0) <= 0:
+        reasons.append(
+            f"tri_count {stats.get('tri_count', 0)}: the mesh has no faces"
+        )
+    volume = stats.get("volume_mm3", 0.0)
+    if volume < MIN_PRINTABLE_VOLUME_MM3:
+        reasons.append(
+            f"volume {volume}mm3 below {MIN_PRINTABLE_VOLUME_MM3}mm3: nothing solid left"
+        )
+    for axis in ("x", "y", "z"):
+        if bbox_mm.get(axis, 0.0) <= 0.0:
+            reasons.append(f"bbox {axis} is {bbox_mm.get(axis, 0.0)}: collapsed axis")
+    return reasons

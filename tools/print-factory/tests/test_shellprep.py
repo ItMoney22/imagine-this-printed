@@ -9,6 +9,7 @@ import pytest
 from printfactory.shellprep import (
     ShellError,
     apply_plan,
+    bore_blockage,
     bore_cut_span,
     normalise_plan,
     retry_voxel_sizes,
@@ -128,3 +129,46 @@ class TestRetryVoxelSizes:
     def test_a_non_positive_voxel_is_rejected(self):
         with pytest.raises(ShellError, match="voxel_mm"):
             retry_voxel_sizes(0.0)
+
+
+class TestBoreBlockage:
+    """The step-8 gate, as pure arithmetic. This is the check that separates a
+    candle holder from a solid decoration with the right bounding box."""
+
+    CLEAR = {"samples": 33, "misses": 0,
+             "first_hit_z_max": 175.0, "first_hit_z_min": 175.0}
+
+    def test_a_clear_bore_is_not_blocked(self):
+        assert bore_blockage(self.CLEAR, bore_floor_z=175.0, jar_dia=89.0) is None
+
+    def test_the_measured_wraith_union_is_blocked(self):
+        """Real numbers: before the re-cut, the fused wraith's own head stopped
+        the jar at z=194.48 with the platform floor at 175."""
+        probe = {"samples": 33, "misses": 0,
+                 "first_hit_z_max": 194.47775268554688,
+                 "first_hit_z_min": 172.59999084472656}
+        reason = bore_blockage(probe, bore_floor_z=175.0, jar_dia=89.0)
+        assert reason is not None
+        assert "194.48" in reason and "19.48mm" in reason
+
+    def test_rays_passing_straight_through_are_a_blockage_too(self):
+        """No hit at all means no platform floor - the jar would drop through
+        rather than sit. Not a pass just because nothing was in the way."""
+        probe = {"samples": 33, "misses": 4, "first_hit_z_max": 175.0,
+                 "first_hit_z_min": 175.0}
+        reason = bore_blockage(probe, bore_floor_z=175.0, jar_dia=89.0)
+        assert reason is not None and "4/33" in reason
+
+    def test_a_sub_layer_obstruction_is_tolerated(self):
+        # 0.3mm of remesh fuzz on the floor is not a blocked bore.
+        probe = dict(self.CLEAR, first_hit_z_max=175.3)
+        assert bore_blockage(probe, 175.0, 89.0) is None
+
+    def test_an_obstruction_past_the_tolerance_is_not(self):
+        probe = dict(self.CLEAR, first_hit_z_max=176.0)
+        assert bore_blockage(probe, 175.0, 89.0) is not None
+
+    def test_no_hits_at_all_is_a_blockage(self):
+        probe = {"samples": 33, "misses": 33, "first_hit_z_max": None,
+                 "first_hit_z_min": None}
+        assert bore_blockage(probe, 175.0, 89.0) is not None

@@ -1,0 +1,6 @@
+{
+  "fixture": "candle_cradle",
+  "params": {"jar_dia": 89},
+  "shell_glb": "shell.glb",
+  "target_height_mm": 200
+}
