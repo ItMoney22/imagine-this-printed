@@ -635,7 +635,7 @@ export interface BatchOptions {
 }
 
 export async function previewResearch(): Promise<MarketSignal[]> {
-  const cats: ResearchCategory[] = ['shirts', 'hoodies', 'polos', 'metal-art']
+  const cats: ResearchCategory[] = ['shirts', 'hoodies', 'metal-art']
   const out: MarketSignal[] = []
   for (const c of cats) out.push(await researchCategory(c))
   return out
@@ -694,7 +694,7 @@ async function runBatch(batchId: string, counts: { garments: number; metal: numb
 
   await note(`batch ${batchId} — realtime Etsy research`)
   const signals: MarketSignal[] = []
-  const cats: ResearchCategory[] = counts.garments > 0 ? ['shirts', 'hoodies', 'polos'] : []
+  const cats: ResearchCategory[] = counts.garments > 0 ? ['shirts', 'hoodies'] : []
   if (counts.metal > 0) cats.push('metal-art')
   for (const c of cats) {
     signals.push(await researchCategory(c))

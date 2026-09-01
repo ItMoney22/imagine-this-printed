@@ -16,10 +16,10 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   X, RefreshCw, Scissors, ArrowUpCircle, LayoutGrid, Sparkles,
-  ExternalLink, Wand2, ImageOff,
+  ExternalLink, Wand2, ImageOff, Check,
 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
-import { COLOR_PRESETS } from '../../utils/color-presets'
+import { COLOR_PRESETS, isLightSwatch } from '../../utils/color-presets'
 import { MockupProgressPanel, type MockupProgress } from '../MockupProgressPanel'
 import { ImageLightbox, type LightboxImage } from './ImageLightbox'
 
@@ -464,7 +464,11 @@ const DetailsTab: React.FC<{
                 }`}
                 style={{ backgroundColor: color.hex }}
                 title={color.name}
-              />
+              >
+                {(product.colors || []).includes(color.hex) && (
+                  <Check className={`w-4 h-4 ${isLightSwatch(color.hex) ? 'text-black' : 'text-white'}`} strokeWidth={3} />
+                )}
+              </button>
             ))}
           </div>
           <div className="flex items-center gap-2">

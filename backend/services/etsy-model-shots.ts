@@ -1177,7 +1177,7 @@ export async function reshootModelShot(
 export async function shootOneModelShot(
   productId: string,
   userId: string,
-  opts: { shirtColor?: ColorId; garment?: GarmentId; cast?: ShotCast; nonce?: string } = {}
+  opts: { shirtColor?: ColorId; garment?: GarmentId; cast?: ShotCast; nonce?: string; mirror?: boolean } = {}
 ): Promise<{ url: string; check: ShotCheck }> {
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
@@ -1224,7 +1224,11 @@ export async function shootOneModelShot(
     .eq('id', productId)
   if (updErr) throw new Error(`Failed to record the step-flow model shot: ${updErr.message}`)
 
-  await mirrorShotsToProductAssets(productId, images, checks)
+  // Mirroring is opt-in here. mirrorShotsToProductAssets assigns roles by
+  // POSITION over the whole accumulated etsy_shots.images, so a caller that
+  // also writes its own mockup_model_1 row (the step flow does, per redo)
+  // would end up with the same shot under two roles. The caller owns the row.
+  if (opts.mirror) await mirrorShotsToProductAssets(productId, images, checks)
   return { url, check }
 }
 

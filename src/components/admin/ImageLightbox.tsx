@@ -3,7 +3,7 @@
 // buttons), prev/next through the flattened gallery, download, set-as-main,
 // and delete (only offered when the current image actually has a
 // product_assets row, i.e. `assetId` is set — Etsy model shots don't).
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, Star, Trash2 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
 
@@ -64,10 +64,20 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
 
   const isMain = !!mainImageUrl && mainImageUrl === current.url
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    setZoom(z => clampZoom(z - e.deltaY * 0.0015))
-  }
+  // React registers `wheel` as passive, so a synthetic onWheel cannot
+  // preventDefault and the page underneath scrolls while zooming. Attach a
+  // native non-passive listener instead.
+  const viewerRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = viewerRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      setZoom(z => clampZoom(z - e.deltaY * 0.0015))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   return (
     <div
@@ -110,7 +120,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
       <div
         className={`relative max-w-[88vw] max-h-[64vh] w-full h-[64vh] rounded-2xl overflow-hidden border border-white/10 ${CHECKERBOARD_BG} flex items-center justify-center cursor-zoom-in`}
         onClick={(e) => e.stopPropagation()}
-        onWheel={handleWheel}
+        ref={viewerRef}
       >
         <img
           src={current.url}
@@ -154,6 +164,8 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
         <a
           href={current.url}
           download
+          target="_blank"
+          rel="noopener noreferrer"
           className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-card/90 border border-white/10 text-text hover:bg-white/10 transition-colors"
         >
           <Download className="w-3.5 h-3.5" />
