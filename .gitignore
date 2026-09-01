@@ -62,3 +62,6 @@ __pycache__/
 # via prep.py and a stale committed binary is worse than no binary.
 tools/print-factory/examples/*.stl
 tools/print-factory/examples/*.metrics.json
+# The source shell GLBs are generative artifacts (2.3MB+ binaries) fetched
+# from the image/3D pipeline, not source. prep.py takes a path to one.
+tools/print-factory/examples/*.glb
