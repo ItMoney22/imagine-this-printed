@@ -48,6 +48,10 @@ import {
   type MarketSignal,
   type ResearchCategory,
 } from './etsy-market-research.js'
+// Catalog capability boundary (David 2026-09-01: "we don't even do
+// embroidery" — polo goes away here too). GARMENT_IDS/getGarment replace the
+// local polo-inclusive lists this file used to carry.
+import { GARMENTS, GARMENT_IDS, getGarment, type GarmentId } from '../shared/catalog-capability.js'
 
 // Writing brain rides OpenRouter when available (David 2026-08-20 cost pass:
 // OpenAI is for the design ART; briefs and copy are text jobs Gemini Flash
@@ -56,15 +60,27 @@ import {
 // generation). MRS_IMAGINE_BRAIN_MODEL overrides on either client; use an
 // OpenRouter slug when OPENROUTER_API_KEY is set.
 const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
-const brain = new OpenAI(
-  USE_OPENROUTER
-    ? {
-        apiKey: process.env.OPENROUTER_API_KEY,
-        baseURL: 'https://openrouter.ai/api/v1',
-        defaultHeaders: { 'HTTP-Referer': 'https://imaginethisprinted.com', 'X-Title': 'Mrs. Imagine' },
-      }
-    : { apiKey: process.env.OPENAI_API_KEY }
-)
+// Lazy singleton, not a module-scope `new OpenAI(...)`: the SDK throws
+// synchronously at construction when neither key is set ("Missing
+// credentials"), which would crash this module on *import* alone in any
+// environment without those env vars (a bare test run included) — the same
+// bug the mockup-qa.ts / etsy-model-shots.ts clients avoid by guarding their
+// own construction. Deferring to first real use keeps the pure exports
+// (parseBriefsResponse) importable without an API key.
+let _brain: OpenAI | null = null
+function getBrain(): OpenAI {
+  if (_brain) return _brain
+  _brain = new OpenAI(
+    USE_OPENROUTER
+      ? {
+          apiKey: process.env.OPENROUTER_API_KEY,
+          baseURL: 'https://openrouter.ai/api/v1',
+          defaultHeaders: { 'HTTP-Referer': 'https://imaginethisprinted.com', 'X-Title': 'Mrs. Imagine' },
+        }
+      : { apiKey: process.env.OPENAI_API_KEY }
+  )
+  return _brain
+}
 
 const BRAIN_MODEL =
   process.env.MRS_IMAGINE_BRAIN_MODEL ||
@@ -85,7 +101,9 @@ const REMBG_TIMEOUT_MS = Number(process.env.MRS_IMAGINE_REMBG_TIMEOUT_MS || 4 * 
 const SHOTS_TIMEOUT_MS = Number(process.env.MRS_IMAGINE_SHOTS_TIMEOUT_MS || 10 * 60 * 1000)
 const DESIGN_CONCURRENCY = Math.min(4, Math.max(1, Number(process.env.MRS_IMAGINE_CONCURRENCY) || 3))
 
-export type GarmentType = 'tshirt' | 'hoodie' | 'polo'
+// Was 'tshirt' | 'hoodie' | 'polo' — polo dropped, ITP doesn't make them
+// (catalog-capability.ts is now the one source of truth for this).
+export type GarmentType = GarmentId
 
 export interface DesignBrief {
   key: string
@@ -127,12 +145,43 @@ const METAL_BRIEF_RULES =
   'composition ARE correct here (the panel is the canvas). Aim for pieces that ' +
   'read from across a room. NO third-party brands or franchises.'
 
+/**
+ * Pure JSON → DesignBrief[] mapping, split out of writeBriefs so the garment
+ * coercion (unknown/legacy values, including a stray "polo" the model still
+ * hands back sometimes, collapse to 'tshirt') is testable without a network
+ * call or an API key.
+ */
+export function parseBriefsResponse(parsed: any, counts: { garments: number; metal: number }): DesignBrief[] {
+  const garments: DesignBrief[] = (Array.isArray(parsed?.garments) ? parsed.garments : [])
+    .slice(0, counts.garments)
+    .map((b: any, i: number) => ({
+      key: slugify(String(b.key || `garment-${i + 1}`)).slice(0, 40),
+      kind: 'garment' as const,
+      garment: (GARMENT_IDS as readonly string[]).includes(b.garment) ? (b.garment as GarmentType) : 'tshirt',
+      buyer: String(b.buyer || 'shoppers'),
+      prompt: String(b.prompt || ''),
+      priceUsd: clampPrice(Number(b.priceUsd), b.garment === 'hoodie' ? [34.99, 49.99] : [19.99, 34.99]),
+      trendBasis: String(b.trendBasis || ''),
+    }))
+  const metal: DesignBrief[] = (Array.isArray(parsed?.metal) ? parsed.metal : [])
+    .slice(0, counts.metal)
+    .map((b: any, i: number) => ({
+      key: slugify(String(b.key || `metal-${i + 1}`)).slice(0, 40),
+      kind: 'metal' as const,
+      buyer: String(b.buyer || 'shoppers'),
+      prompt: String(b.prompt || ''),
+      priceUsd: clampPrice(Number(b.priceUsd), [25, 65]),
+      trendBasis: String(b.trendBasis || ''),
+    }))
+  return [...garments, ...metal].filter((b) => b.prompt.length > 40)
+}
+
 /** Turn realtime market signals into buyer-named design briefs. */
 export async function writeBriefs(
   signals: MarketSignal[],
   counts: { garments: number; metal: number }
 ): Promise<DesignBrief[]> {
-  const res = await brain.chat.completions.create({
+  const res = await getBrain().chat.completions.create({
     model: BRAIN_MODEL,
     messages: [
       {
@@ -142,13 +191,13 @@ export async function writeBriefs(
           'REALTIME Etsy marketplace data (top tags, title phrases, price bands, and the hottest ' +
           'listings by favorites-per-day). Your job: pick the niches that are moving RIGHT NOW and ' +
           `write design briefs a buyer would stop scrolling for. ${GARMENT_BRIEF_RULES} ${METAL_BRIEF_RULES} ` +
-          'Reply with JSON only: {"garments": [{"key": string(kebab-case), "garment": "tshirt"|"hoodie"|"polo", ' +
+          'Reply with JSON only: {"garments": [{"key": string(kebab-case), "garment": "tshirt"|"hoodie", ' +
           '"buyer": string (who buys this, specific), "prompt": string (60-120 words of concrete visual ' +
           'description: subject, composition, palette, art style, print texture), "priceUsd": number, ' +
           '"trendBasis": string (one sentence citing the data that justifies this brief)}], ' +
           '"metal": [same shape without "garment"]}. ' +
           'Every brief targets a DIFFERENT niche — no two briefs may share a buyer. Spread the garment ' +
-          'mix across tshirt, hoodie, and polo with at least one hoodie and one polo. Price within the ' +
+          'mix across tshirt and hoodie with at least one hoodie. Price within the ' +
           'researched band for that category.',
       },
       {
@@ -162,28 +211,7 @@ export async function writeBriefs(
     response_format: { type: 'json_object' },
   })
   const parsed = parseJsonLoose(res.choices[0]?.message?.content)
-  const garments: DesignBrief[] = (Array.isArray(parsed.garments) ? parsed.garments : [])
-    .slice(0, counts.garments)
-    .map((b: any, i: number) => ({
-      key: slugify(String(b.key || `garment-${i + 1}`)).slice(0, 40),
-      kind: 'garment' as const,
-      garment: (['tshirt', 'hoodie', 'polo'] as const).includes(b.garment) ? b.garment : 'tshirt',
-      buyer: String(b.buyer || 'shoppers'),
-      prompt: String(b.prompt || ''),
-      priceUsd: clampPrice(Number(b.priceUsd), b.garment === 'hoodie' ? [34.99, 49.99] : [19.99, 34.99]),
-      trendBasis: String(b.trendBasis || ''),
-    }))
-  const metal: DesignBrief[] = (Array.isArray(parsed.metal) ? parsed.metal : [])
-    .slice(0, counts.metal)
-    .map((b: any, i: number) => ({
-      key: slugify(String(b.key || `metal-${i + 1}`)).slice(0, 40),
-      kind: 'metal' as const,
-      buyer: String(b.buyer || 'shoppers'),
-      prompt: String(b.prompt || ''),
-      priceUsd: clampPrice(Number(b.priceUsd), [25, 65]),
-      trendBasis: String(b.trendBasis || ''),
-    }))
-  const all = [...garments, ...metal].filter((b) => b.prompt.length > 40)
+  const all = parseBriefsResponse(parsed, counts)
   if (!all.length) throw new Error('Mrs. Imagine brain returned no usable briefs')
   return all
 }
@@ -213,11 +241,15 @@ function metalPrompt(brief: DesignBrief): string {
   )
 }
 
-const GARMENT_NOUN: Record<GarmentType, string> = { tshirt: 't-shirt', hoodie: 'hoodie', polo: 'polo shirt' }
+// Derived from the capability module (not a hand-maintained copy) so a
+// garment can never carry a noun that isn't actually offered.
+const GARMENT_NOUN: Record<GarmentType, string> = Object.fromEntries(
+  GARMENTS.map((g) => [g.id, g.noun])
+) as Record<GarmentType, string>
 
 async function writeCopy(brief: DesignBrief): Promise<{ title: string; description: string; tags: string[] }> {
   const productNoun = brief.kind === 'metal' ? 'metal wall-art print' : GARMENT_NOUN[brief.garment ?? 'tshirt']
-  const res = await brain.chat.completions.create({
+  const res = await getBrain().chat.completions.create({
     model: BRAIN_MODEL,
     messages: [
       {
@@ -268,9 +300,10 @@ async function createProduct(
 
   const isMetal = brief.kind === 'metal'
   const garment = brief.garment ?? 'tshirt'
-  // Polos file under 'shirts' (no polo category exists); shirts requires >=1
-  // print location by CHECK constraint. Tees use 't-shirts', hoodies 'hoodies'.
-  const category = isMetal ? 'metal-art' : garment === 'tshirt' ? 't-shirts' : garment === 'polo' ? 'shirts' : 'hoodies'
+  // Category comes straight off the capability module now — polo's old
+  // 'shirts' branch (print_locations CHECK-constraint special case) is gone
+  // along with polo itself.
+  const category = isMetal ? 'metal-art' : (getGarment(garment)?.category ?? 't-shirts')
 
   const { data: product, error } = await supabase
     .from('products')
@@ -283,7 +316,6 @@ async function createProduct(
       is_active: false,
       images: [designUrl],
       category,
-      ...(category === 'shirts' ? { print_locations: ['front_image'] } : {}),
       search_keywords: copy.tags.join(', '),
       metadata: {
         ai_generated: true,
@@ -363,7 +395,7 @@ async function enqueueMockups(brief: DesignBrief, productId: string, designAsset
   } else {
     const garment = brief.garment ?? 'tshirt'
     const baseInput = {
-      product_type: garment === 'tshirt' ? 'shirts' : garment === 'polo' ? 'shirts' : 'hoodies',
+      product_type: garment === 'tshirt' ? 'shirts' : 'hoodies',
       productType: garment,
       shirtColor: 'black',
       printPlacement: 'front-center',

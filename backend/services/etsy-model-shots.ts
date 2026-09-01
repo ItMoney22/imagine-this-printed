@@ -24,6 +24,10 @@ import * as gcsStorage from './gcs-storage.js'
 import { sniffImageContentType, extForImageContentType } from './google-cloud-storage.js'
 import { editOpenAIImage } from './image-flow/providers/openai-image.js'
 import { ETSY_SIZE_KEYS, metalScaleAnchor, type MetalArtSizeKey } from '../shared/metal-art.js'
+// David 2026-09-01: hoodies were being shot on-model as a "crew neck
+// t-shirt" — the wording was hardcoded. Garment-aware wording (and the
+// Step Flow's shootOneModelShot) reads from the one capability boundary.
+import { COLORS, normalizeGarment, getGarment, type GarmentId, type ColorId } from '../shared/catalog-capability.js'
 
 // Unpinned on purpose: the old `google/nano-banana:858e567…` pin froze this
 // service on a single v1 build and made model upgrades invisible here. Track
@@ -429,7 +433,7 @@ const METAL_SCENES_MEDIUM = [
   { label: 'kitchen scene', scene: 'on open kitchen shelving among ceramics and a small plant, bright airy light' }
 ] as const
 
-interface ShotPlan {
+export interface ShotPlan {
   key: string
   label: string
   persona: string | null   // null = product scene (metal art), no human model
@@ -592,7 +596,17 @@ const castingSlate = (plan: ShotPlan): string =>
 // gpt-image-2 casts the model straight from the persona text — the only image
 // input is the design itself, so casting variety is unlimited (no stock-photo
 // library required). Metal art gets a room scene instead of a person.
-function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, sizeInches: number): string {
+//
+// garmentNoun defaults to 'crew neck t-shirt' for callers that don't pass one
+// (metal art never reaches the wearing clause at all — see the `!plan.persona`
+// branch below).
+export function buildGptPrompt(
+  plan: ShotPlan,
+  shirtColor: string,
+  placement: string,
+  sizeInches: number,
+  garmentNoun: string = 'crew neck t-shirt'
+): string {
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -605,7 +619,7 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, s
   return (
     retryPreamble(plan) +
     `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
-    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck t-shirt ` +
+    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} ${garmentNoun} ` +
     `with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
     `${castingSlate(plan)}\n` +
     promptTail(placement, sizeInches)
@@ -618,7 +632,13 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, s
 // instruction to discard the reference identity every fallback shot came back
 // wearing one of the same two faces, which is exactly what the casting rework
 // exists to kill. Metal art needs no anchor — design only.
-function buildNanoPrompt(plan: ShotPlan, shirtColor: string, placement: string, sizeInches: number): string {
+export function buildNanoPrompt(
+  plan: ShotPlan,
+  shirtColor: string,
+  placement: string,
+  sizeInches: number,
+  garmentNoun: string = 'crew neck t-shirt'
+): string {
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -631,8 +651,8 @@ function buildNanoPrompt(plan: ShotPlan, shirtColor: string, placement: string, 
   return (
     retryPreamble(plan) +
     `INPUT 1 is a framing reference only. INPUT 2 is a flat 2D graphic design (a DTF print artwork). ` +
-    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck ` +
-    `t-shirt with the graphic from INPUT 2 ${wearingClause(placement)}, ${plan.scene}.\n` +
+    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} ${garmentNoun} ` +
+    `with the graphic from INPUT 2 ${wearingClause(placement)}, ${plan.scene}.\n` +
     `Use INPUT 1 ONLY for camera distance, crop and body angle. DISCARD the person in INPUT 1 entirely — their ` +
     `face, hair, skin tone, age and build must NOT carry over. The subject is the person described above.\n` +
     `${castingSlate(plan)}\n` +
@@ -649,12 +669,13 @@ async function generateOneShot(
   productId: string,
   userId: string,
   placement: string = 'front-center',
-  sizeInches: number = 11
+  sizeInches: number = 11,
+  garmentNoun: string = 'crew neck t-shirt'
 ): Promise<string> {
   const viaGptImage = async (): Promise<string> => {
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
-      prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches),
+      prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches, garmentNoun),
       size: '1024x1536', // portrait, matches the 3:4 listing crop
       quality: 'high',
       userId,
@@ -671,7 +692,7 @@ async function generateOneShot(
       : [designUrl] // metal art: no human anchor, just the artwork
     const output = await replicate.run(NANO_BANANA as any, {
       input: {
-        prompt: buildNanoPrompt(plan, shirtColor, placement, sizeInches),
+        prompt: buildNanoPrompt(plan, shirtColor, placement, sizeInches, garmentNoun),
         image_input: inputImages,
         output_format: 'png',
         aspect_ratio: '3:4'
@@ -775,6 +796,8 @@ interface ShotContext {
   placement: string
   /** Physical print width in inches (garments). */
   sizeInches: number
+  /** Garment-true noun for the wearing clause ("pullover hoodie", not "crew neck t-shirt"). */
+  garmentNoun: string
   onStage: (stage: string) => Promise<void>
 }
 
@@ -783,7 +806,7 @@ interface ShotContext {
  * it didn't. Returns whichever render we're keeping plus its verdict.
  */
 async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck }> {
-  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches)
+  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const verdict = await verifyDesignFidelity(ctx.designUrl, url)
   if (!verdict || verdict.ok) return { url, check: { ok: true } }
 
@@ -793,7 +816,7 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
   // Fresh slate id so the retry is a genuinely different roll, plus the note
   // telling the model what to fix.
   const retryPlan: ShotPlan = { ...plan, variant: slateId(), retryNote: verdict.reason }
-  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches)
+  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const retryVerdict = await verifyDesignFidelity(ctx.designUrl, retryUrl)
   if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true } }
 
@@ -875,8 +898,13 @@ async function saveShotsState(productId: string, patch: Partial<EtsyShots>): Pro
     .eq('id', productId)
 }
 
-/** Everything a shoot needs off the product row — shared by full shoots and single reshoots. */
-async function loadShotContext(productId: string, userId: string) {
+/**
+ * Everything a shoot needs off the product row — shared by full shoots and
+ * single reshoots. `override.garment` lets a caller that already knows the
+ * garment (the Step Flow, via shootOneModelShot — which may run before
+ * metadata.product_type is even written) skip the metadata guess entirely.
+ */
+async function loadShotContext(productId: string, userId: string, override?: { garment?: GarmentId }) {
   const { data: product, error } = await supabase
     .from('products')
     .select('id, name, images, metadata, category')
@@ -896,6 +924,9 @@ async function loadShotContext(productId: string, userId: string) {
     ? (product as any).metadata.etsy_pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
     : []
 
+  const garment: GarmentId = override?.garment ?? normalizeGarment((product as any).metadata?.product_type) ?? 'tshirt'
+  const garmentNoun = getGarment(garment)?.noun ?? 'crew neck t-shirt'
+
   return {
     category: String((product as any).category || ''),
     colorFor: (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase(),
@@ -905,6 +936,7 @@ async function loadShotContext(productId: string, userId: string) {
       userId,
       placement: String((product as any).metadata?.print_placement || 'front-center'),
       sizeInches: Number((product as any).metadata?.print_size_inches) || 11,
+      garmentNoun,
       onStage: (stage: string) => saveShotsState(productId, { stage })
     } as ShotContext
   }
@@ -1124,6 +1156,76 @@ export async function reshootModelShot(
     console.error(`[etsy-shots] unhandled reshoot error for ${productId}:`, err)
   )
   return state
+}
+
+/**
+ * Render exactly ONE verified on-model shot and append it to
+ * `metadata.etsy_shots.images` — the Step Flow's `model` shot key (plan
+ * 2026-09-01-imagine-studio-step-flow-plan.md, Track A #4). Unlike
+ * `startModelShots` / `reshootModelShot`, this is AWAITED directly by its
+ * caller (a step-flow job renders one shot per call, not a two-shot casting
+ * session), so it does none of their "already generating" fire-and-forget
+ * bookkeeping — it renders, records, and returns.
+ *
+ * `opts.garment` lets the caller pass the garment before it's necessarily
+ * written to `metadata.product_type` yet (loadShotContext falls back to
+ * `normalizeGarment(metadata.product_type)` → 'tshirt' otherwise).
+ * `opts.shirtColor` overrides the product's/pack's color for this one shot.
+ * `opts.nonce` is folded into the shot key purely for log traceability across
+ * retries/redos — casting itself is already always fresh (see castShot).
+ */
+export async function shootOneModelShot(
+  productId: string,
+  userId: string,
+  opts: { shirtColor?: ColorId; garment?: GarmentId; cast?: ShotCast; nonce?: string } = {}
+): Promise<{ url: string; check: ShotCheck }> {
+  if (!process.env.OPENAI_API_KEY && !replicate) {
+    throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
+  }
+  const resolved = resolveCast(opts.cast)
+  const { colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
+
+  const member: CastMember = resolved[0] ?? (() => {
+    const a = pick(ARCHETYPES)
+    return { label: a.label, archetype: a, custom: null }
+  })()
+  const plan = castShot(`step-model${opts.nonce ? `-${opts.nonce}` : ''}`, member, pick(SCENES))
+  const shirtColor = opts.shirtColor ? (COLORS[opts.shirtColor]?.label.toLowerCase() ?? opts.shirtColor) : colorFor(0)
+
+  console.log(`[etsy-shots] ${productId} ${plan.key} (step-flow single shot) cast: ${plan.signature} [slate ${plan.variant}]`)
+  const { url, check } = await renderVerifiedShot(plan, shirtColor, ctx)
+
+  // Re-read at write time (same pattern as reshootOne/saveShotsState) and
+  // APPEND — never clobber whatever the object already held.
+  const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
+  const metadata = (fresh as any)?.metadata || {}
+  const current: EtsyShots | undefined = metadata.etsy_shots
+  const images = [...(current?.images ?? []), url]
+  const checks = [...(current?.checks ?? []), check]
+  const cast = [...(current?.cast ?? []), plan.label]
+  const { error: updErr } = await supabase
+    .from('products')
+    .update({
+      metadata: {
+        ...metadata,
+        etsy_shots: {
+          ...(current ?? { status: 'done', images: [] }),
+          // Create fresh as 'done' (a single awaited shot is already a
+          // finished result); if the object already existed, leave its
+          // status exactly as it was rather than assuming a state.
+          status: current?.status ?? 'done',
+          images,
+          checks,
+          cast,
+          generated_at: new Date().toISOString(),
+        },
+      },
+    })
+    .eq('id', productId)
+  if (updErr) throw new Error(`Failed to record the step-flow model shot: ${updErr.message}`)
+
+  await mirrorShotsToProductAssets(productId, images, checks)
+  return { url, check }
 }
 
 // Kick off generation in the background. Returns immediately; the panel polls

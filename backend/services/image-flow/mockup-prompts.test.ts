@@ -8,7 +8,14 @@
 // looking at the finished image. So these assertions guard behaviour, not style.
 
 import { describe, it, expect } from 'vitest'
-import { buildEmptyGarmentPromptPair, buildMrImaginePrompt, buildSizeClause, type RunMockupOpts } from './worker-helpers.js'
+import {
+  buildEmptyGarmentPromptPair,
+  buildMrImaginePrompt,
+  buildSizeClause,
+  buildHangerPrompt,
+  buildHangerNegatives,
+  type RunMockupOpts,
+} from './worker-helpers.js'
 
 const PRODUCT_TYPES = ['tshirt', 'hoodie', 'tank'] as const
 const SHIRT_COLORS = ['black', 'white', 'gray', 'grey'] as const
@@ -172,5 +179,56 @@ describe('buildSizeClause — the print never balloons into an all-over print', 
   it('rides along inside the Mr. Imagine prompt', () => {
     const p = buildMrImaginePrompt(opts({ template: 'mr_imagine', printPlacement: 'front-center', printSizeInches: 11 }))
     expect(p).toMatch(/11-inch-wide/)
+  })
+})
+
+describe('buildHangerPrompt / buildHangerNegatives — a new template that must not borrow flat_lay\'s anti-hanger negative', () => {
+  // buildEmptyGarmentPromptPair's flat_lay negative list explicitly forbids
+  // "hanger, coat hanger, clothes hanger" (anti-flat-lay pressure). The hanger
+  // template's entire premise is a garment ON a hanger, so it needs its own
+  // independent prompt AND its own independent negative list — sharing either
+  // one with flat_lay would fight this template's whole point.
+  it('the positive prompt mentions a hanger and stays out of flat-lay territory', () => {
+    for (const productType of PRODUCT_TYPES) {
+      for (const shirtColor of SHIRT_COLORS) {
+        const p = buildHangerPrompt(opts({ template: 'hanger', productType, shirtColor }))
+        const where = `(${productType}/${shirtColor})`
+        expect(p, `${where} must mention a hanger`).toMatch(/hanger/i)
+        expect(p, `${where} must not read as a flat lay`).not.toMatch(/flat lay/i)
+      }
+    }
+  })
+
+  it('carries the print size clause at true scale', () => {
+    const p = buildHangerPrompt(opts({ template: 'hanger', printPlacement: 'front-center', printSizeInches: 11 }))
+    expect(p).toMatch(/11-inch-wide/)
+  })
+
+  it('uses the garment-true noun (a hoodie renders as a hoodie, not a t-shirt)', () => {
+    const tee = buildHangerPrompt(opts({ template: 'hanger', productType: 'tshirt' }))
+    const hoodie = buildHangerPrompt(opts({ template: 'hanger', productType: 'hoodie' }))
+    expect(tee).toMatch(/t-shirt/i)
+    expect(hoodie).toMatch(/hoodie/i)
+    expect(hoodie).not.toMatch(/t-shirt/i)
+  })
+
+  it("its own negative list does not forbid the hanger it is supposed to show", () => {
+    const negatives = buildHangerNegatives()
+    expect(negatives).not.toMatch(/hanger/i)
+  })
+
+  it('the negative list still forbids a mannequin/wearer and a flat lay', () => {
+    const negatives = buildHangerNegatives()
+    expect(negatives).toMatch(/mannequin/i)
+    expect(negatives).toMatch(/person|human|wearer/i)
+    expect(negatives).toMatch(/flat lay|folded/i)
+    expect(negatives).toMatch(/floor|ground/i)
+    expect(negatives).toMatch(/text overlay|watermark/i)
+  })
+
+  it('is a genuinely different list from the flat_lay negative prompt (not a copy)', () => {
+    const hangerNeg = buildHangerNegatives()
+    const { negativePrompt: flatLayNeg } = buildEmptyGarmentPromptPair(opts({ template: 'flat_lay' }))
+    expect(hangerNeg).not.toBe(flatLayNeg)
   })
 })

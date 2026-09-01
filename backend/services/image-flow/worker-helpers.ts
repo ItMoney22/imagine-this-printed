@@ -8,6 +8,7 @@ import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_M
 import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
 import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
+import { getGarment } from '../../shared/catalog-capability.js'
 
 export interface RunGenerateOpts {
   prompt: string
@@ -221,7 +222,7 @@ export async function runImageFlowMultiGenerate(opts: {
   })
 }
 
-export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall'
+export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'hanger' | 'mr_imagine' | 'metal_shelf' | 'metal_wall'
 
 export interface RunMockupOpts {
   template: MockupTemplate
@@ -510,6 +511,38 @@ function buildFlux2SingleCallPrompt(opts: RunMockupOpts): string {
 }
 
 /**
+ * Hanger mockup — new Step Flow template (plan
+ * docs/plans/2026-09-01-imagine-studio-step-flow-plan.md, Track A #3).
+ * Single-call flux-2-pro, same mechanism as flat_lay/ghost_mannequin's
+ * default path (one reference image, the design), but its own prompt: a
+ * garment on a wooden hanger is the entire point of this shot, which is
+ * exactly what buildEmptyGarmentPromptPair's flat_lay negative list forbids
+ * ("hanger, coat hanger, clothes hanger" — anti-flat-lay pressure for a
+ * template that must never show a hanger). Reusing that list here would have
+ * the hanger template fight its own premise, so this gets an independent
+ * positive prompt and an independent negative list.
+ *
+ * flux-2-pro has no negative_prompt input (see buildFlux2SingleCallPrompt's
+ * doc comment — BFL warns naming an exclusion can make it appear), so the
+ * generation call below is purely positive, same as the flat_lay/
+ * ghost_mannequin single-call path. buildHangerNegatives() is kept as its own
+ * exported value anyway: a record of what this template must avoid, ready to
+ * feed a negative_prompt-capable model if one ever replaces flux-2-pro here,
+ * and independently testable so it can never accidentally re-borrow the
+ * flat-lay list (which would forbid the hanger itself).
+ */
+export function buildHangerPrompt(opts: RunMockupOpts): string {
+  const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
+  const garmentNoun = getGarment(opts.productType)?.noun ?? PRODUCT_NAMES[opts.productType] ?? 't-shirt'
+  return `${fabricColor} ${garmentNoun} hanging on a natural wooden hanger against a plain light studio wall, front view, straight-on, garment hanging naturally with soft fabric drape, the graphic printed front-center at true scale (${buildSizeClause(opts)})`
+}
+
+/** Hanger-specific negatives — deliberately does not overlap flat_lay's list. See buildHangerPrompt above. */
+export function buildHangerNegatives(): string {
+  return 'mannequin, ghost mannequin, invisible mannequin, human, person, model, wearer, body, torso, face, hands, arms, folded garment, flat lay, laid flat, garment on the floor, garment on the ground, text overlay, caption, watermark, logo overlay'
+}
+
+/**
  * Mr. Imagine character mockup.
  *
  * ANATOMY GUARD (David 2026-07-29: "mrimagine is missing a whole arm lol"):
@@ -620,6 +653,24 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
       : [opts.designImageUrl]
     const input = buildInput(model, { prompt: buildMrImaginePrompt(opts), inputImages })
     const r = await runReplicate({ modelId: model.id, input })
+    return { url: r.imageUrls[0], modelId: model.id }
+  }
+
+  // Hanger — same single-call flux-2-pro mechanism as flat_lay/ghost_mannequin
+  // below (one Replicate call, the design as the sole reference image), but
+  // its own prompt/negatives (see buildHangerPrompt's doc comment); no 2-step
+  // fallback chain exists for this template, so a flux-2-pro failure surfaces
+  // to the caller like any other job error.
+  if (opts.template === 'hanger') {
+    const model = getModel(SINGLE_CALL_FLUX2_MODEL)
+    if (!model) throw new Error(`unknown image-flow model: ${SINGLE_CALL_FLUX2_MODEL}`)
+    const input = buildInput(model, {
+      prompt: buildHangerPrompt(opts),
+      inputImages: [opts.designImageUrl],
+      extra: { safety_tolerance: 5 },
+    })
+    console.log('[image-flow] 🧪 flux-2-pro single-call mockup — hanger')
+    const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
