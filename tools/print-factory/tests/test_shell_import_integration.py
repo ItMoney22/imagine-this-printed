@@ -115,3 +115,90 @@ def test_normalising_does_not_repair_the_mesh(imported):
     """Scaling is not healing. The shell is still non-manifold going into the
     remesh, which is exactly why the remesh is not optional."""
     assert imported["stats"]["non_manifold_edges"] == 15658
+
+
+# --- fit modes, against BOTH real shells ------------------------------------
+# The tall shell is slim (0.548 wide on a 1.002 height) and the wide one is
+# squat (1.001 wide on a 0.584 height, ratio 1.714). Same code path, opposite
+# binding constraint - which is the entire point of fit="bbox", and is not
+# something the pure tests can prove about the actual files on disk.
+
+WIDE = os.path.join(ROOT, "examples", "shell2.glb")
+
+FIT_EXPR = """
+import sys, json
+sys.path.insert(0, {root!r})
+from printfactory import blender_ops as ops
+out = {{}}
+for name, path, target, fit in {jobs!r}:
+    ops.clear_scene()
+    obj = ops.import_glb(path)
+    raw = ops.bbox_mm(obj)
+    plan = ops.normalise_shell(obj, target, fit=fit)
+    out[name] = {{'raw': raw, 'plan_scale': plan['scale'],
+                 'bound_by': plan['bound_by'], 'bbox': ops.bbox_mm(obj)}}
+print('RESULT' + json.dumps(out))
+"""
+
+
+@pytest.fixture(scope="module")
+def fits():
+    if not os.path.exists(WIDE):
+        pytest.skip("examples/shell2.glb not present (generated artifact)")
+    jobs = [
+        ("tall_height", SHELL, 200.0, "height"),
+        ("tall_bbox", SHELL, 200.0, "bbox"),
+        ("wide_height", WIDE, 150.0, "height"),
+        ("wide_bbox", WIDE, 150.0, "bbox"),
+    ]
+    proc = subprocess.run(
+        [BLENDER, "--background", "--factory-startup", "--python-exit-code", "1",
+         "--python-expr", FIT_EXPR.format(root=ROOT, jobs=jobs)],
+        capture_output=True, text=True, timeout=600,
+    )
+    detail = f"\n--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+    assert proc.returncode == 0, f"blender exited {proc.returncode}{detail}"
+    line = [l for l in proc.stdout.splitlines() if l.startswith("RESULT")]
+    assert line, f"no RESULT line{detail}"
+    return json.loads(line[-1][len("RESULT"):])
+
+
+def test_the_wide_shell_really_is_wider_than_it_is_tall(fits):
+    raw = fits["wide_bbox"]["raw"]
+    assert raw["x"] / raw["z"] == pytest.approx(1.7144, abs=0.001)
+
+
+def test_the_tall_shell_binds_on_height_in_both_modes(fits):
+    """Slim enough that the build volume never binds it, so bbox mode must be
+    a no-op - existing products cannot move just because the mode exists."""
+    assert fits["tall_height"]["bound_by"] == "height"
+    assert fits["tall_bbox"]["bound_by"] == "height"
+    assert fits["tall_bbox"]["plan_scale"] == pytest.approx(
+        fits["tall_height"]["plan_scale"], rel=1e-9)
+    assert fits["tall_bbox"]["bbox"]["z"] == pytest.approx(200.0, abs=0.01)
+
+
+def test_the_wide_shell_binds_on_width_in_bbox_mode(fits):
+    assert fits["wide_bbox"]["bound_by"] == "x"
+
+
+def test_height_mode_would_have_shipped_an_unprintable_wide_part(fits):
+    """The bug this feature exists to stop: a perfectly legal 150mm height on
+    the wide shell produces a 257mm width, and nothing downstream notices until
+    fits_build_volume fails after the remesh and every boolean is paid for."""
+    assert fits["wide_height"]["bbox"]["z"] == pytest.approx(150.0, abs=0.01)
+    assert fits["wide_height"]["bbox"]["x"] > 256.0
+
+
+def test_bbox_mode_brings_the_wide_shell_inside_the_build_volume(fits):
+    bbox = fits["wide_bbox"]["bbox"]
+    assert bbox["x"] <= 256.0
+    assert bbox["y"] <= 256.0
+    assert bbox["z"] <= 256.0
+
+
+def test_a_width_bound_fit_gives_up_height(fits):
+    """Honest accounting: bbox mode does not deliver the requested height, and
+    the caller has to be able to see that it did not."""
+    assert fits["wide_bbox"]["bbox"]["z"] < 150.0
+    assert fits["wide_bbox"]["bbox"]["z"] == pytest.approx(148.16, abs=0.05)

@@ -30,32 +30,74 @@ class ShellError(ValueError):
     """A shell that cannot be normalised into printable space."""
 
 
-def normalise_plan(bbox_min, bbox_max, target_height_mm: float) -> dict:
+# How a shell is sized into print space.
+#   "height" - scale so Z equals target_height_mm. What the Node converter does,
+#              and the right answer for a figure taller than it is wide.
+#   "bbox"   - scale so the WHOLE shell fits the build volume, taking whichever
+#              of height/x/y/z binds first.
+FIT_MODES = ("height", "bbox")
+
+# Clearance held back from each build axis in bbox mode. A 0.6mm voxel remesh
+# can push a surface out by half a voxel after the fit is computed, and a part
+# sized to exactly 256.00mm leaves the slicer no room for a skirt.
+BUILD_MARGIN_MM = 2.0
+
+
+def normalise_plan(bbox_min, bbox_max, target_height_mm: float,
+                   fit: str = "height", build: dict = None,
+                   margin_mm: float = BUILD_MARGIN_MM) -> dict:
     """Plan the scale+translate that puts a Z-up mesh into print space.
 
-    Returns {"scale": float, "translate": (dx, dy, dz)}, applied in that order
-    (scale about the origin first, translate second) - the same order as the
+    Returns {"scale", "translate", "bound_by", "fitted_bbox_mm"}. Scale is
+    applied about the origin first, translate second - the same order as the
     Node converter, which matters because the translate is derived from the
     ALREADY SCALED bounds.
+
+    `fit` decides what "fits" means, and the distinction is not academic.
+    target_height_mm silently assumes HEIGHT is the binding dimension. For a
+    squat, wide figure it is not: examples/shell2.glb is 1.714x wider than it
+    is tall, so scaling it to a perfectly legal 150mm height yields a 257mm
+    width that the A1 cannot print - and nothing notices until
+    fits_build_volume fails, after the remesh and every boolean have been paid
+    for. fit="bbox" takes the tightest of all four constraints up front.
     """
+    if fit not in FIT_MODES:
+        raise ShellError(f"unknown fit mode {fit!r}; expected one of {FIT_MODES}")
     if target_height_mm is None or target_height_mm <= 0:
         raise ShellError(
             f"target_height_mm must be positive, got {target_height_mm!r}"
         )
-    if target_height_mm > A1_BUILD_MM["z"]:
-        raise ShellError(
-            f"target_height_mm {target_height_mm} exceeds the A1 build volume "
-            f"({A1_BUILD_MM['z']}mm); no point remeshing a part the printer refuses"
-        )
 
-    height = bbox_max[2] - bbox_min[2]
-    if height <= 0:
+    size = tuple(bbox_max[i] - bbox_min[i] for i in range(3))
+    if size[2] <= 0:
         raise ShellError(
             "shell has zero height on Z; it is flat or the import produced no "
             "geometry, and nothing can be scaled to fit"
         )
 
-    scale = target_height_mm / height
+    # (scale, what bound it). The smallest wins.
+    candidates = [(target_height_mm / size[2], "height")]
+
+    if fit == "bbox":
+        b = build or A1_BUILD_MM
+        for i, axis in enumerate("xyz"):
+            allowed = b[axis] - margin_mm
+            if allowed <= 0:
+                raise ShellError(
+                    f"margin {margin_mm}mm leaves no room on {axis} of a "
+                    f"{b[axis]}mm build volume"
+                )
+            if size[i] > 0:
+                candidates.append((allowed / size[i], axis))
+    elif target_height_mm > A1_BUILD_MM["z"]:
+        # In height mode nothing else will clamp this, so refuse it here rather
+        # than remesh 40,000 triangles for a part the printer will not take.
+        raise ShellError(
+            f"target_height_mm {target_height_mm} exceeds the A1 build volume "
+            f"({A1_BUILD_MM['z']}mm); no point remeshing a part the printer refuses"
+        )
+
+    scale, bound_by = min(candidates, key=lambda c: c[0])
 
     # Derived from the scaled bounds, exactly like the Node converter's second
     # computeBoundingBox() pass.
@@ -66,6 +108,10 @@ def normalise_plan(bbox_min, bbox_max, target_height_mm: float) -> dict:
     return {
         "scale": float(scale),
         "translate": (-(x0 + x1) / 2.0, -(y0 + y1) / 2.0, -z0),
+        "fit": fit,
+        "bound_by": bound_by,
+        "fitted_bbox_mm": {axis: size[i] * scale
+                           for i, axis in enumerate("xyz")},
     }
 
 

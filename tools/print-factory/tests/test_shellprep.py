@@ -172,3 +172,74 @@ class TestBoreBlockage:
         probe = {"samples": 33, "misses": 33, "first_hit_z_max": None,
                  "first_hit_z_min": None}
         assert bore_blockage(probe, 175.0, 89.0) is not None
+
+
+# The squat/wide shell, measured in Blender after import (examples/shell2.glb).
+# 1.0011 x 0.6624 wide on a 0.5840 height: a width/height ratio of 1.714, which
+# is the whole reason fit="bbox" exists. Scaling THIS to a legal height still
+# produces an illegal width.
+WIDE_MIN = (-0.5005, -0.3312, -0.2920)
+WIDE_MAX = (0.5006, 0.3312, 0.2920)
+
+
+class TestFitModes:
+    def test_height_is_the_default_so_existing_jobs_do_not_move(self):
+        plan = normalise_plan(WRAITH_MIN, WRAITH_MAX, 200.0)
+        assert plan["bound_by"] == "height"
+        assert plan["scale"] == pytest.approx(199.6777, abs=1e-3)
+
+    def test_height_mode_ignores_width_entirely(self):
+        """Documents the trap rather than hiding it: the wide shell at a
+        perfectly legal 150mm height comes out 257mm across, which the A1
+        cannot print. Height mode is allowed to do this; it is why the caller
+        gets a choice."""
+        plan = normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="height")
+        width = (WIDE_MAX[0] - WIDE_MIN[0]) * plan["scale"]
+        assert width > 256.0
+
+    def test_bbox_mode_clamps_the_wide_shell_on_width(self):
+        plan = normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox")
+        assert plan["bound_by"] == "x"
+        width = (WIDE_MAX[0] - WIDE_MIN[0]) * plan["scale"]
+        assert width <= 256.0
+        height = (WIDE_MAX[2] - WIDE_MIN[2]) * plan["scale"]
+        assert height < 150.0, "a width-bound fit must give up some height"
+
+    def test_bbox_mode_leaves_the_tall_shell_bound_by_height(self):
+        """The tall wraith is slim, so nothing about the build volume binds it
+        and bbox mode must not shrink it."""
+        plan = normalise_plan(WRAITH_MIN, WRAITH_MAX, 200.0, fit="bbox")
+        assert plan["bound_by"] == "height"
+        assert plan["scale"] == pytest.approx(199.6777, abs=1e-3)
+
+    def test_bbox_mode_respects_the_margin(self):
+        tight = normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox", margin_mm=0.0)
+        loose = normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox", margin_mm=20.0)
+        assert loose["scale"] < tight["scale"]
+
+    def test_bbox_mode_still_grounds_and_centres(self):
+        plan = normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox")
+        lo = apply_plan(WIDE_MIN, plan)
+        hi = apply_plan(WIDE_MAX, plan)
+        assert lo[2] == pytest.approx(0.0, abs=1e-9)
+        assert (lo[0] + hi[0]) / 2 == pytest.approx(0.0, abs=1e-9)
+
+    def test_bbox_mode_accepts_a_target_taller_than_the_printer(self):
+        """In bbox mode an over-tall target is not an error, it is just the
+        constraint that does not bind - the build volume clamps it."""
+        plan = normalise_plan(WRAITH_MIN, WRAITH_MAX, 400.0, fit="bbox")
+        height = (WRAITH_MAX[2] - WRAITH_MIN[2]) * plan["scale"]
+        assert height <= 256.0
+        assert plan["bound_by"] == "z"
+
+    def test_the_fitted_bbox_is_reported(self):
+        plan = normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox")
+        assert plan["fitted_bbox_mm"]["x"] == pytest.approx(254.0, abs=0.01)
+
+    def test_an_unknown_fit_mode_is_rejected(self):
+        with pytest.raises(ShellError, match="fit"):
+            normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="sideways")
+
+    def test_a_margin_that_eats_the_build_volume_is_rejected(self):
+        with pytest.raises(ShellError, match="margin"):
+            normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox", margin_mm=999.0)

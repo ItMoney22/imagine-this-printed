@@ -35,3 +35,26 @@ def test_wall_thinner_than_two_nozzle_widths_is_rejected():
     # 0.4mm nozzle: anything under 0.8mm cannot be printed as a wall
     with pytest.raises(SpecError, match="wall_mm"):
         JobSpec.from_dict({"fixture": "qr_plaque", "params": {}, "wall_mm": 0.5})
+
+
+# --- shell fit mode -----------------------------------------------------
+
+def test_fit_defaults_to_height_so_existing_specs_are_unchanged():
+    s = JobSpec.from_dict({"fixture": "candle_cradle", "params": {"jar_dia": 89}})
+    assert s.fit == "height"
+
+def test_a_wide_shell_can_ask_to_be_fitted_to_the_whole_build_volume():
+    s = JobSpec.from_dict({
+        "fixture": "candle_cradle",
+        "params": {"jar_dia": 89},
+        "shell_glb": "/tmp/shell2.glb",
+        "target_height_mm": 150,
+        "fit": "bbox",
+    })
+    assert s.fit == "bbox"
+
+def test_an_unknown_fit_mode_is_rejected_at_the_spec_boundary():
+    # Caught here, not three minutes into a Blender run.
+    with pytest.raises(SpecError, match="fit"):
+        JobSpec.from_dict({"fixture": "candle_cradle", "params": {"jar_dia": 89},
+                           "fit": "widthwise"})

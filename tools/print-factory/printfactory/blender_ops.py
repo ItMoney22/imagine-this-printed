@@ -142,14 +142,21 @@ def import_glb(filepath: str):
     return obj
 
 
-def normalise_shell(obj, target_height_mm: float) -> dict:
-    """Scale to target height, centre on XY, rest the lowest point on Z=0.
+def normalise_shell(obj, target_height_mm: float, fit: str = "height",
+                    margin_mm: float = None) -> dict:
+    """Scale to fit, centre on XY, rest the lowest point on Z=0.
 
-    Matches backend/services/glb-to-stl.ts exactly so a shell prepped here and
-    a shell prepped by the Node converter are the same part.
+    With fit="height" this matches backend/services/glb-to-stl.ts exactly, so a
+    shell prepped here and a shell prepped by the Node converter are the same
+    part. fit="bbox" additionally clamps to the build volume - see
+    shellprep.normalise_plan() for why a wide shell needs it.
+
+    The fit is computed from the RAW imported bounds, before the remesh and
+    before any boolean, so an unprintable size costs nothing to discover.
     """
     mn, mx = bounds_mm(obj)
-    plan = normalise_plan(mn, mx, target_height_mm)
+    kwargs = {} if margin_mm is None else {"margin_mm": margin_mm}
+    plan = normalise_plan(mn, mx, target_height_mm, fit=fit, **kwargs)
     obj.data.transform(Matrix.Scale(plan["scale"], 4))
     obj.data.transform(Matrix.Translation(Vector(plan["translate"])))
     obj.data.update()

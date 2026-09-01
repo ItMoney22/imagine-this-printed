@@ -116,7 +116,8 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
 
     shell = ops.import_glb(spec.shell_glb)
     raw = ops.mesh_stats(shell)
-    plan = ops.normalise_shell(shell, target_h)
+    raw_bbox = ops.bbox_mm(shell)
+    plan = ops.normalise_shell(shell, target_h, fit=getattr(spec, "fit", "height"))
 
     # Mandatory. Not a quality knob.
     ops.voxel_remesh(shell, voxel_mm)
@@ -174,6 +175,13 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
     proud_mm3 = union_stats["volume_mm3"] - body_stats["volume_mm3"]
     proud_pct = 100.0 * proud_mm3 / final_stats["volume_mm3"]
     notes = []
+    fitted_h = plan["fitted_bbox_mm"]["z"]
+    if abs(fitted_h - params.get("height", fitted_h)) > 1.0:
+        notes.append(
+            f"shell was fitted to {fitted_h:.1f}mm tall (bound by "
+            f"{plan['bound_by']}) but the fixture is {params['height']:.1f}mm: "
+            "the two do not span the same envelope, so one caps the other"
+        )
     if proud_pct < SHELL_VISIBLE_PCT:
         notes.append(
             f"shell adds only {proud_mm3:.0f}mm3 ({proud_pct:.2f}% of the part) "
@@ -189,6 +197,15 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
             "raw_non_manifold_edges": raw["non_manifold_edges"],
             "scale": round(plan["scale"], 4),
             "target_height_mm": target_h,
+            "fit": plan["fit"],
+            # Which constraint actually decided the scale. "height" means the
+            # target height bound it; an axis name means the build volume did,
+            # and the part is therefore SHORTER than target_height_mm asked for.
+            "bound_by": plan["bound_by"],
+            "fitted_bbox_mm": {k: round(v, 2)
+                               for k, v in plan["fitted_bbox_mm"].items()},
+            "raw_aspect_w_over_h": round(
+                max(raw_bbox["x"], raw_bbox["y"]) / raw_bbox["z"], 4),
             "voxel_mm": voxel_mm,
             "remeshed_tri_count": remeshed["tri_count"],
             "remeshed_volume_mm3": round(remeshed["volume_mm3"], 1),
