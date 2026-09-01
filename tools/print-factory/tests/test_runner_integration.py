@@ -32,15 +32,23 @@ def run_spec(spec: dict) -> tuple[dict, str]:
         json.dump(spec, fh)
 
     proc = subprocess.run(
-        [BLENDER, "--background", "--factory-startup", "--python", PREP,
+        # --python-exit-code 1 is REQUIRED. Without it Blender exits 0 even when
+        # the script raises an uncaught exception, so a crashed job is
+        # indistinguishable from a successful one. Verified on 5.2.1:
+        #   raise                        -> exit 0
+        #   raise + --python-exit-code 1 -> exit 1
+        # Any caller of prep.py (including Saturn over the print bridge) must
+        # pass this flag or it will mark failed jobs complete with no artifacts.
+        [BLENDER, "--background", "--factory-startup", "--python-exit-code", "1",
+         "--python", PREP,
          "--", "--spec", spec_path, "--out", out_dir],
         capture_output=True, text=True, timeout=300,
     )
     detail = f"\n--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
     assert proc.returncode == 0, f"blender exited {proc.returncode}{detail}"
     metrics_path = os.path.join(out_dir, "metrics.json")
-    # Blender exits 0 even when the --python script raises, so the real proof
-    # the run succeeded is that metrics.json exists.
+    # Belt and braces alongside the exit code: metrics.json existing is direct
+    # evidence the run reached the end, not just that the process survived.
     assert os.path.exists(metrics_path), f"no metrics.json written{detail}"
     with open(metrics_path) as fh:
         return json.load(fh), out_dir
