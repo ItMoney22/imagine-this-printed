@@ -51,7 +51,10 @@ describe('buildProductGallery', () => {
     expect(out[out.length - 1]).toBe('wm.png')
   })
 
-  it('orders the full set ghost → flat → back → mr imagine → models → pocket → watermark', () => {
+  it('orders the full set ghost → flat → back → models → mr imagine → pocket → watermark', () => {
+    // David 2026-09-01: mr_imagine moved AFTER the Step Flow's own model
+    // shots — the flow's approve-per-step shots are the listing's real
+    // photography now, mascot/pocket/watermark are supporting images.
     const out = buildProductGallery([
       asset('mockup_pocket', 'pocket.png'),
       asset('design_watermarked', 'wm.png', { kind: 'design_preview' }),
@@ -62,7 +65,7 @@ describe('buildProductGallery', () => {
       asset('mockup_model_1', 'model1.png'),
       asset('mockup_ghost_mannequin', 'ghost.png'),
     ])
-    expect(out).toEqual(['ghost.png', 'flat.png', 'back.png', 'mri.png', 'model1.png', 'model2.png', 'pocket.png', 'wm.png'])
+    expect(out).toEqual(['ghost.png', 'flat.png', 'back.png', 'model1.png', 'model2.png', 'mri.png', 'pocket.png', 'wm.png'])
   })
 
   it('shows the back view of a two-sided product right after the front, never as hero', () => {

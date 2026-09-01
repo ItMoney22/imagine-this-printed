@@ -89,13 +89,21 @@ export async function processImageJobInline(job: any): Promise<void> {
   }
 
   try {
-    const roster = job.input?.forceSingleModel && job.input?.modelId
-      ? [job.input.modelId]
+    // SHOULD-FIX #12 (2026-09-01 review): `modelIds` wins when present — the
+    // Step Flow's `takes:2|3` builds a `modelIds` array of the SAME model
+    // repeated N times alongside `forceSingleModel` (see POST /create
+    // below), and the old priority here checked `forceSingleModel` FIRST and
+    // collapsed that back down to a single-element `[modelId]` roster,
+    // silently dropping takes 2 and 3. `[job.input.modelId]` is now only the
+    // fallback for a forceSingleModel job that has no modelIds at all.
+    const roster =
+      (job.input?.modelIds as string[] | undefined) ??
+      (job.input?.forceSingleModel && job.input?.modelId ? [job.input.modelId] : undefined) ??
       // House rule (David 2026-08-20): ITP-sold designs generate on
       // gpt-image-2 only, OpenAI-direct — N independently-enhanced takes
       // instead of the 4-vendor Replicate fan-out. Creator-studio jobs never
       // reach this inline processor, so their roster is untouched.
-      : (job.input?.modelIds as string[] | undefined) ?? houseDesignRoster()
+      houseDesignRoster()
     await updateProgress(`🧠 Tailoring your prompt, then generating ${roster.length} take${roster.length === 1 ? '' : 's'} in parallel...`, 1, 3)
     const results = await runImageFlowMultiGenerate({
       prompt: promptInput,
@@ -1726,7 +1734,10 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
 
 // POST /api/admin/products/ai/:id/regenerate-images
 // Regenerate images for an AI-generated product using stored metadata
-router.post('/:id/regenerate-images', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+// SHOULD-FIX #10 (2026-09-01 review): rate-limited like /one-shot — this
+// triggers a real paid model call (Step Flow's "Try another" and the legacy
+// regenerate path both do) and had no limiter at all.
+router.post('/:id/regenerate-images', requireAuth, requireAdmin, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
 

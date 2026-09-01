@@ -21,6 +21,7 @@ import {
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot } from '../etsy-model-shots.js'
 import { renderDetailsCard } from './details-card.js'
+import { buildProductGallery, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
 
@@ -33,6 +34,20 @@ export interface ShotState {
   approved: boolean
   status: 'queued' | 'running' | 'done' | 'failed'
   error?: string
+  /**
+   * Explicitly skipped by the admin (a shot that failed and the admin chose
+   * not to redo) rather than approved. Counts as "settled" for the
+   * `approvals.mockups` stamp the same way a failed-and-left-alone shot
+   * always did, but is a distinct, honest state instead of overloading
+   * `status:'failed'` for "the admin looked at this and moved on".
+   */
+  skipped?: boolean
+  /**
+   * 'details' only: the `product` shot's assetId this card was rendered
+   * from. Lets a redo of the product shot be detected (assetId changed) so
+   * the details card can be re-rendered instead of silently going stale.
+   */
+  sourceAssetId?: string
 }
 
 export interface StepFlowMeta {
@@ -88,6 +103,65 @@ export async function saveStepFlow(productId: string, currentMetadata: any, step
     .update({ metadata: { ...(currentMetadata || {}), step_flow: stepFlow } })
     .eq('id', productId)
   if (error) throw new Error(`Failed to save step_flow: ${error.message}`)
+}
+
+// ---------------------------------------------------------------------------
+// Per-product async mutex (2026-09-01 review fix) — every step_flow write in
+// this module funnels through `withStepFlowLock` + `mergeStepFlow` so two
+// writers never race a read-modify-write of the same product's `step_flow`
+// blob. Concretely this was losing data two ways: "Approve all" fires N
+// `approveShot` calls in parallel and only the LAST writer's snapshot
+// survived, and `resolveStepFlow` used to hold an in-memory snapshot across
+// the multi-second details-card render and then save it, clobbering whatever
+// the model shot's own fire-and-forget completion (or a concurrent approve)
+// had written in the meantime.
+//
+// In-process only — fine here: this is a single Node process per Render
+// instance, and every step_flow writer in this file is one of these admin
+// request handlers or their fire-and-forget continuations, never a separate
+// worker process racing on the same row.
+// ---------------------------------------------------------------------------
+const productLocks = new Map<string, Promise<unknown>>()
+
+async function withStepFlowLock<T>(productId: string, fn: () => Promise<T>): Promise<T> {
+  const prior = productLocks.get(productId) ?? Promise.resolve()
+  // Run `fn` after whatever's ahead of it settles, success or failure — a
+  // failed earlier write must never permanently jam the queue for this
+  // product.
+  const run = prior.then(fn, fn)
+  // What the NEXT caller waits on: always resolves (its own outcome is
+  // irrelevant to the chain), so one rejection doesn't propagate forward.
+  const chained = run.then(
+    () => undefined,
+    () => undefined
+  )
+  productLocks.set(productId, chained)
+  // Best-effort cleanup so a product that's gone quiet doesn't hold a stale
+  // Map entry forever (harmless either way — the next write just chains onto
+  // an already-resolved promise).
+  chained.finally(() => {
+    if (productLocks.get(productId) === chained) productLocks.delete(productId)
+  })
+  return run
+}
+
+/**
+ * The ONE place that reads `products.metadata`, mutates its `step_flow`, and
+ * saves — always called from inside `withStepFlowLock`. Re-reading fresh
+ * immediately before merging (rather than trusting whatever snapshot the
+ * caller took earlier) is what makes every write here a targeted merge onto
+ * the LATEST row instead of a stale whole-object overwrite.
+ */
+async function mergeStepFlow(
+  productId: string,
+  mutate: (stepFlow: StepFlowMeta) => StepFlowMeta
+): Promise<StepFlowMeta> {
+  const { data: product } = await supabase.from('products').select('metadata').eq('id', productId).single()
+  const meta = product?.metadata || {}
+  const stepFlow = getStepFlow({ metadata: meta })
+  const next = mutate(stepFlow)
+  await saveStepFlow(productId, meta, next)
+  return next
 }
 
 /** The default shot set for a garment/colors pick: one full set on the primary color + one product render per extra. */
@@ -221,17 +295,20 @@ async function mirrorUrlToProductAsset(
  * shot's fire-and-forget continuation can finish (and patch its own key)
  * before `queueStepShots`'s loop over the other keys does, so every writer
  * here always merges onto the LATEST row rather than clobbering it with a
- * stale one.
+ * stale one. Wrapped in the per-product lock (see `withStepFlowLock` above)
+ * so two concurrent patches to DIFFERENT keys on the same product still
+ * serialize instead of both reading-then-both-writing around each other.
  */
 async function patchShotState(productId: string, key: ShotKey, patch: Partial<ShotState>): Promise<ShotState> {
-  const { data: product } = await supabase.from('products').select('metadata').eq('id', productId).single()
-  const meta = product?.metadata || {}
-  const stepFlow = getStepFlow({ metadata: meta })
-  const existing: ShotState = stepFlow.shots[key] ?? { approved: false, status: 'queued' }
-  const next: ShotState = { ...existing, ...patch }
-  stepFlow.shots = { ...stepFlow.shots, [key]: next }
-  await saveStepFlow(productId, meta, stepFlow)
-  return next
+  return withStepFlowLock(productId, async () => {
+    let result!: ShotState
+    await mergeStepFlow(productId, (stepFlow) => {
+      const existing: ShotState = stepFlow.shots[key] ?? { approved: false, status: 'queued' }
+      result = { ...existing, ...patch }
+      return { ...stepFlow, shots: { ...stepFlow.shots, [key]: result } }
+    })
+    return result
+  })
 }
 
 async function runModelShot(
@@ -240,10 +317,26 @@ async function runModelShot(
   jobId: string,
   garment: GarmentId,
   shirtColor: ColorId,
-  nonce: string
+  nonce: string,
+  /** Set on a redo — the PRIOR shot's URL to replace in-place rather than append. */
+  replaceUrl?: string
 ): Promise<void> {
   try {
-    const { url } = await shootOneModelShot(productId, userId, { shirtColor, garment, nonce })
+    const { url, check } = await shootOneModelShot(productId, userId, { shirtColor, garment, nonce, replaceUrl })
+
+    if (check?.ok === false) {
+      // Design-fidelity QA rejected this take (see etsy-model-shots.ts's
+      // verifyDesignFidelity) — shootOneModelShot already recorded it in
+      // metadata.etsy_shots for the admin to see, but it must NOT become the
+      // product's mockup_model_1 asset: mirroring a rejected take would ship
+      // a wrong-design photo to the storefront the moment it's approved.
+      const message = check.reason || 'Model shot failed design-fidelity QA'
+      console.warn(`[step-flow/shots] ${productId} model shot failed QA (not mirrored): ${message}`)
+      await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', jobId)
+      await patchShotState(productId, 'model', { status: 'failed', error: message })
+      return
+    }
+
     const asset = await mirrorUrlToProductAsset(productId, 'mockup_model_1', url, 5, {
       template: 'step_flow_model_shot',
       generated_with: 'etsy-model-shots',
@@ -262,7 +355,9 @@ async function queueModelShot(
   product: ProductRow,
   garment: GarmentId,
   primaryColor: ColorId,
-  userId: string
+  userId: string,
+  /** Set on a redo — threads through to `shootOneModelShot`'s `replaceUrl` so the retake replaces the prior entry in metadata.etsy_shots.images instead of piling up another one. */
+  previousUrl?: string
 ): Promise<{ jobId: string; status: ShotState['status'] }> {
   const nonce = randomNonce()
   const { data: job, error } = await supabase
@@ -284,7 +379,7 @@ async function queueModelShot(
   // caller save it later" — makes the ordering correct regardless of timing.
   await patchShotState(product.id, 'model', { status: 'running', jobId: job.id, approved: false, error: undefined })
 
-  void runModelShot(product.id, userId, job.id, garment, primaryColor, nonce)
+  void runModelShot(product.id, userId, job.id, garment, primaryColor, nonce, previousUrl)
 
   return { jobId: job.id, status: 'running' }
 }
@@ -299,30 +394,30 @@ async function renderDetailsShot(
   stepFlow: StepFlowMeta
 ): Promise<{ jobId: null; patch: Partial<ShotState> }> {
   const garment = stepFlow.garment!
-  const role = roleForShotKey('product', garment)
-  const { data: productAsset } = await supabase
-    .from('product_assets')
-    .select('id, url')
-    .eq('product_id', product.id)
-    .eq('asset_role', role)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (!productAsset?.url) {
+  // Read the product shot straight off step_flow (not a separate
+  // product_assets-by-role query) so this function's own "ready?" check is
+  // the SAME source of truth callers gate on (MUST-FIX #8: only render once
+  // shots.product.status === 'done'), and so the exact assetId the card was
+  // built from is available to stamp as `sourceAssetId` below.
+  const productShot = stepFlow.shots.product
+  if (!productShot?.assetId || !productShot.url) {
     throw new StepFlowValidationError('Approve the product shot before rendering the details card')
   }
 
   const meta = product.metadata || {}
   const result = await renderDetailsCard({
     productId: product.id,
-    mockupUrl: productAsset.url,
+    mockupUrl: productShot.url,
     garment,
     color: stepFlow.colors!.primary,
     title: stepFlow.brief?.title || meta.step_flow?.brief?.title || 'Custom Design',
     printWidthInches: printSizeInchesFor(meta, garment),
   })
 
-  return { jobId: null, patch: { status: 'done', assetId: result.assetId, url: result.url, error: undefined } }
+  return {
+    jobId: null,
+    patch: { status: 'done', assetId: result.assetId, url: result.url, sourceAssetId: productShot.assetId, error: undefined },
+  }
 }
 
 async function buildShotJob(
@@ -339,7 +434,13 @@ async function buildShotJob(
   }
   assertOffered(garment, colors.primary)
 
-  if (key === 'model') return queueModelShot(product, garment, colors.primary, userId)
+  if (key === 'model') {
+    // MUST-FIX #3: on a redo, thread the prior shot's URL through so
+    // shootOneModelShot REPLACES it in metadata.etsy_shots.images instead of
+    // appending another take for the Etsy uploader to potentially pick up.
+    const previousUrl = mode === 'redo' ? stepFlow.shots.model?.url : undefined
+    return queueModelShot(product, garment, colors.primary, userId, previousUrl)
+  }
 
   if (key === 'details') {
     if (mode === 'queue') {
@@ -372,8 +473,27 @@ export async function queueStepShots(
   for (const c of stepFlow.colors.extras || []) assertOffered(stepFlow.garment, c)
 
   const allKeys = defaultShotKeys(stepFlow.colors)
-  const targetKeys = requestedKeys && requestedKeys.length ? requestedKeys.filter((k) => allKeys.includes(k)) : allKeys
+  const explicit = !!(requestedKeys && requestedKeys.length)
+  let targetKeys = explicit ? requestedKeys!.filter((k) => allKeys.includes(k)) : allKeys
+
+  if (!explicit) {
+    // SHOULD-FIX #9: the default (no explicit keys) fan-out is idempotent —
+    // a shot that's already queued/running/done never gets a second
+    // duplicate job just because the panel fired "shots" again (entry-effect
+    // double-invoke, an accidental double-click on Continue, ...). Redo is
+    // the explicit way to re-run a settled shot; the default path only fills
+    // in what hasn't started yet.
+    targetKeys = targetKeys.filter((k) => {
+      const status = stepFlow.shots[k]?.status
+      return status !== 'queued' && status !== 'running' && status !== 'done'
+    })
+  }
+
   if (targetKeys.length === 0) {
+    // Nothing NEW to queue isn't an error when everything's already in
+    // flight or finished — only an explicit (and invalid) keys[] request
+    // should surface as a validation error.
+    if (!explicit) return { jobs: [] }
     throw new StepFlowValidationError('No valid shot keys for the approved garment/colors')
   }
 
@@ -412,174 +532,255 @@ export async function redoShot(
   return { job: { id: jobId, key, status } }
 }
 
+export interface ApproveItem {
+  key: ShotKey
+  approved: boolean
+  assetId?: string
+  /** MUST-FIX #2: a failed shot the admin chose not to redo — settled, not approved. */
+  skipped?: boolean
+}
+
+/**
+ * Approve (or skip) a batch of shots in one locked read-modify-write. The
+ * per-key `approveShot` below is a thin wrapper over this — added so
+ * "Approve all" can fire ONE call instead of N parallel `approveShot` calls
+ * racing each other's read-modify-write of the same `step_flow.shots` object
+ * (that race was MUST-FIX #1's "last writer wins" bug).
+ */
+export async function approveShotsBatch(
+  productId: string,
+  items: ApproveItem[]
+): Promise<{ step_flow: StepFlowMeta }> {
+  if (!items.length) throw new StepFlowValidationError('No shots given to approve')
+
+  // Resolve/validate every assetId up front — a lookup, not a step_flow
+  // write, so it doesn't need to happen inside the lock.
+  const resolved = await Promise.all(
+    items.map(async (item) => {
+      if (!item.assetId) return { ...item, resolvedUrl: undefined as string | undefined }
+      const { data: asset, error } = await supabase
+        .from('product_assets')
+        .select('id, url, product_id')
+        .eq('id', item.assetId)
+        .maybeSingle()
+      if (error || !asset || asset.product_id !== productId) {
+        throw new StepFlowValidationError(`assetId for "${item.key}" does not belong to this product`)
+      }
+      return { ...item, resolvedUrl: asset.url as string }
+    })
+  )
+
+  return withStepFlowLock(productId, async () => {
+    const stepFlow = await mergeStepFlow(productId, (stepFlow) => {
+      const shots: Partial<Record<ShotKey, ShotState>> = { ...stepFlow.shots }
+      for (const item of resolved) {
+        const existing: ShotState = shots[item.key] ?? { approved: false, status: 'queued' }
+        shots[item.key] = {
+          ...existing,
+          approved: !!item.approved,
+          skipped: !!item.skipped,
+          assetId: item.assetId ?? existing.assetId,
+          url: item.resolvedUrl ?? existing.url,
+        }
+      }
+
+      // One approve per step (David 2026-09-01): once every shot for this
+      // garment/colors is approved, failed-and-skippable, or explicitly
+      // skipped, stamp the group approval so the flow can advance to
+      // Listing.
+      const approvals = { ...stepFlow.approvals }
+      if (!approvals.mockups && stepFlow.colors) {
+        const tracked = defaultShotKeys(stepFlow.colors).filter((k) => shots[k])
+        const allSettled =
+          tracked.length > 0 &&
+          tracked.every((k) => shots[k]?.approved === true || shots[k]?.status === 'failed' || shots[k]?.skipped === true)
+        if (allSettled) approvals.mockups = new Date().toISOString()
+      }
+
+      return { ...stepFlow, shots, approvals }
+    })
+    return { step_flow: stepFlow }
+  })
+}
+
 export async function approveShot(
   productId: string,
   key: ShotKey,
   approved: boolean,
-  assetId?: string
+  assetId?: string,
+  skipped?: boolean
 ): Promise<{ step_flow: StepFlowMeta }> {
-  const product = await loadProductRow(productId)
-  const stepFlow = getStepFlow(product)
-  const existing: ShotState = stepFlow.shots[key] ?? { approved: false, status: 'queued' }
-
-  let resolvedAssetId = assetId ?? existing.assetId
-  let resolvedUrl = existing.url
-  if (assetId) {
-    const { data: asset, error } = await supabase
-      .from('product_assets')
-      .select('id, url, product_id')
-      .eq('id', assetId)
-      .maybeSingle()
-    if (error || !asset || asset.product_id !== productId) {
-      throw new StepFlowValidationError('assetId does not belong to this product')
-    }
-    resolvedAssetId = asset.id
-    resolvedUrl = asset.url
-  }
-
-  const shots: Partial<Record<ShotKey, ShotState>> = {
-    ...stepFlow.shots,
-    [key]: { ...existing, approved: !!approved, assetId: resolvedAssetId, url: resolvedUrl },
-  }
-
-  // One approve per step (David 2026-09-01): once every shot for this
-  // garment/colors is either approved or failed-and-skippable, stamp the
-  // group approval so the flow can advance to Listing.
-  const approvals = { ...stepFlow.approvals }
-  if (!approvals.mockups && stepFlow.colors) {
-    const tracked = defaultShotKeys(stepFlow.colors).filter((k) => shots[k])
-    const allSettled = tracked.length > 0 && tracked.every((k) => shots[k]?.approved === true || shots[k]?.status === 'failed')
-    if (allSettled) approvals.mockups = new Date().toISOString()
-  }
-
-  const nextStepFlow = { ...stepFlow, shots, approvals }
-  await saveStepFlow(productId, product.metadata, nextStepFlow)
-  return { step_flow: nextStepFlow }
+  return approveShotsBatch(productId, [{ key, approved, assetId, skipped }])
 }
+
+/** Fifteen minutes with no result is a stuck job (worker crash, etc.), not a slow one — MUST-FIX #11. */
+const STALE_RUNNING_MS = 15 * 60 * 1000
 
 /**
  * Called from GET /:id/step — brings `step_flow.shots` up to date with the
  * ai_jobs rows the worker has already processed, and (for 'details' only)
  * performs the deferred synchronous render once the product shot exists.
- * Persists only when something actually changed.
+ *
+ * Every mutation is applied through `patchShotState` (locked, targeted
+ * merge) the instant it's decided — this function never accumulates a local
+ * `shots` snapshot and blind-saves it at the end. That used to be the bug:
+ * the 'details' branch could `await` a multi-second card render mid-loop,
+ * and whatever the model shot's own fire-and-forget completion (or a
+ * concurrent approve) wrote to OTHER keys in that window got clobbered by
+ * this function's stale in-memory copy of them when it finally saved.
  */
 export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: any[]): Promise<StepFlowMeta> {
   const stepFlow = getStepFlow(product)
   const garment = stepFlow.garment
   if (!garment) return stepFlow
 
-  const shots = { ...stepFlow.shots }
-  let changed = false
+  let touched = false
 
-  for (const key of Object.keys(shots) as ShotKey[]) {
-    const state = shots[key]
-    if (!state || state.status === 'done' || state.status === 'failed') continue
+  for (const key of Object.keys(stepFlow.shots) as ShotKey[]) {
+    const state = stepFlow.shots[key]
+    if (!state) continue
 
     if (key === 'details') {
+      const productShot = stepFlow.shots.product
+
+      if (productShot?.status === 'failed') {
+        // MUST-FIX #2: the details card is composed FROM the product shot —
+        // if that failed there is nothing to render it from.
+        const alreadyMarked = state.status === 'failed' && state.error === 'product shot failed — nothing to render'
+        if (!alreadyMarked) {
+          await patchShotState(product.id, key, { status: 'failed', error: 'product shot failed — nothing to render' })
+          touched = true
+        }
+        continue
+      }
+
+      if (productShot?.status !== 'done') continue // not ready yet — leave queued for the next poll
+
+      // MUST-FIX #8: render once the product shot is done, and RE-render if
+      // the product shot has since changed (a redo) — sourceAssetId is the
+      // freshness check, not just "status is already done".
+      if (state.status === 'done' && state.sourceAssetId === productShot.assetId) continue
+
       try {
+        // Render OUTSIDE the lock (network fetch + sharp compose + GCS
+        // upload — several seconds). Only the result write is locked, so a
+        // slow render can never hold up, or get clobbered by, a concurrent
+        // approve/redo/model-shot completion on this same product.
         const { patch } = await renderDetailsShot(product, stepFlow)
-        shots[key] = { ...state, ...patch, jobId: undefined }
-        changed = true
+        await patchShotState(product.id, key, { ...patch, jobId: undefined })
+        touched = true
       } catch (err: any) {
         // "Not ready yet" (no product asset) is expected while mockups are
         // still rendering — leave it queued for the next poll rather than
         // flagging a failure that never happened.
         if (!(err instanceof StepFlowValidationError)) {
-          shots[key] = { ...state, status: 'failed', error: err?.message || 'Details render failed' }
-          changed = true
+          await patchShotState(product.id, key, { status: 'failed', error: err?.message || 'Details render failed' })
+          touched = true
         }
       }
       continue
     }
 
+    if (state.status === 'done' || state.status === 'failed') continue
+
     if (!state.jobId) continue
     const job = jobs.find((j) => j.id === state.jobId)
-    if (!job) continue
+
+    if (!job) {
+      if (state.status === 'running' || state.status === 'queued') {
+        // The job record this shot is waiting on is gone (deleted, or never
+        // landed) — nothing will ever resolve it. Fail now so Redo is
+        // offered instead of a spinner that waits forever.
+        await patchShotState(product.id, key, { status: 'failed', error: 'stale — job record missing, redo this shot' })
+        touched = true
+      }
+      continue
+    }
 
     if (job.status === 'failed') {
-      shots[key] = { ...state, status: 'failed', error: job.error || 'Job failed' }
-      changed = true
+      await patchShotState(product.id, key, { status: 'failed', error: job.error || 'Job failed' })
+      touched = true
     } else if (job.status === 'succeeded') {
       const role = roleForShotKey(key, garment)
       const candidates = assets
         .filter((a) => a.asset_role === role && a.url)
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       if (candidates[0]) {
-        shots[key] = { ...state, status: 'done', assetId: candidates[0].id, url: candidates[0].url }
-        changed = true
+        await patchShotState(product.id, key, { status: 'done', assetId: candidates[0].id, url: candidates[0].url })
+      } else {
+        // MUST-FIX #11: the job says it succeeded but nothing landed in its
+        // asset_role slot — never leave the shot spinning forever.
+        await patchShotState(product.id, key, { status: 'failed', error: 'render finished, no asset landed' })
       }
-    } else if ((job.status === 'queued' || job.status === 'running') && state.status !== job.status) {
-      shots[key] = { ...state, status: job.status }
-      changed = true
+      touched = true
+    } else {
+      // queued/running
+      const startedAt = job.created_at ? new Date(job.created_at).getTime() : NaN
+      const age = Number.isFinite(startedAt) ? Date.now() - startedAt : 0
+      if (age > STALE_RUNNING_MS) {
+        // MUST-FIX #11: stuck for >15 minutes — fail it so Redo is offered
+        // instead of an infinite spinner.
+        await patchShotState(product.id, key, { status: 'failed', error: 'stale — no result after 15 minutes, redo this shot' })
+        touched = true
+      } else if (state.status !== job.status) {
+        await patchShotState(product.id, key, { status: job.status })
+        touched = true
+      }
     }
   }
 
-  const nextStepFlow = { ...stepFlow, shots }
-  if (changed) await saveStepFlow(product.id, product.metadata, nextStepFlow)
-  return nextStepFlow
+  if (!touched) return stepFlow
+  // Every mutation above already landed through the lock — re-read once at
+  // the end to hand the caller the fully up-to-date row instead of
+  // reconstructing it from whatever order the patches happened to apply in.
+  const fresh = await loadProductRow(product.id)
+  return getStepFlow(fresh)
 }
 
 // ---------------------------------------------------------------------------
-// Publish gallery — server-side mirror of src/lib/product-gallery.ts's
-// ROLE_ORDER (Track C owns that file; the backend can't import across the
-// frontend/backend package boundary, so this is the same whitelist kept in
-// step with it by hand). Any role missing here is invisible on the storefront
-// no matter how many were generated.
+// Publish gallery (SHOULD-FIX #4/#5) — built from APPROVED step-flow shots
+// only, using the shared ROLE_ORDER whitelist (backend/shared/product-gallery.ts)
+// that the frontend's publish paths use too, instead of a second, drifted
+// copy that used to live here.
 // ---------------------------------------------------------------------------
 
-const GALLERY_FIXED_ROLE_ORDER = [
-  'mockup_ghost_mannequin',
-  'mockup_flat_lay',
-  'mockup_hanger',
-  'mockup_back',
-  'mockup_model_1',
-  'mockup_model_2',
-  'mockup_details',
-]
-const GALLERY_TAIL_ROLE_ORDER = ['mockup_mr_imagine', 'mockup_pocket', 'design_watermarked']
+/**
+ * Publish gallery + the "did the admin actually approve anything" guard.
+ * Roles the step flow tracks approval for (product/hanger/model/details/
+ * color:*) are included ONLY when their shot was approved — a stray
+ * `mockup_hanger` row from an un-approved (or since-redone) render must never
+ * reach the storefront just because it happens to exist in `product_assets`.
+ * Roles the flow never tracks (mr_imagine, pocket, back, the watermarked
+ * design, ...) pass through unfiltered, exactly like every other publish
+ * path in the app.
+ */
+export function buildApprovedGallery(
+  stepFlow: StepFlowMeta,
+  assets: GalleryAsset[]
+): { images: string[]; approvedFlowCount: number } {
+  const garment = stepFlow.garment
+  const approvedAssetIds = new Set(
+    Object.values(stepFlow.shots)
+      .filter((s): s is ShotState => !!s && s.approved === true && !!s.assetId)
+      .map((s) => s.assetId as string)
+  )
 
-export interface GalleryAssetLike {
-  id?: string
-  kind?: string | null
-  asset_role?: string | null
-  url?: string | null
-  display_order?: number | null
-  created_at?: string | null
-}
-
-export function buildStepFlowGallery(assets: GalleryAssetLike[]): string[] {
-  const images: string[] = []
-  const pushRole = (role: string) => {
-    const candidates = assets
-      .filter((a) => a.asset_role === role && a.url)
-      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-    if (candidates[0]) images.push(candidates[0].url as string)
-  }
-
-  for (const role of GALLERY_FIXED_ROLE_ORDER) pushRole(role)
-
-  const colorRoles = Array.from(
-    new Set(
-      assets
-        .map((a) => a.asset_role)
-        .filter((r): r is string => typeof r === 'string' && r.startsWith('mockup_color_'))
-    )
-  ).sort()
-  for (const role of colorRoles) pushRole(role)
-
-  for (const role of GALLERY_TAIL_ROLE_ORDER) pushRole(role)
-
-  if (images.length === 0) {
-    const mockups = assets
-      .filter((a) => a.kind === 'mockup' && a.url)
-      .sort((a, b) => (a.display_order ?? 99) - (b.display_order ?? 99))
-    const seen = new Set<string>()
-    for (const m of mockups) {
-      if (seen.has(m.url as string)) continue
-      seen.add(m.url as string)
-      images.push(m.url as string)
+  const trackedRoles = new Set<string>()
+  if (garment) {
+    for (const k of Object.keys(stepFlow.shots) as ShotKey[]) {
+      try {
+        trackedRoles.add(roleForShotKey(k, garment))
+      } catch {
+        // Unknown/legacy key — nothing to track it against; leave it out
+        // rather than let a malformed key crash the publish route.
+      }
     }
   }
 
-  return images
+  const filtered = assets.filter((a) => {
+    if (!a.asset_role || !trackedRoles.has(a.asset_role)) return true
+    return !!a.id && approvedAssetIds.has(a.id)
+  })
+
+  return { images: buildProductGallery(filtered), approvedFlowCount: approvedAssetIds.size }
 }

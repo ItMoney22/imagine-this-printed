@@ -79,6 +79,16 @@ export interface EtsyShots {
   cast?: string[]
   /** Per-shot design-fidelity verdicts, parallel to `images`. */
   checks?: ShotCheck[]
+  /**
+   * Step Flow only (2026-09-01 review fix), parallel to `images`: true where
+   * that index came from `shootOneModelShot` (the Step Flow's single-shot
+   * 'model' key) rather than the two-shot `startModelShots`/`reshootModelShot`
+   * casting session. A step-flow REDO replaces its own marked entry in place
+   * (see `replaceUrl` on `shootOneModelShot`) instead of appending another
+   * take, so the Etsy uploader — which reads `images` front-to-back — never
+   * finds a pile of a step-flow shot's earlier, possibly QA-rejected retakes.
+   */
+  stepModel?: boolean[]
   started_at?: string
   generated_at?: string
   error?: string
@@ -1219,11 +1229,23 @@ export async function reshootModelShot(
  * `opts.shirtColor` overrides the product's/pack's color for this one shot.
  * `opts.nonce` is folded into the shot key purely for log traceability across
  * retries/redos — casting itself is already always fresh (see castShot).
+ * `opts.replaceUrl` (2026-09-01 review fix): on a Step Flow REDO, pass the
+ * PRIOR call's returned `url` here — the new shot replaces that entry
+ * in-place (images/checks/cast, all parallel arrays) instead of appending a
+ * new one, so a redo never piles up an extra — possibly QA-rejected — take
+ * for the Etsy uploader to find. Omit it for the first shoot (appends).
  */
 export async function shootOneModelShot(
   productId: string,
   userId: string,
-  opts: { shirtColor?: ColorId; garment?: GarmentId; cast?: ShotCast; nonce?: string; mirror?: boolean } = {}
+  opts: {
+    shirtColor?: ColorId
+    garment?: GarmentId
+    cast?: ShotCast
+    nonce?: string
+    mirror?: boolean
+    replaceUrl?: string
+  } = {}
 ): Promise<{ url: string; check: ShotCheck }> {
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
@@ -1241,14 +1263,40 @@ export async function shootOneModelShot(
   console.log(`[etsy-shots] ${productId} ${plan.key} (step-flow single shot) cast: ${plan.signature} [slate ${plan.variant}]`)
   const { url, check } = await renderVerifiedShot(plan, shirtColor, ctx)
 
-  // Re-read at write time (same pattern as reshootOne/saveShotsState) and
-  // APPEND — never clobber whatever the object already held.
+  // Re-read at write time (same pattern as reshootOne/saveShotsState).
   const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
   const metadata = (fresh as any)?.metadata || {}
   const current: EtsyShots | undefined = metadata.etsy_shots
-  const images = [...(current?.images ?? []), url]
-  const checks = [...(current?.checks ?? []), check]
-  const cast = [...(current?.cast ?? []), plan.label]
+  const priorImages = current?.images ?? []
+  const priorChecks = current?.checks ?? []
+  const priorCast = current?.cast ?? []
+  const priorStepModel = current?.stepModel ?? []
+
+  // A redo REPLACES its own prior slot (by URL) instead of appending — see
+  // opts.replaceUrl's doc comment above.
+  const replaceAt = opts.replaceUrl ? priorImages.indexOf(opts.replaceUrl) : -1
+
+  let images: string[]
+  let checks: ShotCheck[]
+  let cast: string[]
+  let stepModel: boolean[]
+  if (replaceAt >= 0) {
+    images = [...priorImages]
+    images[replaceAt] = url
+    checks = [...priorChecks]
+    checks[replaceAt] = check
+    cast = [...priorCast]
+    cast[replaceAt] = plan.label
+    stepModel = [...priorStepModel]
+    stepModel[replaceAt] = true
+  } else {
+    images = [...priorImages, url]
+    checks = [...priorChecks, check]
+    cast = [...priorCast, plan.label]
+    stepModel = [...priorStepModel]
+    stepModel[images.length - 1] = true
+  }
+
   const { error: updErr } = await supabase
     .from('products')
     .update({
@@ -1263,6 +1311,7 @@ export async function shootOneModelShot(
           images,
           checks,
           cast,
+          stepModel,
           generated_at: new Date().toISOString(),
         },
       },

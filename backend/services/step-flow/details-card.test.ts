@@ -97,6 +97,42 @@ describe('buildDetailsSvg', () => {
     expect(svg).not.toMatch(/<Tour>/)
     expect(svg).toMatch(/&amp;|&lt;Tour&gt;/)
   })
+
+  // Fix #7: the title used to be escaped ONCE up front (`escapeXml(...)`) and
+  // then split/rejoined/escaped a SECOND time while wrapping across lines —
+  // every "&" came out as "&amp;amp;" instead of "&amp;". Escaping now
+  // happens exactly once, at push time, on the wrapped (raw) line.
+  it('never double-escapes an ampersand, even in a title long enough to wrap across lines', () => {
+    const svg = buildDetailsSvg({
+      garment: 'tshirt',
+      color: 'black',
+      title: 'Rock & Roll Forever & Ever Tour Deluxe Edition',
+      printWidthInches: 11,
+    })
+    expect(svg).not.toMatch(/&amp;amp;/)
+    expect(svg).toMatch(/&amp;/)
+  })
+
+  // Fix #7: no more hard `.slice(0, 60)` + silent 2-line cap — a long title
+  // gets a 3rd, smaller-font line instead of being cut off with no
+  // indication anything was dropped.
+  it('wraps a long title across a 3rd line at a smaller size instead of silently truncating it', () => {
+    const longTitle = 'This Is A Genuinely Long Product Title For The Details Card'
+    const svg = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: longTitle, printWidthInches: 11 })
+    // The early words of the title must still be present somewhere in the
+    // SVG — nothing before the wrap point silently disappears.
+    expect(svg).toContain('This')
+    expect(svg).toContain('Genuinely')
+    expect(svg).toContain('Product')
+    // The smaller 3-line font size kicks in.
+    expect(svg).toMatch(/font-size="23"/)
+  })
+
+  it('uses a font stack with a Linux-available fallback (Render has no Arial/Helvetica)', () => {
+    const svg = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: 'x', printWidthInches: 11 })
+    expect(svg).toContain(`font-family="Arial, Helvetica, 'DejaVu Sans', sans-serif"`)
+    expect(svg).not.toContain('font-family="Arial, Helvetica, sans-serif"')
+  })
 })
 
 describe('renderDetailsCard (fetch + upload + DB stubbed)', () => {

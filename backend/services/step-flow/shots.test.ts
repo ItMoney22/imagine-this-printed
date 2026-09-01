@@ -120,10 +120,11 @@ const {
   queueStepShots,
   redoShot,
   approveShot,
+  approveShotsBatch,
   resolveStepFlow,
   defaultShotKeys,
   roleForShotKey,
-  buildStepFlowGallery,
+  buildApprovedGallery,
   getStepFlow,
   StepFlowValidationError,
 } = await import('./shots.js')
@@ -201,32 +202,67 @@ describe('roleForShotKey', () => {
   })
 })
 
-describe('buildStepFlowGallery', () => {
-  it('orders fixed roles first, then color roles, then the tail roles', () => {
-    const images = buildStepFlowGallery([
-      { asset_role: 'design_watermarked', url: 'w.png', created_at: '2026-01-01' },
-      { asset_role: 'mockup_color_navy', url: 'navy.png', created_at: '2026-01-01' },
-      { asset_role: 'mockup_flat_lay', url: 'flat.png', created_at: '2026-01-01' },
-      { asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
-      { asset_role: 'mockup_hanger', url: 'hanger.png', created_at: '2026-01-01' },
-    ])
-    expect(images).toEqual(['ghost.png', 'flat.png', 'hanger.png', 'navy.png', 'w.png'])
+describe('buildApprovedGallery', () => {
+  // SHOULD-FIX #4/#5: built from the shared backend/shared/product-gallery.ts
+  // ROLE_ORDER, but ONLY over assets whose step-flow shot was approved — a
+  // rendered-but-unapproved (or since-redone) asset under a tracked role must
+  // never reach the storefront just because a product_assets row exists.
+  const flowWith = (shots: Record<string, any>): any => ({
+    version: 1,
+    idea: '',
+    brief: null,
+    garment: 'tshirt' as const,
+    colors: { primary: 'black' as const, extras: [] },
+    shots,
+    approvals: {},
   })
 
-  it('newest asset wins when a role has duplicates', () => {
-    const images = buildStepFlowGallery([
-      { asset_role: 'mockup_hanger', url: 'old.png', created_at: '2026-01-01' },
-      { asset_role: 'mockup_hanger', url: 'new.png', created_at: '2026-01-02' },
-    ])
-    expect(images).toEqual(['new.png'])
+  it('includes an approved shot and excludes an unapproved one under the same tracked role type', () => {
+    const sf = flowWith({
+      product: { approved: true, status: 'done', assetId: 'a1', url: 'ghost.png' },
+      hanger: { approved: false, status: 'done', assetId: 'a2', url: 'hanger.png' },
+    })
+    const assets = [
+      { id: 'a1', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
+      { id: 'a2', asset_role: 'mockup_hanger', url: 'hanger.png', created_at: '2026-01-01' },
+    ]
+    const { images, approvedFlowCount } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['ghost.png'])
+    expect(approvedFlowCount).toBe(1)
   })
 
-  it('falls back to display-order mockups when no asset_role matches the whitelist', () => {
-    const images = buildStepFlowGallery([
-      { kind: 'mockup', asset_role: null, url: 'legacy2.png', display_order: 2 },
-      { kind: 'mockup', asset_role: null, url: 'legacy1.png', display_order: 1 },
-    ])
-    expect(images).toEqual(['legacy1.png', 'legacy2.png'])
+  it('passes non-flow roles (design_watermarked, mr_imagine, pocket) through unfiltered', () => {
+    const sf = flowWith({ product: { approved: true, status: 'done', assetId: 'a1', url: 'ghost.png' } })
+    const assets = [
+      { id: 'a1', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
+      { id: 'w1', asset_role: 'design_watermarked', url: 'wm.png', created_at: '2026-01-01' },
+    ]
+    const { images } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['ghost.png', 'wm.png'])
+  })
+
+  it('reports zero approvedFlowCount when nothing is approved, even if a tracked-role asset exists', () => {
+    const sf = flowWith({ product: { approved: false, status: 'done', assetId: 'a1', url: 'ghost.png' } })
+    const assets = [{ id: 'a1', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' }]
+    const { images, approvedFlowCount } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual([])
+    expect(approvedFlowCount).toBe(0)
+  })
+
+  it('orders the approved set by the shared ROLE_ORDER (ghost -> hanger -> color -> mr imagine)', () => {
+    const sf = flowWith({
+      product: { approved: true, status: 'done', assetId: 'a1', url: 'ghost.png' },
+      hanger: { approved: true, status: 'done', assetId: 'a2', url: 'hanger.png' },
+      'color:navy': { approved: true, status: 'done', assetId: 'a3', url: 'navy.png' },
+    })
+    const assets = [
+      { id: 'a3', asset_role: 'mockup_color_navy', url: 'navy.png', created_at: '2026-01-01' },
+      { id: 'mri', asset_role: 'mockup_mr_imagine', url: 'mri.png', created_at: '2026-01-01' },
+      { id: 'a2', asset_role: 'mockup_hanger', url: 'hanger.png', created_at: '2026-01-01' },
+      { id: 'a1', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
+    ]
+    const { images } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['ghost.png', 'hanger.png', 'navy.png', 'mri.png'])
   })
 })
 
@@ -297,6 +333,82 @@ describe('queueStepShots', () => {
     const { jobs } = await queueStepShots('p1', 'user-1', ['hanger'])
     expect(jobs.map((j) => j.key)).toEqual(['hanger'])
   })
+
+  // SHOULD-FIX #9
+  it('is idempotent for the default fan-out: a shot already queued/running/done is never re-queued', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: '',
+          brief: null,
+          garment: 'tshirt',
+          colors: { primary: 'black', extras: [] },
+          shots: {
+            product: { approved: false, status: 'done', assetId: 'a1', url: 'https://cdn/a1.png' },
+            hanger: { approved: false, status: 'running', jobId: 'existing-job' },
+          },
+          approvals: {},
+        },
+      },
+    })
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/model.png', check: { ok: true } })
+
+    const { jobs } = await queueStepShots('p1', 'user-1')
+    const keys = jobs.map((j) => j.key)
+    expect(keys).not.toContain('product') // already 'done'
+    expect(keys).not.toContain('hanger') // already 'running'
+    expect(keys).toContain('model')
+    expect(keys).toContain('details')
+  })
+
+  it('returns an empty jobs[] (not an error) when the default fan-out finds nothing left to queue', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: '',
+          brief: null,
+          garment: 'tshirt',
+          colors: { primary: 'black', extras: [] },
+          shots: {
+            product: { approved: true, status: 'done', assetId: 'a1', url: 'https://cdn/a1.png' },
+            hanger: { approved: true, status: 'done', assetId: 'a2', url: 'https://cdn/a2.png' },
+            model: { approved: true, status: 'done', assetId: 'a3', url: 'https://cdn/a3.png' },
+            details: { approved: true, status: 'done', assetId: 'a4', url: 'https://cdn/a4.png' },
+          },
+          approvals: {},
+        },
+      },
+    })
+    const { jobs } = await queueStepShots('p1', 'user-1')
+    expect(jobs).toEqual([])
+  })
+})
+
+// MUST-FIX #3
+describe('runModelShot (via queueStepShots) — design-fidelity QA gating', () => {
+  it('marks the model shot failed and does NOT mirror into product_assets when the shot fails QA', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/rejected.png', check: { ok: false, reason: 'text was redrawn' } })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'failed')
+
+    const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
+    expect(sf.shots.model).toMatchObject({ status: 'failed', error: 'text was redrawn' })
+    expect(db.product_assets.some((a) => a.asset_role === 'mockup_model_1')).toBe(false)
+  })
+
+  it('still mirrors and marks done when the shot passes QA', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/good.png', check: { ok: true } })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
+
+    expect(db.product_assets.some((a) => a.asset_role === 'mockup_model_1' && a.url === 'https://cdn/good.png')).toBe(true)
+  })
 })
 
 describe('redoShot', () => {
@@ -327,7 +439,10 @@ describe('redoShot', () => {
     expect(sf.shots.hanger?.jobId).toBe(job.id)
   })
 
-  it('renders details synchronously when the product asset already exists', async () => {
+  it('renders details synchronously when the product shot is done', async () => {
+    // MUST-FIX #8: renderDetailsShot reads the mockup URL straight off
+    // step_flow.shots.product (not a separate product_assets-by-role query)
+    // so the "ready?" gate and the render use the SAME source of truth.
     seedProduct({
       metadata: {
         step_flow: {
@@ -336,17 +451,13 @@ describe('redoShot', () => {
           brief: { title: 'Street Monkey' },
           garment: 'tshirt',
           colors: { primary: 'black', extras: [] },
-          shots: { details: { approved: false, status: 'queued' } },
+          shots: {
+            product: { approved: true, status: 'done', assetId: 'product-asset-1', url: 'https://cdn/ghost.png' },
+            details: { approved: false, status: 'queued' },
+          },
           approvals: {},
         },
       },
-    })
-    db.product_assets.push({
-      id: 'product-asset-1',
-      product_id: 'p1',
-      asset_role: 'mockup_ghost_mannequin',
-      url: 'https://cdn/ghost.png',
-      created_at: '2026-01-01',
     })
     renderDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details.png', path: 'x', assetId: 'details-1' })
 
@@ -357,6 +468,8 @@ describe('redoShot', () => {
 
     const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
     expect(sf.shots.details?.assetId).toBe('details-1')
+    // MUST-FIX #8: stamps which product-shot assetId the card was built from.
+    expect(sf.shots.details?.sourceAssetId).toBe('product-asset-1')
   })
 
   it('rejects redoing details before the product shot exists', async () => {
@@ -412,14 +525,119 @@ describe('approveShot', () => {
     // enough to stamp the group approval.
     expect(step_flow.approvals.mockups).toBeTruthy()
   })
+
+  // MUST-FIX #2
+  it('treats an explicitly skipped shot as settled for the group approval, without marking it approved', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: '',
+          brief: null,
+          garment: 'tshirt',
+          colors: { primary: 'black', extras: [] },
+          shots: {
+            product: { approved: false, status: 'done', assetId: 'a1', url: 'https://cdn/a1.png' },
+            hanger: { approved: false, status: 'failed', error: 'design flagged' },
+            model: { approved: false, status: 'done', assetId: 'a3', url: 'https://cdn/a3.png' },
+            details: { approved: false, status: 'done', assetId: 'a4', url: 'https://cdn/a4.png' },
+          },
+          approvals: {},
+        },
+      },
+    })
+
+    await approveShot('p1', 'product', true)
+    await approveShot('p1', 'hanger', false, undefined, true) // explicit skip — the admin looked at the QA flag and moved on
+    await approveShot('p1', 'model', true)
+    const { step_flow } = await approveShot('p1', 'details', true)
+
+    expect(step_flow.shots.hanger).toMatchObject({ approved: false, skipped: true })
+    expect(step_flow.approvals.mockups).toBeTruthy()
+  })
+
+  // MUST-FIX #1a/#1b — this is exactly the "Approve all" race: N calls fire
+  // in parallel for DIFFERENT keys on the SAME product. Under the old
+  // read-modify-write-with-no-lock implementation, every call read the same
+  // starting snapshot and only the last write survived — this would have
+  // failed with only one of the four approvals persisted.
+  it('persists every key from N parallel approveShot calls (simulates "Approve all")', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: '',
+          brief: null,
+          garment: 'tshirt',
+          colors: { primary: 'black', extras: [] },
+          shots: {
+            product: { approved: false, status: 'done', assetId: 'a1', url: 'https://cdn/a1.png' },
+            hanger: { approved: false, status: 'done', assetId: 'a2', url: 'https://cdn/a2.png' },
+            model: { approved: false, status: 'done', assetId: 'a3', url: 'https://cdn/a3.png' },
+            details: { approved: false, status: 'done', assetId: 'a4', url: 'https://cdn/a4.png' },
+          },
+          approvals: {},
+        },
+      },
+    })
+
+    await Promise.all([
+      approveShot('p1', 'product', true),
+      approveShot('p1', 'hanger', true),
+      approveShot('p1', 'model', true),
+      approveShot('p1', 'details', true),
+    ])
+
+    const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
+    expect(sf.shots.product?.approved).toBe(true)
+    expect(sf.shots.hanger?.approved).toBe(true)
+    expect(sf.shots.model?.approved).toBe(true)
+    expect(sf.shots.details?.approved).toBe(true)
+    expect(sf.approvals.mockups).toBeTruthy()
+  })
+
+  // MUST-FIX #1c: the new batch route's underlying function, exercised
+  // directly — "Approve all" is meant to call this ONCE instead of firing N
+  // parallel approveShot calls.
+  it('approveShotsBatch approves every listed key in one locked write', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: '',
+          brief: null,
+          garment: 'tshirt',
+          colors: { primary: 'black', extras: [] },
+          shots: {
+            product: { approved: false, status: 'done', assetId: 'a1', url: 'https://cdn/a1.png' },
+            hanger: { approved: false, status: 'done', assetId: 'a2', url: 'https://cdn/a2.png' },
+          },
+          approvals: {},
+        },
+      },
+    })
+
+    const { step_flow } = await approveShotsBatch('p1', [
+      { key: 'product', approved: true },
+      { key: 'hanger', approved: true },
+    ])
+    expect(step_flow.shots.product?.approved).toBe(true)
+    expect(step_flow.shots.hanger?.approved).toBe(true)
+  })
 })
 
 describe('resolveStepFlow', () => {
+  // Every mutation now goes through patchShotState's lock (re-reads/writes
+  // the real `db.products` row), so — unlike the old blind-whole-object-save
+  // version — these fixtures must actually be seeded into `db.products`
+  // whenever the test expects a write (a "touched" case).
+
   it('promotes a shot to done once its job succeeds and the asset has landed', async () => {
     const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
       version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
       shots: { hanger: { jobId: 'job-1', approved: false, status: 'queued' as const } }, approvals: {},
     } } }
+    db.products.push(product)
     const jobs = [{ id: 'job-1', status: 'succeeded' }]
     const assets = [{ id: 'asset-1', asset_role: 'mockup_hanger', url: 'https://cdn/hanger.png', created_at: '2026-01-01' }]
 
@@ -432,9 +650,35 @@ describe('resolveStepFlow', () => {
       version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
       shots: { hanger: { jobId: 'job-1', approved: false, status: 'queued' as const } }, approvals: {},
     } } }
+    db.products.push(product)
     const jobs = [{ id: 'job-1', status: 'failed', error: 'model refused' }]
     const sf = await resolveStepFlow(product as any, [], jobs)
     expect(sf.shots.hanger).toMatchObject({ status: 'failed', error: 'model refused' })
+  })
+
+  // MUST-FIX #11
+  it('fails a job that succeeded but landed no asset under its role', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: { hanger: { jobId: 'job-1', approved: false, status: 'queued' as const } }, approvals: {},
+    } } }
+    db.products.push(product)
+    const jobs = [{ id: 'job-1', status: 'succeeded' }]
+    const sf = await resolveStepFlow(product as any, [], jobs) // no matching asset in `assets`
+    expect(sf.shots.hanger).toMatchObject({ status: 'failed', error: 'render finished, no asset landed' })
+  })
+
+  // MUST-FIX #11
+  it('fails a shot stuck running for more than 15 minutes', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: { hanger: { jobId: 'job-1', approved: false, status: 'running' as const } }, approvals: {},
+    } } }
+    db.products.push(product)
+    const staleCreatedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString()
+    const jobs = [{ id: 'job-1', status: 'running', created_at: staleCreatedAt }]
+    const sf = await resolveStepFlow(product as any, [], jobs)
+    expect(sf.shots.hanger).toMatchObject({ status: 'failed', error: 'stale — no result after 15 minutes, redo this shot' })
   })
 
   it('leaves details queued (not failed) when the product shot has not landed yet', async () => {
@@ -447,15 +691,55 @@ describe('resolveStepFlow', () => {
     expect(renderDetailsCard).not.toHaveBeenCalled()
   })
 
-  it('renders details once the product asset exists', async () => {
+  it('renders details once the product shot is done, and stamps sourceAssetId', async () => {
     const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
       version: 1, idea: '', brief: { title: 'x' }, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
-      shots: { details: { approved: false, status: 'queued' as const } }, approvals: {},
+      shots: {
+        product: { approved: true, status: 'done' as const, assetId: 'ga1', url: 'https://cdn/ghost.png' },
+        details: { approved: false, status: 'queued' as const },
+      },
+      approvals: {},
     } } }
-    db.product_assets.push({ id: 'ga1', product_id: 'p1', asset_role: 'mockup_ghost_mannequin', url: 'https://cdn/ghost.png', created_at: '2026-01-01' })
+    db.products.push(product)
     renderDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details.png', path: 'x', assetId: 'd1' })
 
     const sf = await resolveStepFlow(product as any, [], [])
-    expect(sf.shots.details).toMatchObject({ status: 'done', assetId: 'd1', url: 'https://cdn/details.png' })
+    expect(sf.shots.details).toMatchObject({ status: 'done', assetId: 'd1', url: 'https://cdn/details.png', sourceAssetId: 'ga1' })
+  })
+
+  // MUST-FIX #8: a redo of the product shot (new assetId) must re-render an
+  // already-'done' details card instead of leaving it showing the old take.
+  it('re-renders details when the product shot has been redone (assetId changed)', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: { title: 'x' }, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: {
+        product: { approved: true, status: 'done' as const, assetId: 'ga2-new', url: 'https://cdn/ghost-new.png' },
+        details: { approved: true, status: 'done' as const, assetId: 'd1', url: 'https://cdn/details.png', sourceAssetId: 'ga1-old' },
+      },
+      approvals: {},
+    } } }
+    db.products.push(product)
+    renderDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details-2.png', path: 'x', assetId: 'd2' })
+
+    const sf = await resolveStepFlow(product as any, [], [])
+    expect(renderDetailsCard).toHaveBeenCalledWith(expect.objectContaining({ mockupUrl: 'https://cdn/ghost-new.png' }))
+    expect(sf.shots.details).toMatchObject({ assetId: 'd2', sourceAssetId: 'ga2-new' })
+  })
+
+  // MUST-FIX #2
+  it('marks details failed, without attempting to render, when the product shot itself failed', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: {
+        product: { approved: false, status: 'failed' as const, error: 'model refused' },
+        details: { approved: false, status: 'queued' as const },
+      },
+      approvals: {},
+    } } }
+    db.products.push(product)
+
+    const sf = await resolveStepFlow(product as any, [], [])
+    expect(sf.shots.details).toMatchObject({ status: 'failed', error: 'product shot failed — nothing to render' })
+    expect(renderDetailsCard).not.toHaveBeenCalled()
   })
 })

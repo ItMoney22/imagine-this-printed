@@ -68,11 +68,43 @@ export interface DetailsCardTextOpts {
   printWidthInches: number
 }
 
+// Render's Linux image has no Arial/Helvetica — 'DejaVu Sans' is the actual
+// font that resolves there (Arial/Helvetica are still first for anyone
+// rendering this SVG on a machine that does have them; sans-serif is the
+// final catch-all). Applied to every <text> element in this card.
+const FONT = "Arial, Helvetica, 'DejaVu Sans', sans-serif"
+
+/**
+ * Word-wrap RAW text (never pre-escaped — see buildDetailsSvg's comment on
+ * why) into at most `maxLines` lines of ≤`charsPerLine` characters. If it
+ * still doesn't fit, the LAST line is visibly truncated with an ellipsis —
+ * a deliberate, visible cut, never a silent one.
+ */
+function wrapText(text: string, charsPerLine: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const wrapped: string[] = []
+  let cur = ''
+  for (const w of words) {
+    const attempt = (cur + ' ' + w).trim()
+    if (attempt.length > charsPerLine && cur) {
+      wrapped.push(cur)
+      cur = w
+    } else {
+      cur = attempt
+    }
+  }
+  if (cur) wrapped.push(cur)
+  if (wrapped.length <= maxLines) return wrapped
+  const kept = wrapped.slice(0, maxLines)
+  kept[maxLines - 1] = kept[maxLines - 1].replace(/[.,;:\s]+$/, '') + '…'
+  return kept
+}
+
 /** Build the right-column SVG panel — title, DTF pitch, blank spec, care, size chart. */
 export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   const garment = getGarment(opts.garment) ?? GARMENTS[0]
   const chart = SIZE_CHARTS[garment.id]
-  const title = escapeXml((opts.title || 'Custom Design').slice(0, 60))
+  const rawTitle = (opts.title || 'Custom Design').trim() || 'Custom Design'
 
   const pad = 36
   let y = 64
@@ -81,29 +113,32 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   const addText = (text: string, opts2: { size: number; weight?: number; fill?: string; dy?: number }) => {
     y += opts2.dy ?? opts2.size + 10
     lines.push(
-      `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${opts2.size}" font-weight="${
+      `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="${opts2.size}" font-weight="${
         opts2.weight ?? 400
       }" fill="${opts2.fill ?? '#111827'}">${escapeXml(text)}</text>`
     )
   }
 
-  // Wrap the title across up to 2 lines (~22 chars/line at this size).
-  const titleWords = title.split(' ')
-  const titleLines: string[] = []
-  let cur = ''
-  for (const w of titleWords) {
-    if ((cur + ' ' + w).trim().length > 22 && cur) {
-      titleLines.push(cur.trim())
-      cur = w
-    } else {
-      cur = (cur + ' ' + w).trim()
-    }
+  // Wrap the RAW title, then escape EACH LINE ONCE at push time. The old
+  // version escaped the whole title up front (`escapeXml(...).slice(0,60)`)
+  // and THEN split/rejoined/escaped it again while wrapping — every entity
+  // got escaped twice ("&" -> "&amp;" -> "&amp;amp;"). It also hard-capped
+  // the title at 60 characters and 2 lines with no visible indication
+  // anything was cut. Try 2 lines at the normal size first; a title that
+  // doesn't fit gets 3 lines at a smaller size instead of being silently
+  // sliced.
+  let titleLines = wrapText(rawTitle, 22, 999)
+  let titleFontSize = 30
+  let titleLineHeight = 34
+  if (titleLines.length > 2) {
+    titleLines = wrapText(rawTitle, 26, 3)
+    titleFontSize = 23
+    titleLineHeight = 27
   }
-  if (cur) titleLines.push(cur)
-  for (const t of titleLines.slice(0, 2)) {
-    y += 34
+  for (const t of titleLines) {
+    y += titleLineHeight
     lines.push(
-      `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#111827">${escapeXml(
+      `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="${titleFontSize}" font-weight="700" fill="#111827">${escapeXml(
         t
       )}</text>`
     )
@@ -111,30 +146,30 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
 
   y += 18
   lines.push(
-    `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="600" fill="#7C3AED">Printed with DTF — vivid, stretch-safe, wash-tested</text>`
+    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="17" font-weight="600" fill="#7C3AED">Printed with DTF — vivid, stretch-safe, wash-tested</text>`
   )
 
   y += 40
   lines.push(
-    `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#374151">Blank: ${escapeXml(
+    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="15" fill="#374151">Blank: ${escapeXml(
       garment.blank
     )} (${garment.weightOz} oz)</text>`
   )
   y += 26
   lines.push(
-    `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#374151">Design width ~${Math.round(
+    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="15" fill="#374151">Design width ~${Math.round(
       opts.printWidthInches
     )} in</text>`
   )
 
   y += 38
   lines.push(
-    `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#111827">Care</text>`
+    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="16" font-weight="700" fill="#111827">Care</text>`
   )
   for (const bullet of CARE_BULLETS) {
     y += 24
     lines.push(
-      `<text x="${pad + 4}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#4B5563">• ${escapeXml(
+      `<text x="${pad + 4}" y="${y}" font-family="${FONT}" font-size="14" fill="#4B5563">• ${escapeXml(
         bullet
       )}</text>`
     )
@@ -142,7 +177,7 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
 
   y += 40
   lines.push(
-    `<text x="${pad}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#111827">${escapeXml(
+    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="16" font-weight="700" fill="#111827">${escapeXml(
       garment.label
     )} Size Chart (in)</text>`
   )
@@ -150,16 +185,16 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   const colX = [pad, pad + 90, pad + 220]
   y += 24
   lines.push(
-    `<text x="${colX[0]}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#111827">Size</text>`,
-    `<text x="${colX[1]}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#111827">Chest W</text>`,
-    `<text x="${colX[2]}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#111827">Length</text>`
+    `<text x="${colX[0]}" y="${y}" font-family="${FONT}" font-size="13" font-weight="700" fill="#111827">Size</text>`,
+    `<text x="${colX[1]}" y="${y}" font-family="${FONT}" font-size="13" font-weight="700" fill="#111827">Chest W</text>`,
+    `<text x="${colX[2]}" y="${y}" font-family="${FONT}" font-size="13" font-weight="700" fill="#111827">Length</text>`
   )
   for (const row of chart) {
     y += 24
     lines.push(
-      `<text x="${colX[0]}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#374151">${row.size}</text>`,
-      `<text x="${colX[1]}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#374151">${row.widthIn}"</text>`,
-      `<text x="${colX[2]}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#374151">${row.lengthIn}"</text>`
+      `<text x="${colX[0]}" y="${y}" font-family="${FONT}" font-size="13" fill="#374151">${row.size}</text>`,
+      `<text x="${colX[1]}" y="${y}" font-family="${FONT}" font-size="13" fill="#374151">${row.widthIn}"</text>`,
+      `<text x="${colX[2]}" y="${y}" font-family="${FONT}" font-size="13" fill="#374151">${row.lengthIn}"</text>`
     )
   }
 

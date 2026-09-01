@@ -11,18 +11,19 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
-import { assertOffered, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+import { assertOffered, COLORS, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
 import { adviseColors } from '../../services/step-flow/color-advice.js'
 import {
   queueStepShots,
   redoShot,
   approveShot,
+  approveShotsBatch,
   resolveStepFlow,
   getStepFlow,
   saveStepFlow,
   loadProductRow,
-  buildStepFlowGallery,
+  buildApprovedGallery,
   StepFlowValidationError,
   type ShotKey,
 } from '../../services/step-flow/shots.js'
@@ -132,6 +133,12 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
       .eq('product_id', id)
       .single()
     if (assetError || !asset) return res.status(404).json({ error: 'Asset not found on this product' })
+    // MUST-FIX #13: only a raw generated design (kind:'source') can become
+    // the flow's selected design — a mockup, the details card, or any other
+    // derived asset id must be rejected here, not silently promoted.
+    if (asset.kind !== 'source') {
+      return res.status(400).json({ error: 'Only a source design can be selected — pick one of the generated takes' })
+    }
 
     await supabase.from('product_assets').update({ is_primary: false }).eq('product_id', id).eq('is_primary', true)
 
@@ -302,12 +309,20 @@ router.post('/:id/step/shots/:key/redo', requireAuth, requireAdminOrManager, rat
   }
 })
 
-// POST /:id/step/shots/:key/approve — { approved, assetId } -> { step_flow }.
+// POST /:id/step/shots/:key/approve — { approved, assetId, skipped? } -> { step_flow }.
+// (MUST-FIX #1c: delegates to the batch path below so a mix of per-key and
+// batch approvals on the same product still serialize through one lock.)
 router.post('/:id/step/shots/:key/approve', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id, key } = req.params
-    const { approved, assetId } = req.body || {}
-    const result = await approveShot(id, key as ShotKey, !!approved, typeof assetId === 'string' ? assetId : undefined)
+    const { approved, assetId, skipped } = req.body || {}
+    const result = await approveShot(
+      id,
+      key as ShotKey,
+      !!approved,
+      typeof assetId === 'string' ? assetId : undefined,
+      !!skipped
+    )
     res.json(result)
   } catch (err: any) {
     if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
@@ -316,10 +331,34 @@ router.post('/:id/step/shots/:key/approve', requireAuth, requireAdminOrManager, 
   }
 })
 
+// POST /:id/step/shots/approve — { keys: string[], approved: boolean, skipped?: boolean }
+// -> { step_flow }. Batch approve/skip (MUST-FIX #1c) — "Approve all" fires
+// this ONCE instead of N parallel per-key calls racing each other's
+// read-modify-write of the same step_flow.shots object.
+router.post('/:id/step/shots/approve', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { keys, approved, skipped } = req.body || {}
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return res.status(400).json({ error: 'keys[] is required' })
+    }
+    const cleanKeys = keys.filter((k: unknown): k is string => typeof k === 'string') as ShotKey[]
+    const result = await approveShotsBatch(
+      id,
+      cleanKeys.map((key) => ({ key, approved: !!approved, skipped: !!skipped }))
+    )
+    res.json(result)
+  } catch (err: any) {
+    if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] batch approve error')
+    res.status(500).json({ error: err?.message || 'Failed to approve shots' })
+  }
+})
+
 // POST /:id/step/publish — { title, description, tags, price } -> { product }.
-// Server-side activation: status active, is_active true, images from the
-// approved-mockup gallery whitelist (buildStepFlowGallery — mirrors
-// src/lib/product-gallery.ts's ROLE_ORDER).
+// Server-side activation: status active, is_active true, images from
+// buildApprovedGallery (approved step-flow shots only, ordered by the
+// shared backend/shared/product-gallery.ts ROLE_ORDER).
 router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
@@ -329,12 +368,19 @@ router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req:
     if (productError || !product) return res.status(404).json({ error: 'Product not found' })
 
     const { data: assets } = await supabase.from('product_assets').select('*').eq('product_id', id)
-    const images = buildStepFlowGallery(assets || [])
-    if (images.length === 0) {
+    const stepFlow = getStepFlow(product)
+    // SHOULD-FIX #4: build from APPROVED step-flow shots only — a rendered
+    // but never-approved (or since-redone) mockup must not sneak onto the
+    // storefront just because a product_assets row for it exists. The "zero
+    // approved" guard below counts approved FLOW shots specifically, not
+    // whatever the whitelist happened to also pick up from non-flow roles
+    // (mr_imagine, pocket, watermark) — those alone are not a finished
+    // listing.
+    const { images, approvedFlowCount } = buildApprovedGallery(stepFlow, assets || [])
+    if (approvedFlowCount === 0) {
       return res.status(400).json({ error: 'No approved mockups yet — finish the Mockups step first' })
     }
 
-    const stepFlow = getStepFlow(product)
     stepFlow.approvals = { ...stepFlow.approvals, listing: new Date().toISOString() }
 
     const updates: Record<string, any> = {
@@ -346,6 +392,15 @@ router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req:
     if (typeof title === 'string' && title.trim()) updates.name = title.trim()
     if (typeof description === 'string' && description.trim()) updates.description = description.trim()
     if (typeof price === 'number' && price > 0) updates.price = price
+    if (stepFlow.colors?.primary) {
+      // SHOULD-FIX #6: products.colors is the swatch-matching COLUMN
+      // (ProductPage renders each entry directly as a CSS backgroundColor),
+      // so it holds HEX values — metadata.colors keeps the capability slugs
+      // ('royal-blue') for everything else that already reads it.
+      const ids = [stepFlow.colors.primary, ...(stepFlow.colors.extras || [])]
+      const hexes = ids.map((cid) => COLORS[cid]?.hex).filter((h): h is string => !!h)
+      if (hexes.length > 0) updates.colors = hexes
+    }
 
     const { data: updated, error: updateError } = await supabase.from('products').update(updates).eq('id', id).select().single()
     if (updateError) return res.status(500).json({ error: updateError.message })
