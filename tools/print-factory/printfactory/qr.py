@@ -5,14 +5,16 @@ Scannability is the whole product here. Three rules are load-bearing:
   - module size: >=1.6mm so a 0.4mm nozzle resolves each cell
   - ECC H: a print artefact must not destroy the code
 """
-import segno
-
 QUIET_ZONE = 4
 MIN_MODULE_MM = 1.6
 
 def qr_matrix(payload: str, ecc: str = "h") -> list[list[int]]:
     if not payload:
         raise ValueError("payload must not be empty")
+    # Imported lazily: Blender's bundled Python has no segno, and the fixture is
+    # handed a precomputed matrix there. Keeping this local lets the constants
+    # above be imported inside Blender without dragging segno in.
+    import segno
     qr = segno.make(payload, error=ecc)
     rows = [[1 if c else 0 for c in row] for row in qr.matrix]
     n = len(rows)

@@ -12,10 +12,17 @@ def voxel_remesh(obj, voxel_mm: float):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.voxel_remesh()
 
-def boolean(target, tool, operation: str):
+def boolean(target, tool, operation: str, use_self: bool = False):
+    """use_self MUST be True when `tool` is many shells joined into one mesh
+    (e.g. the QR module cutter). Measured on 5.2.1 with a 541-cube cutter:
+      use_self=False -> target comes back EMPTY: 0 tris, 0 volume, silently
+      use_self=True  -> correct result
+    A silently emptied mesh still reports manifold and in-build-volume, so it
+    passes every downstream check. Nothing else catches this."""
     m = target.modifiers.new(name=f"bool_{operation.lower()}", type="BOOLEAN")
     m.operation = operation          # 'UNION' | 'DIFFERENCE' | 'INTERSECT'
     m.solver = "EXACT"
+    m.use_self = use_self
     m.object = tool
     bpy.context.view_layer.objects.active = target
     bpy.ops.object.modifier_apply(modifier=m.name)

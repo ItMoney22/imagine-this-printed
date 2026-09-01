@@ -9,6 +9,6 @@ def test_every_registered_fixture_is_accepted_by_the_spec():
     assert not unknown, f"registered but rejected by JobSpec: {unknown}"
 
 def test_every_declared_fixture_is_actually_registered():
-    implemented = {"_selftest"}   # add "qr_plaque" in Task 8
+    implemented = {"_selftest", "qr_plaque"}
     missing = implemented - set(_REGISTRY)
     assert not missing, f"declared implemented but never registered: {missing}"
