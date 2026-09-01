@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from printfactory.metrics import PLA_DENSITY
 
-KNOWN_FIXTURES = {"qr_plaque", "candle_cradle", "wifi_card", "table_stand"}
+KNOWN_FIXTURES = {"qr_plaque", "candle_cradle", "wifi_card", "table_stand", "_selftest"}
 MIN_WALL_MM = 0.8  # two passes of a 0.4mm nozzle
 
 class SpecError(ValueError):
