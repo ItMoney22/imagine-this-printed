@@ -51,3 +51,8 @@ test_modify.txt
 
 # Local agent config (Codex CLI)
 .codex/
+
+# Python (tools/print-factory)
+__pycache__/
+*.py[cod]
+.pytest_cache/
