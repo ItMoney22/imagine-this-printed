@@ -1,4 +1,41 @@
 # TASK_NOTES
+## Current request (2026-09-01) — Imagine Studio Step Flow + product editor
+
+David: replace the outdated classic wizard with a step-by-step flow (idea →
+GPT Image 2 design on a plain white/black background → garments + artwork-aware
+colors → product / hanger / details / on-person mockups → listing → Etsy), one
+approve click per step; move Etsy production onto that route; only offer what
+ITP can make (no polo, no embroidery); fix + redesign the Admin → Products
+editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
+
+### File shortlist (approved scope — 2026-09-01 step flow)
+- `docs/plans/2026-09-01-imagine-studio-step-flow-design.md` (new)
+- `docs/plans/2026-09-01-imagine-studio-step-flow-plan.md` (new)
+- `backend/shared/catalog-capability.ts` (+ test, new)
+- `backend/services/mrs-imagine.ts`, `backend/services/etsy-model-shots.ts`,
+  `backend/services/image-flow/worker-helpers.ts` (+ mockup-prompts test)
+- `backend/routes/admin/ai-products.ts` (mount + `takes`/`stepFlow` on create)
+- `backend/routes/admin/ai-products-step-flow.ts`, `backend/services/step-flow/*` (new)
+- `backend/worker/*` only for the template→asset_role mapping
+- `src/pages/AdminAIProductBuilder.tsx`, `src/components/studio/*` (new),
+  `src/lib/api.ts` (stepFlow namespace), `src/lib/product-gallery.ts` (ROLE_ORDER)
+- `src/pages/AdminDashboard.tsx` (Products tab/modal), `src/components/admin/AdminProductEditModal.tsx`,
+  `src/components/admin/ImageLightbox.tsx` (new)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-01 — Audited on origin/main (local main was 5 commits behind; the GPT
+  Image 2 house pipeline + Mrs. Imagine daily clock only exist upstream).
+  Findings that shaped the design: no per-step approvals exist; no hanger /
+  details / lifestyle mockup templates; model shots hardcode "crew neck
+  t-shirt"; no capability-boundary module anywhere (four disagreeing lists);
+  Mrs. Imagine still demands polos; the product-editor blank thumbnail is a
+  state-shape collision (`productAssets` written flat by `loadProducts`, then
+  overwritten grouped by `loadProductJobs`). Board row bb37ebb6 ("mockup lane
+  never worked") is stale — prod ai_jobs shows 40/40 replicate_mockup_v2
+  succeeded on 8/31. Wrote the design + a four-track plan and the shared
+  `catalog-capability.ts` module.
+
 ## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
 
 David: "huge overhaul of how we design shirts… only do gpt image 2 [for] the
