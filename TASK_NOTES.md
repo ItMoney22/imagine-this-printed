@@ -144,9 +144,26 @@ then the field must own at least half the ring and be FLAT (spread <= 12).
 Calibrated on the live catalogue, not invented: real fields spread 0.1-9.6,
 photographic borders 14.6-24.9, nothing in between.
 
-**Replayed against every design that has a real cut on file (71): 3 rescued
-(Gnome Abduction, Witty Brain Tee, Daily Shitstorm Survivor Club), 0 sent the
-other way.** Strictly additive.
+**...and then the replay caught the gate over-reaching.** Two of the three
+"rescued" designs (Witty Brain, and the Golf polos beside them) got WORSE on the
+key: their sources carry a PAINTED CHECKERBOARD - fake transparency baked into
+the pixels, a clean ~228/~253 alternation on a 10px period. Downsampling to 96px
+averages those two tones into one flat light grey, so the gate sees a perfect
+solid field, and at full size the key removes only the white squares and prints
+the grey ones. So `detectSolidBg` now also asks, at NATIVE resolution, whether
+the border is a painted checker - reusing the QA gate's own `borderPatternOf` and
+its thresholds rather than inventing a second opinion about what a checker is.
+
+Final replay over all 71: **2 rescued to the colour key** (Gnome Abduction, Daily
+Shitstorm Survivor Club - both genuinely flat fields), **57 held on AI
+segmentation** because their sources are checkerboards a key cannot clean.
+
+That 57 is continuity, not a regression, and the numbers say so: of the 92 nobg
+assets on file, **91 carry empty metadata, i.e. every one was cut by AI
+segmentation**. The colour key landed on 2026-09-01 but has effectively never run
+in production - the first cut it ever made is the gnome re-cut below. So the
+guard keeps those 57 on the tool that actually produced their current files,
+instead of quietly introducing a checkerboard into 57 future print files.
 
 ### ...and the second half: a key cannot keep black ink on a black field
 Fixing the gate alone would have traded one visible defect for another. Keyed,
@@ -183,8 +200,10 @@ Cost: one Replicate call per solid-field cut, which is what every cut did before
 - Re-cut the live asset: new nobg written with `bg_removal_method:
   color-key+ai-ink`, stale one deleted. Verified on white/grey/black - both
   bubbles, full line work, no halo.
-- Not fixed, pre-existing: the Golf Dad Polo source carries a PAINTED
-  checkerboard that no cut removes. See [[itp-design-qa-transparency-gap]].
+- Not fixed, deliberately: a checkerboard source still loses artwork detached
+  from the subject, because it is routed to segmentation. Keying BOTH checker
+  tones would fix it properly but is a different job - the real answer is not to
+  generate the checkerboard. See [[itp-design-qa-transparency-gap]].
 
 ### Known follow-up (NOT in this scope)
 - The 69 products above still carry AI-stripped print files (see Backfill).
