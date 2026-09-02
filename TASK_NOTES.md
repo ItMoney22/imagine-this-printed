@@ -75,6 +75,25 @@ was broken, and several sources carry a PAINTED checkerboard (opaque fake
 transparency) that neither tool removes. A blanket re-key would have wrecked
 good products. Needs per-design review - see [[itp-design-qa-transparency-gap]].
 
+### Work log 2026-09-02 (David: "rerender the cherry blossm and yes build the contact sheet")
+- Re-rendered the Stoic Samurai shots off the repaired print file via `redoShot`
+  (product / hanger / color:white / details; the model shot already had the
+  blossoms and was left alone to save the Replicate spend). All five mockups now
+  show the branch.
+- Worth knowing for next time: `redoShot` fires `processMockupJob` fire-and-forget
+  and does NOT settle `step_flow.shots[key].status` itself - `resolveStepFlow`
+  (called by GET /:id/step, i.e. the UI polling) is what reconciles status AND
+  performs the deferred `details` render once the product shot lands. Driving
+  redoShot from a script without then calling resolveStepFlow leaves the shots
+  stuck on 'running' and the details card rendered off the STALE product mockup.
+  Called resolveStepFlow directly to settle both.
+- Built the backfill review sheet as an artifact: all 90 print files, each with
+  source / current / proposed on a checkerboard, filterable, with per-design
+  selection persisted in localStorage and a "copy selected IDs" action so the
+  chosen set can be handed back for a targeted re-key. Bands: 53 major gain,
+  22 gain, 3 minor, 7 about the same, 2 where the current file is better, 3
+  where AI segmentation was the right tool.
+
 ### Known follow-up (NOT in this scope)
 - The 69 products above still carry AI-stripped print files (see Backfill).
 - The four flat mockups on the samurai product were rendered from the stripped
