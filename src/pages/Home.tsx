@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy, memo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star, Play } from 'lucide-react'
+import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star, Play, Boxes, Package } from 'lucide-react'
 import { Hero } from '../components/Hero'
 import ProductCard from '../components/ProductCard'
 import type { Product } from '../types'
@@ -257,6 +257,109 @@ const Home: React.FC = () => {
     <div className="bg-bg">
       {/* Hero Section - Full Screen Video */}
       <Hero />
+
+      {/* Toy Creator — David 2026-08-19: the 3D toy lab had NO front-page entry
+          point at all. The only links were the navbar button and a card inside
+          the logged-in design dashboard, so a first-time visitor could not find
+          it. Sits directly under the hero (above "How It Works") because it is
+          the product being pushed, and carries the Toy Creator's own
+          cyan/emerald identity rather than the site purple so it reads as its
+          own thing. */}
+      <section className="py-12 sm:py-20 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none hidden sm:block">
+          <div className="absolute -top-16 left-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-[140px]" />
+          <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-emerald-400/20 rounded-full blur-[120px]" />
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 items-center">
+            {/* Left: the pitch */}
+            <div className="text-center lg:text-left">
+              <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-200 text-xs sm:text-sm font-medium mb-3 sm:mb-4">
+                <Boxes className="w-3 h-3 sm:w-4 sm:h-4" />
+                3D Toy Lab
+              </span>
+
+              <h2 className="font-display text-2xl sm:text-4xl md:text-5xl text-white mb-3 sm:mb-5">
+                Invent a creature.
+                <br />
+                <span className="bg-gradient-to-r from-cyan-300 to-emerald-300 bg-clip-text text-transparent">
+                  We print it for real.
+                </span>
+              </h2>
+
+              <p className="text-slate-300 text-sm sm:text-lg leading-relaxed mb-6 sm:mb-8 max-w-xl mx-auto lg:mx-0">
+                Splice a mind onto a body in the DNA Mixing Lab — owl brain, dragon body,
+                whatever you dream up. Mr. Imagine sculpts it in 3D in about a minute, then we
+                print the figurine and ship it to your door.
+              </p>
+
+              {/* Three beats, so the promise is concrete before the click */}
+              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 mb-6 sm:mb-8 text-slate-300 text-xs sm:text-sm">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-cyan-300" />
+                  Describe it or build it
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-cyan-300" />
+                  3D model in ~60 seconds
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-cyan-300" />
+                  Printed and shipped
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4">
+                <Link
+                  to="/toy-creator"
+                  className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-cyan-500 to-emerald-500 text-white font-semibold rounded-full hover:from-cyan-400 hover:to-emerald-400 transition-all duration-300 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 hover:-translate-y-1 text-sm sm:text-base"
+                >
+                  <Boxes className="w-4 h-4 sm:w-5 sm:h-5" />
+                  Make a 3D Toy
+                  <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:translate-x-1" />
+                </Link>
+
+                <Link
+                  to="/models"
+                  className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-white/10 backdrop-blur-sm border-2 border-white/25 text-white font-semibold rounded-full hover:bg-white/20 hover:border-white/40 transition-all duration-300 text-sm sm:text-base"
+                >
+                  See the gallery
+                  <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:translate-x-1" />
+                </Link>
+              </div>
+
+              <p className="text-slate-400 text-xs sm:text-sm mt-4">
+                Figurines from $5.99 — keychain size up to a 220mm display piece.
+              </p>
+            </div>
+
+            {/* Right: show the splice rather than describe it */}
+            <div className="relative flex justify-center">
+              <div className="relative w-full max-w-[320px] sm:max-w-md">
+                <div className="absolute inset-0 bg-gradient-radial from-cyan-400/25 via-emerald-300/10 to-transparent rounded-full blur-3xl scale-125" />
+
+                <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl shadow-emerald-900/40 border-2 border-white/15">
+                  <img
+                    src="/hub/hub-toys.webp"
+                    alt="A 3D printed creature figurine made in the Toy Creator"
+                    className="w-full h-auto object-cover"
+                    loading="lazy"
+                  />
+                </div>
+
+                {/* The two halves that get spliced */}
+                <div className="hidden sm:flex absolute -top-6 -left-6 w-20 h-20 rounded-2xl overflow-hidden border-2 border-cyan-300/50 shadow-lg shadow-cyan-500/30 bg-slate-900 animate-float z-10" style={{ animationDelay: '0.5s' }}>
+                  <img src="/toy-creator/items/mind-owl.webp" alt="Owl mind" className="w-full h-full object-cover" loading="lazy" />
+                </div>
+                <div className="hidden sm:flex absolute -bottom-6 -right-6 w-24 h-24 rounded-2xl overflow-hidden border-2 border-emerald-300/50 shadow-lg shadow-emerald-500/30 bg-slate-900 animate-float z-10" style={{ animationDelay: '1s' }}>
+                  <img src="/toy-creator/items/body-dragon.webp" alt="Dragon body" className="w-full h-full object-cover" loading="lazy" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* How It Works Section */}
       <section className="py-12 sm:py-24 bg-gradient-to-b from-bg to-purple-50/50">
