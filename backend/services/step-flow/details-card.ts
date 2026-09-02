@@ -475,11 +475,11 @@ export function buildMetalDetailsSvg(opts: MetalDetailsCardTextOpts): string {
   // option is readable.
   y += SPEC_ROW_H
   emit('Mounting options', contentX, 34, 600, MUTED)
-  const mountingNames = Object.values(METAL_ADDONS).map((a) => a.label)
-  const mountingLines = wrapWords(mountingNames.join(' · '), charsPerLine(30, contentWidth), 3)
-  for (const line of mountingLines) {
-    y += 42
-    emit(line, contentX, 30, 400, INK)
+  // One option per line: six add-ons never fit a three-line paragraph, and the
+  // column has the vertical room. Each name is clamped to the column width.
+  for (const addon of Object.values(METAL_ADDONS)) {
+    y += 40
+    emit(`• ${clampLine(addon.label, charsPerLine(30, contentWidth - 30))}`, contentX, 30, 400, INK)
   }
 
   // --- 4. Size table: header, column labels, then one row per offered size
