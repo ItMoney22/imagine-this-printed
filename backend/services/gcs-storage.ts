@@ -47,7 +47,10 @@ const bucket: Bucket = storage.bucket(bucketName)
 
 export interface UploadOptions {
   userId: string
-  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed' | 'email-attachments' | 'message-attachments'
+  // 'inspiration' added 2026-09-02 (Track B, Step Flow inspiration upload —
+  // services/step-flow/inspiration.ts uploads the original reference photo
+  // here before analyzing a downscaled copy).
+  folder: 'mockups' | 'designs' | 'uploads' | 'temp' | 'thumbnails' | 'avatars' | 'covers' | 'ai-generated' | 'upscaled' | 'enhanced' | 'reimagined' | 'bg-removed' | 'email-attachments' | 'message-attachments' | 'inspiration'
   filename?: string
   contentType?: string
   metadata?: Record<string, any>

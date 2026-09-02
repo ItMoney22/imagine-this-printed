@@ -22,7 +22,7 @@ import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot } from '../etsy-model-shots.js'
 import { renderDetailsCard } from './details-card.js'
 import { buildProductGallery, type GalleryAsset } from '../../shared/product-gallery.js'
-import type { StepBrief } from './brief.js'
+import type { StepBrief, StepFlowInspiration } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
 import type { PrintAdvice, PrintFileResult } from './print-prep.js'
 // Renders one mockup ai_jobs row to completion (source resolve -> model call
@@ -83,6 +83,18 @@ export interface StepFlowMeta {
    * reach `products.images`/the storefront.
    */
   printFile?: PrintFileResult
+  /**
+   * Inspiration step (design doc §12, David 2026-09-02): the reference photo
+   * + Mrs. Imagine's breakdown + the admin's keep/change choices, from
+   * `POST /step/inspiration` (services/step-flow/inspiration.ts). Optional
+   * and side-effect-free — never gates any approval; carried here so
+   * `GET /:id/step` can resume the Inspiration panel across reloads. Note:
+   * as of this writing `POST /create` only forwards `idea`/`brief` from the
+   * `stepFlow` request field onto `metadata.step_flow` — it does not yet
+   * forward `inspiration`, so nothing currently persists this at product
+   * creation time (see routes/admin/ai-products.ts).
+   */
+  inspiration?: StepFlowInspiration
 }
 
 /** Thrown for expected, user-facing validation failures — routers map this to 400. */
@@ -108,6 +120,7 @@ export function getStepFlow(product: { metadata?: any } | null | undefined): Ste
       approvals: raw.approvals && typeof raw.approvals === 'object' ? raw.approvals : {},
       printAdvice: raw.printAdvice && typeof raw.printAdvice === 'object' ? raw.printAdvice : undefined,
       printFile: raw.printFile && typeof raw.printFile === 'object' ? raw.printFile : undefined,
+      inspiration: raw.inspiration && typeof raw.inspiration === 'object' ? raw.inspiration : undefined,
     }
   }
   return { version: 1, idea: '', brief: null, shots: {}, approvals: {} }

@@ -234,3 +234,128 @@ describe('writeStepBrief with a phrase', () => {
     expect(b.designPrompt).not.toContain('Render the exact text')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Inspiration step (design doc §12, David 2026-09-02): "upload a photo of a
+// design mrs imagine will anaylze it and ask what we like ... she basically
+// breaks down the whole design." The property under test: the final
+// designPrompt MUST read as an original design "inspired by" the reference
+// — never a reproduction — and MUST NOT carry through any term Mrs.
+// Imagine's breakdown flagged (a logo/brand/character/celebrity), on BOTH
+// the model-written path and the deterministic fallback path.
+// ---------------------------------------------------------------------------
+
+const inspirationInput = (overrides?: Partial<{ flags: string[]; keep: string[]; change: Record<string, string> }>) => ({
+  imageUrl: 'https://gcs.example/inspiration/ref.png',
+  breakdown: {
+    subject: 'A running shoe',
+    style: 'photorealistic',
+    palette: ['white', 'red'],
+    text: null,
+    composition: 'side profile',
+    mood: 'athletic',
+    techniques: [],
+    whatWorks: ['dynamic angle'],
+    flags: overrides?.flags ?? ['Nike swoosh logo on the shoe'],
+  },
+  choices: {
+    keep: overrides?.keep ?? ['the athletic pose'],
+    change: overrides?.change ?? { subject: 'a wolf instead of a shoe' },
+  },
+})
+
+describe('writeStepBrief with inspiration', () => {
+  it('stamps StepBrief.inspiration and includes the "original artwork inspired by" clause when the model succeeds', async () => {
+    reply(
+      JSON.stringify({
+        designPrompt: 'A fierce wolf mid-stride, solid white background.',
+        background: 'white',
+        title: 'Fierce Wolf',
+        styleTags: ['athletic'],
+        garmentHint: 'tshirt',
+        rationale: 'Bold ink pops on white.',
+      })
+    )
+
+    const b = await writeStepBrief('a wolf running', { inspiration: inspirationInput() })
+
+    expect(b.designPrompt.toLowerCase()).toContain('original artwork inspired by')
+    expect(b.designPrompt).not.toMatch(/nike/i)
+    expect(b.inspiration).toEqual({
+      imageUrl: 'https://gcs.example/inspiration/ref.png',
+      keep: ['the athletic pose'],
+      change: { subject: 'a wolf instead of a shoe' },
+    })
+  })
+
+  it('strips a flagged brand name even if the model ignores the instruction and writes it into designPrompt/title', async () => {
+    reply(
+      JSON.stringify({
+        designPrompt: 'A shoe with a bold Nike swoosh, solid white background.',
+        background: 'white',
+        title: 'Nike Style Shoe',
+        styleTags: ['athletic'],
+        garmentHint: 'tshirt',
+        rationale: 'Pops on white.',
+      })
+    )
+
+    const b = await writeStepBrief('a shoe design', { inspiration: inspirationInput() })
+
+    expect(b.designPrompt).not.toMatch(/nike/i)
+    expect(b.title).not.toMatch(/nike/i)
+    expect(b.designPrompt.toLowerCase()).toContain('original artwork inspired by')
+  })
+
+  it('includes the "original artwork inspired by" clause and drops flagged terms on the fallback path (model call throws)', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+
+    const b = await writeStepBrief('a wolf running', { inspiration: inspirationInput() })
+
+    expect(b.designPrompt.toLowerCase()).toContain('original artwork inspired by')
+    expect(b.designPrompt).not.toMatch(/nike/i)
+    expect(b.background).toBe('white')
+    expect(b.inspiration?.imageUrl).toBe('https://gcs.example/inspiration/ref.png')
+  })
+
+  it('never adds the inspiration clause or field when no inspiration is given', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea')
+    expect(b.inspiration).toBeUndefined()
+    expect(b.designPrompt.toLowerCase()).not.toContain('original artwork inspired by')
+  })
+
+  it('treats an inspiration input with no imageUrl as no inspiration at all', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea', { inspiration: { breakdown: {}, choices: {} } })
+    expect(b.inspiration).toBeUndefined()
+  })
+
+  it('is idempotent — never doubles the clause when it is already present', async () => {
+    reply(
+      JSON.stringify({
+        designPrompt:
+          'A wolf. This is an original artwork inspired by a reference image — keeping the pose in spirit — and is NOT a reproduction.',
+        background: 'white',
+        title: 'Wolf',
+        styleTags: [],
+        garmentHint: 'tshirt',
+        rationale: 'x',
+      })
+    )
+    const b = await writeStepBrief('a wolf', { inspiration: inspirationInput({ flags: [] }) })
+    const occurrences = (b.designPrompt.match(/original artwork inspired by/gi) || []).length
+    expect(occurrences).toBe(1)
+  })
+
+  it('works together with a phrase — both the phrase text and the inspiration clause land in designPrompt', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('a wolf running', {
+      phrase: { text: 'Run Wild', placement: 'below' },
+      inspiration: inspirationInput(),
+    })
+    expect(b.designPrompt).toContain('Render the exact text "Run Wild"')
+    expect(b.designPrompt.toLowerCase()).toContain('original artwork inspired by')
+    expect(b.designPrompt).not.toMatch(/nike/i)
+  })
+})

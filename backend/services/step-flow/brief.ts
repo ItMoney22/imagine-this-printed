@@ -19,9 +19,23 @@
 // StepBrief and (b) guarantee the exact quoted text reaches designPrompt — on
 // BOTH the model-written path and the deterministic fallback path, so a
 // picked phrase can never silently go missing from the render.
+//
+// Inspiration step (David 2026-09-02): "i need a spot in the step flow in
+// the beginning that we can add inspiration upload a photo of a design mrs
+// imagine will anaylze it and ask what we like ... she basically breaks down
+// the whole design." The breakdown itself lives in ./inspiration.ts; this
+// file only has to (a) carry the reference's provenance on StepBrief and (b)
+// guarantee the final designPrompt reads as an ORIGINAL design "inspired
+// by" the reference — never a reproduction, and with anything Mrs. Imagine
+// flagged (a logo, brand mark, licensed character, celebrity likeness, or
+// copied text) stripped via the Etsy copyright gate's denylist — on BOTH the
+// model-written path and the deterministic fallback path, same guarantee
+// `withPhrase` gives the phrase text.
 
 import OpenAI from 'openai'
 import { normalizeGarment, type GarmentId } from '../../shared/catalog-capability.js'
+import { runCopyrightGate } from '../etsy-copyright-gate.js'
+import type { InspirationBreakdown } from './inspiration.js'
 
 // Matches ASCII control characters (C0 range + DEL). Built via RegExp(...)
 // rather than a /[...]/  literal so no raw control bytes ever have to live in
@@ -37,6 +51,20 @@ export interface StepBriefPhrase {
   placement: PhrasePlacement
 }
 
+/** Provenance stamped on StepBrief when this design was seeded by an inspiration reference — the slim record, not the full breakdown (see StepFlowInspiration for that). */
+export interface StepBriefInspiration {
+  imageUrl: string
+  keep: string[]
+  change: Record<string, string>
+}
+
+/** The full inspiration record — reference photo + Mrs. Imagine's breakdown + the admin's keep/change choices — as accepted by writeStepBrief's `opts.inspiration`. */
+export interface StepFlowInspiration {
+  imageUrl: string
+  breakdown: InspirationBreakdown
+  choices: { keep: string[]; change: Record<string, string> }
+}
+
 export interface StepBrief {
   /** The full prompt handed to gpt-image-2. */
   designPrompt: string
@@ -50,6 +78,8 @@ export interface StepBrief {
   rationale: string
   /** The phrase David picked (from Mrs. Imagine's pitch, or typed himself), if any. */
   phrase?: StepBriefPhrase
+  /** The inspiration reference this design was seeded from, if any (design doc §12: never a reproduction — see withInspiration below). */
+  inspiration?: StepBriefInspiration
 }
 
 /**
@@ -93,6 +123,118 @@ function withPhrase(brief: StepBrief, phrase: StepBriefPhrase): StepBrief {
   return { ...brief, designPrompt, phrase }
 }
 
+// ---------------------------------------------------------------------------
+// Inspiration step (design doc §12, David 2026-09-02). `opts.inspiration`
+// comes straight off the request body (services/step-flow/inspiration.ts's
+// analysis result + the admin's keep/change choices) — loosely typed, so it
+// is coerced defensively the same way coercePhraseInput handles `phrase`.
+// ---------------------------------------------------------------------------
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Strips any term the Etsy copyright gate's denylist matches (reused, as
+ * phrases.ts's passesCopyrightGate does) — the safety net that guarantees a
+ * flagged brand/franchise/celebrity name can never survive into designPrompt
+ * or title, no matter what the model actually wrote.
+ */
+function stripDenylistedTerms(text: string): string {
+  const result = runCopyrightGate({ name: text })
+  if (result.pass) return text
+  let cleaned = text
+  for (const term of result.matchedTerms) {
+    cleaned = cleaned.replace(new RegExp(`\\b${escapeRegExp(term)}\\b`, 'gi'), 'an original element')
+  }
+  return cleaned.replace(/\s+/g, ' ').trim()
+}
+
+/** Coerces a loosely-typed `{ imageUrl, breakdown?, choices? }` body into a clean StepFlowInspiration, or undefined when there's no usable imageUrl. */
+function coerceInspirationInput(input: unknown): StepFlowInspiration | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const obj = input as any
+  const imageUrl = typeof obj.imageUrl === 'string' ? obj.imageUrl.trim() : ''
+  if (!imageUrl) return undefined
+
+  const rawBreakdown = obj.breakdown && typeof obj.breakdown === 'object' ? obj.breakdown : {}
+  const breakdown: InspirationBreakdown = {
+    subject: typeof rawBreakdown.subject === 'string' ? rawBreakdown.subject : '',
+    style: typeof rawBreakdown.style === 'string' ? rawBreakdown.style : '',
+    palette: Array.isArray(rawBreakdown.palette) ? rawBreakdown.palette.filter((p: unknown): p is string => typeof p === 'string') : [],
+    text: typeof rawBreakdown.text === 'string' ? rawBreakdown.text : null,
+    composition: typeof rawBreakdown.composition === 'string' ? rawBreakdown.composition : '',
+    mood: typeof rawBreakdown.mood === 'string' ? rawBreakdown.mood : '',
+    techniques: Array.isArray(rawBreakdown.techniques) ? rawBreakdown.techniques.filter((t: unknown): t is string => typeof t === 'string') : [],
+    whatWorks: Array.isArray(rawBreakdown.whatWorks) ? rawBreakdown.whatWorks.filter((t: unknown): t is string => typeof t === 'string') : [],
+    flags: Array.isArray(rawBreakdown.flags) ? rawBreakdown.flags.filter((t: unknown): t is string => typeof t === 'string') : [],
+  }
+
+  const rawChoices = obj.choices && typeof obj.choices === 'object' ? obj.choices : {}
+  const keep: string[] = Array.isArray(rawChoices.keep)
+    ? rawChoices.keep.filter((k: unknown): k is string => typeof k === 'string' && k.trim().length > 0)
+    : []
+  const change: Record<string, string> = {}
+  if (rawChoices.change && typeof rawChoices.change === 'object') {
+    for (const [key, value] of Object.entries(rawChoices.change)) {
+      if (typeof value === 'string' && value.trim()) change[key] = stripControlChars(value).replace(/\s+/g, ' ').trim().slice(0, 200)
+    }
+  }
+
+  return { imageUrl, breakdown, choices: { keep, change } }
+}
+
+const INSPIRATION_CLAUSE_MARKER = 'original artwork inspired by'
+
+/** Builds the natural-language user content describing the breakdown + choices, so the writing brain has full context without needing its own vision call. */
+function buildInspirationUserContent(inspiration: StepFlowInspiration): string {
+  const { breakdown, choices } = inspiration
+  const lines = ["This design takes inspiration from a reference image Mrs. Imagine already broke down:"]
+  if (breakdown.subject) lines.push(`- Subject: ${breakdown.subject}`)
+  if (breakdown.style) lines.push(`- Style: ${breakdown.style}`)
+  if (breakdown.palette.length) lines.push(`- Palette: ${breakdown.palette.join(', ')}`)
+  if (breakdown.composition) lines.push(`- Composition: ${breakdown.composition}`)
+  if (breakdown.mood) lines.push(`- Mood: ${breakdown.mood}`)
+  if (breakdown.text) lines.push(`- Text detected in the reference: "${breakdown.text}"`)
+  if (breakdown.flags.length) {
+    lines.push(`- FLAGGED (must NOT be reproduced — replace each with an original equivalent): ${breakdown.flags.join('; ')}`)
+  }
+  lines.push(`- Admin wants to KEEP: ${choices.keep.length ? choices.keep.join(', ') : 'nothing specified'}`)
+  const changeEntries = Object.entries(choices.change)
+  lines.push(`- Admin wants to CHANGE: ${changeEntries.length ? changeEntries.map(([k, v]) => `${k} -> ${v}`).join(', ') : 'nothing specified'}`)
+  lines.push(
+    `HARD RULE: designPrompt must describe an ORIGINAL design only "inspired by" this reference — never a reproduction. Never name or describe any flagged element; replace it with an original equivalent. Include a short clause in designPrompt stating this is an original artwork inspired by the reference, not a copy.`
+  )
+  return lines.join('\n')
+}
+
+/** The exact-wording "not a reproduction" clause appended to designPrompt whenever inspiration is present. */
+function buildInspirationClause(inspiration: StepFlowInspiration): string {
+  const kept = inspiration.choices.keep.length ? inspiration.choices.keep.join(', ') : 'its style and composition'
+  return `This is an original artwork inspired by a reference image — keeping ${kept} in spirit — and is NOT a reproduction: no logos, brand marks, licensed characters, celebrity likeness, or copied text from the reference.`
+}
+
+/**
+ * Guarantees the final brief reads as an original design inspired by (never
+ * a copy of) the reference: appends the "original artwork inspired by"
+ * clause (idempotent — checked by marker text, same pattern as withPhrase)
+ * and strips any denylisted term from BOTH designPrompt and title, so a
+ * flagged brand/franchise/celebrity name can never survive regardless of
+ * what the model-written or fallback path produced.
+ */
+function withInspiration(brief: StepBrief, inspiration: StepFlowInspiration): StepBrief {
+  const clause = buildInspirationClause(inspiration)
+  const hasClause = brief.designPrompt.toLowerCase().includes(INSPIRATION_CLAUSE_MARKER)
+  const designPrompt = stripDenylistedTerms(hasClause ? brief.designPrompt : `${brief.designPrompt} ${clause}`)
+  const title = stripDenylistedTerms(brief.title)
+  return {
+    ...brief,
+    designPrompt,
+    title,
+    inspiration: { imageUrl: inspiration.imageUrl, keep: inspiration.choices.keep, change: inspiration.choices.change },
+  }
+}
+
 const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
 
 const client = new OpenAI(
@@ -121,6 +263,7 @@ HARD RULES for the prompt you write:
 3. NEVER include a garment, a mockup, a person, or any clothing in the described scene — this is artwork only, printed onto a shirt LATER.
 4. NO text/words/letters in the design UNLESS the idea explicitly asks for text — if it does, spell the requested text out EXACTLY in the prompt.
 5. Square 1:1 composition.
+6. If the user content includes a design breakdown of a reference image ("This design takes inspiration from a reference image"), treat it ONLY as inspiration for style/composition/palette/mood — write an ORIGINAL design, never a reproduction, never include anything listed as FLAGGED, and explicitly state in designPrompt that this is an original artwork inspired by the reference, not a copy.
 
 Respond with STRICT JSON and nothing else, in exactly this shape:
 {"designPrompt": string, "background": "white"|"black", "title": string, "styleTags": string[], "garmentHint": "tshirt"|"hoodie", "rationale": string}
@@ -203,17 +346,29 @@ export function coerceBrief(idea: string, raw: any): StepBrief {
  * canonical exact-text instruction regardless of what the model produced (or
  * whether the model was reached at all), so the picked phrase is guaranteed
  * to reach the render on both the model-written path and the fallback path.
+ *
+ * `inspiration` (design doc §12) is the result of services/step-flow/
+ * inspiration.ts's breakdown plus the admin's keep/change choices. When
+ * present, the model is given the breakdown as context — but `withInspiration`
+ * below APPENDS the "original artwork inspired by" clause and strips any
+ * denylisted term regardless of what the model produced (or whether the
+ * model was reached at all), so the design can never read as a reproduction
+ * on either the model-written path or the fallback path.
  */
-export async function writeStepBrief(idea: string, opts?: { phrase?: unknown }): Promise<StepBrief> {
+export async function writeStepBrief(idea: string, opts?: { phrase?: unknown; inspiration?: unknown }): Promise<StepBrief> {
   const trimmed = (idea || '').trim()
   if (!trimmed) throw new Error('idea is required')
   const phrase = coercePhraseInput(opts?.phrase)
+  const inspiration = coerceInspirationInput(opts?.inspiration)
 
   let brief: StepBrief
   try {
-    const userContent = phrase
+    let userContent = phrase
       ? `${trimmed}\n\nInclude this exact phrase, spelled exactly as written, as legible text within the artwork: "${phrase.text}" (placement: ${phrase.placement} the subject).`
       : trimmed
+    if (inspiration) {
+      userContent = `${userContent}\n\n${buildInspirationUserContent(inspiration)}`
+    }
     const completion = await client.chat.completions.create({
       model: MODEL,
       messages: [
@@ -230,5 +385,7 @@ export async function writeStepBrief(idea: string, opts?: { phrase?: unknown }):
     brief = fallbackBrief(trimmed)
   }
 
-  return phrase ? withPhrase(brief, phrase) : brief
+  if (phrase) brief = withPhrase(brief, phrase)
+  if (inspiration) brief = withInspiration(brief, inspiration)
+  return brief
 }

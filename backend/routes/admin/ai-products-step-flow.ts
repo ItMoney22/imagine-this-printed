@@ -14,6 +14,7 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { assertOffered, COLORS, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
 import { pitchPhrases } from '../../services/step-flow/phrases.js'
+import { analyzeInspirationImage, InspirationValidationError } from '../../services/step-flow/inspiration.js'
 import { adviseColors } from '../../services/step-flow/color-advice.js'
 import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
 import {
@@ -119,15 +120,36 @@ const router = Router()
 // validation needed, brief.ts sanitizes it.
 router.post('/step/brief', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
   try {
-    const { idea, phrase } = req.body || {}
+    const { idea, phrase, inspiration } = req.body || {}
     if (typeof idea !== 'string' || !idea.trim()) {
       return res.status(400).json({ error: 'idea is required' })
     }
-    const brief = await writeStepBrief(idea, { phrase })
+    const brief = await writeStepBrief(idea, { phrase, inspiration })
     res.json({ brief })
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] brief error')
     res.status(500).json({ error: err?.message || 'Failed to write brief' })
+  }
+})
+
+// POST /step/inspiration — { image } -> { persona, intro, inspiration }.
+// The very beginning of the flow (David 2026-09-02): upload a reference
+// photo, Mrs. Imagine breaks it down (subject/style/palette/composition/
+// mood/techniques) and flags anything that must never be reproduced (a
+// logo, brand mark, licensed character, celebrity likeness, verbatim text)
+// — `suggestedIdea` always describes an ORIGINAL design, never a copy. See
+// services/step-flow/inspiration.ts for the decode/upload/analysis +
+// copyright-gate sanitizing; POST /step/brief (above) accepts the result
+// back as `inspiration` to seed the writing brain.
+router.post('/step/inspiration', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { image } = req.body || {}
+    const result = await analyzeInspirationImage(image, { actorId: actorId(req) })
+    res.json(result)
+  } catch (err: any) {
+    if (err instanceof InspirationValidationError) return res.status(400).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] inspiration error')
+    res.status(500).json({ error: err?.message || 'Failed to analyze inspiration image' })
   }
 })
 
