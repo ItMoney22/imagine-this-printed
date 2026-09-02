@@ -265,3 +265,35 @@ printing the design. and reccomend if a design should be half toned or not."
   small advanced disclosure), a side-by-side preview of design vs. print file
   labelled TEAM ONLY, and Download. The Design step's ✓ Approve is not gated on
   this — it is optional.
+
+## 11. Phrase step with Mrs. Imagine (David, 2026-09-02)
+
+David: "add a phrase to this design then a agent thinks of catchy phrase based on
+the design before gpt does the image ... add Mrs Imagine to this step i dont want
+her creating designs on her own anymore but i do like this new stepflow."
+
+- **Where:** inside Step 1 (Idea), between the idea and "Write my prompt". An
+  optional "Add a phrase?" block fronted by Mrs. Imagine (her head asset already
+  ships at `public/mrs-imagine/mrs-imagine-head.png`). Buttons: **Ask Mrs.
+  Imagine** (she pitches 6 phrases), a free-text "or write your own", and **No
+  phrase**. Picking one shows it as a chip on the idea; the brief is then written
+  WITH the phrase and gpt-image-2 renders the exact text into the artwork.
+- **Route:** `POST /api/admin/products/ai/step/phrases` `{ idea, brief?, count? }`
+  → `{ persona: 'mrs-imagine', phrases: [{ text, vibe, placement:
+  'below'|'above'|'integrated', reason }] }`. Same cost-first writing brain as
+  the brief (OpenRouter gemini-2.5-flash first, OpenAI fallback) with a Mrs.
+  Imagine system prompt: short (2–6 words), print-friendly, no punctuation
+  soup, no trademarks or celebrity names; every candidate is run through the
+  Etsy copyright gate's term denylist and dropped if it trips.
+- **Brief integration:** `POST /step/brief` accepts `phrase?: { text, placement }`;
+  `StepBrief.phrase` records it and `designPrompt` gains an exact-text
+  instruction ("Render the exact text "…" in bold, clean, highly legible
+  lettering, spelled exactly as written, placed below the subject, part of the
+  artwork on the same solid background"). The title may lean on the phrase.
+- **Mrs. Imagine stops self-building.** The daily clock
+  (`backend/worker/mrs-imagine-daily.ts`, started from `backend/worker/index.ts`)
+  is off unless `MRS_IMAGINE_DAILY=true` is set explicitly; the admin panel's
+  manual batch stays for now but is not scheduled. Her job in the product line
+  is now pitching inside the Step Flow (phrases today; design ideas next), never
+  generating products unattended. Closes board rows 5b6dac39 (halt daily batch)
+  and the "pitch-first" intent of 11698ea1.
