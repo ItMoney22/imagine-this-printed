@@ -19,6 +19,7 @@ const {
   calculateOrderPricing,
   computeDiscountFromCoupon,
   computeLineItemCents,
+  computeSubtotalCents,
   computeTaxCents,
   evaluateCheckoutAmount,
   resolveShipping
@@ -62,12 +63,14 @@ describe('computeLineItemCents', () => {
   })
 
   it('prices metal-art custom items from the known size table', () => {
+    // '8x11' is a legacy alias for the real 8x10 panel (see
+    // backend/shared/metal-art.ts) — still priced, at the 8x10 price.
     const { cents, errors } = computeLineItemCents(
       { productId: 'metal-art-custom-123', quantity: 1, selectedSize: '8x11', clientUnitPriceDollars: 0.01 },
       new Map()
     )
     expect(errors).toEqual([])
-    expect(cents).toBe(2999) // $29.99, not the client's claimed penny
+    expect(cents).toBe(1695) // $16.95 (David 2026-09-02), not the client's claimed penny
   })
 
   it('rejects an unrecognized metal-art size', () => {
@@ -88,7 +91,7 @@ describe('computeLineItemCents', () => {
       new Map()
     )
     expect(good.errors).toEqual([])
-    expect(good.cents).toBe(2999 + 700) // $29.99 print + $7.00 addon
+    expect(good.cents).toBe(1695 + 700) // $16.95 print + $7.00 addon
 
     const bad = computeLineItemCents(
       { productId: 'metal-art-custom-1', quantity: 1, selectedSize: '8x11', selectedAddonIds: ['made_up_addon'] },
@@ -99,7 +102,7 @@ describe('computeLineItemCents', () => {
 
   it('KNOWN PRE-EXISTING BUG (mirrored for client/server parity, not introduced here): a 4x6 metal-art size false-positives the plus-size upcharge because "4X" is a PLUS_SIZES substring token', () => {
     const { cents } = computeLineItemCents({ productId: 'metal-art-custom-1', quantity: 1, selectedSize: '4x6' }, new Map())
-    expect(cents).toBe(1499 + 250) // matches src/pages/Checkout.tsx's current (buggy) isPlusSize behavior
+    expect(cents).toBe(895 + 250) // matches src/pages/Checkout.tsx's current (buggy) isPlusSize behavior
   })
 
   it('applies the plus-size upcharge regardless of client price', () => {
@@ -238,6 +241,120 @@ describe('computeLineItemCents', () => {
       expect(cents).toBe(0)
       expect(errors[0]).toMatch(/not found, not ready, or could not be priced/)
     })
+  })
+})
+
+describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContext.calculateTotal)', () => {
+  // A bundle-eligible product's own catalog price is irrelevant to the base
+  // charge (see order-pricing.ts comment) — every case here uses a
+  // deliberately weird price ($9.00) to prove that.
+  const eligibleMap = new Map([[PRODUCT_A, 9], [PRODUCT_B, 9]])
+
+  it('charges nothing extra for zero eligible items — a plain non-eligible cart prices as before', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2 }],
+      new Map([[PRODUCT_A, 20]])
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(4000)
+  })
+
+  it('charges a single eligible item the full $25, same as CartContext', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 1, isThreeForTwentyFive: true }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500)
+  })
+
+  it('charges exactly $25 for 2 eligible units', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500)
+  })
+
+  it('charges one bundle plus one full-price leftover for 3 eligible units', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 3, isThreeForTwentyFive: true }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500 + 2500)
+  })
+
+  it('charges two full bundles for 4 eligible units', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 4, isThreeForTwentyFive: true }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(5000)
+  })
+
+  it('pools eligible quantity ACROSS separate cart lines, not per line', () => {
+    // 1 + 1 across two different products = 2 pooled units = one $25 bundle,
+    // not two separate $25 singles ($50). This is the exact bug GAP 4 closes.
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [
+        { productId: PRODUCT_A, quantity: 1, isThreeForTwentyFive: true },
+        { productId: PRODUCT_B, quantity: 1, metadata: { isThreeForTwentyFive: true } }
+      ],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500)
+  })
+
+  it('prices a mixed cart: bundle-eligible items pooled, non-eligible items priced normally', () => {
+    const map = new Map([[PRODUCT_A, 9], [PRODUCT_B, 40]])
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [
+        { productId: PRODUCT_A, quantity: 3, isThreeForTwentyFive: true }, // pooled: $50
+        { productId: PRODUCT_B, quantity: 1 } // normal: $40.00
+      ],
+      map
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(5000 + 4000)
+  })
+
+  it('still applies plus-size/tier/add-on extras per unit on top of the pooled bundle base', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true, selectedSize: '2XL', selectedTier: 'premium' }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    // Base: 2 units = one $25 bundle. Extras: (plus-size $2.50 + tier $5.00) * 2 units.
+    expect(subtotalCents).toBe(2500 + (250 + 500) * 2)
+  })
+
+  it('errors on a bundle-eligible id that does not resolve to a real catalog product', () => {
+    const { errors } = computeSubtotalCents(
+      [{ productId: 'not-a-real-id', quantity: 2, isThreeForTwentyFive: true }],
+      new Map()
+    )
+    expect(errors[0]).toMatch(/Unrecognized product id/)
+  })
+
+  it('errors on a bundle-eligible UUID missing from the price map, same as a normal item', () => {
+    const { errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+      new Map() // PRODUCT_A not in the map
+    )
+    expect(errors[0]).toMatch(/not found/)
+  })
+
+  it('is eligible via metadata.isThreeForTwentyFive alone, same as the top-level flag', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, metadata: { isThreeForTwentyFive: true } }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500)
   })
 })
 
@@ -785,5 +902,107 @@ describe('calculateOrderPricing — GAP 1 + GAP 2 end-to-end', () => {
 
     expect(result.taxSource).toBe('state_table')
     expect(result.taxCents).toBe(725)
+  })
+})
+
+describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watchtower row 54405e88)', () => {
+  // Before this, calculateOrderPricing had NO bundle logic at all — a
+  // bundle-eligible cart was charged full price at checkout regardless of
+  // what CartContext.tsx advertised. These prove the server total now
+  // matches what the cart itself would compute for the same cart, for the
+  // full 1/2/3/4-eligible + mixed matrix.
+  const deps = makeFakeDeps({ fetchProductPrices: async () => new Map([[PRODUCT_A, 9], [PRODUCT_B, 40]]) })
+
+  it('1 eligible tee: full $25, matches CartContext', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1, isThreeForTwentyFive: true }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(2500)
+  })
+
+  it('2 eligible tees: one bundle, $25 total', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(2500)
+  })
+
+  it('3 eligible tees: one bundle + one full-price single, $50 total', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 3, isThreeForTwentyFive: true }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(5000)
+  })
+
+  it('4 eligible tees: two bundles, $50 total', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 4, isThreeForTwentyFive: true }],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(5000)
+  })
+
+  it('mixed cart: 2 eligible tees bundled ($25) + 1 non-eligible item at its real catalog price ($40)', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [
+          { productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true },
+          { productId: PRODUCT_B, quantity: 1 }
+        ],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(2500 + 4000)
+    expect(result.totalCents).toBe(6500)
+  })
+
+  it('the anti-tampering gate still catches a client total that ignores the bundle discount', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+        shippingAddress: { state: 'OR' }, // 0% tax, keeps the math simple
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.totalCents).toBe(2500)
+
+    // Client naively sent 2 * $9.00 = $18.00, ignoring the $25 bundle floor —
+    // still rejected by evaluateCheckoutAmount even though it's LESS than
+    // the server total, same posture as any other mismatch.
+    const check = evaluateCheckoutAmount(1800, result.totalCents)
+    expect(check.ok).toBe(false)
   })
 })

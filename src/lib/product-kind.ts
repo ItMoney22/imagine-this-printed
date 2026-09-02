@@ -8,19 +8,30 @@
 // the category column) have a null category but carry product_template
 // 'metal-art' in metadata — without the fallback they'd render as t-shirts.
 import type { Product, CartAddon } from '../types'
-import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
+import { STUDIO_SIZE_KEYS, METAL_ADDONS as METAL_ADDONS_SHARED } from '../../backend/shared/metal-art'
 
 export type ProductKind = 'metal' | '3d' | 'apparel'
 
-// Catalog of metal-art add-ons. `printed` = produced in-house on our 3D printer.
-// Keep the ids in sync with backend approval (METAL_ADDONS in
-// AdminCreatorProductsTab.tsx + the approve route metadata).
-export const METAL_ADDONS: { id: string; name: string; price: number; printed: boolean; blurb: string }[] = [
-  { id: 'easel_stand',    name: 'Tabletop easel stand',        price: 7,  printed: true,  blurb: 'Stand it on a desk or shelf — 3D-printed to fit your print.' },
-  { id: 'standoff_mount', name: 'Floating standoff wall mount', price: 10, printed: true,  blurb: 'Modern floating look, sits off the wall. Hardware included.' },
-  { id: 'hanging_kit',    name: 'Sawtooth hanging kit',         price: 5,  printed: true,  blurb: 'Classic flush wall hanging — ready in seconds.' },
-  { id: 'gift_box',       name: 'Gift packaging',               price: 5,  printed: false, blurb: 'Arrives gift-boxed and ready to give.' },
-]
+// Catalog of metal-art add-ons. `printed` = produced in-house on our 3D
+// printer. Prices/labels/blurbs now come from backend/shared/metal-art.ts —
+// the single source of truth also read by order-pricing.ts server-side —
+// this just adapts that {id,label,cents,printed,blurb} shape into the
+// {id,name,price,printed,blurb} shape the storefront (ProductPage.tsx) has
+// always rendered, with price in DOLLARS (the shared module stores cents).
+// Order: easel_stand, standoff_mount, hanging_kit, gift_box, magnet_mount,
+// printed_stand (insertion order of the shared catalog).
+//
+// AdminCreatorProductsTab.tsx still carries its own separate duplicate list
+// for the approval UI (out of scope for this change) — keep its ids in sync
+// by hand until it's migrated to import from the shared module too.
+export const METAL_ADDONS: { id: string; name: string; price: number; printed: boolean; blurb: string }[] =
+  Object.values(METAL_ADDONS_SHARED).map(a => ({
+    id: a.id,
+    name: a.label,
+    price: a.cents / 100,
+    printed: a.printed,
+    blurb: a.blurb
+  }))
 
 // Catalog of 3D-toy add-ons (David 2026-08-19): every toy prints with hidden
 // magnets in both palms, so extra parts snap on — and the paint kit ships

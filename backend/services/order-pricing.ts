@@ -10,10 +10,16 @@
 //
 // SCOPE OF WHAT IS FULLY RE-DERIVED (never trusts the client):
 //   - Line subtotal for real catalog products — looked up from `products.price`.
-//   - Line subtotal for metal-art custom prints — from the METAL_ART_PRICES
-//     table (mirrors src/pages/MetalArtStudio.tsx's exported constant).
-//   - Add-on prices (easel stand / wall mount / etc.) — from METAL_ADDONS_CENTS
-//     (mirrors src/lib/product-kind.ts METAL_ADDONS).
+//   - Line subtotal for metal-art custom prints — from METAL_ART_PRICES_CENTS
+//     in backend/shared/metal-art.ts (the single source of truth also read by
+//     src/pages/MetalArtStudio.tsx).
+//   - Add-on prices (easel stand / wall mount / etc.) — from
+//     METAL_ADDONS_CENTS, also from backend/shared/metal-art.ts (mirrors
+//     src/lib/product-kind.ts METAL_ADDONS, which imports the same table).
+//   - The "2 for $25" bundle deal — from backend/shared/promos.ts (the single
+//     source of truth also read by src/context/CartContext.tsx), pooled
+//     across every bundle-eligible line the same way the cart pools it. See
+//     GAP 4 below — this closes Watchtower row 54405e88.
 //   - Plus-size upcharge (2XL+) — mirrors src/pages/Checkout.tsx PLUS_SIZES.
 //   - Discount — re-validated against the `discount_codes` table (same rules
 //     as GET /api/coupons/validate: active, not expired, usage limits, min
@@ -51,34 +57,35 @@
 //      task handoff. US_STATE_BASE_SALES_TAX_RATES remains the active
 //      fallback (and the only source) until David configures registrations +
 //      product tax codes and sets STRIPE_TAX_ENABLED=true.
+//   4. The "2 for $25" bundle deal (David 2026-09-02, changed from "3 for
+//      $25") now has server-side pricing at all — before this, a
+//      bundle-eligible cart was charged full price at checkout regardless of
+//      what the cart/storefront advertised (Watchtower row 54405e88).
+//      Eligibility and the bundle math both come from backend/shared/promos.ts,
+//      the same module src/context/CartContext.tsx uses, so client and server
+//      total agree. See PricingCartItem.isThreeForTwentyFive and
+//      computeSubtotalCents below.
 
 import { supabase } from '../lib/supabase.js'
 import Stripe from 'stripe'
 import { getSheetPrice, SHEET_PRESETS, type PrintType } from '../config/imagination-presets.js'
 import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
+import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS } from '../shared/metal-art.js'
+import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // ---------------------------------------------------------------------------
 // Known, server-verifiable constants (mirrors of frontend price catalogs).
-// These are small and stable enough to duplicate rather than share across the
-// frontend/backend build boundary. If the source constants change, these must
-// be updated too (flagged as a follow-up in the task handoff).
+// METAL_ART_PRICES_CENTS / METAL_ADDONS_CENTS now come from
+// backend/shared/metal-art.ts — the single source of truth also read by
+// src/pages/MetalArtStudio.tsx and src/lib/product-kind.ts (no more
+// hand-mirrored copies to drift apart). Everything below that's still local
+// is small/stable enough that duplicating it across the frontend/backend
+// build boundary remains the pragmatic call — if the source constants
+// change, these must be updated too (flagged as a follow-up in the task
+// handoff).
 // ---------------------------------------------------------------------------
-
-// Mirrors src/pages/MetalArtStudio.tsx METAL_ART_PRICES.
-const METAL_ART_PRICES_CENTS: Record<string, number> = {
-  '4x6': 1499,
-  '8x11': 2999
-}
-
-// Mirrors src/lib/product-kind.ts METAL_ADDONS.
-const METAL_ADDONS_CENTS: Record<string, number> = {
-  easel_stand: 700,
-  standoff_mount: 1000,
-  hanging_kit: 500,
-  gift_box: 500
-}
 
 // Mirrors src/lib/product-kind.ts TOY_ADDONS — magnet-mount accessory parts
 // and the matched paint kit for catalog 3D toys (David 2026-08-19: every
@@ -204,6 +211,18 @@ export interface PricingCartItem {
   // (GAP 1 closed — see fetchCustomItemPrices); kept for any future custom
   // line-item type that hasn't been ported yet.
   clientUnitPriceDollars?: number | null
+  /**
+   * Mirrors Product.isThreeForTwentyFive (top-level flag, distinct from
+   * metadata.isThreeForTwentyFive on `metadata` below) — ADDED for GAP 4 so
+   * this engine can decide bundle ("2 for $25") eligibility the same way
+   * src/context/CartContext.tsx does: isThreeForTwentyFive ||
+   * metadata?.isThreeForTwentyFive (see backend/shared/promos.ts
+   * isBundleEligible). The caller (backend/routes/stripe.ts) must send this
+   * from item.product.isThreeForTwentyFive — without it, a product whose
+   * eligibility lives only in the top-level flag (not mirrored into
+   * metadata) silently prices as non-eligible.
+   */
+  isThreeForTwentyFive?: boolean | null
   /** Parcel weight in lb — mirrors src/utils/shipping-calculator.ts's per-item
    *  weight, used only to verify a signed carrier shipping quote (GAP 2). */
   weight?: number | null
@@ -334,6 +353,41 @@ function resolve3dPrintUnitCents(tierPrintPriceDollars: number, item: PricingCar
   return Math.round((basePriceDollars + paintKitDollars) * 100)
 }
 
+// Per-unit extras that apply on top of an item's base price regardless of
+// whether that base price came from a flat catalog lookup or the pooled
+// bundle formula: plus-size upcharge, garment tier upcharge, add-ons. Shared
+// by computeLineItemCents (non-bundle items) and computeSubtotalCents's
+// bundle-eligible branch so the two paths can never compute "extras"
+// differently.
+function computeExtrasCentsPerUnit(item: PricingCartItem, id: string, errors: string[]): number {
+  let extraCents = 0
+
+  if (isPlusSize(item.selectedSize)) {
+    extraCents += PLUS_SIZE_UPCHARGE_CENTS
+  }
+
+  if (item.selectedTier) {
+    const tierCents = GARMENT_TIER_UPCHARGE_CENTS[item.selectedTier]
+    if (tierCents === undefined) {
+      errors.push(`Unrecognized garment tier "${item.selectedTier}" for item ${id}`)
+    } else {
+      extraCents += tierCents
+    }
+  }
+
+  for (const addonId of item.selectedAddonIds || []) {
+    if (!addonId) continue
+    const addonCents = KNOWN_ADDONS_CENTS[addonId]
+    if (addonCents === undefined) {
+      errors.push(`Unrecognized add-on "${addonId}" for item ${id}`)
+      continue
+    }
+    extraCents += addonCents
+  }
+
+  return extraCents
+}
+
 export function computeLineItemCents(
   item: PricingCartItem,
   productPriceMap: Map<string, number>,
@@ -355,7 +409,10 @@ export function computeLineItemCents(
     unitCents = Math.round(productPriceMap.get(id)! * 100)
   } else if (id.startsWith('metal-art-custom-')) {
     const sizeKey = String(item.selectedSize || '').toLowerCase()
-    const known = METAL_ART_PRICES_CENTS[sizeKey]
+    // METAL_ART_PRICES_CENTS is keyed by the closed MetalArtSizeKey union
+    // (backend/shared/metal-art.ts) — an arbitrary lowercased client string
+    // isn't assignable to it, so look it up via the widened index signature.
+    const known = (METAL_ART_PRICES_CENTS as Record<string, number>)[sizeKey]
     if (known === undefined) {
       errors.push(`Unknown metal-art print size "${item.selectedSize ?? ''}" for item ${id}`)
     } else {
@@ -389,30 +446,7 @@ export function computeLineItemCents(
     return { cents: 0, errors, warnings }
   }
 
-  let perUnitCents = unitCents
-
-  if (isPlusSize(item.selectedSize)) {
-    perUnitCents += PLUS_SIZE_UPCHARGE_CENTS
-  }
-
-  if (item.selectedTier) {
-    const tierCents = GARMENT_TIER_UPCHARGE_CENTS[item.selectedTier]
-    if (tierCents === undefined) {
-      errors.push(`Unrecognized garment tier "${item.selectedTier}" for item ${id}`)
-    } else {
-      perUnitCents += tierCents
-    }
-  }
-
-  for (const addonId of item.selectedAddonIds || []) {
-    if (!addonId) continue
-    const addonCents = KNOWN_ADDONS_CENTS[addonId]
-    if (addonCents === undefined) {
-      errors.push(`Unrecognized add-on "${addonId}" for item ${id}`)
-      continue
-    }
-    perUnitCents += addonCents
-  }
+  const perUnitCents = unitCents + computeExtrasCentsPerUnit(item, id, errors)
 
   return { cents: perUnitCents * quantity, errors, warnings }
 }
@@ -426,12 +460,53 @@ export function computeSubtotalCents(
   const errors: string[] = []
   const warnings: string[] = []
 
+  // GAP 4: bundle-eligible items ("2 for $25" — backend/shared/promos.ts)
+  // are priced together. Their per-unit extras (plus-size/tier/add-ons)
+  // still apply per line, exactly like every other item — only the BASE
+  // price is decided differently: eligible quantity is pooled ACROSS every
+  // eligible line, then run through bundleTotalCents ONCE for the whole
+  // order. This mirrors src/context/CartContext.tsx's calculateTotal
+  // exactly, including that a bundle-eligible item's own catalog price is
+  // never consulted for the base amount — only used here to confirm the id
+  // resolves to a real product (data-integrity check, same posture as every
+  // other line type).
+  let totalEligibleQty = 0
+
   for (const item of items) {
-    const result = computeLineItemCents(item, productPriceMap, customItemPriceMap)
-    subtotalCents += result.cents
-    errors.push(...result.errors)
-    warnings.push(...result.warnings)
+    const eligible = isBundleEligible({
+      isThreeForTwentyFive: item.isThreeForTwentyFive,
+      metadata: item.metadata
+    })
+
+    if (!eligible) {
+      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap)
+      subtotalCents += result.cents
+      errors.push(...result.errors)
+      warnings.push(...result.warnings)
+      continue
+    }
+
+    const id = String(item.productId ?? '')
+    const quantity = Number.isFinite(item.quantity) ? Math.floor(item.quantity) : 0
+
+    if (!id || quantity <= 0) {
+      errors.push(`Invalid cart item (productId=${item.productId ?? 'null'}, quantity=${item.quantity})`)
+      continue
+    }
+    if (!UUID_RE.test(id)) {
+      errors.push(`Unrecognized product id "${id}"`)
+      continue
+    }
+    if (!productPriceMap.has(id)) {
+      errors.push(`Product ${id} not found`)
+      continue
+    }
+
+    totalEligibleQty += quantity
+    subtotalCents += computeExtrasCentsPerUnit(item, id, errors) * quantity
   }
+
+  subtotalCents += bundleTotalCents(totalEligibleQty, BUNDLE_DEAL.priceCents)
 
   return { subtotalCents, errors, warnings }
 }

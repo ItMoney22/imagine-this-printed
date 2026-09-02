@@ -55,6 +55,103 @@ export const ETSY_SIZE_KEYS: MetalArtSizeKey[] = ['4x6', '8x10']
 export const METAL_ART_SIZE_CONFLICT_OPEN = false
 
 // ---------------------------------------------------------------------------
+// Prices — single source of truth for the storefront studio
+// (src/pages/MetalArtStudio.tsx) AND the server-side checkout pricing engine
+// (backend/services/order-pricing.ts). Both used to carry their own
+// hardcoded copy; order-pricing.ts's copy was keyed '8x11': 2999 with NO
+// '8x10' entry at all — a straight bug, since the real panel (per the
+// resolution above) is 8x10, not 8x11. Fixed here.
+//
+// David 2026-09-02 (verbatim): "for a 4x6 $8.95 and a 8x10 we do 16.95."
+// These replace the prior $14.99 / $29.99.
+export const METAL_ART_PRICES_CENTS: Record<MetalArtSizeKey, number> = {
+  '4x6': 895,
+  '8x10': 1695,
+  // Legacy alias: '8x11' is not offered (see STUDIO_SIZE_KEYS above) but old
+  // carts/products may still carry it — same physical panel as 8x10 today,
+  // so it's priced the same rather than left to error out at checkout.
+  '8x11': 1695,
+}
+
+// Dollar view for UI code that displays/exports prices in dollars (mirrors
+// the shape MetalArtStudio.tsx has always exported as METAL_ART_PRICES).
+export const METAL_ART_PRICES: Record<MetalArtSizeKey, number> = Object.fromEntries(
+  (Object.entries(METAL_ART_PRICES_CENTS) as [MetalArtSizeKey, number][]).map(([key, cents]) => [key, cents / 100])
+) as Record<MetalArtSizeKey, number>
+
+// ---------------------------------------------------------------------------
+// Add-on catalog — single source of truth for the storefront
+// (src/lib/product-kind.ts) and the server-side pricing engine
+// (backend/services/order-pricing.ts). Both used to carry their own
+// hardcoded copy that could silently drift.
+//
+// PLACEHOLDER PRICES: magnet_mount and printed_stand are NEW add-ons David
+// named on 2026-09-02 ("we have addons like mounting magnets or 3d printed
+// stands etc.") without giving dollar figures — the cents below are
+// placeholders pending his sign-off, not a confirmed price. The other four
+// (easel_stand/standoff_mount/hanging_kit/gift_box) are the existing,
+// already-live prices — unchanged.
+export interface MetalAddonSpec {
+  id: string
+  label: string
+  cents: number
+  /** true = produced in-house on our 3D printer. */
+  printed: boolean
+  blurb: string
+}
+
+export const METAL_ADDONS: Record<string, MetalAddonSpec> = {
+  easel_stand: {
+    id: 'easel_stand',
+    label: 'Tabletop easel stand',
+    cents: 700,
+    printed: true,
+    blurb: 'Stand it on a desk or shelf — 3D-printed to fit your print.'
+  },
+  standoff_mount: {
+    id: 'standoff_mount',
+    label: 'Floating standoff wall mount',
+    cents: 1000,
+    printed: true,
+    blurb: 'Modern floating look, sits off the wall. Hardware included.'
+  },
+  hanging_kit: {
+    id: 'hanging_kit',
+    label: 'Sawtooth hanging kit',
+    cents: 500,
+    printed: true,
+    blurb: 'Classic flush wall hanging — ready in seconds.'
+  },
+  gift_box: {
+    id: 'gift_box',
+    label: 'Gift packaging',
+    cents: 500,
+    printed: false,
+    blurb: 'Arrives gift-boxed and ready to give.'
+  },
+  // NEW 2026-09-02 (David) — prices are PLACEHOLDERS, not confirmed.
+  magnet_mount: {
+    id: 'magnet_mount',
+    label: 'Magnet mounting kit',
+    cents: 495,
+    printed: false,
+    blurb: 'Rare-earth magnets so it mounts flush to any metal surface — no holes, no hanger.'
+  },
+  printed_stand: {
+    id: 'printed_stand',
+    label: '3D-printed display stand',
+    cents: 695,
+    printed: true,
+    blurb: 'A custom stand printed to hold this panel upright on a desk or shelf.'
+  },
+}
+
+// Cents-only lookup — what order-pricing.ts's KNOWN_ADDONS_CENTS table needs.
+export const METAL_ADDONS_CENTS: Record<string, number> = Object.fromEntries(
+  Object.values(METAL_ADDONS).map(a => [a.id, a.cents])
+)
+
+// ---------------------------------------------------------------------------
 // Substrate / mounting — RESOLVED by David 2026-07-28: the panels are
 // ALUMINUM and ship WITH a hanger included. Listings may claim "ready to
 // hang". (The old storefront "magnet-mounted steel plate" line was wrong.)

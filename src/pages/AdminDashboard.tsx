@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import api, { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
+import { BUNDLE_DEAL } from '../../backend/shared/promos'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
@@ -2657,7 +2658,7 @@ const AdminDashboard: React.FC = () => {
                                   onChange={() => togglePromo(product)}
                                   className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
                                 />
-                                <span className="text-xs text-slate-600">3 for $25</span>
+                                <span className="text-xs text-slate-600">{BUNDLE_DEAL.label}</span>
                               </label>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
