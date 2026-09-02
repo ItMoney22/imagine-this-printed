@@ -13,6 +13,8 @@ from printfactory.shellprep import (
     bore_cut_span,
     normalise_plan,
     retry_voxel_sizes,
+    union_bbox_shortfall,
+    fusion_volume_mismatch,
 )
 
 # The real wraith GLB, measured in Blender after import (which already applies
@@ -243,3 +245,101 @@ class TestFitModes:
     def test_a_margin_that_eats_the_build_volume_is_rejected(self):
         with pytest.raises(ShellError, match="margin"):
             normalise_plan(WIDE_MIN, WIDE_MAX, 150.0, fit="bbox", margin_mm=999.0)
+
+
+class TestUnionBboxShortfall:
+    """A union's bounding box is the componentwise union of its inputs'. Always.
+
+    Caught in production, not in theory: fusing shell2 at 120mm returned a
+    part measuring exactly 104 x 104 x 120 - the bare cradle - after unioning
+    a shell that had just been fitted to 205.73 x 136.12 x 120. A 205mm shell
+    cannot hide inside a 104mm barrel, so the solver had silently dropped one
+    input. Every other gate passed: manifold, non-degenerate, right height,
+    plausible mass, jar fits, zero retries. Only the bbox knew.
+    """
+
+    BODY = {"x": 104.0, "y": 104.0, "z": 120.0}
+    SHELL = {"x": 205.73, "y": 136.12, "z": 120.0}
+
+    def test_a_correct_union_covers_both_inputs(self):
+        good = {"x": 205.71, "y": 136.10, "z": 120.0}
+        assert union_bbox_shortfall(good, self.BODY, self.SHELL) is None
+
+    def test_the_measured_dropped_shell_is_caught(self):
+        dropped = {"x": 104.0, "y": 104.0, "z": 120.0}
+        reason = union_bbox_shortfall(dropped, self.BODY, self.SHELL)
+        assert reason is not None
+        assert "x" in reason and "205.73" in reason and "104.00" in reason
+
+    def test_a_dropped_body_is_caught_too(self):
+        dropped = dict(self.SHELL)
+        dropped["z"] = 60.0
+        assert union_bbox_shortfall(dropped, self.BODY, self.SHELL) is not None
+
+    def test_solver_noise_is_tolerated(self):
+        """Measured on the good 148mm run: the union came back 0.02-0.03mm
+        under the componentwise max. That is the solver reweaving a surface,
+        not a lost input."""
+        noisy = {"x": 205.70, "y": 136.09, "z": 119.97}
+        assert union_bbox_shortfall(noisy, self.BODY, self.SHELL) is None
+
+    def test_a_shell_genuinely_inside_the_body_is_not_a_shortfall(self):
+        """The tall wraith really is narrower than its cradle. That is a
+        product problem, reported elsewhere - it is not a solver failure."""
+        small = {"x": 60.0, "y": 60.0, "z": 120.0}
+        assert union_bbox_shortfall(self.BODY, self.BODY, small) is None
+
+    def test_the_measured_thin_sliver_loss_is_tolerated(self):
+        """The real 200mm shell.glb union: inputs span 112.75 on y, the union
+        came back 112.04 - one connected component throughout, a collapsed
+        robe-edge sliver, 0.62% of the axis. Not a dropped input."""
+        body = {"x": 104.0, "y": 104.0, "z": 200.0}
+        shell = {"x": 109.35, "y": 112.75, "z": 199.97}
+        union = {"x": 109.35, "y": 112.04, "z": 200.01}
+        assert union_bbox_shortfall(union, body, shell) is None
+
+    def test_the_gap_between_noise_and_a_dropped_input_is_wide(self):
+        """0.62% real noise vs 49.4% real failure. If those ever converge this
+        guard needs a better instrument than a bounding box."""
+        shell = {"x": 205.73, "y": 136.12, "z": 120.0}
+        body = {"x": 104.0, "y": 104.0, "z": 120.0}
+        assert union_bbox_shortfall(
+            {"x": 195.5, "y": 136.1, "z": 120.0}, body, shell) is None
+        assert union_bbox_shortfall(
+            {"x": 150.0, "y": 136.1, "z": 120.0}, body, shell) is not None
+
+
+class TestFusionVolumeIdentity:
+    """Every cut the fixture makes lies strictly inside its own body (the
+    widest is the 99.2mm cavity inside a 104mm barrel), and the shell material
+    outside the body is never touched by them. So an exact identity holds:
+
+        final_volume == bare_fixture_volume + proud_shell_volume
+
+    Checked against the three real runs: +0.09% at 148mm, -0.04% at 95mm, and
+    +226.19% at 120mm, where the cavity cut silently did nothing and left
+    ~581,000mm3 of barrel behind. The part was manifold, non-degenerate, the
+    right size, and its bore probed open - it just weighed 1038.8g instead of
+    319g, which is heavier than the same product 28mm TALLER.
+    """
+
+    def test_a_correct_fusion_satisfies_the_identity(self):
+        assert fusion_volume_mismatch(414051.8, 179664.0, 234000.0) is None
+        assert fusion_volume_mismatch(158505.9, 139064.0, 19498.1) is None
+
+    def test_the_measured_failed_cavity_cut_is_caught(self):
+        reason = fusion_volume_mismatch(837724.9, 158215.0, 98606.3)
+        assert reason is not None
+        assert "837725" in reason.replace(",", "") or "837724" in reason.replace(",", "")
+
+    def test_solver_noise_of_a_fraction_of_a_percent_passes(self):
+        assert fusion_volume_mismatch(100_500.0, 60_000.0, 40_000.0) is None
+
+    def test_a_part_that_lost_material_is_caught_too(self):
+        """Under-volume matters as much as over: it means a cut ran twice or
+        took more than its own cylinder."""
+        assert fusion_volume_mismatch(50_000.0, 60_000.0, 40_000.0) is not None
+
+    def test_tiny_parts_get_an_absolute_floor(self):
+        # 2% of nothing is nothing; a small absolute slack stops false alarms.
+        assert fusion_volume_mismatch(1200.0, 1000.0, 0.0) is None

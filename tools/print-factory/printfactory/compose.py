@@ -32,7 +32,8 @@ import os
 from printfactory import blender_ops as ops
 from printfactory.metrics import degenerate_reasons
 from printfactory.shellprep import (bore_blockage, bore_cut_span,
-                                    retry_voxel_sizes)
+                                    fusion_volume_mismatch, retry_voxel_sizes,
+                                    union_bbox_shortfall)
 
 
 class FusionError(RuntimeError):
@@ -114,6 +115,15 @@ def fuse(spec, fixture, params):
 def _attempt(spec, fixture, params, target_h, voxel_mm):
     ops.clear_scene()
 
+    # Build the fixture on its own first, purely to measure it. It costs about
+    # a tenth of a second and it is the reference for the volume identity that
+    # catches a re-cut which silently removed nothing - the one failure mode
+    # that survives every other gate in here.
+    reference = fixture.build(params, ctx=spec)
+    bare_stats, _ = _require_solid("fixture reference build", reference)
+    bare_volume = bare_stats["volume_mm3"]
+    ops.discard_object(reference)
+
     shell = ops.import_glb(spec.shell_glb)
     raw = ops.mesh_stats(shell)
     raw_bbox = ops.bbox_mm(shell)
@@ -121,7 +131,7 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
 
     # Mandatory. Not a quality knob.
     ops.voxel_remesh(shell, voxel_mm)
-    remeshed, _ = _require_solid("shell remesh", shell)
+    remeshed, shell_bbox = _require_solid("shell remesh", shell)
 
     # The UNCUT body - see CandleCradle.build_body() for why the finished
     # cradle is the wrong thing to union against.
@@ -133,13 +143,14 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
     ops.boolean(cradle, shell, "UNION")
     union_stats, union_bbox = _require_solid(
         "shell union", cradle, min_volume_mm3=body_stats["volume_mm3"])
-    for axis in ("x", "y", "z"):
-        if union_bbox[axis] < body_bbox[axis] - 0.01:
-            raise FusionError(
-                f"shell union: bbox {axis} shrank {body_bbox[axis]:.2f} -> "
-                f"{union_bbox[axis]:.2f}mm; a union cannot lose material, so "
-                "the solver dropped an input"
-            )
+    # Against BOTH inputs, not just the body. Checking only the body missed a
+    # real failure: fusing shell2 at 120mm returned exactly 104 x 104 x 120,
+    # the bare cradle, after unioning a shell fitted to 205.73mm wide. The body
+    # survived, so the volume floor and a body-only bbox check both passed, and
+    # the job reported success with zero retries and no shell in it.
+    shortfall = union_bbox_shortfall(union_bbox, body_bbox, shell_bbox)
+    if shortfall:
+        raise FusionError(f"shell union: {shortfall}")
 
     flattened = ops.flatten_base(cradle, 0.0)
     if flattened:
@@ -152,6 +163,11 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
     # annihilation, not to second-guess the fixture's own geometry.
     after_recut, _ = _require_solid(
         "feature re-cut", cradle, min_volume_mm3=0.05 * body_stats["volume_mm3"])
+    proud_mm3 = union_stats["volume_mm3"] - body_stats["volume_mm3"]
+    mismatch = fusion_volume_mismatch(after_recut["volume_mm3"], bare_volume,
+                                      proud_mm3)
+    if mismatch:
+        raise FusionError(f"feature re-cut: {mismatch}")
 
     hollow_note = _hollow_if_viable(cradle, spec.wall_mm)
 
@@ -172,7 +188,6 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
     # happens: manifold, right height, right mass, jar fits. This is the only
     # field that says whether the customer can see what they paid for.
     final_stats = ops.mesh_stats(cradle)
-    proud_mm3 = union_stats["volume_mm3"] - body_stats["volume_mm3"]
     proud_pct = 100.0 * proud_mm3 / final_stats["volume_mm3"]
     notes = []
     fitted_h = plan["fitted_bbox_mm"]["z"]
@@ -218,6 +233,7 @@ def _attempt(spec, fixture, params, target_h, voxel_mm):
         "base_flattened": flattened,
         "recut_features": recut["names"],
         "recut_volume_mm3": round(after_recut["volume_mm3"], 1),
+        "bare_fixture_mm3": round(bare_volume, 1),
         "hollow": hollow_note,
         "bore_probe": probe,
         "jar_fits": True,

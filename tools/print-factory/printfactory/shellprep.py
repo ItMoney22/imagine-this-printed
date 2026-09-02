@@ -192,3 +192,78 @@ def bore_blockage(probe: dict, bore_floor_z: float, jar_dia: float,
                 f"is at z={bore_floor_z:.2f} - {top - bore_floor_z:.2f}mm of "
                 "obstruction fills the recess this product exists to provide")
     return None
+
+
+# Slack allowed between a union's bounding box and the componentwise union of
+# its inputs'. Both ends of this are measured, not guessed:
+#
+#   real noise   fusing shell.glb at 200mm, the union came back 0.702mm short
+#                on +y only (56.428 -> 55.726) while -y held exactly. Not a
+#                dropped island - the mesh is one connected component before
+#                and after - but a thin robe-edge sliver the solver collapsed.
+#                0.62% of that axis.
+#   real failure fusing shell2.glb at 120mm, the union came back 104.00mm wide
+#                against inputs spanning 205.73mm. 49.4% of that axis.
+#
+# Two orders of magnitude apart, so the test is proportional. This guard exists
+# to catch a DROPPED INPUT, which is categorical; shaved slivers are the volume
+# floor's and proud_of_body_pct's business, not this one's.
+UNION_BBOX_TOL_MM = 0.5
+UNION_BBOX_TOL_FRAC = 0.05
+
+
+def union_bbox_shortfall(union_bbox: dict, *input_bboxes: dict,
+                         tol: float = UNION_BBOX_TOL_MM,
+                         tol_frac: float = UNION_BBOX_TOL_FRAC):
+    """None if the union covers all its inputs. Otherwise say which axis lost.
+
+    The invariant is exact: a union of solids spans the componentwise union of
+    their bounding boxes, because a union cannot remove material. Anything
+    less means the solver silently discarded an input.
+
+    This is the one check that catches a dropped input. Manifoldness cannot -
+    the survivor is a perfectly good solid. Nor can volume: the survivor here
+    was the fixture body, so the result was BIGGER than the bare-body floor
+    the volume gate was comparing against, and sailed through.
+    """
+    for axis in ("x", "y", "z"):
+        expected = max(b[axis] for b in input_bboxes)
+        got = union_bbox[axis]
+        if got < expected - max(tol, tol_frac * expected):
+            return (f"union {axis} is {got:.2f}mm but its inputs already span "
+                    f"{expected:.2f}mm; a union cannot lose material, so the "
+                    "solver dropped an input")
+    return None
+
+
+# Slack on the fusion volume identity. Measured: +0.09% and -0.04% on the two
+# correct runs, +226% on the one where a cut silently did nothing.
+FUSION_VOLUME_TOL_FRAC = 0.02
+FUSION_VOLUME_TOL_MM3 = 500.0
+
+
+def fusion_volume_mismatch(final_mm3: float, bare_fixture_mm3: float,
+                           proud_mm3: float,
+                           tol_frac: float = FUSION_VOLUME_TOL_FRAC,
+                           tol_mm3: float = FUSION_VOLUME_TOL_MM3):
+    """None if the fused part weighs what the geometry says it must.
+
+    Every subtractive feature a fixture cuts lies strictly inside its own body,
+    and shell material outside that body is never touched by those cuts. So:
+
+        final == (body - cuts) + (shell outside body) == bare_fixture + proud
+
+    which makes this an exact accounting identity, not a heuristic. It is the
+    only check that catches a DIFFERENCE that silently removed nothing: the
+    result is still watertight, still the right size, still passes a bore
+    probe, and simply contains a cavity's worth of material it should not.
+    """
+    expected = bare_fixture_mm3 + proud_mm3
+    slack = max(tol_mm3, tol_frac * expected)
+    if abs(final_mm3 - expected) > slack:
+        direction = "more" if final_mm3 > expected else "less"
+        return (f"fused part is {final_mm3:.0f}mm3 but the geometry demands "
+                f"{expected:.0f}mm3 (bare fixture {bare_fixture_mm3:.0f} + "
+                f"{proud_mm3:.0f} proud of it): {abs(final_mm3-expected):.0f}mm3 "
+                f"{direction} than exists, so a cut did not take")
+    return None

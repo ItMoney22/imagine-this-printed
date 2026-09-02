@@ -279,6 +279,14 @@ def probe_column(obj, dia: float, z_from: float, rings: int = 4,
     }
 
 
+def discard_object(obj):
+    """Remove an object and its mesh. Used for reference builds we only measure."""
+    me = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if me.users == 0:
+        bpy.data.meshes.remove(me)
+
+
 def snapshot(obj):
     """A throwaway copy of obj's mesh, so a destructive step can be reverted."""
     return obj.data.copy()

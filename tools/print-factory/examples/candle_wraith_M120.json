@@ -1,0 +1,9 @@
+{
+  "fixture": "candle_cradle",
+  "params": {"jar_dia": 89, "height": 120},
+  "shell_glb": "shell2.glb",
+  "target_height_mm": 120,
+  "fit": "bbox",
+  "face_limit": 200000,
+  "voxel_mm": 0.5
+}
