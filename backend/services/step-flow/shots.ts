@@ -24,6 +24,7 @@ import { renderDetailsCard } from './details-card.js'
 import { buildProductGallery, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
+import type { PrintAdvice, PrintFileResult } from './print-prep.js'
 // Renders one mockup ai_jobs row to completion (source resolve -> model call
 // + QA -> GCS upload -> product_assets write -> job succeeded/failed). Same
 // function the worker's polling loop calls for the old 'queued' path; here it
@@ -68,6 +69,20 @@ export interface StepFlowMeta {
   advice?: ColorAdvice[]
   shots: Partial<Record<ShotKey, ShotState>>
   approvals: Partial<Record<'design' | 'garments' | 'mockups' | 'listing', string>>
+  /**
+   * Print prep (design doc §10, David 2026-09-02): the measured halftone
+   * recommendation from `POST /:id/step/print-advice`. Optional and
+   * side-effect-free — never gates any approval.
+   */
+  printAdvice?: PrintAdvice
+  /**
+   * Print prep: the team-only halftone print file from
+   * `POST /:id/step/print-file`. Points at a `product_assets` row with
+   * `kind:'print', asset_role:'print_halftone'` — that role is deliberately
+   * excluded from `shared/product-gallery.ts`'s ROLE_ORDER, so this can never
+   * reach `products.images`/the storefront.
+   */
+  printFile?: PrintFileResult
 }
 
 /** Thrown for expected, user-facing validation failures — routers map this to 400. */
@@ -91,6 +106,8 @@ export function getStepFlow(product: { metadata?: any } | null | undefined): Ste
       advice: Array.isArray(raw.advice) ? raw.advice : undefined,
       shots: raw.shots && typeof raw.shots === 'object' ? raw.shots : {},
       approvals: raw.approvals && typeof raw.approvals === 'object' ? raw.approvals : {},
+      printAdvice: raw.printAdvice && typeof raw.printAdvice === 'object' ? raw.printAdvice : undefined,
+      printFile: raw.printFile && typeof raw.printFile === 'object' ? raw.printFile : undefined,
     }
   }
   return { version: 1, idea: '', brief: null, shots: {}, approvals: {} }

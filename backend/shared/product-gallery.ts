@@ -30,6 +30,13 @@
  * matching the `mockup_color_*` wildcard) is invisible on the storefront no
  * matter how many were generated. Any new mockup role has to be added here or
  * the render is paid for and never seen.
+ *
+ * `print_*` roles (Step Flow's team-only halftone print file, design doc
+ * §10 — `asset_role: 'print_halftone'`, `kind: 'print'`) are DELIBERATELY NOT
+ * in this list. David: customers must never see the halftoned print file —
+ * it's for the team when pressing/printing, not a listing photo. Leaving it
+ * out of the whitelist is what keeps it out of `products.images` no matter
+ * what publishes the product; do not add a `print_*` entry here.
  */
 
 export interface GalleryAsset {

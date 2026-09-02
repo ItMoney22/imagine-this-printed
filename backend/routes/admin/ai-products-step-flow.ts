@@ -14,6 +14,7 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { assertOffered, COLORS, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
 import { adviseColors } from '../../services/step-flow/color-advice.js'
+import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
 import {
   queueStepShots,
   redoShot,
@@ -80,6 +81,33 @@ function actorId(req: Request): string {
   return (req as any).user?.id || (req as any).user?.sub || 'system'
 }
 
+/**
+ * The nobg asset (falls back to the primary source design when rembg hasn't
+ * run yet) — same resolution order color-advice uses, factored out here so
+ * both print-prep routes below share it instead of duplicating the query.
+ */
+async function resolveDesignArtworkUrl(productId: string): Promise<string | undefined> {
+  const { data: nobgAsset } = await supabase
+    .from('product_assets')
+    .select('url')
+    .eq('product_id', productId)
+    .eq('kind', 'nobg')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (nobgAsset?.url) return nobgAsset.url as string
+
+  const { data: sourceAsset } = await supabase
+    .from('product_assets')
+    .select('url')
+    .eq('product_id', productId)
+    .eq('kind', 'source')
+    .eq('is_primary', true)
+    .limit(1)
+    .maybeSingle()
+  return sourceAsset?.url as string | undefined
+}
+
 const router = Router()
 
 // POST /step/brief — { idea } -> { brief }. Step 1: idea -> best prompt.
@@ -97,7 +125,11 @@ router.post('/step/brief', requireAuth, requireAdminOrManager, rateLimitAI(20), 
   }
 })
 
-// GET /:id/step — resume: product + step_flow (synced against live job status) + assets + jobs.
+// GET /:id/step — resume: product + step_flow (synced against live job
+// status) + assets + jobs. step_flow.printAdvice/printFile (design doc §10)
+// come through automatically via getStepFlow's pass-through — no separate
+// query needed; `assets` already includes every kind (incl. kind:'print')
+// since the select below has no kind filter.
 router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
@@ -209,6 +241,75 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] select-design error')
     res.status(500).json({ error: err?.message || 'Failed to select design' })
+  }
+})
+
+// POST /:id/step/print-advice — {} -> { advice }. Print prep panel (design
+// doc §10, David 2026-09-02): a MEASURED recommendation for whether this
+// design needs a halftone screen before DTF pressing — never renders
+// anything, never gates ✓ Approve design (optional). Stored on
+// step_flow.printAdvice so GET /:id/step returns it on reload.
+router.post('/:id/step/print-advice', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const product = await loadProductRow(id)
+    const stepFlow = getStepFlow(product)
+
+    const pngUrl = await resolveDesignArtworkUrl(id)
+    if (!pngUrl) return res.status(400).json({ error: 'No design artwork found yet — select a design first' })
+
+    const primaryColorId = stepFlow.colors?.primary
+    const primaryLuma = primaryColorId ? COLORS[primaryColorId]?.luma : undefined
+    const advice = await computePrintAdvice(pngUrl, { primaryLuma })
+
+    stepFlow.printAdvice = advice
+    await saveStepFlow(id, product.metadata, stepFlow)
+
+    res.json({ advice })
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] print-advice error')
+    res.status(500).json({ error: err?.message || 'Failed to compute print advice' })
+  }
+})
+
+// POST /:id/step/print-file — { method?, frequency?, angle?, shape?,
+// invertDark? } -> { printFile }. Runs the existing DTF halftone engine on
+// the nobg PNG and uploads a TEAM-ONLY print file — asset_role
+// 'print_halftone' is excluded from shared/product-gallery.ts's ROLE_ORDER,
+// so it can never land in products.images/the storefront no matter what
+// publishes. Redo overwrites: one print file per product, older
+// product_assets row deleted (bucket object stays). Synchronous local sharp
+// transform — no ai_jobs bookkeeping needed.
+router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { method, frequency, angle, shape, invertDark } = req.body || {}
+    const product = await loadProductRow(id)
+    const stepFlow = getStepFlow(product)
+
+    const pngUrl = await resolveDesignArtworkUrl(id)
+    if (!pngUrl) return res.status(400).json({ error: 'No design artwork found yet — select a design first' })
+
+    const printFile = await buildPrintFile(
+      id,
+      pngUrl,
+      {
+        method: method === 'diffusion' ? 'diffusion' : method === 'halftone' ? 'halftone' : undefined,
+        frequency: typeof frequency === 'number' ? frequency : undefined,
+        angle: typeof angle === 'number' ? angle : undefined,
+        shape: shape === 'line' ? 'line' : shape === 'round' ? 'round' : undefined,
+        invertDark: typeof invertDark === 'boolean' ? invertDark : undefined,
+      },
+      actorId(req)
+    )
+
+    stepFlow.printFile = printFile
+    await saveStepFlow(id, product.metadata, stepFlow)
+
+    res.json({ printFile })
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] print-file error')
+    res.status(500).json({ error: err?.message || 'Failed to build print file' })
   }
 })
 
