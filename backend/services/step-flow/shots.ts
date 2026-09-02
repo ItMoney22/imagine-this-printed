@@ -65,17 +65,30 @@ export interface StepFlowMeta {
   version: 1
   idea: string
   brief: StepBrief | null
+  /**
+   * Garment vs. metal print (design doc §14) — mirrors `brief.productKind`,
+   * derived fresh every `getStepFlow()` read so it can never drift out of
+   * sync with the brief it came from. Absent/undefined means 'garment' (the
+   * frontend's `StepFlowState.productKind` default). `GET /:id/step`
+   * additionally overrides this in its response with the value derived from
+   * `products.category` — the more durable signal once a product exists —
+   * but every OTHER reader of a `StepFlowMeta` (queueStepShots,
+   * resolveStepFlow, buildApprovedGallery, ...) uses this brief-derived
+   * value via `isMetalStepFlow()`.
+   */
+  productKind?: 'garment' | 'metal'
   garment?: GarmentId
   colors?: { primary: ColorId; extras: ColorId[] }
   /**
    * Metal prints' analog of garment/colors (design doc §14) — the physical
    * panel sizes this listing offers, written by POST /:id/step/sizes.
    * Ordered smallest-to-largest (STUDIO_SIZE_KEYS order). A metal StepBrief
-   * (brief.productKind === 'metal') never has `garment`/`colors` set — this
-   * is what drives the metal branches through queueStepShots/resolveStepFlow
-   * instead.
+   * (productKind === 'metal') never has `garment`/`colors` set — this is
+   * what drives the metal branches through queueStepShots/resolveStepFlow
+   * instead. Named `sizes` (not `metalSizes`) to match the frontend's
+   * `StepFlowMeta.sizes` wire contract (src/lib/api.ts).
    */
-  metalSizes?: MetalArtSizeKey[]
+  sizes?: MetalArtSizeKey[]
   advice?: ColorAdvice[]
   shots: Partial<Record<ShotKey, ShotState>>
   approvals: Partial<Record<'design' | 'garments' | 'mockups' | 'listing', string>>
@@ -119,14 +132,18 @@ type ProductRow = { id: string; category: string | null; metadata: any }
 export function getStepFlow(product: { metadata?: any } | null | undefined): StepFlowMeta {
   const raw = product?.metadata?.step_flow
   if (raw && typeof raw === 'object') {
+    const brief = raw.brief && typeof raw.brief === 'object' ? raw.brief : null
     return {
       version: 1,
       idea: typeof raw.idea === 'string' ? raw.idea : '',
-      brief: raw.brief && typeof raw.brief === 'object' ? raw.brief : null,
+      brief,
+      // Always derived fresh from the brief (never trusted from storage) so
+      // it can never drift — see the field's own doc comment above.
+      productKind: brief?.productKind === 'metal' ? 'metal' : undefined,
       garment: raw.garment,
       colors: raw.colors,
-      metalSizes: Array.isArray(raw.metalSizes)
-        ? raw.metalSizes.filter((s: unknown): s is MetalArtSizeKey => s === '4x6' || s === '8x10')
+      sizes: Array.isArray(raw.sizes)
+        ? raw.sizes.filter((s: unknown): s is MetalArtSizeKey => s === '4x6' || s === '8x10')
         : undefined,
       advice: Array.isArray(raw.advice) ? raw.advice : undefined,
       shots: raw.shots && typeof raw.shots === 'object' ? raw.shots : {},
@@ -236,9 +253,14 @@ export function defaultMetalShotKeys(sizes: MetalArtSizeKey[]): ShotKey[] {
   return [...ordered.map((s) => `scene:${s}` as ShotKey), 'details']
 }
 
-/** True when this product's brief opted into the metal wall-art lane (design doc §14). */
+/**
+ * True when this product opted into the metal wall-art lane (design doc
+ * §14). Checks `stepFlow.productKind` (getStepFlow's brief-derived mirror)
+ * with a direct `brief.productKind` fallback for any StepFlowMeta a caller
+ * built by hand rather than through getStepFlow (test fixtures, mainly).
+ */
 export function isMetalStepFlow(stepFlow: StepFlowMeta): boolean {
-  return stepFlow.brief?.productKind === 'metal'
+  return stepFlow.productKind === 'metal' || stepFlow.brief?.productKind === 'metal'
 }
 
 function pickTemplate(garment: GarmentId): 'ghost_mannequin' | 'flat_lay' {
@@ -585,7 +607,7 @@ async function queueModelShot(
  * when no size has been selected yet (nothing to key off of).
  */
 function metalDetailsSourceKey(stepFlow: StepFlowMeta): ShotKey | undefined {
-  const sizes = stepFlow.metalSizes || []
+  const sizes = stepFlow.sizes || []
   const largestFirst = [...STUDIO_SIZE_KEYS].reverse().filter((s) => sizes.includes(s))
   if (!largestFirst.length) return undefined
   // Prefer the largest size whose scene is already DONE — the details card
@@ -620,7 +642,7 @@ async function renderDetailsShot(
     if (!sourceShot?.assetId || !sourceShot.url) {
       throw new StepFlowValidationError('Approve a size scene before rendering the details card')
     }
-    const sizes = stepFlow.metalSizes || []
+    const sizes = stepFlow.sizes || []
     const result = await renderMetalDetailsCard({
       productId: product.id,
       mockupUrl: sourceShot.url,
@@ -668,7 +690,7 @@ async function buildShotJob(
   mode: 'queue' | 'redo'
 ): Promise<{ jobId: string | null; status: ShotState['status'] }> {
   if (isMetalStepFlow(stepFlow)) {
-    const sizes = stepFlow.metalSizes || []
+    const sizes = stepFlow.sizes || []
     if (!sizes.length) {
       throw new StepFlowValidationError('Select sizes before queuing shots')
     }
@@ -732,7 +754,7 @@ export async function queueStepShots(
 
   let allKeys: ShotKey[]
   if (isMetalStepFlow(stepFlow)) {
-    const sizes = stepFlow.metalSizes || []
+    const sizes = stepFlow.sizes || []
     if (!sizes.length) {
       throw new StepFlowValidationError('Select sizes before queuing shots')
     }
@@ -792,7 +814,7 @@ export async function redoShot(
 
   let allKeys: ShotKey[]
   if (isMetalStepFlow(stepFlow)) {
-    const sizes = stepFlow.metalSizes || []
+    const sizes = stepFlow.sizes || []
     if (!sizes.length) {
       throw new StepFlowValidationError('Select sizes before redoing shots')
     }
@@ -875,7 +897,7 @@ export async function approveShotsBatch(
       const approvals = { ...stepFlow.approvals }
       if (!approvals.mockups) {
         const trackedKeys = isMetalStepFlow(stepFlow)
-          ? defaultMetalShotKeys(stepFlow.metalSizes || [])
+          ? defaultMetalShotKeys(stepFlow.sizes || [])
           : stepFlow.colors
             ? defaultShotKeys(stepFlow.colors)
             : []

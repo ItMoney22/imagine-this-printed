@@ -205,10 +205,15 @@ router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request,
     // Derived from category (not step_flow.brief.productKind) so the
     // frontend can branch correctly even if the brief is missing/stale —
     // category is the durable signal, stamped at /create and never changed
-    // afterward for a given product.
+    // afterward for a given product. Nested on step_flow (not a sibling of
+    // it) to match the frontend's StepFlowMeta.productKind wire contract
+    // (src/lib/api.ts, src/components/studio/stepFlowReducer.ts's HYDRATE) —
+    // this overrides getStepFlow's brief-derived value for the RESPONSE
+    // only; every internal StepFlowMeta reader still uses the brief-derived
+    // value via isMetalStepFlow().
     const productKind: 'garment' | 'metal' = product.category === 'metal-art' ? 'metal' : 'garment'
 
-    res.json({ product, step_flow, assets: assets || [], jobs: jobs || [], productKind })
+    res.json({ product, step_flow: { ...step_flow, productKind }, assets: assets || [], jobs: jobs || [] })
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] GET /:id/step error')
     res.status(500).json({ error: err?.message || 'Failed to load step flow' })
@@ -527,7 +532,7 @@ router.post('/:id/step/sizes', requireAuth, requireAdminOrManager, async (req: R
 
     const product = await loadProductRow(id)
     const stepFlow = getStepFlow(product)
-    stepFlow.metalSizes = ordered
+    stepFlow.sizes = ordered
     stepFlow.approvals = { ...stepFlow.approvals, garments: new Date().toISOString() }
 
     const metalPrices: Record<string, number> = {}

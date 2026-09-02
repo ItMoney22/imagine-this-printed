@@ -364,7 +364,7 @@ describe('POST /:id/step/sizes', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body?.ok).toBe(true)
-    expect(res.body?.step_flow?.metalSizes).toEqual(['4x6', '8x10'])
+    expect(res.body?.step_flow?.sizes).toEqual(['4x6', '8x10'])
     expect(res.body?.step_flow?.approvals?.garments).toBeTruthy()
 
     const savedProduct = db.products.find((p) => p.id === 'p1')!
@@ -397,6 +397,39 @@ describe('POST /:id/step/sizes', () => {
     await handler(req, res)
 
     expect(res.statusCode).toBe(200)
-    expect(res.body?.step_flow?.metalSizes).toEqual(['4x6'])
+    expect(res.body?.step_flow?.sizes).toEqual(['4x6'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /:id/step — productKind must land NESTED on step_flow (not as a
+// sibling of it in the response body): the frontend's stepFlowReducer HYDRATE
+// reads `action.response.step_flow?.productKind` first (falling back to
+// `step_flow.brief?.productKind`), never a top-level `response.productKind`.
+// ---------------------------------------------------------------------------
+describe('GET /:id/step — productKind', () => {
+  it('nests productKind:"metal" on step_flow for a metal-art product, derived from category', async () => {
+    seedMetalProduct()
+    const handler = getRouteHandler('get', '/:id/step')
+    const req = { params: { id: 'p1' }, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.step_flow?.productKind).toBe('metal')
+    expect(res.body?.productKind).toBeUndefined() // never a sibling of step_flow
+  })
+
+  it('nests productKind:"garment" on step_flow for a non-metal product', async () => {
+    seedProduct()
+    const handler = getRouteHandler('get', '/:id/step')
+    const req = { params: { id: 'p1' }, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.step_flow?.productKind).toBe('garment')
   })
 })

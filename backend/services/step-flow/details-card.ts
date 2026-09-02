@@ -364,7 +364,7 @@ export async function renderDetailsCard(opts: RenderDetailsCardOpts): Promise<Re
 
 export interface MetalDetailsCardTextOpts {
   title: string
-  /** The sizes this listing actually offers (from step_flow.metalSizes) — drives both the "Sizes" spec row and the size table rows. */
+  /** The sizes this listing actually offers (from step_flow.sizes) — drives both the "Sizes" spec row and the size table rows. */
   sizes: MetalArtSizeKey[]
 }
 

@@ -172,7 +172,7 @@ function seedProduct(over: Partial<Row> = {}): Row {
   return product
 }
 
-/** Same shape as seedProduct but for the metal wall-art lane (design doc §14) — no garment/colors, brief.productKind:'metal', metalSizes from step/sizes. */
+/** Same shape as seedProduct but for the metal wall-art lane (design doc §14) — no garment/colors, brief.productKind:'metal', sizes from step/sizes. */
 function seedMetalProduct(over: Partial<Row> = {}): Row {
   const product = {
     id: 'p1',
@@ -182,7 +182,7 @@ function seedMetalProduct(over: Partial<Row> = {}): Row {
         version: 1,
         idea: 'aurora wolf',
         brief: { title: 'Aurora Wolf', productKind: 'metal' },
-        metalSizes: ['4x6', '8x10'],
+        sizes: ['4x6', '8x10'],
         shots: {},
         approvals: {},
       },
@@ -929,7 +929,7 @@ describe('queueStepShots — metal', () => {
   })
 
   it('queues only the one selected size when just one is picked', async () => {
-    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6'], shots: {}, approvals: {} } } })
+    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, sizes: ['4x6'], shots: {}, approvals: {} } } })
     const { jobs } = await queueStepShots('p1', 'user-1')
     expect(jobs.map((j) => j.key)).toEqual(['scene:4x6', 'details'])
   })
@@ -945,7 +945,7 @@ describe('redoShot — metal', () => {
     seedMetalProduct({
       metadata: {
         step_flow: {
-          version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6', '8x10'],
+          version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, sizes: ['4x6', '8x10'],
           shots: { 'scene:4x6': { approved: true, status: 'done', assetId: 'old-1', url: 'https://cdn/old-4x6.png' } },
           approvals: {},
         },
@@ -962,7 +962,7 @@ describe('redoShot — metal', () => {
   })
 
   it('rejects an unknown key for the currently selected sizes', async () => {
-    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6'], shots: {}, approvals: {} } } })
+    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, sizes: ['4x6'], shots: {}, approvals: {} } } })
     await expect(redoShot('p1', 'user-1', 'scene:8x10' as any)).rejects.toThrow(/Unknown shot key/)
   })
 })
@@ -974,7 +974,7 @@ describe('resolveStepFlow — metal details card', () => {
       category: 'metal-art',
       metadata: {
         step_flow: {
-          version: 1, idea: 'x', brief: { title: 'Aurora Wolf', productKind: 'metal' }, metalSizes: ['4x6', '8x10'],
+          version: 1, idea: 'x', brief: { title: 'Aurora Wolf', productKind: 'metal' }, sizes: ['4x6', '8x10'],
           shots: {
             'scene:4x6': { approved: true, status: 'done', assetId: 's46', url: 'https://cdn/4x6.png' },
             'scene:8x10': { approved: true, status: 'done', assetId: 's810', url: 'https://cdn/8x10.png' },
@@ -1001,7 +1001,7 @@ describe('resolveStepFlow — metal details card', () => {
       category: 'metal-art',
       metadata: {
         step_flow: {
-          version: 1, idea: 'x', brief: { title: 'Aurora Wolf', productKind: 'metal' }, metalSizes: ['4x6', '8x10'],
+          version: 1, idea: 'x', brief: { title: 'Aurora Wolf', productKind: 'metal' }, sizes: ['4x6', '8x10'],
           shots: {
             'scene:4x6': { approved: true, status: 'done', assetId: 's46', url: 'https://cdn/4x6.png' },
             'scene:8x10': { approved: false, status: 'running' },
@@ -1024,7 +1024,7 @@ describe('resolveStepFlow — metal details card', () => {
       category: 'metal-art',
       metadata: {
         step_flow: {
-          version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6'],
+          version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, sizes: ['4x6'],
           shots: {
             'scene:4x6': { approved: true, status: 'done', assetId: 's46', url: 'https://cdn/4x6.png' },
             details: { approved: false, status: 'queued' },
@@ -1046,7 +1046,7 @@ describe('buildApprovedGallery — metal ordering', () => {
     version: 1,
     idea: '',
     brief: { title: 'x', productKind: 'metal' },
-    metalSizes: ['4x6', '8x10'],
+    sizes: ['4x6', '8x10'],
     shots,
     approvals: {},
   })
