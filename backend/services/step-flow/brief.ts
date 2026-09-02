@@ -26,7 +26,9 @@ import { normalizeGarment, type GarmentId } from '../../shared/catalog-capabilit
 // Matches ASCII control characters (C0 range + DEL). Built via RegExp(...)
 // rather than a /[...]/  literal so no raw control bytes ever have to live in
 // this source file.
-const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001F\\u007F]', 'g')
+/** Drop ASCII control characters (C0 range + DEL) by code point — no control-char regex class needed (eslint no-control-regex). */
+const stripControlChars = (text: string): string =>
+  Array.from(text).filter((ch) => { const c = ch.codePointAt(0) ?? 0; return !(c <= 0x1f || c === 0x7f) }).join('')
 
 export type PhrasePlacement = 'below' | 'above' | 'integrated'
 
@@ -59,8 +61,7 @@ export interface StepBrief {
  */
 export function sanitizePhraseText(raw: unknown, maxLen = 60): string {
   if (typeof raw !== 'string') return ''
-  return raw
-    .replace(CONTROL_CHARS_RE, '')
+  return stripControlChars(raw)
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, maxLen)

@@ -97,8 +97,12 @@ function parseJsonLoose(raw: string | null | undefined): any {
 // Matches ASCII control characters (C0 range + DEL) and the common emoji /
 // pictograph blocks — built with RegExp(...) + \u escapes so no raw control
 // or multi-byte bytes ever have to live in this source file.
-const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001F\\u007F]', 'g')
-const EMOJI_RE = new RegExp('[\\u2190-\\u2BFF\\u{1F000}-\\u{1FAFF}\\uFE0F]', 'gu')
+/** Drop ASCII control characters (C0 range + DEL) by code point — no control-char regex class needed (eslint no-control-regex). */
+const stripControlChars = (text: string): string =>
+  Array.from(text).filter((ch) => { const c = ch.codePointAt(0) ?? 0; return !(c <= 0x1f || c === 0x7f) }).join('')
+/** Drop emoji / pictographs / the variation selector by code point (eslint no-misleading-character-class). */
+const stripEmoji = (text: string): string =>
+  Array.from(text).filter((ch) => { const c = ch.codePointAt(0) ?? 0; return !((c >= 0x2190 && c <= 0x2bff) || (c >= 0x1f000 && c <= 0x1faff) || c === 0xfe0f) }).join('')
 const QUOTE_HASH_RE = new RegExp("[\"'\\u2018\\u2019\\u201C\\u201D#]", 'g')
 
 const VALID_VIBES: MrsImaginePhrase['vibe'][] = ['funny', 'hype', 'wholesome', 'minimal', 'pun']
@@ -107,9 +111,7 @@ const VALID_PLACEMENTS: PhrasePlacement[] = ['below', 'above', 'integrated']
 /** Cleans one candidate's raw text into a print-friendly phrase: strips quotes/hashtags/emoji/control chars, collapses whitespace. */
 function cleanPhraseText(raw: unknown): string {
   if (typeof raw !== 'string') return ''
-  return raw
-    .replace(CONTROL_CHARS_RE, '')
-    .replace(EMOJI_RE, '')
+  return stripEmoji(stripControlChars(raw))
     .replace(QUOTE_HASH_RE, '')
     .replace(/\s+/g, ' ')
     .trim()
