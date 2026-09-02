@@ -2,6 +2,8 @@ import React, { createContext, useContext, useReducer, useState, useCallback, us
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
 import { addonsUnitTotal, addonsSignature } from '../lib/product-kind'
+import { garmentTierUpcharge } from '../lib/garment-tiers'
+import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 
 interface CartState {
   items: CartItem[]
@@ -37,9 +39,9 @@ function loadCartFromStorage(): CartState {
     if (!raw) return { items: [], total: 0 }
     const parsed = JSON.parse(raw) as { items?: CartItem[] }
     const items = Array.isArray(parsed.items) ? parsed.items : []
-    // Recompute total — pricing rules (3-for-$25 deal, plus-size upcharge)
-    // can change between sessions, and we never want a stored total to
-    // disagree with the current calculator.
+    // Recompute total — pricing rules (the BUNDLE_DEAL bundle, plus-size
+    // upcharge) can change between sessions, and we never want a stored
+    // total to disagree with the current calculator.
     return { items, total: calculateTotal(items) }
   } catch {
     return { items: [], total: 0 }
@@ -109,7 +111,7 @@ function loadCouponFromStorage(): AppliedCoupon | null {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -130,7 +132,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation'] } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation']; selectedTier?: string } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -147,13 +149,11 @@ const isPlusSize = (size?: string): boolean => {
 }
 
 const calculateTotal = (items: CartItem[]): number => {
-  // Separate eligible and non-eligible items
-  const eligibleItems = items.filter(item =>
-    item.product.isThreeForTwentyFive || item.product.metadata?.isThreeForTwentyFive
-  )
-  const nonEligibleItems = items.filter(item =>
-    !item.product.isThreeForTwentyFive && !item.product.metadata?.isThreeForTwentyFive
-  )
+  // Separate eligible and non-eligible items — see backend/shared/promos.ts
+  // isBundleEligible, the single source of truth for this rule (also read
+  // server-side by backend/services/order-pricing.ts).
+  const eligibleItems = items.filter(item => isBundleEligible(item.product))
+  const nonEligibleItems = items.filter(item => !isBundleEligible(item.product))
 
   // Calculate plus size upcharge for non-eligible items
   const nonEligiblePlusSizeUpcharge = nonEligibleItems.reduce((sum, item) => {
@@ -166,16 +166,17 @@ const calculateTotal = (items: CartItem[]): number => {
   // Calculate total for non-eligible items (base price + plus size upcharge)
   const nonEligibleTotal = nonEligibleItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0) + nonEligiblePlusSizeUpcharge
 
-  // Calculate total for eligible items (3 for $25 deal)
+  // Calculate total for eligible items (BUNDLE_DEAL — "2 for $25", David
+  // 2026-09-02, was "3 for $25"). bundleTotalCents pools eligible quantity
+  // across every eligible line: every complete group of BUNDLE_DEAL.qty
+  // costs BUNDLE_DEAL.priceCents; a leftover unit (not enough for another
+  // full group) is charged at BUNDLE_DEAL.priceCents too — eligible items'
+  // own listed price is never consulted, mirroring the original assumption
+  // here that the deal's own $25 IS the per-unit price.
   const totalEligibleQty = eligibleItems.reduce((sum, item) => sum + item.quantity, 0)
+  const eligibleTotal = bundleTotalCents(totalEligibleQty, BUNDLE_DEAL.priceCents) / 100
 
-  const numSetsOfThree = Math.floor(totalEligibleQty / 3)
-  const remainder = totalEligibleQty % 3
-
-  // 3 items for $25. Remainder items at $25 each (assuming eligible items are priced at $25)
-  const eligibleTotal = (numSetsOfThree * 25) + (remainder * 25)
-
-  // Add plus size upcharge to eligible items as well (even in the 3 for $25 deal)
+  // Add plus size upcharge to eligible items as well (even in the bundle deal)
   const eligiblePlusSizeUpcharge = eligibleItems.reduce((sum, item) => {
     if (isPlusSize(item.selectedSize)) {
       return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
@@ -187,13 +188,17 @@ const calculateTotal = (items: CartItem[]): number => {
   // unit and apply to every item regardless of the 3-for-$25 deal.
   const addonsTotal = items.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
 
-  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal
+  // Garment quality tier upcharge (Gildan classic vs Softstyle / Bella+Canvas /
+  // Comfort Colors). Per unit; mirrors GARMENT_TIER_UPCHARGE_CENTS server-side.
+  const tierTotal = items.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
+
+  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal + tierTotal
 }
 
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
@@ -201,6 +206,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
         item.selectedColor === selectedColor &&
         item.paymentMethod === paymentMethod &&
         item.printLocation === printLocation &&
+        item.selectedTier === selectedTier &&
         addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons)
       )
 
@@ -219,6 +225,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           selectedSize,
           selectedColor,
           printLocation,
+          selectedTier,
           selectedAddons,
           customDesign,
           designData,
@@ -304,8 +311,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [appliedCoupon])
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation']) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier } })
   }
 
   const removeFromCart = (itemId: string) => {
@@ -339,6 +346,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       selectedSize: item.selectedSize || item.variations?.size,
       selectedColor: item.selectedColor || item.variations?.color,
       printLocation: item.printLocation || item.print_location || item.variations?.printLocation,
+      selectedTier: item.selectedTier || item.tier || undefined,
       customDesign: item.customDesign,
       designData: item.designData,
       paymentMethod: item.paymentMethod || 'usd'

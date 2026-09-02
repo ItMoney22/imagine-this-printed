@@ -983,10 +983,12 @@ Invoicing & Payments is the **most complex feature area** with three separate pa
   - **Fix applied:** Replaced hardcoded address with `WAREHOUSE_ADDRESS` constant already defined in the same file
 - 🟡 **Shippo API token not configured** — `VITE_SHIPPO_API_TOKEN` not set; system always falls back to mock responses. Shipping labels cannot be created. Not documented in ENV_VARIABLES.md.
   - File: `src/utils/shippo.ts:3`
+  - ✅ Resolved 2026-07-27 (Watchtower 1199ada7) — see the 2026-04-28 re-audit section.
 - 🟡 **Google Maps API key not configured** — `GOOGLE_MAPS_API_KEY` not set in backend; local delivery distance calculation falls back to hardcoded ZIP code list
   - File: `backend/routes/shipping.ts:46`
 - 🟡 **Shippo API token exposed in frontend** — `VITE_SHIPPO_API_TOKEN` would be visible in browser bundle if ever set. Should be moved to backend.
   - File: `src/utils/shippo.ts:3`
+  - ✅ Resolved 2026-07-27 (Watchtower 1199ada7) — see the 2026-04-28 re-audit section.
 - 🟢 **Shipping calculator gracefully falls back** — When Shippo API unavailable, provides hardcoded fallback rates with proper structure
 - 🟢 **Local delivery tier pricing works** — Two tiers (0-10mi: $10, 10-20mi: $15) with proper disabled state for out-of-range addresses
 - 🟢 **Free shipping threshold ($50) correctly implemented** — Returns single free shipping rate when qualified
@@ -2868,9 +2870,9 @@ The auth fix on `/checkout-payment-intent` is a real security improvement — an
 **What was checked:** Status of the 9 findings from 2026-03-13 + scan for new bugs in `MyOrders.tsx`, `Cart.tsx`, `Checkout.tsx`, `shipping-calculator.ts`, `shippo.ts`, `backend/routes/shipping.ts`. Cross-referenced with cycle #19 Order Management's "hardcoded supplemental shipping rates" reflag.
 
 ### Status of 2026-03-13 findings
-- 🔴 **STILL OPEN — `VITE_SHIPPO_API_TOKEN` not set** — `shippo.ts:3`. System still falls back to mock responses. Shipping labels can't actually be created.
+- ✅ **RESOLVED 2026-07-27 (Watchtower 1199ada7) — `VITE_SHIPPO_API_TOKEN` not set** — the variable is gone. Label purchase moved to `POST /api/orders/:orderId/shipping-label` on the server-only `SHIPPO_API_TOKEN`; `src/utils/shippo.ts` was deleted. Setting `SHIPPO_API_TOKEN` on the API host now enables real labels (and real rates) with no client change.
 - 🟢 **PARTIAL — Google Maps API key** — Backend `.env:71` has `GOOGLE_MAPS_API_KEY` set. Distance calc works when route is hit. The frontend correctly delegates to the backend `/api/shipping/calculate-distance` endpoint, so the key stays server-side.
-- 🔴 **STILL OPEN — Shippo API token in frontend** — `shippo.ts:3` still uses `VITE_*` prefix. If anyone ever sets it, it'll bake into the browser bundle. Shippo calls should move behind a backend route.
+- ✅ **RESOLVED 2026-07-27 (Watchtower 1199ada7) — Shippo API token in frontend** — `src/utils/shippo.ts` deleted; no `VITE_SHIPPO_*` reference remains in `src/`. Rates (`POST /api/shipping/rates`) and label purchase (`POST /api/orders/:orderId/shipping-label`) are both behind backend routes, and the label write uses the service-role client so it is not blocked by RLS. Documented in `docs/ENV_VARIABLES.md` > Shipping - Shippo, and re-adding a `VITE_` variant is called out as forbidden in `.env.example`.
 - 🟡 **STILL OPEN — Warehouse address duplicated** — `shipping-calculator.ts:26-31` (frontend) AND `backend/routes/shipping.ts:7-10` (backend). Same address strings, but a move requires editing both.
 - 🟡 **STILL OPEN — Delivery tiers duplicated** — `shipping-calculator.ts:35-38` and `backend/routes/shipping.ts:14-16`. Identical values, two sources of truth.
 - 🟡 **STILL OPEN — Order tracking is static text** — `MyOrders.tsx:413-420`. No carrier link, no live status polling.

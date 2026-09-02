@@ -10,6 +10,7 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import { productKindOf, defaultSizesFor, getGalleryImages } from '../lib/product-kind'
+import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
 
 // Customer-facing labels for products.print_locations values. Mirrors
@@ -257,10 +258,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         </div>
 
         {/* Promo Badge */}
-        {(product.isThreeForTwentyFive || product.metadata?.isThreeForTwentyFive) && (
+        {isBundleEligible(product) && (
           <div className="absolute top-2 left-2 z-10 mt-8">
             <span className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20 animate-pulse">
-              3 for $25!
+              {BUNDLE_DEAL.label}!
             </span>
           </div>
         )}

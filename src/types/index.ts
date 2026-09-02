@@ -65,6 +65,9 @@ export interface CartItem {
   // (product.print_locations). Required at add-to-cart time when the
   // product has >1 option; undefined for products with 0-1 (no choice to make).
   printLocation?: TshirtPrintLocation
+  /** Garment quality tier id (src/lib/garment-tiers.ts GARMENT_TIERS) —
+   *  printed apparel only. Undefined = standard blank, no upcharge. */
+  selectedTier?: string
   selectedAddons?: CartAddon[]
   paymentMethod?: 'usd' | 'itc'
   designData?: {

@@ -201,6 +201,17 @@ const PLAN = [
     }
   },
   {
+    id: 'print-materials',
+    file: 'supabase/migrations/20260819230000_print_materials.sql',
+    title: 'Create print_materials (filament spools + paint bottles inventory)',
+    why: 'Full-color toy prints need a filament inventory so each purchase tells the floor which ≤4 colors to load (AMS limit), and paint kits ship paints matched to the toy\'s palette. Code degrades gracefully until applied (plans are simply omitted).',
+    requires: [],
+    check: async (c) => {
+      const { rows } = await c.query(`SELECT to_regclass('public.print_materials') AS t`)
+      return { applied: !!rows[0]?.t, detail: rows[0]?.t ? 'table present' : 'table absent' }
+    }
+  },
+  {
     id: 'profiles-cut-anon',
     file: 'supabase/migrations/20260806_03_profiles_cut_anon.sql',
     title: 'Revoke anon read of user_profiles (closes PII leak) — APPLY ONLY AFTER repointed frontend is live',

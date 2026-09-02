@@ -58,16 +58,26 @@ export function Model3DViewer({
     if (showControls) modelViewer.setAttribute('camera-controls', '')
     modelViewer.setAttribute('shadow-intensity', '1')
     modelViewer.setAttribute('exposure', '1')
-    modelViewer.setAttribute('environment-image', 'neutral')
+    // NOTE: no environment-image attribute. model-viewer v4 removed the
+    // 'neutral' keyword (neutral IS the default now); the old attribute made
+    // v4 try to fetch a file literally named "neutral" on every mount.
     modelViewer.setAttribute('loading', 'eager')
     modelViewer.setAttribute('reveal', 'auto')
     modelViewer.style.width = '100%'
     modelViewer.style.height = '100%'
     modelViewer.style.minHeight = '300px'
 
-    // Listen for load event
     modelViewer.addEventListener('load', () => setIsLoading(false))
-    modelViewer.addEventListener('error', () => setIsLoading(false))
+    // A GLB that fails to fetch (expired signed URL, CORS on non-prod
+    // origins, network) used to strand the user on a solid black panel —
+    // "my 3D model came out just black" (David, 2026-08-19). Fall back to
+    // the concept/angle image carousel instead so there is always something
+    // real to look at.
+    modelViewer.addEventListener('error', () => {
+      setIsLoading(false)
+      console.warn('[Model3DViewer] GLB failed to load, falling back to images:', glbUrl.slice(0, 100))
+      setLoadFailed(true)
+    })
 
     containerRef.current.appendChild(modelViewer)
 

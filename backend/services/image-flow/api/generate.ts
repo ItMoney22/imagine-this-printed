@@ -3,9 +3,10 @@
 
 import { supabase } from '../../../lib/supabase.js'
 import { runReplicate } from '../providers/replicate.js'
+import { runOpenAIImage } from '../providers/openai-image.js'
 import { route, type RouteInput } from '../router.js'
 import { generateKey, uploadFromUrl } from '../storage.js'
-import { type Purpose } from '../models.js'
+import { type Purpose, type Provider } from '../models.js'
 import { enhancePrompt } from '../prompt-enhancer.js'
 import { buildInput } from '../input-builder.js'
 
@@ -36,7 +37,7 @@ export type GenerateResponse =
       path: string
       costUsd: number
       modelId: string
-      provider: 'replicate' | 'fal'
+      provider: Provider
       routingReason: string
       enhancedPrompt?: string
       enhancerCostUsd?: number
@@ -45,7 +46,7 @@ export type GenerateResponse =
       status: 'needs_confirmation'
       estimatedCostUsd: number
       modelId: string
-      provider: 'replicate' | 'fal'
+      provider: Provider
       reason: string
     }
 
@@ -81,13 +82,24 @@ export async function generate(req: GenerateRequest): Promise<GenerateResponse> 
     finalPrompt = enhancerResult.enhanced
   }
 
-  const input = buildInput(routed.model, {
-    prompt: finalPrompt,
-    extra: req.extra,
-  })
-
-  const r = await runReplicate({ modelId: routed.model.id, input })
-  const imageUrl = r.imageUrls[0]
+  let imageUrl: string
+  if (routed.model.provider === 'openai') {
+    // OpenAI-direct (gpt-image-2) — no Replicate markup/queue (David 2026-08-20).
+    const q = String(req.extra?.quality ?? 'high')
+    const r = await runOpenAIImage({
+      prompt: finalPrompt,
+      quality: ['low', 'medium', 'high', 'auto'].includes(q) ? (q as 'low' | 'medium' | 'high' | 'auto') : 'high',
+      size: req.extra?.aspect_ratio === '3:2' ? '1536x1024' : req.extra?.aspect_ratio === '2:3' ? '1024x1536' : '1024x1024',
+    })
+    imageUrl = r.url
+  } else {
+    const input = buildInput(routed.model, {
+      prompt: finalPrompt,
+      extra: req.extra,
+    })
+    const r = await runReplicate({ modelId: routed.model.id, input })
+    imageUrl = r.imageUrls[0]
+  }
 
   const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'
   const safeExt = ['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext) ? ext : 'png'

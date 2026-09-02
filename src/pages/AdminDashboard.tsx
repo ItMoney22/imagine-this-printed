@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import api, { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
+import { BUNDLE_DEAL } from '../../backend/shared/promos'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
@@ -14,8 +15,10 @@ import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/Adm
 import AdminImaginationProducts from './admin/ImaginationProducts'
 import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminInventoryManagement from '../components/AdminInventoryManagement'
+import AdminPrintMaterials from '../components/AdminPrintMaterials'
 import AdminOpsMonitor from '../components/AdminOpsMonitor'
 import AdminEtsyPanel from '../components/AdminEtsyPanel'
+import AdminMrsImagine from '../components/AdminMrsImagine'
 import AdminSocialOutbox from '../components/AdminSocialOutbox'
 import AdminDesignLibrary from '../components/AdminDesignLibrary'
 import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
@@ -26,6 +29,7 @@ import { PromoPricingModal } from '../components/PromoPricingModal'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 import AdminVirtualTryOnReport from '../components/AdminVirtualTryOnReport'
+import AdminProductEditModal from '../components/admin/AdminProductEditModal'
 
 // T-shirt print placements offered on a product → products.print_locations.
 // Mirrors the same list in the AI wizard (AdminCreateProductWizard.tsx) and the
@@ -73,12 +77,46 @@ type VendorSubmission = VendorProduct & {
   vendorEmail?: string
 }
 
+// Products-table thumbnail. Bug fix (2026-09-01): the table used to read
+// `productAssets[product.id].url` directly, but `productAssets` also got
+// overwritten with a *grouped-by-kind* shape (`{ source:[], nobg:[], ... }`)
+// by loadProductJobs/handleDeleteImage whenever a row was expanded or
+// edited — `.url` on that shape is undefined, so the <img> silently painted
+// its alt text instead of the thumbnail. That grouped shape now lives in its
+// own `productAssetGroups` state; `productAssets` stays flat and is only
+// ever `{ url, path }`. This component adds a defensive `onError` fallback
+// chain (source asset → product.images in order → placeholder icon) so a
+// single broken/expired URL can't blank the thumbnail either.
+const ProductRowThumbnail: React.FC<{ candidates: string[]; alt: string }> = ({ candidates, alt }) => {
+  const [idx, setIdx] = useState(0)
+  const key = candidates.join('|')
+  useEffect(() => { setIdx(0) }, [key])
+  const src = candidates[idx]
+  if (!src) {
+    return (
+      <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+        <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="w-10 h-10 object-cover rounded-lg border border-slate-200"
+      onError={() => setIdx(i => i + 1)}
+    />
+  )
+}
+
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
+  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorSubmission[]>([])
   // Users-tab filters: 180+ accounts render in one table, so finding the person
@@ -137,7 +175,14 @@ const AdminDashboard: React.FC = () => {
   }, [products, productCollectionFilter, productStatusFilter, productSearch])
   const pagedProducts = filteredProducts.slice(productPage * PRODUCTS_PAGE_SIZE, (productPage + 1) * PRODUCTS_PAGE_SIZE)
   useEffect(() => { setProductPage(0) }, [productCollectionFilter, productStatusFilter, productSearch])
+  // Flat `{ productId: { url, path } }` — the ONE source asset per product,
+  // written only by loadProducts(). Feeds the products-table thumbnail.
   const [productAssets, setProductAssets] = useState<Record<string, any>>({})
+  // Grouped-by-kind `{ productId: { source: [...], nobg: [...], mockup: [...], upscaled: [...] } }`
+  // — written by loadProductJobs()/handleDeleteImage() and read by the enhanced
+  // edit modal's Images tab. Kept separate from `productAssets` above; see the
+  // ProductRowThumbnail comment for why the two shapes used to collide.
+  const [productAssetGroups, setProductAssetGroups] = useState<Record<string, Record<string, any[]>>>({})
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
   const [productJobs, setProductJobs] = useState<Record<string, any[]>>({})
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
@@ -221,8 +266,9 @@ const AdminDashboard: React.FC = () => {
   const [customColorHex, setCustomColorHex] = useState('#')
   const [dragActive, setDragActive] = useState(false)
 
-  // Edit modal states
-  const [editCustomColorHex, setEditCustomColorHex] = useState('#')
+  // Edit modal state. (Size/color toggle handlers used to live here too —
+  // they now live inside AdminProductEditModal, which drives them through the
+  // onSave contract below instead of reaching back into this component.)
   const [generatingGptText, setGeneratingGptText] = useState(false)
 
   // Category-specific size options
@@ -274,39 +320,6 @@ const AdminDashboard: React.FC = () => {
     if (customColorHex.match(/^#[0-9A-Fa-f]{6}$/) && !productForm.colors.includes(customColorHex)) {
       setProductForm(prev => ({ ...prev, colors: [...prev.colors, customColorHex] }))
       setCustomColorHex('#')
-    }
-  }
-
-  // Edit modal: Toggle size
-  const toggleEditSize = (size: string) => {
-    if (!editingProductData) return
-    const currentSizes = editingProductData.sizes || []
-    const newSizes = currentSizes.includes(size)
-      ? currentSizes.filter((s: string) => s !== size)
-      : [...currentSizes, size]
-    setEditingProductData({ ...editingProductData, sizes: newSizes })
-    handleUpdateProductField('sizes', newSizes)
-  }
-
-  // Edit modal: Toggle color
-  const toggleEditColor = (hex: string) => {
-    if (!editingProductData) return
-    const currentColors = editingProductData.colors || []
-    const newColors = currentColors.includes(hex)
-      ? currentColors.filter((c: string) => c !== hex)
-      : [...currentColors, hex]
-    setEditingProductData({ ...editingProductData, colors: newColors })
-    handleUpdateProductField('colors', newColors)
-  }
-
-  // Edit modal: Add custom color
-  const addEditCustomColor = () => {
-    if (!editingProductData) return
-    if (editCustomColorHex.match(/^#[0-9A-Fa-f]{6}$/) && !(editingProductData.colors || []).includes(editCustomColorHex)) {
-      const newColors = [...(editingProductData.colors || []), editCustomColorHex]
-      setEditingProductData({ ...editingProductData, colors: newColors })
-      handleUpdateProductField('colors', newColors)
-      setEditCustomColorHex('#')
     }
   }
 
@@ -1141,7 +1154,7 @@ const AdminDashboard: React.FC = () => {
           assetsByKind[asset.kind].push(asset)
         })
 
-        setProductAssets(prev => ({
+        setProductAssetGroups(prev => ({
           ...prev,
           [productId]: assetsByKind
         }))
@@ -1386,6 +1399,16 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  // AdminProductEditModal's onSave: applies the optimistic `localPatch` to
+  // editingProductData immediately (so a controlled input doesn't lag behind
+  // the network round-trip), then persists `persistField`/`persistValue` via
+  // handleUpdateProductField above — mirrors what every field's inline
+  // onChange used to do by hand before the modal was extracted.
+  const handleEditModalSave = (localPatch: Record<string, any>, persistField: string, persistValue: any) => {
+    setEditingProductData((prev: any) => (prev ? { ...prev, ...localPatch } : prev))
+    handleUpdateProductField(persistField, persistValue)
+  }
+
   const handleDeleteImage = async (productId: string, assetId: string, imageUrl: string) => {
     if (!confirm('Are you sure you want to delete this image? This action cannot be undone.')) {
       return
@@ -1441,7 +1464,7 @@ const AdminDashboard: React.FC = () => {
         }
       })
 
-      setProductAssets(prev => ({
+      setProductAssetGroups(prev => ({
         ...prev,
         [productId]: groupedAssets
       }))
@@ -2076,7 +2099,7 @@ const AdminDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
           <nav className="flex flex-wrap gap-2">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'tryon', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
+            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'materials', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'tryon', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -2088,7 +2111,7 @@ const AdminDashboard: React.FC = () => {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
                   }`}
               >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'tryon' ? 'Virtual Try-On' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'tryon' ? 'Virtual Try-On' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab === 'materials' ? 'Filament & Paint' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </nav>
@@ -2098,6 +2121,7 @@ const AdminDashboard: React.FC = () => {
         {selectedTab === 'overview' && (
           <div className="space-y-6">
             <AdminOpsMonitor />
+            <AdminMrsImagine />
             <AdminEtsyPanel />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
@@ -2584,36 +2608,21 @@ const AdminDashboard: React.FC = () => {
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="flex items-center space-x-3">
-                                {sourceAsset ? (
-                                  <>
-                                    <img
-                                      src={sourceAsset.url}
-                                      alt={product.name}
-                                      className="w-10 h-10 object-cover rounded-lg border border-slate-200"
-                                    />
-                                    <a
-                                      href={sourceAsset.url}
-                                      download
-                                      className="text-purple-600 hover:text-purple-700 font-medium text-sm"
-                                      title="Download source image"
-                                    >
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                      </svg>
-                                    </a>
-                                  </>
-                                ) : product.images.length > 0 ? (
-                                  <img
-                                    src={product.images[0]}
-                                    alt={product.name}
-                                    className="w-10 h-10 object-cover rounded-lg border border-slate-200"
-                                  />
-                                ) : (
-                                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-                                    <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                <ProductRowThumbnail
+                                  candidates={[sourceAsset?.url, ...(product.images || [])].filter(Boolean) as string[]}
+                                  alt={product.name}
+                                />
+                                {sourceAsset?.url && (
+                                  <a
+                                    href={sourceAsset.url}
+                                    download
+                                    className="text-purple-600 hover:text-purple-700 font-medium text-sm"
+                                    title="Download source image"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                     </svg>
-                                  </div>
+                                  </a>
                                 )}
                               </div>
                             </td>
@@ -2649,7 +2658,7 @@ const AdminDashboard: React.FC = () => {
                                   onChange={() => togglePromo(product)}
                                   className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
                                 />
-                                <span className="text-xs text-slate-600">3 for $25</span>
+                                <span className="text-xs text-slate-600">{BUNDLE_DEAL.label}</span>
                               </label>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
@@ -3158,6 +3167,13 @@ const AdminDashboard: React.FC = () => {
         {
           selectedTab === 'inventory' && (
             <AdminInventoryManagement />
+          )
+        }
+
+        {/* Materials Tab - filament spools + paint bottles (AMS color matching) */}
+        {
+          selectedTab === 'materials' && (
+            <AdminPrintMaterials />
           )
         }
 
@@ -3817,561 +3833,26 @@ const AdminDashboard: React.FC = () => {
         }
 
         {/* Enhanced Product Edit Modal */}
-        {
-          showEnhancedEditModal && editingProductData && (
-            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-slate-200">
-                <div className="sticky top-0 bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center z-10 rounded-t-2xl">
-                  <h3 className="text-lg font-display font-bold text-slate-900">
-                    Edit Product: {editingProductData.name}
-                  </h3>
-                  <button
-                    onClick={() => setShowEnhancedEditModal(false)}
-                    className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-100 rounded-lg"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="p-6 space-y-6">
-                  {/* Image Gallery */}
-                  {productAssets[editingProductData.id] && (
-                    <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                      <h4 className="font-semibold text-slate-900 mb-3">Product Images</h4>
-                      <div className="space-y-4">
-                        {/* Source Images */}
-                        {productAssets[editingProductData.id].source && (
-                          <div>
-                            <h5 className="text-sm font-medium text-slate-600 mb-2">Source Images</h5>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                              {productAssets[editingProductData.id].source.map((asset: any, idx: number) => {
-                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                                return (
-                                  <div key={asset.id || idx} className="relative group">
-                                    <img
-                                      src={asset.url}
-                                      alt={`Source ${idx + 1}`}
-                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-purple-200"
-                                    />
-                                    {isMainImage && (
-                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                        ⭐ Main
-                                      </div>
-                                    )}
-                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      {!isMainImage && (
-                                        <button
-                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                          title="Set as main image"
-                                        >
-                                          ⭐
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Delete image"
-                                      >
-                                        🗑️
-                                      </button>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* No Background Images */}
-                        {productAssets[editingProductData.id].nobg && (
-                          <div>
-                            <h5 className="text-sm font-medium text-slate-600 mb-2">Background Removed</h5>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                              {productAssets[editingProductData.id].nobg.map((asset: any, idx: number) => {
-                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                                return (
-                                  <div key={asset.id || idx} className="relative group">
-                                    <img
-                                      src={asset.url}
-                                      alt={`No Background ${idx + 1}`}
-                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-blue-200 bg-gray-100"
-                                    />
-                                    {isMainImage && (
-                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                        ⭐ Main
-                                      </div>
-                                    )}
-                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      {!isMainImage && (
-                                        <button
-                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                          title="Set as main image"
-                                        >
-                                          ⭐
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Delete image"
-                                      >
-                                        🗑️
-                                      </button>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Upscaled Images */}
-                        {productAssets[editingProductData.id].upscaled && (
-                          <div>
-                            <h5 className="text-sm font-medium text-slate-600 mb-2">Upscaled Images</h5>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                              {productAssets[editingProductData.id].upscaled.map((asset: any, idx: number) => {
-                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                                return (
-                                  <div key={asset.id || idx} className="relative group">
-                                    <img
-                                      src={asset.url}
-                                      alt={`Upscaled ${idx + 1}`}
-                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-green-200"
-                                    />
-                                    {isMainImage && (
-                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                        ⭐ Main
-                                      </div>
-                                    )}
-                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      {!isMainImage && (
-                                        <button
-                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                          title="Set as main image"
-                                        >
-                                          ⭐
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Delete image"
-                                      >
-                                        🗑️
-                                      </button>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Mockup Images */}
-                        {productAssets[editingProductData.id].mockup && (
-                          <div>
-                            <h5 className="text-sm font-medium text-slate-600 mb-2">Mockups</h5>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                              {productAssets[editingProductData.id].mockup.map((asset: any, idx: number) => {
-                                const isMainImage = editingProductData.images && editingProductData.images[0] === asset.url
-                                return (
-                                  <div key={asset.id || idx} className="relative group">
-                                    <img
-                                      src={asset.url}
-                                      alt={`Mockup ${idx + 1}`}
-                                      className="w-full h-40 object-cover rounded-lg shadow-md border-2 border-indigo-200"
-                                    />
-                                    {isMainImage && (
-                                      <div className="absolute top-2 left-2 bg-yellow-400 text-black text-xs font-bold px-2 py-1 rounded shadow">
-                                        ⭐ Main
-                                      </div>
-                                    )}
-                                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      {!isMainImage && (
-                                        <button
-                                          onClick={() => handleSetMainImage(editingProductData.id, asset.url)}
-                                          className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded shadow"
-                                          title="Set as main image"
-                                        >
-                                          ⭐
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => handleDeleteImage(editingProductData.id, asset.id, asset.url)}
-                                        className="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded shadow"
-                                        title="Delete image"
-                                      >
-                                        🗑️
-                                      </button>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Advanced AI Operations */}
-                  <div className="border border-slate-200 rounded-xl p-4 bg-gradient-to-r from-purple-50 to-blue-50">
-                    <h4 className="font-semibold text-slate-900 mb-3">Advanced Image Operations</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <button
-                        onClick={() => handleRegenerateImages(editingProductData.id)}
-                        disabled={loadingAction === `regenerate-${editingProductData.id}`}
-                        className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                      >
-                        {loadingAction === `regenerate-${editingProductData.id}` ? '⏳ Creating...' : '🔄 Regenerate Image'}
-                      </button>
-                      <button
-                        onClick={() => handleRemoveBackground(editingProductData.id)}
-                        disabled={loadingAction === `rembg-${editingProductData.id}`}
-                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                      >
-                        {loadingAction === `rembg-${editingProductData.id}` ? '⏳ Creating...' : '✂️ Remove Background'}
-                      </button>
-                      <button
-                        onClick={() => handleUpscaleImage(editingProductData.id)}
-                        disabled={loadingAction === `upscale-${editingProductData.id}`}
-                        className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                      >
-                        {loadingAction === `upscale-${editingProductData.id}` ? '⏳ Creating...' : '⬆️ Upscale Image'}
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => handleCreateMockups(editingProductData.id)}
-                      disabled={loadingAction === `mockups-${editingProductData.id}` || mockupProgress[editingProductData.id]?.polling}
-                      className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white text-sm py-3 px-4 rounded-lg transition-colors font-medium"
-                    >
-                      {loadingAction === `mockups-${editingProductData.id}`
-                        ? '⏳ Creating...'
-                        : mockupProgress[editingProductData.id]?.polling
-                        ? `🎨 Generating ${mockupProgress[editingProductData.id].succeeded + mockupProgress[editingProductData.id].failed}/${mockupProgress[editingProductData.id].total}…`
-                        : '🎨 Create Mockups'}
-                    </button>
-                    {/* Mockup-generation progress for the product editor. */}
-                    {mockupProgress[editingProductData.id] && (
-                      <MockupProgressPanel progress={mockupProgress[editingProductData.id]} />
-                    )}
-                  </div>
-
-                  {/* Editable Fields */}
-                  <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-slate-900">Product Details</h4>
-                      <button
-                        onClick={handleGptAssist}
-                        disabled={generatingGptText}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-400 text-white text-sm font-medium rounded-lg shadow-md transition-all"
-                      >
-                        {generatingGptText ? (
-                          <>
-                            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                            Generating...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            GPT Assist
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Product Name</label>
-                        <input
-                          type="text"
-                          value={editingProductData.name}
-                          onChange={(e) => {
-                            setEditingProductData({ ...editingProductData, name: e.target.value })
-                            handleUpdateProductField('name', e.target.value)
-                          }}
-                          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
-                        <textarea
-                          rows={4}
-                          value={editingProductData.description}
-                          onChange={(e) => {
-                            setEditingProductData({ ...editingProductData, description: e.target.value })
-                            handleUpdateProductField('description', e.target.value)
-                          }}
-                          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">Price ($)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={editingProductData.price}
-                            onChange={(e) => {
-                              const newPrice = parseFloat(e.target.value)
-                              setEditingProductData({ ...editingProductData, price: newPrice })
-                              handleUpdateProductField('price', newPrice)
-                            }}
-                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">Category</label>
-                          <select
-                            value={editingProductData.category}
-                            onChange={(e) => {
-                              setEditingProductData({ ...editingProductData, category: e.target.value })
-                              handleUpdateProductField('category', e.target.value)
-                            }}
-                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                          >
-                            <option value="shirts">T-Shirts</option>
-                            <option value="hoodies">Hoodies</option>
-                            <option value="tumblers">Tumblers</option>
-                            <option value="dtf-transfers">DTF Transfers</option>
-                            <option value="3d-models">3D Models</option>
-                            <option value="metal-art">Metal Art</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
-                          <select
-                            value={editingProductData.status}
-                            onChange={(e) => {
-                              setEditingProductData({ ...editingProductData, status: e.target.value })
-                              handleUpdateProductField('status', e.target.value)
-                            }}
-                            className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                          >
-                            <option value="draft">Draft</option>
-                            <option value="active">Active (Published)</option>
-                          </select>
-                        </div>
-
-                        <div className="flex items-center space-x-2 pt-7">
-                          <input
-                            type="checkbox"
-                            id="inStockEdit"
-                            checked={editingProductData.inStock !== false}
-                            onChange={(e) => {
-                              setEditingProductData({ ...editingProductData, inStock: e.target.checked })
-                              handleUpdateProductField('is_active', e.target.checked)
-                            }}
-                            className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
-                          />
-                          <label htmlFor="inStockEdit" className="text-sm text-slate-700 font-medium">
-                            Active
-                          </label>
-                        </div>
-                      </div>
-
-                      {/* Size Variants - Category Specific */}
-                      {SIZE_OPTIONS[editingProductData.category]?.length > 0 && (
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                          <label className="block text-sm font-medium text-slate-700 mb-3">
-                            Available Sizes
-                          </label>
-                          <div className="flex flex-wrap gap-2">
-                            {SIZE_OPTIONS[editingProductData.category].map((size: string) => (
-                              <button
-                                key={size}
-                                type="button"
-                                onClick={() => toggleEditSize(size)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                                  (editingProductData.sizes || []).includes(size)
-                                    ? 'bg-purple-600 text-white shadow-md'
-                                    : 'bg-white text-slate-700 border border-slate-300 hover:border-purple-400'
-                                }`}
-                              >
-                                {size}
-                              </button>
-                            ))}
-                          </div>
-                          {(editingProductData.sizes || []).length > 0 && (
-                            <p className="text-xs text-slate-500 mt-2">
-                              Selected: {(editingProductData.sizes || []).join(', ')}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Color Variants — apparel only (metal art + 3D have no shirt colors) */}
-                      {editingProductData.category !== '3d-models' && editingProductData.category !== 'metal-art' && (
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                          <label className="block text-sm font-medium text-slate-700 mb-3">
-                            Available Colors
-                          </label>
-                          <div className="flex flex-wrap gap-2 mb-3">
-                            {COLOR_PRESETS.map((color) => (
-                              <button
-                                key={color.hex}
-                                type="button"
-                                onClick={() => toggleEditColor(color.hex)}
-                                className={`w-10 h-10 rounded-full border-2 transition-all flex items-center justify-center ${
-                                  (editingProductData.colors || []).includes(color.hex)
-                                    ? 'border-purple-600 ring-2 ring-purple-300 ring-offset-2'
-                                    : 'border-slate-300 hover:border-slate-400'
-                                }`}
-                                style={{ backgroundColor: color.hex }}
-                                title={color.name}
-                              >
-                                {(editingProductData.colors || []).includes(color.hex) && (
-                                  <svg className={`w-5 h-5 ${color.hex === '#FFFFFF' || color.hex === '#EAB308' ? 'text-slate-800' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                          {/* Custom color input */}
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={editCustomColorHex}
-                              onChange={(e) => setEditCustomColorHex(e.target.value)}
-                              placeholder="#000000"
-                              maxLength={7}
-                              className="w-24 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            />
-                            <input
-                              type="color"
-                              value={editCustomColorHex.length === 7 ? editCustomColorHex : '#000000'}
-                              onChange={(e) => setEditCustomColorHex(e.target.value)}
-                              className="w-8 h-8 rounded cursor-pointer"
-                            />
-                            <button
-                              type="button"
-                              onClick={addEditCustomColor}
-                              disabled={!editCustomColorHex.match(/^#[0-9A-Fa-f]{6}$/)}
-                              className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              Add Color
-                            </button>
-                          </div>
-                          {(editingProductData.colors || []).length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-3">
-                              {(editingProductData.colors || []).map((hex: string) => (
-                                <span
-                                  key={hex}
-                                  className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-full text-xs"
-                                >
-                                  <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: hex }} />
-                                  {hex}
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleEditColor(hex)}
-                                    className="text-slate-400 hover:text-red-500"
-                                  >
-                                    x
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* AI Metadata */}
-                  {editingProductData.metadata?.ai_generated && (
-                    <div className="border border-purple-200 rounded-xl p-4 bg-purple-50">
-                      <h4 className="font-semibold text-slate-900 mb-3">AI Metadata</h4>
-                      <div className="space-y-2 text-sm">
-                        {editingProductData.metadata.original_prompt && (
-                          <div>
-                            <span className="font-medium text-slate-600">Original Prompt:</span>
-                            <p className="text-slate-900 mt-1">{editingProductData.metadata.original_prompt}</p>
-                          </div>
-                        )}
-                        {editingProductData.metadata.image_prompt && (
-                          <div>
-                            <span className="font-medium text-slate-600">Image Prompt:</span>
-                            <p className="text-slate-900 mt-1">{editingProductData.metadata.image_prompt}</p>
-                          </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-2">
-                          {editingProductData.metadata.image_style && (
-                            <div>
-                              <span className="font-medium text-slate-600">Style:</span>
-                              <p className="text-slate-900 capitalize">{editingProductData.metadata.image_style}</p>
-                            </div>
-                          )}
-                          {editingProductData.metadata.background && (
-                            <div>
-                              <span className="font-medium text-slate-600">Background:</span>
-                              <p className="text-slate-900 capitalize">{editingProductData.metadata.background}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Processing Jobs */}
-                  <div className="border border-slate-200 rounded-xl p-4 bg-white">
-                    <h4 className="font-semibold text-slate-900 mb-3">Processing Jobs</h4>
-                    {(productJobs[editingProductData.id] || []).length === 0 ? (
-                      <p className="text-sm text-slate-500">No jobs found for this product.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {(productJobs[editingProductData.id] || []).map((job: any) => (
-                          <div key={job.id} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-100">
-                            <div>
-                              <span className="text-sm font-medium text-slate-900 capitalize">
-                                {job.type.replace('replicate_', '').replace('_', ' ')}
-                              </span>
-                              <span className={`ml-2 px-2 py-1 text-xs font-semibold rounded-full ${job.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700' :
-                                job.status === 'running' ? 'bg-blue-100 text-blue-700' :
-                                  job.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                    'bg-amber-100 text-amber-700'
-                                }`}>
-                                {job.status}
-                              </span>
-                            </div>
-                            <span className="text-xs text-slate-500">
-                              {new Date(job.created_at).toLocaleString()}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="sticky bottom-0 bg-white px-6 py-4 border-t border-slate-200 flex justify-end rounded-b-2xl">
-                  <button
-                    onClick={() => setShowEnhancedEditModal(false)}
-                    className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-medium rounded-xl shadow-lg shadow-purple-500/25 transition-all"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        }
+        {showEnhancedEditModal && editingProductData && (
+          <AdminProductEditModal
+            product={editingProductData}
+            assetGroups={productAssetGroups[editingProductData.id] || {}}
+            jobs={productJobs[editingProductData.id] || []}
+            sizeOptions={SIZE_OPTIONS[editingProductData.category] || []}
+            loadingAction={loadingAction}
+            generatingGptText={generatingGptText}
+            mockupProgress={mockupProgress[editingProductData.id]}
+            onClose={() => setShowEnhancedEditModal(false)}
+            onSave={handleEditModalSave}
+            onSetMain={(url) => handleSetMainImage(editingProductData.id, url)}
+            onDeleteImage={(assetId, url) => handleDeleteImage(editingProductData.id, assetId, url)}
+            onRegenerate={() => handleRegenerateImages(editingProductData.id)}
+            onRemoveBackground={() => handleRemoveBackground(editingProductData.id)}
+            onUpscale={() => handleUpscaleImage(editingProductData.id)}
+            onCreateMockups={() => handleCreateMockups(editingProductData.id)}
+            onGptAssist={handleGptAssist}
+          />
+        )}
 
         {/* Role change confirmation — privileged roles only */}
         {roleChange && (

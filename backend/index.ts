@@ -42,11 +42,13 @@ import imaginationStationRouter from './routes/imagination-station.js'
 import adminCouponsRouter from './routes/admin/coupons.js'
 import adminGiftCardsRouter from './routes/admin/gift-cards.js'
 import adminInventoryRouter from './routes/admin/inventory.js'
+import adminPrintMaterialsRouter from './routes/admin/print-materials.js'
 import adminDesignLibraryRouter from './routes/admin/design-library.js'
 import adminDesignQaRouter from './routes/admin/design-qa.js'
 import adminMonitorRouter from './routes/admin/monitor.js'
 import adminEtsyRouter from './routes/admin/etsy.js'
 import adminTrendScoutRouter from './routes/admin/trend-scout.js'
+import adminMrsImagineRouter from './routes/admin/mrs-imagine.js'
 import mediaRouter from './routes/media.js'
 import seoRouter from './routes/seo.js'
 import socialOutboxRouter from './routes/social-outbox.js'
@@ -280,11 +282,13 @@ app.use('/api/imagination-station', imaginationStationRouter)
 app.use('/api/admin/coupons', adminCouponsRouter)
 app.use('/api/admin/gift-cards', adminGiftCardsRouter)
 app.use('/api/admin/inventory', adminInventoryRouter) // blank-shirt inventory + low-stock alerts
+app.use('/api/admin/print-materials', adminPrintMaterialsRouter) // filament spools + paint bottles (AMS color matching)
 app.use('/api/admin/design-library', adminDesignLibraryRouter) // imported design bundle: collections + bulk activate
 app.use('/api/admin/design-qa', adminDesignQaRouter) // presentation QA gate: submit/resubmit, rework queue, audit trail
 app.use('/api/admin/monitor', adminMonitorRouter) // ops monitor: worker heartbeat, stalled orders, health pulse
 app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth connect + product posting (draft-first)
 app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task
+app.use('/api/admin/mrs-imagine', adminMrsImagineRouter) // Mrs. Imagine: realtime Etsy research -> designs -> QA -> Etsy drafts
 app.use('/api/media', mediaRouter) // permanent asset URLs — signs private GCS objects per request so stored URLs never expire
 app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
 app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)

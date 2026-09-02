@@ -4,14 +4,13 @@
 //
 // Price constants are exported so admin catalog items can reference them
 // when building their own metal-art product entries. Prices are a deliberate
-// website-vs-Etsy anchor gap (see backend/services/etsy.ts:331) â€” do not
-// change these. Panel geometry comes from shared/metal-art.ts, the one place
-// both the storefront and the Etsy lane now read it from.
+// website-vs-Etsy anchor gap (see backend/services/etsy.ts:331) â€” the two are
+// allowed to diverge on purpose. Sourced from shared/metal-art.ts (the same
+// module both the storefront and the Etsy lane read panel geometry from) so
+// this file and the server-side pricing engine can never drift apart again â€”
+// David 2026-09-02: $8.95 / $16.95 (was $14.99 / $29.99).
 // eslint-disable-next-line react-refresh/only-export-components
-export const METAL_ART_PRICES: Record<string, number> = {
-  '4x6': 14.99,
-  '8x10': 29.99, // David 2026-07-28: real panel is 8x10 (8x11 was a canvas-era mistake)
-}
+export const METAL_ART_PRICES: Record<string, number> = METAL_ART_PRICES_SHARED
 
 // Physical dimensions (portrait orientation) in pixels at ~72 dpi equivalent.
 // STUDIO_SIZE_KEYS in shared/metal-art.ts is the list actually offered here â€”
@@ -58,7 +57,12 @@ import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import type { Product } from '../types'
-import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY } from '../../backend/shared/metal-art'
+import {
+  METAL_ART_SIZES,
+  METAL_ART_SUBSTRATE,
+  METAL_ART_MOUNTING_COPY,
+  METAL_ART_PRICES as METAL_ART_PRICES_SHARED,
+} from '../../backend/shared/metal-art'
 
 // ---------------------------------------------------------------------------
 // Types

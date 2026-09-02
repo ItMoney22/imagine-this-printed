@@ -85,19 +85,22 @@ describe('defaultSizesFor', () => {
 })
 
 describe('metal-art add-on catalog', () => {
-  it('holds the four add-ons at their published prices', () => {
+  it('holds all six add-ons at their published prices (imported from backend/shared/metal-art.ts)', () => {
     expect(METAL_ADDONS.map(a => [a.id, a.price])).toEqual([
       ['easel_stand', 7],
       ['standoff_mount', 10],
       ['hanging_kit', 5],
-      ['gift_box', 5]
+      ['gift_box', 5],
+      ['magnet_mount', 4.95],
+      ['printed_stand', 6.95]
     ])
   })
 
-  it('marks only the physical mounts as printed in-house', () => {
+  it('marks only the physical/printed mounts as printed in-house', () => {
     expect(METAL_ADDONS.filter(a => a.printed).map(a => a.id))
-      .toEqual(['easel_stand', 'standoff_mount', 'hanging_kit'])
+      .toEqual(['easel_stand', 'standoff_mount', 'hanging_kit', 'printed_stand'])
     expect(getAddonById('gift_box')!.printed).toBe(false)
+    expect(getAddonById('magnet_mount')!.printed).toBe(false)
   })
 
   it('returns null for an unknown add-on id instead of undefined', () => {

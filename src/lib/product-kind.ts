@@ -8,22 +8,45 @@
 // the category column) have a null category but carry product_template
 // 'metal-art' in metadata — without the fallback they'd render as t-shirts.
 import type { Product, CartAddon } from '../types'
-import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
+import { STUDIO_SIZE_KEYS, METAL_ADDONS as METAL_ADDONS_SHARED } from '../../backend/shared/metal-art'
 
 export type ProductKind = 'metal' | '3d' | 'apparel'
 
-// Catalog of metal-art add-ons. `printed` = produced in-house on our 3D printer.
-// Keep the ids in sync with backend approval (METAL_ADDONS in
-// AdminCreatorProductsTab.tsx + the approve route metadata).
-export const METAL_ADDONS: { id: string; name: string; price: number; printed: boolean; blurb: string }[] = [
-  { id: 'easel_stand',    name: 'Tabletop easel stand',        price: 7,  printed: true,  blurb: 'Stand it on a desk or shelf — 3D-printed to fit your print.' },
-  { id: 'standoff_mount', name: 'Floating standoff wall mount', price: 10, printed: true,  blurb: 'Modern floating look, sits off the wall. Hardware included.' },
-  { id: 'hanging_kit',    name: 'Sawtooth hanging kit',         price: 5,  printed: true,  blurb: 'Classic flush wall hanging — ready in seconds.' },
-  { id: 'gift_box',       name: 'Gift packaging',               price: 5,  printed: false, blurb: 'Arrives gift-boxed and ready to give.' },
+// Catalog of metal-art add-ons. `printed` = produced in-house on our 3D
+// printer. Prices/labels/blurbs now come from backend/shared/metal-art.ts —
+// the single source of truth also read by order-pricing.ts server-side —
+// this just adapts that {id,label,cents,printed,blurb} shape into the
+// {id,name,price,printed,blurb} shape the storefront (ProductPage.tsx) has
+// always rendered, with price in DOLLARS (the shared module stores cents).
+// Order: easel_stand, standoff_mount, hanging_kit, gift_box, magnet_mount,
+// printed_stand (insertion order of the shared catalog).
+//
+// AdminCreatorProductsTab.tsx still carries its own separate duplicate list
+// for the approval UI (out of scope for this change) — keep its ids in sync
+// by hand until it's migrated to import from the shared module too.
+export const METAL_ADDONS: { id: string; name: string; price: number; printed: boolean; blurb: string }[] =
+  Object.values(METAL_ADDONS_SHARED).map(a => ({
+    id: a.id,
+    name: a.label,
+    price: a.cents / 100,
+    printed: a.printed,
+    blurb: a.blurb
+  }))
+
+// Catalog of 3D-toy add-ons (David 2026-08-19): every toy prints with hidden
+// magnets in both palms, so extra parts snap on — and the paint kit ships
+// paints matched to the toy's own ≤4-color palette (metadata.print3d.palette).
+// Keep ids + prices in sync with TOY_ADDONS_CENTS in
+// backend/services/order-pricing.ts (server-verified, unknown id = hard error).
+export const TOY_ADDONS: { id: string; name: string; price: number; printed: boolean; blurb: string }[] = [
+  { id: 'toy_paint_kit',     name: 'Matched paint kit',          price: 15,   printed: false, blurb: 'The exact paints for THIS toy\'s colors — a fun paint-at-home project for kids.' },
+  { id: 'toy_weapon_pack',   name: 'Snap-on weapon pack',        price: 6.99, printed: true,  blurb: '3 magnet-mount weapons that snap right into your figure\'s hands.' },
+  { id: 'toy_pet_companion', name: 'Pet companion',              price: 9.99, printed: true,  blurb: 'A mini magnet-base sidekick printed to match your figure.' },
+  { id: 'toy_magnet_pair',   name: 'Extra magnet pair',          price: 2.99, printed: false, blurb: 'Spare 5mm magnets for your own snap-on creations.' },
 ]
 
 export function getAddonById(id: string) {
-  return METAL_ADDONS.find(a => a.id === id) || null
+  return METAL_ADDONS.find(a => a.id === id) || TOY_ADDONS.find(a => a.id === id) || null
 }
 
 // Resolve the add-on ids stored on a product (metadata.addons) into the full
@@ -34,6 +57,13 @@ export function resolveProductAddons(product: Product): typeof METAL_ADDONS {
   return ids
     .map((id: string) => getAddonById(id))
     .filter((a): a is (typeof METAL_ADDONS)[number] => !!a)
+}
+
+// True when the product is a blank garment sold as-is (no print). Blanks are
+// seeded with metadata.garment = { blank: true, tier, brand, style_code } and
+// metadata.blank_style pinning them to blank_inventory for auto-decrement.
+export function isBlankProduct(product: Pick<Product, 'metadata'>): boolean {
+  return product?.metadata?.garment?.blank === true || product?.metadata?.blank_only === true
 }
 
 // Per-unit sum of selected add-on prices.

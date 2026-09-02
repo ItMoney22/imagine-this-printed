@@ -11,7 +11,15 @@
 import OpenAI, { toFile } from 'openai'
 import { uploadImageFromBase64 } from '../../google-cloud-storage.js'
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy: the OpenAI SDK throws at construction when the key is unset, and this
+// module is now in the import graph of worker-helpers (every worker/test that
+// never touches OpenAI). Only a call site that actually generates should need
+// the key.
+let _client: OpenAI | null = null
+function client(): OpenAI {
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _client
+}
 
 type Quality = 'low' | 'medium' | 'high' | 'auto'
 type Background = 'opaque' | 'transparent' | 'auto'
@@ -39,6 +47,13 @@ export interface OpenAIImageOpts {
   background?: Background
   size?: '1024x1024' | '1536x1024' | '1024x1536' | 'auto'
   quality?: Quality
+  /**
+   * OpenAI content filter strictness. The standard ('auto') filter
+   * false-positives on benign stylized design work (verified live 2026-08-20:
+   * it blocked an edit referencing our own mascot PNG). House pipelines pass
+   * 'low'; consumer-facing paths keep the default.
+   */
+  moderation?: 'auto' | 'low'
 }
 
 /** Text-to-image via OpenAI gpt-image-2 (falls back to gpt-image-1). */
@@ -50,15 +65,16 @@ export async function runOpenAIImage(opts: OpenAIImageOpts): Promise<{ url: stri
     quality: opts.quality || 'high',
     background: opts.background || 'opaque',
     output_format: 'png',
+    ...(opts.moderation ? { moderation: opts.moderation } : {}),
   }
   let usedModel = 'gpt-image-2'
   let res: any
   try {
-    res = await client.images.generate({ model: 'gpt-image-2', ...base } as any)
+    res = await client().images.generate({ model: 'gpt-image-2', ...base } as any)
   } catch (err: any) {
     if (!isModelMissing(err)) throw err
     usedModel = 'gpt-image-1'
-    res = await client.images.generate({ model: 'gpt-image-1', ...base } as any)
+    res = await client().images.generate({ model: 'gpt-image-1', ...base } as any)
   }
   const b64 = res.data?.[0]?.b64_json
   if (!b64) throw new Error(`${usedModel}: no image returned`)
@@ -78,6 +94,8 @@ export interface OpenAIEditOpts {
   background?: Background
   size?: '1024x1024' | '1536x1024' | '1024x1536' | 'auto'
   quality?: Quality
+  /** See OpenAIImageOpts.moderation. */
+  moderation?: 'auto' | 'low'
 }
 
 async function urlToFile(url: string, idx: number): Promise<any> {
@@ -101,15 +119,16 @@ export async function editOpenAIImage(opts: OpenAIEditOpts): Promise<{ url: stri
     quality: opts.quality || 'high',
   }
   if (opts.background) base.background = opts.background
+  if (opts.moderation) base.moderation = opts.moderation
 
   let usedModel = 'gpt-image-2'
   let res: any
   try {
-    res = await client.images.edit({ model: 'gpt-image-2', ...base } as any)
+    res = await client().images.edit({ model: 'gpt-image-2', ...base } as any)
   } catch (err: any) {
     if (!isModelMissing(err)) throw err
     usedModel = 'gpt-image-1'
-    res = await client.images.edit({ model: 'gpt-image-1', ...base } as any)
+    res = await client().images.edit({ model: 'gpt-image-1', ...base } as any)
   }
   const b64 = res.data?.[0]?.b64_json
   if (!b64) throw new Error(`${usedModel} edit: no image returned`)

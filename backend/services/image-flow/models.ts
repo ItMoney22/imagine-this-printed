@@ -2,7 +2,10 @@
 // Ported from david-trinidad-com (Watchtower) at src/modules/image-flow/lib/models.ts
 // with ITP additions: openai/gpt-image-2 (default for ITP product builder).
 
-export type Provider = 'replicate'
+// 'openai' models run against the OpenAI API directly (David 2026-08-20:
+// house designs are OpenAI-direct — no Replicate markup, no shared queue, no
+// burst-1 rate limit). Dispatch happens in worker-helpers.runRegisteredModel.
+export type Provider = 'replicate' | 'openai'
 
 export type ModelTier =
   | 'draft'
@@ -270,11 +273,15 @@ export const MODELS: ImageModel[] = [
   // --- EDIT (default tier for ITP admin product builder) ---
   {
     id: 'openai/gpt-image-2',
-    provider: 'replicate',
+    // OpenAI-direct since 2026-08-20 (was Replicate's hosted copy). The cost
+    // figure stays the medium-quality number the routed cost gate was tuned
+    // against; the house pipeline calls quality 'high' explicitly and wears
+    // the real ~$0.17 without consulting the gate.
+    provider: 'openai',
     tier: 'edit',
     label: 'GPT Image 2',
     costPerImageUsd: 0.04,
-    approxSeconds: 12,
+    approxSeconds: 25,
     strengths: ['edit', 'multi-image', 'photoreal-product', 'photoreal-people', 'text-in-image'],
     unifiedGenAndEdit: true,
     notes:
@@ -478,9 +485,10 @@ export const DEFAULT_BG_REMOVE_MODEL = '851-labs/background-remover'
 export const DEFAULT_UPSCALE_MODEL = 'recraft-ai/recraft-crisp-upscale'
 
 /**
- * Models the admin product builder fans out to in parallel for design generation.
- * gpt-image-2 is intentionally NOT in this list — it's reserved for editing only
- * (slower + more expensive than the dedicated generation models).
+ * Legacy multi-model roster. Since 2026-08-20 the HOUSE product builder no
+ * longer fans out across vendors — David: "the stuff we are selling should be
+ * true to openai" — it pins N takes of gpt-image-2 via houseDesignRoster().
+ * This list remains for creator-studio and any job that doesn't pass modelIds.
  */
 export const ADMIN_MULTI_MODEL_IDS = [
   'recraft-ai/recraft-v4',
@@ -488,6 +496,17 @@ export const ADMIN_MULTI_MODEL_IDS = [
   'google/imagen-4-ultra',
   'wan-video/wan-2.7-image-pro',
 ]
+
+/**
+ * House design generation roster: HOUSE_DESIGN_VARIANTS (default 3) takes of
+ * gpt-image-2, OpenAI-direct. Each take gets its own enhanced prompt in
+ * runImageFlowMultiGenerate, so the variants genuinely differ and the admin
+ * still picks a favorite. Clamped 1..6 — beyond that is spend, not choice.
+ */
+export function houseDesignRoster(): string[] {
+  const n = Math.min(6, Math.max(1, Number(process.env.HOUSE_DESIGN_VARIANTS) || 3))
+  return Array.from({ length: n }, () => DEFAULT_GENERATE_MODEL)
+}
 
 /** User-selectable edit models for the refine step. */
 export const ADMIN_EDIT_MODEL_OPTIONS = [

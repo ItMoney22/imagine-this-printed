@@ -6,9 +6,11 @@ import { normalizeProduct, PRODUCT_CATEGORY_SLUGS } from '../../services/ai-prod
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { searchForContext } from '../../services/serpapi-search.js'
-import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
+import { getPrediction, AVAILABLE_MODELS, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES, MR_IMAGINE_SUPPORTED_PRODUCT_TYPES } from '../../services/replicate.js'
 import { runImageFlowMultiGenerate } from '../../services/image-flow/worker-helpers.js'
+import { houseDesignRoster, DEFAULT_GENERATE_MODEL } from '../../services/image-flow/models.js'
 import { startModelShots } from '../../services/etsy-model-shots.js'
+import stepFlowRouter from './ai-products-step-flow.js'
 import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
 import { suggestProductTrends, suggestSimpleWordPhrases, type TrendFamily, type TrendSource } from '../../services/product-trends.js'
@@ -87,14 +89,31 @@ export async function processImageJobInline(job: any): Promise<void> {
   }
 
   try {
-    await updateProgress('🧠 Tailoring your prompt per model, then generating with the 4 best-fit models in parallel...', 1, 3)
+    // SHOULD-FIX #12 (2026-09-01 review): `modelIds` wins when present — the
+    // Step Flow's `takes:2|3` builds a `modelIds` array of the SAME model
+    // repeated N times alongside `forceSingleModel` (see POST /create
+    // below), and the old priority here checked `forceSingleModel` FIRST and
+    // collapsed that back down to a single-element `[modelId]` roster,
+    // silently dropping takes 2 and 3. `[job.input.modelId]` is now only the
+    // fallback for a forceSingleModel job that has no modelIds at all.
+    const roster =
+      (job.input?.modelIds as string[] | undefined) ??
+      (job.input?.forceSingleModel && job.input?.modelId ? [job.input.modelId] : undefined) ??
+      // House rule (David 2026-08-20): ITP-sold designs generate on
+      // gpt-image-2 only, OpenAI-direct — N independently-enhanced takes
+      // instead of the 4-vendor Replicate fan-out. Creator-studio jobs never
+      // reach this inline processor, so their roster is untouched.
+      houseDesignRoster()
+    await updateProgress(`🧠 Tailoring your prompt, then generating ${roster.length} take${roster.length === 1 ? '' : 's'} in parallel...`, 1, 3)
     const results = await runImageFlowMultiGenerate({
       prompt: promptInput,
-      modelIds: job.input?.forceSingleModel && job.input?.modelId ? [job.input.modelId] : undefined,
+      modelIds: roster,
       category: product?.category ?? job.input?.category,
       shirtColor: job.input?.shirtColor,
       printStyle: job.input?.printStyle,
       imageStyle: job.input?.imageStyle,
+      rawPrompt: Boolean(job.input?.rawPrompt),
+      backgroundClause: typeof job.input?.backgroundClause === 'string' ? job.input.backgroundClause : undefined,
     })
 
     const succeeded = results.filter((r) => r.status === 'succeeded' && r.url)
@@ -107,11 +126,17 @@ export async function processImageJobInline(job: any): Promise<void> {
 
     await updateProgress(`📤 Uploading ${succeeded.length} variants to cloud storage...`, 2, 3)
 
+    // Same-model takes (the gpt-image-2 house roster) get numbered labels so
+    // the picker still shows distinguishable variants.
+    const takeCounts = new Map<string, number>()
     for (const r of succeeded) {
       try {
+        const take = (takeCounts.get(r.modelId) ?? 0) + 1
+        takeCounts.set(r.modelId, take)
+        const dupes = succeeded.filter((s) => s.modelId === r.modelId).length > 1
         const ts = Date.now()
         const safeModel = r.modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
-        const filename = `${productSlug}-${safeModel}-${ts}.png`
+        const filename = `${productSlug}-${safeModel}-${dupes ? `take${take}-` : ''}${ts}.png`
         const gcsPath = `graphics/${productSlug}/original/${filename}`
         const { publicUrl, path: storagePath } = await uploadImageFromUrl(r.url!, gcsPath)
         await supabase.from('product_assets').insert({
@@ -126,8 +151,8 @@ export async function processImageJobInline(job: any): Promise<void> {
           display_order: 99,
           metadata: {
             model_id: r.modelId,
-            model_name: r.modelLabel,
-            provider: 'replicate',
+            model_name: dupes ? `${r.modelLabel} · Take ${take}` : r.modelLabel,
+            provider: r.modelId.startsWith('openai/') ? 'openai' : 'replicate',
             original_prompt: promptInput,
             tailored_prompt: r.tailoredPrompt ?? null,
             multi_model: true,
@@ -173,6 +198,12 @@ export async function processImageJobInline(job: any): Promise<void> {
 }
 
 const router = Router()
+
+// Imagine Studio Step Flow (David 2026-09-01: replace the classic wizard with
+// a step-by-step, approve-per-step flow). Routes live in their own file —
+// see ai-products-step-flow.ts — and are mounted here so they share this
+// router's base path (/api/admin/products/ai).
+router.use(stepFlowRouter)
 
 // GET /api/admin/products/ai/models - Get available image generation models
 router.get('/models', requireAuth, async (req: Request, res: Response): Promise<any> => {
@@ -278,12 +309,26 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       imagePromptOverride,
       skipImageGeneration = false,
       sourceImageDataUrl,
-      deterministicTextDesign
+      deterministicTextDesign,
+      // Step Flow (David 2026-09-01): `takes` overrides how many candidates
+      // this call generates (1-3, cost-first default is 1 take of
+      // gpt-image-2); `stepFlow` carries the idea + brief written in Step 1
+      // through to `metadata.step_flow` so the flow can resume from any point.
+      takes,
+      stepFlow,
     } = req.body
 
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required' })
     }
+
+    // Step Flow `takes` override — clamped 1-3 (gpt-image-2 is the priciest
+    // model in the stack; cost-first). Absent/invalid -> undefined, meaning
+    // "use the normal houseDesignRoster() length", unchanged from before.
+    const takesRequested = Number(takes)
+    const takesClamped = Number.isFinite(takesRequested) && takesRequested > 0
+      ? Math.min(3, Math.max(1, Math.round(takesRequested)))
+      : null
 
     // T-shirt multi-select print placements → products.print_locations.
     // Keep only known values; the final shirts-need->=1 guard is applied below,
@@ -344,6 +389,23 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     if (typeof imagePromptOverride === 'string' && imagePromptOverride.trim()) {
       normalized.image_prompt = imagePromptOverride.trim()
     }
+
+    // Step Flow: the brief's designPrompt IS the image prompt. The normalizer
+    // still writes title/description/tags, but must not rewrite the art brief.
+    const stepBriefPrompt: string | null =
+      stepFlow && typeof stepFlow === 'object' && typeof stepFlow.brief?.designPrompt === 'string' && stepFlow.brief.designPrompt.trim()
+        ? stepFlow.brief.designPrompt.trim()
+        : null
+    if (stepBriefPrompt && !(typeof imagePromptOverride === 'string' && imagePromptOverride.trim())) {
+      normalized.image_prompt = stepBriefPrompt
+    }
+    const stepBackground: 'white' | 'black' | null =
+      stepBriefPrompt && (stepFlow.brief?.background === 'white' || stepFlow.brief?.background === 'black')
+        ? stepFlow.brief.background
+        : null
+    const stepBackgroundClause = stepBackground
+      ? `Render the artwork on a SOLID, FLAT, uniform ${stepBackground} background that fills the entire canvas edge to edge. No gradient, no vignette, no drop shadow, no checkerboard, no simulated or painted transparency, no border, no frame.`
+      : undefined
 
     // Photo-template products (Imagine Studio, 2026-07-31): the caller pins the
     // category instead of letting normalization guess. Whitelisted — this is
@@ -466,6 +528,23 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           // Personalizable template: design ships with an EMPTY photo slot;
           // staff drop the customer's photo in per order (Etsy flow).
           ...(isTemplate ? { is_template: true, personalization: 'customer_photo' } : {}),
+          // Step Flow (David 2026-09-01): Step 1's idea + brief, so the flow
+          // can resume from GET /:id/step at any point. Absent when this
+          // product was created outside the step flow (classic wizard, etc).
+          ...(stepFlow && typeof stepFlow === 'object'
+            ? {
+                step_flow: {
+                  version: 1,
+                  idea: typeof stepFlow.idea === 'string' ? stepFlow.idea : '',
+                  brief: stepFlow.brief ?? null,
+                  // Inspiration (David 2026-09-02): the reference breakdown + keep/change
+                  // choices ride along so the flow can resume and the listing can cite it.
+                  inspiration: stepFlow.inspiration && typeof stepFlow.inspiration === 'object' ? stepFlow.inspiration : null,
+                  shots: {},
+                  approvals: {},
+                },
+              }
+            : {}),
         },
       })
       .select()
@@ -599,7 +678,18 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           imageStyle,
           modelId,
           forceSingleModel: Boolean(forceSingleModel),
-          multiModel: true, // fan out to ADMIN_MULTI_MODEL_IDS
+          multiModel: true,
+          // House roster pinned ON the job so even a worker-side pickup (e.g.
+          // a manual requeue after an inline failure) stays gpt-image-2-only.
+          // Step Flow's `takes` override (clamped 1-3 above) replaces the
+          // roster length in both branches when the caller passed one;
+          // absent `takes`, behaviour is exactly what it was before.
+          modelIds: forceSingleModel && modelId
+            ? Array.from({ length: takesClamped ?? 1 }, () => modelId)
+            : (takesClamped ? Array.from({ length: takesClamped }, () => DEFAULT_GENERATE_MODEL) : houseDesignRoster()),
+          // Step Flow: verbatim brief + solid-background clause (see
+          // runImageFlowMultiGenerate.rawPrompt for why the DTF wrap is skipped).
+          ...(stepBriefPrompt ? { rawPrompt: true, backgroundClause: stepBackgroundClause } : {}),
         },
       },
     ]
@@ -749,7 +839,10 @@ async function saveDraftProductRow(opts: {
       price: 25.00,
       status: 'draft',
       images: [gcsUrl],
-      category: productType === 'tshirt' ? 't-shirts' : productType,
+      // Polos file under the established 'shirts' category (there is no polo
+      // category); shirts requires >=1 print location by CHECK constraint.
+      category: productType === 'tshirt' ? 't-shirts' : productType === 'polo' ? 'shirts' : productType,
+      ...(productType === 'polo' ? { print_locations: ['front_image'] } : {}),
       metadata: {
         ai_generated: true,
         one_shot: true,
@@ -1399,17 +1492,20 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         console.log('[ai-products] 👻 Adding ghost mannequin job for garment type:', productType)
       }
 
-      // Always add Mr. Imagine mockup (garment paths only)
-      jobs.push({
-        product_id: id,
-        type: 'replicate_mockup_v2',
-        status: 'queued',
-        input: {
-          ...baseInput,
-          template: 'mr_imagine',
-          printPlacement: frontPlacement,
-        },
-      })
+      // Mr. Imagine mockup — only for garment types that have a static
+      // character base (polos don't; see MR_IMAGINE_SUPPORTED_PRODUCT_TYPES).
+      if (MR_IMAGINE_SUPPORTED_PRODUCT_TYPES.includes(productType)) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            template: 'mr_imagine',
+            printPlacement: frontPlacement,
+          },
+        })
+      }
 
       // Back view for two-sided products — mockupRole pins the asset role so
       // it never fights the front flat lay for the mockup_flat_lay slot.
@@ -1641,7 +1737,10 @@ router.post('/:id/select-image', requireAuth, requireAdmin, async (req: Request,
 
 // POST /api/admin/products/ai/:id/regenerate-images
 // Regenerate images for an AI-generated product using stored metadata
-router.post('/:id/regenerate-images', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<any> => {
+// SHOULD-FIX #10 (2026-09-01 review): rate-limited like /one-shot — this
+// triggers a real paid model call (Step Flow's "Try another" and the legacy
+// regenerate path both do) and had no limiter at all.
+router.post('/:id/regenerate-images', requireAuth, requireAdmin, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
 
@@ -1661,6 +1760,50 @@ router.post('/:id/regenerate-images', requireAuth, requireAdmin, async (req: Req
     }
 
     req.log?.info({ productId: id }, '[ai-products] 🔄 Regenerating images for product')
+
+    // Step Flow "Try another" (David 2026-09-01): ONE more take on the same
+    // single model with the same verbatim brief, processed inline exactly like
+    // /create — never the 3-take house roster or a worker fan-out.
+    const stepFlowMeta = product.metadata?.step_flow
+    if (stepFlowMeta && typeof stepFlowMeta === 'object') {
+      const priorJob = await supabase
+        .from('ai_jobs')
+        .select('input')
+        .eq('product_id', product.id)
+        .eq('type', 'replicate_image_v2')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const prior = (priorJob.data?.input ?? {}) as Record<string, unknown>
+      const stepModelId = (typeof prior.modelId === 'string' && prior.modelId) || product.metadata.modelId || DEFAULT_GENERATE_MODEL
+      const stepJob = {
+        product_id: product.id,
+        type: 'replicate_image_v2',
+        status: 'running',
+        input: {
+          ...prior,
+          prompt: product.metadata.image_prompt,
+          width: 1024,
+          height: 1024,
+          modelId: stepModelId,
+          forceSingleModel: true,
+          multiModel: true,
+          modelIds: [stepModelId],
+          rawPrompt: true,
+          nonce: Date.now().toString(36),
+        },
+      }
+      const { data: stepJobs, error: stepErr } = await supabase.from('ai_jobs').insert([stepJob]).select()
+      if (stepErr || !stepJobs?.[0]) {
+        req.log?.error({ error: stepErr }, '[ai-products] ❌ Step Flow regen job creation error')
+        return res.status(500).json({ error: 'Failed to create regeneration job' })
+      }
+      void processImageJobInline(stepJobs[0]).catch((err: any) => {
+        req.log?.error({ error: err?.message ?? err, jobId: stepJobs[0].id }, '[ai-products] ❌ Step Flow regen failed')
+      })
+      req.log?.info({ jobId: stepJobs[0].id, model: stepModelId }, '[ai-products] ✅ Step Flow regeneration take started')
+      return res.json({ job: stepJobs[0] })
+    }
 
     // Create new image generation job using stored metadata
     const job = {

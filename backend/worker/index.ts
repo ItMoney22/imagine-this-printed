@@ -3,6 +3,7 @@ import '../load-env.js'
 import { startWorker } from './ai-jobs-worker.js'
 import { startEtsyWorker } from './etsy-jobs-worker.js'
 import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
+import { startMrsImagineDaily } from './mrs-imagine-daily.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -38,5 +39,11 @@ startEtsyWorker()
 // Privacy: expires shopper try-on photos out of GCS on a timer. See
 // backend/worker/tryon-retention-sweep.ts and docs/VIRTUAL_TRYON.md §7.
 startTryOnRetentionSweep()
+// Mrs. Imagine's unattended daily batch (research through Etsy drafts) is OFF
+// by default as of 2026-09-02 — she now pitches phrases inside the Step Flow
+// instead of generating whole products on her own. Set MRS_IMAGINE_DAILY=true
+// to re-arm the old end-to-end clock; startMrsImagineDaily() logs which mode
+// it started in.
+startMrsImagineDaily()
 
 console.log('Worker is running. Press Ctrl+C to stop.')

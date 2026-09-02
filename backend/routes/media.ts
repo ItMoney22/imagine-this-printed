@@ -123,7 +123,13 @@ export function normalizeMediaPath(rawPath: string): string | null {
 }
 
 export function isAllowedMediaPath(gcsPath: string): boolean {
-  return ALLOWED_PREFIXES.some(prefix => gcsPath.startsWith(prefix))
+  if (ALLOWED_PREFIXES.some(prefix => gcsPath.startsWith(prefix))) return true
+  // 3d-models/<id>/concept.png ONLY — the Toy Factory page (/toys) shows real
+  // toy renders via permanent addresses. The sibling model.stl / model.glb are
+  // PAID deliverables (license-gated in routes/3d-models.ts) and must never be
+  // reachable through this proxy.
+  if (/^3d-models\/[0-9a-f-]{36}\/concept\.png$/i.test(gcsPath)) return true
+  return false
 }
 
 router.get(/.*/, async (req: Request, res: Response) => {

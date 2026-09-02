@@ -2,11 +2,13 @@
 // a generated image URL. The worker handles its own GCS upload + DB writes.
 
 import { runReplicate } from './providers/replicate.js'
+import { runOpenAIImage, editOpenAIImage } from './providers/openai-image.js'
 import { buildInput } from './input-builder.js'
-import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS } from './models.js'
+import { MODELS, getModel, DEFAULT_GENERATE_MODEL, DEFAULT_EDIT_MODEL, DEFAULT_MOCKUP_MODEL, ADMIN_MULTI_MODEL_IDS, type ImageModel } from './models.js'
 import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
 import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
+import { getGarment } from '../../shared/catalog-capability.js'
 
 export interface RunGenerateOpts {
   prompt: string
@@ -20,9 +22,57 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
   const model = getModel(modelId)
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
-  const input = buildInput(model, { prompt: opts.prompt, extra: opts.extra })
-  const r = await runReplicate({ modelId: model.id, input })
-  return { url: r.imageUrls[0], modelId: model.id }
+  const r = await runRegisteredModel(model, { prompt: opts.prompt, extra: opts.extra })
+  return { url: r.url, modelId: model.id }
+}
+
+// --- Provider dispatch -------------------------------------------------------
+// House quality/size for OpenAI-direct generation (David 2026-08-20: pay for
+// quality on the stuff we sell). Replicate-routed models ignore these.
+const OPENAI_QUALITIES = ['low', 'medium', 'high', 'auto'] as const
+const OPENAI_SIZES = ['1024x1024', '1536x1024', '1024x1536', 'auto'] as const
+type OpenAIQuality = (typeof OPENAI_QUALITIES)[number]
+type OpenAISize = (typeof OPENAI_SIZES)[number]
+
+function houseOpenAIQuality(extra?: Record<string, unknown>): OpenAIQuality {
+  const q = String(extra?.quality ?? process.env.HOUSE_GPT_IMAGE_QUALITY ?? 'high').toLowerCase()
+  return (OPENAI_QUALITIES as readonly string[]).includes(q) ? (q as OpenAIQuality) : 'high'
+}
+
+function houseOpenAISize(extra?: Record<string, unknown>): OpenAISize {
+  // The registry's aspect_ratio nativeParam maps onto the model's real sizes.
+  const ar = String(extra?.aspect_ratio ?? '')
+  if (ar === '3:2') return '1536x1024'
+  if (ar === '2:3') return '1024x1536'
+  const size = String(process.env.HOUSE_GPT_IMAGE_SIZE || '1024x1024')
+  return (OPENAI_SIZES as readonly string[]).includes(size) ? (size as OpenAISize) : '1024x1024'
+}
+
+/**
+ * Run a registry model through its provider. provider:'openai' goes straight
+ * to the OpenAI Images API (no Replicate markup/queue — David 2026-08-20);
+ * everything else keeps the Replicate path. Same {url} shape either way, and
+ * both are "possibly temporary" to callers, who re-upload to their canonical
+ * GCS location (the OpenAI provider persists to a staging GCS path already).
+ */
+async function runRegisteredModel(
+  model: ImageModel,
+  req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number }
+): Promise<{ url: string }> {
+  if (model.provider === 'openai') {
+    const quality = houseOpenAIQuality(req.extra)
+    const size = houseOpenAISize(req.extra)
+    if (req.inputImages?.length) {
+      const [sourceUrl, ...refUrls] = req.inputImages
+      const r = await editOpenAIImage({ sourceUrl, refUrls, prompt: req.prompt, quality, size, moderation: 'low' })
+      return { url: r.url }
+    }
+    const r = await runOpenAIImage({ prompt: req.prompt, quality, size, moderation: 'low' })
+    return { url: r.url }
+  }
+  const input = buildInput(model, { prompt: req.prompt, inputImages: req.inputImages, extra: req.extra })
+  const r = await runReplicate({ modelId: model.id, input, timeoutMs: req.timeoutMs })
+  return { url: r.imageUrls[0] }
 }
 
 export interface MultiGenerateResult {
@@ -102,6 +152,15 @@ export async function runImageFlowMultiGenerate(opts: {
   /** Skip the per-model LLM prompt rewrite (use the raw prompt everywhere). */
   skipEnhance?: boolean
   /**
+   * Step Flow (David 2026-09-01): the brief's designPrompt is already the
+   * "best prompt" — hand it to the model VERBATIM. No per-model rewrite and
+   * no DTF garment wrap, because the wrap says "TRANSPARENT background" while
+   * the brief says "SOLID white/black background" and gpt-image-2 resolves
+   * that conflict by painting a fake checkerboard (the QA gate's
+   * print_background defect). Only `backgroundClause` is appended.
+   */
+  rawPrompt?: boolean
+  /**
    * Hard background instruction appended to EACH model's prompt AFTER the
    * per-model rewrite — so the rule (e.g. "solid black background, no
    * transparency") always survives verbatim, exactly like the DTF garment
@@ -125,7 +184,7 @@ export async function runImageFlowMultiGenerate(opts: {
   const tailored = await Promise.all(
     ids.map(async (id) => {
       const model = getModel(id)
-      if (!model || opts.skipEnhance) return opts.prompt
+      if (!model || opts.skipEnhance || opts.rawPrompt) return opts.prompt
       try {
         const r = await enhancePrompt({ prompt: opts.prompt, purpose: 'product', model })
         return r.enhanced?.trim() || opts.prompt
@@ -137,7 +196,9 @@ export async function runImageFlowMultiGenerate(opts: {
   )
 
   const finalPrompts = tailored.map((t) =>
-    isGarment
+    opts.rawPrompt
+      ? (opts.backgroundClause ? `${t}\n\n${opts.backgroundClause}` : t)
+      : isGarment
       ? buildDTFPrompt(
           t,
           (opts.shirtColor === 'gray' ? 'grey' : opts.shirtColor) ?? 'black',
@@ -148,7 +209,9 @@ export async function runImageFlowMultiGenerate(opts: {
         : t
   )
 
-  if (isGarment) {
+  if (opts.rawPrompt) {
+    console.log('[image-flow] 📝 Raw prompt (Step Flow brief) — no rewrite, no DTF wrap')
+  } else if (isGarment) {
     console.log('[image-flow] 🎨 Wrapping prompt with DTF rules for category:', opts.category)
   }
 
@@ -156,9 +219,8 @@ export async function runImageFlowMultiGenerate(opts: {
     ids.map(async (id, i) => {
       const model = getModel(id)
       if (!model) throw new Error(`unknown image-flow model: ${id}`)
-      const input = buildInput(model, { prompt: finalPrompts[i], extra: opts.extra })
-      const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
-      return { id: model.id, label: model.label, url: r.imageUrls[0] }
+      const r = await runRegisteredModel(model, { prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000 })
+      return { id: model.id, label: model.label, url: r.url }
     })
   )
 
@@ -173,13 +235,14 @@ export async function runImageFlowMultiGenerate(opts: {
   })
 }
 
-export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'mr_imagine' | 'metal_shelf' | 'metal_wall'
+export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'hanger' | 'mr_imagine' | 'metal_shelf' | 'metal_wall'
 
 export interface RunMockupOpts {
   template: MockupTemplate
   designImageUrl: string
-  productType: 'tshirt' | 'hoodie' | 'tank'
-  shirtColor: 'black' | 'white' | 'gray' | 'grey'
+  productType: 'tshirt' | 'hoodie' | 'tank' | 'polo'
+  /** Legacy wizard colors or a catalog-capability ColorId (see COLOR_DESC). */
+  shirtColor: 'black' | 'white' | 'gray' | 'grey' | 'heather-grey' | 'navy' | 'red' | 'forest-green' | 'royal-blue'
   /** For mr_imagine — URL of the Mr. Imagine character base. */
   characterImageUrl?: string
   printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
@@ -240,12 +303,23 @@ const PRODUCT_NAMES: Record<string, string> = {
   tshirt: 't-shirt',
   hoodie: 'hoodie',
   tank: 'tank top',
+  polo: 'polo shirt',
 }
+// Keyed by the legacy wizard colors AND the catalog-capability ColorIds the
+// Step Flow sends (backend/shared/catalog-capability.ts). An unknown key used
+// to fall through to 'black' — that is how David's "Heather Grey" extra-color
+// run came back as a black tee on 2026-09-02. Every offered color is named
+// here so the prompt always says the real fabric colour.
 const COLOR_DESC: Record<string, string> = {
   black: 'black',
   white: 'white',
   gray: 'heather gray',
   grey: 'heather grey',
+  'heather-grey': 'light heather grey (marled light grey)',
+  navy: 'navy blue',
+  red: 'bright red',
+  'forest-green': 'forest green',
+  'royal-blue': 'royal blue',
 }
 const PLACEMENT_DESC: Record<string, string> = {
   'front-center': 'centered on the chest area',
@@ -461,6 +535,38 @@ function buildFlux2SingleCallPrompt(opts: RunMockupOpts): string {
 }
 
 /**
+ * Hanger mockup — new Step Flow template (plan
+ * docs/plans/2026-09-01-imagine-studio-step-flow-plan.md, Track A #3).
+ * Single-call flux-2-pro, same mechanism as flat_lay/ghost_mannequin's
+ * default path (one reference image, the design), but its own prompt: a
+ * garment on a wooden hanger is the entire point of this shot, which is
+ * exactly what buildEmptyGarmentPromptPair's flat_lay negative list forbids
+ * ("hanger, coat hanger, clothes hanger" — anti-flat-lay pressure for a
+ * template that must never show a hanger). Reusing that list here would have
+ * the hanger template fight its own premise, so this gets an independent
+ * positive prompt and an independent negative list.
+ *
+ * flux-2-pro has no negative_prompt input (see buildFlux2SingleCallPrompt's
+ * doc comment — BFL warns naming an exclusion can make it appear), so the
+ * generation call below is purely positive, same as the flat_lay/
+ * ghost_mannequin single-call path. buildHangerNegatives() is kept as its own
+ * exported value anyway: a record of what this template must avoid, ready to
+ * feed a negative_prompt-capable model if one ever replaces flux-2-pro here,
+ * and independently testable so it can never accidentally re-borrow the
+ * flat-lay list (which would forbid the hanger itself).
+ */
+export function buildHangerPrompt(opts: RunMockupOpts): string {
+  const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
+  const garmentNoun = getGarment(opts.productType)?.noun ?? PRODUCT_NAMES[opts.productType] ?? 't-shirt'
+  return `${fabricColor} ${garmentNoun} hanging on a natural wooden hanger against a plain light studio wall, front view, straight-on, garment hanging naturally with soft fabric drape, the graphic printed front-center at true scale (${buildSizeClause(opts)})`
+}
+
+/** Hanger-specific negatives — deliberately does not overlap flat_lay's list. See buildHangerPrompt above. */
+export function buildHangerNegatives(): string {
+  return 'mannequin, ghost mannequin, invisible mannequin, human, person, model, wearer, body, torso, face, hands, arms, folded garment, flat lay, laid flat, garment on the floor, garment on the ground, text overlay, caption, watermark, logo overlay'
+}
+
+/**
  * Mr. Imagine character mockup.
  *
  * ANATOMY GUARD (David 2026-07-29: "mrimagine is missing a whole arm lol"):
@@ -574,6 +680,24 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
     return { url: r.imageUrls[0], modelId: model.id }
   }
 
+  // Hanger — same single-call flux-2-pro mechanism as flat_lay/ghost_mannequin
+  // below (one Replicate call, the design as the sole reference image), but
+  // its own prompt/negatives (see buildHangerPrompt's doc comment); no 2-step
+  // fallback chain exists for this template, so a flux-2-pro failure surfaces
+  // to the caller like any other job error.
+  if (opts.template === 'hanger') {
+    const model = getModel(SINGLE_CALL_FLUX2_MODEL)
+    if (!model) throw new Error(`unknown image-flow model: ${SINGLE_CALL_FLUX2_MODEL}`)
+    const input = buildInput(model, {
+      prompt: buildHangerPrompt(opts),
+      inputImages: [opts.designImageUrl],
+      extra: { safety_tolerance: 5 },
+    })
+    console.log('[image-flow] 🧪 flux-2-pro single-call mockup — hanger')
+    const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
+    return { url: r.imageUrls[0], modelId: model.id }
+  }
+
   // Legacy single-call path if caller explicitly forces a model (admin override).
   if (opts.modelId) {
     const model = getModel(opts.modelId)
@@ -682,7 +806,6 @@ export async function runImageFlowEdit(opts: RunEditOpts): Promise<{ url: string
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
   const inputImages = [opts.sourceImageUrl, ...(opts.refImageUrls ?? [])]
-  const input = buildInput(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
-  const r = await runReplicate({ modelId: model.id, input })
-  return { url: r.imageUrls[0], modelId: model.id }
+  const r = await runRegisteredModel(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
+  return { url: r.url, modelId: model.id }
 }

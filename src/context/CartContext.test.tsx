@@ -230,4 +230,91 @@ describe('CartContext', () => {
       setItemSpy.mockRestore()
     })
   })
+
+  describe('"2 for $25" bundle deal (David 2026-09-02, was "3 for $25" — backend/shared/promos.ts)', () => {
+    // Deliberately weird price — proves an eligible item's own listed price
+    // is never consulted for the bundle base charge (see calculateTotal).
+    const eligibleProduct: Product = {
+      id: 'promo-1',
+      name: 'Promo Tee',
+      description: 'A promo shirt',
+      price: 9,
+      images: ['https://cdn.example.com/tee.png'],
+      category: 'shirts',
+      inStock: true,
+      isThreeForTwentyFive: true
+    }
+
+    const metadataEligibleProduct: Product = {
+      id: 'promo-2',
+      name: 'Promo Tee (metadata flag)',
+      description: 'A promo shirt flagged only via metadata',
+      price: 9,
+      images: ['https://cdn.example.com/tee2.png'],
+      category: 'shirts',
+      inStock: true,
+      metadata: { isThreeForTwentyFive: true }
+    }
+
+    it('charges the full $25 for a single eligible item', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(eligibleProduct, 1, 'M')
+      })
+      expect(result.current.state.total).toBe(25)
+    })
+
+    it('charges exactly $25 for 2 eligible items (one bundle)', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(eligibleProduct, 2, 'M')
+      })
+      expect(result.current.state.total).toBe(25)
+    })
+
+    it('charges $50 for 3 eligible items (one bundle + one full-price single)', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(eligibleProduct, 3, 'M')
+      })
+      expect(result.current.state.total).toBe(50)
+    })
+
+    it('charges $50 for 4 eligible items (two bundles)', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(eligibleProduct, 4, 'M')
+      })
+      expect(result.current.state.total).toBe(50)
+    })
+
+    it('pools eligible quantity across separate line items, not per line', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        // Two distinct sizes = two separate cart lines, 1 unit each.
+        result.current.addToCart(eligibleProduct, 1, 'M')
+        result.current.addToCart(eligibleProduct, 1, 'L')
+      })
+      expect(result.current.state.items).toHaveLength(2)
+      expect(result.current.state.total).toBe(25) // pooled: one bundle, not two $25 singles
+    })
+
+    it('bundles items eligible via metadata.isThreeForTwentyFive the same as the top-level flag', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(eligibleProduct, 1, 'M')
+        result.current.addToCart(metadataEligibleProduct, 1, 'M')
+      })
+      expect(result.current.state.total).toBe(25)
+    })
+
+    it('prices a mixed cart: eligible items bundled, non-eligible items at their real price', () => {
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(eligibleProduct, 2, 'M') // $25 bundled
+        result.current.addToCart(baseProduct, 1, 'M') // $20 normal
+      })
+      expect(result.current.state.total).toBe(45)
+    })
+  })
 })

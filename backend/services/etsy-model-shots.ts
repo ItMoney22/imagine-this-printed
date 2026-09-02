@@ -18,12 +18,17 @@
 // shots run sequentially to stay rate-limit friendly).
 // ---------------------------------------------------------------------------
 import Replicate from 'replicate'
+import sharp from 'sharp'
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import * as gcsStorage from './gcs-storage.js'
 import { sniffImageContentType, extForImageContentType } from './google-cloud-storage.js'
 import { editOpenAIImage } from './image-flow/providers/openai-image.js'
 import { ETSY_SIZE_KEYS, metalScaleAnchor, type MetalArtSizeKey } from '../shared/metal-art.js'
+// David 2026-09-01: hoodies were being shot on-model as a "crew neck
+// t-shirt" — the wording was hardcoded. Garment-aware wording (and the
+// Step Flow's shootOneModelShot) reads from the one capability boundary.
+import { COLORS, normalizeGarment, getGarment, type GarmentId, type ColorId } from '../shared/catalog-capability.js'
 
 // Unpinned on purpose: the old `google/nano-banana:858e567…` pin froze this
 // service on a single v1 build and made model upgrades invisible here. Track
@@ -74,6 +79,16 @@ export interface EtsyShots {
   cast?: string[]
   /** Per-shot design-fidelity verdicts, parallel to `images`. */
   checks?: ShotCheck[]
+  /**
+   * Step Flow only (2026-09-01 review fix), parallel to `images`: true where
+   * that index came from `shootOneModelShot` (the Step Flow's single-shot
+   * 'model' key) rather than the two-shot `startModelShots`/`reshootModelShot`
+   * casting session. A step-flow REDO replaces its own marked entry in place
+   * (see `replaceUrl` on `shootOneModelShot`) instead of appending another
+   * take, so the Etsy uploader — which reads `images` front-to-back — never
+   * finds a pile of a step-flow shot's earlier, possibly QA-rejected retakes.
+   */
+  stepModel?: boolean[]
   started_at?: string
   generated_at?: string
   error?: string
@@ -429,7 +444,7 @@ const METAL_SCENES_MEDIUM = [
   { label: 'kitchen scene', scene: 'on open kitchen shelving among ceramics and a small plant, bright airy light' }
 ] as const
 
-interface ShotPlan {
+export interface ShotPlan {
   key: string
   label: string
   persona: string | null   // null = product scene (metal art), no human model
@@ -592,7 +607,17 @@ const castingSlate = (plan: ShotPlan): string =>
 // gpt-image-2 casts the model straight from the persona text — the only image
 // input is the design itself, so casting variety is unlimited (no stock-photo
 // library required). Metal art gets a room scene instead of a person.
-function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, sizeInches: number): string {
+//
+// garmentNoun defaults to 'crew neck t-shirt' for callers that don't pass one
+// (metal art never reaches the wearing clause at all — see the `!plan.persona`
+// branch below).
+export function buildGptPrompt(
+  plan: ShotPlan,
+  shirtColor: string,
+  placement: string,
+  sizeInches: number,
+  garmentNoun: string = 'crew neck t-shirt'
+): string {
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -605,7 +630,7 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, s
   return (
     retryPreamble(plan) +
     `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
-    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck t-shirt ` +
+    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} ${garmentNoun} ` +
     `with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
     `${castingSlate(plan)}\n` +
     promptTail(placement, sizeInches)
@@ -618,7 +643,13 @@ function buildGptPrompt(plan: ShotPlan, shirtColor: string, placement: string, s
 // instruction to discard the reference identity every fallback shot came back
 // wearing one of the same two faces, which is exactly what the casting rework
 // exists to kill. Metal art needs no anchor — design only.
-function buildNanoPrompt(plan: ShotPlan, shirtColor: string, placement: string, sizeInches: number): string {
+export function buildNanoPrompt(
+  plan: ShotPlan,
+  shirtColor: string,
+  placement: string,
+  sizeInches: number,
+  garmentNoun: string = 'crew neck t-shirt'
+): string {
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -631,8 +662,8 @@ function buildNanoPrompt(plan: ShotPlan, shirtColor: string, placement: string, 
   return (
     retryPreamble(plan) +
     `INPUT 1 is a framing reference only. INPUT 2 is a flat 2D graphic design (a DTF print artwork). ` +
-    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} crew neck ` +
-    `t-shirt with the graphic from INPUT 2 ${wearingClause(placement)}, ${plan.scene}.\n` +
+    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} ${garmentNoun} ` +
+    `with the graphic from INPUT 2 ${wearingClause(placement)}, ${plan.scene}.\n` +
     `Use INPUT 1 ONLY for camera distance, crop and body angle. DISCARD the person in INPUT 1 entirely — their ` +
     `face, hair, skin tone, age and build must NOT carry over. The subject is the person described above.\n` +
     `${castingSlate(plan)}\n` +
@@ -649,12 +680,13 @@ async function generateOneShot(
   productId: string,
   userId: string,
   placement: string = 'front-center',
-  sizeInches: number = 11
+  sizeInches: number = 11,
+  garmentNoun: string = 'crew neck t-shirt'
 ): Promise<string> {
   const viaGptImage = async (): Promise<string> => {
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
-      prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches),
+      prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches, garmentNoun),
       size: '1024x1536', // portrait, matches the 3:4 listing crop
       quality: 'high',
       userId,
@@ -671,7 +703,7 @@ async function generateOneShot(
       : [designUrl] // metal art: no human anchor, just the artwork
     const output = await replicate.run(NANO_BANANA as any, {
       input: {
-        prompt: buildNanoPrompt(plan, shirtColor, placement, sizeInches),
+        prompt: buildNanoPrompt(plan, shirtColor, placement, sizeInches, garmentNoun),
         image_input: inputImages,
         output_format: 'png',
         aspect_ratio: '3:4'
@@ -775,6 +807,8 @@ interface ShotContext {
   placement: string
   /** Physical print width in inches (garments). */
   sizeInches: number
+  /** Garment-true noun for the wearing clause ("pullover hoodie", not "crew neck t-shirt"). */
+  garmentNoun: string
   onStage: (stage: string) => Promise<void>
 }
 
@@ -783,7 +817,7 @@ interface ShotContext {
  * it didn't. Returns whichever render we're keeping plus its verdict.
  */
 async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck }> {
-  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches)
+  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const verdict = await verifyDesignFidelity(ctx.designUrl, url)
   if (!verdict || verdict.ok) return { url, check: { ok: true } }
 
@@ -793,7 +827,7 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
   // Fresh slate id so the retry is a genuinely different roll, plus the note
   // telling the model what to fix.
   const retryPlan: ShotPlan = { ...plan, variant: slateId(), retryNote: verdict.reason }
-  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches)
+  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const retryVerdict = await verifyDesignFidelity(ctx.designUrl, retryUrl)
   if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true } }
 
@@ -804,33 +838,78 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
 // Normalize Replicate output (string | array | async iterator, URL or raw
 // bytes) into a Buffer — same quirks the realistic-mockups route handles.
 async function outputToBuffer(output: any): Promise<Buffer> {
-  let value: string | null = null
-  if (typeof output === 'string') {
-    value = output
-  } else if (Array.isArray(output) && output.length > 0) {
-    value = typeof output[0] === 'string' ? output[0] : output[0]?.url ?? String(output[0])
-  } else if (output && typeof output === 'object' && Symbol.asyncIterator in output) {
-    const chunks: string[] = []
-    for await (const item of output as AsyncIterable<any>) {
-      if (typeof item === 'string') chunks.push(item)
-      else if (item && typeof item === 'object' && 'url' in item) chunks.push(item.url)
-      else if (item != null) chunks.push(String(item))
+  // Replicate returns one of: a URL string, a FileOutput (has .url()), an
+  // array of either, a data: URI, or an async iterable of byte chunks
+  // (Uint8Array) / strings. The old version stringified chunks and joined
+  // them ONLY when the first chunk matched the PNG magic in decimal — a JPEG
+  // stream kept just its first chunk, so the nano-banana fallback uploaded a
+  // 590-byte header and called it a shot (smoke 2026-09-01). Handle every
+  // shape, concatenate all bytes, and refuse anything that does not decode.
+  const decimalBytes = /^\d{1,3}(,\d{1,3})+$/
+  const toBytes = (item: any): Buffer | null =>
+    Buffer.isBuffer(item) ? item
+      : item instanceof Uint8Array ? Buffer.from(item)
+      : item instanceof ArrayBuffer ? Buffer.from(new Uint8Array(item))
+      : null
+  const urlOf = (o: any): string | null => {
+    if (typeof o === 'string') return /^https?:\/\//.test(o) ? o : null
+    if (o && typeof o === 'object' && 'url' in o) {
+      const u = typeof o.url === 'function' ? o.url() : o.url
+      return u ? String(u) : null
     }
-    if (chunks.length) {
-      value = chunks[0]?.match(/^137,80,78,71/) ? chunks.join(',') : chunks[0]
-    }
-  } else if (output && typeof output === 'object' && 'url' in output) {
-    value = typeof (output as any).url === 'function' ? String((output as any).url()) : String((output as any).url)
+    return null
   }
-  if (!value) throw new Error('No usable output from the image model')
-
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    const res = await fetch(value)
+  const fetchUrl = async (u: string): Promise<Buffer> => {
+    const res = await fetch(u)
     if (!res.ok) throw new Error(`Failed to download generated shot (${res.status})`)
     return Buffer.from(await res.arrayBuffer())
   }
-  // Raw comma-separated byte stream (chunked binary quirk)
-  return Buffer.from(value.split(',').map(b => parseInt(b.trim(), 10)))
+  const fromString = async (v: string): Promise<Buffer | null> => {
+    if (/^https?:\/\//.test(v)) return fetchUrl(v)
+    if (v.startsWith('data:')) return Buffer.from(v.slice(v.indexOf(',') + 1), 'base64')
+    if (decimalBytes.test(v)) return Buffer.from(v.split(',').map((b) => parseInt(b, 10)))
+    return null
+  }
+
+  let buffer: Buffer | null = toBytes(output)
+  if (!buffer && typeof output === 'string') buffer = await fromString(output)
+  if (!buffer && output && typeof output === 'object' && !Array.isArray(output) && urlOf(output)) {
+    buffer = await fetchUrl(urlOf(output)!)
+  }
+  if (!buffer && Array.isArray(output) && output.length > 0) {
+    // A list of outputs: the first item is the image (or a chunk list).
+    const first = output[0]
+    buffer = toBytes(first) ?? (typeof first === 'string' ? await fromString(first) : null)
+    if (!buffer && urlOf(first)) buffer = await fetchUrl(urlOf(first)!)
+  }
+  if (!buffer && output && typeof output === 'object' && Symbol.asyncIterator in output) {
+    const bufs: Buffer[] = []
+    const strs: string[] = []
+    for await (const item of output as AsyncIterable<any>) {
+      const b = toBytes(item)
+      if (b) bufs.push(b)
+      else if (typeof item === 'string') strs.push(item)
+      else if (urlOf(item)) { buffer = await fetchUrl(urlOf(item)!); break }
+    }
+    if (!buffer && bufs.length) buffer = Buffer.concat(bufs)
+    if (!buffer && strs.length) {
+      const joined = strs.join(',')
+      buffer = decimalBytes.test(joined) ? Buffer.from(joined.split(',').map((b) => parseInt(b, 10))) : await fromString(strs[0])
+    }
+  }
+  if (!buffer || buffer.length === 0) throw new Error('No usable output from the image model')
+
+  // Decode gate: a shot that is not a real, reasonably sized image must fail
+  // here so the fallback/retry machinery sees it — never reach the uploader.
+  try {
+    const meta = await sharp(buffer).metadata()
+    if (!meta.width || !meta.height || meta.width < 256 || meta.height < 256) {
+      throw new Error(`image too small (${meta.width}x${meta.height})`)
+    }
+  } catch (err: any) {
+    throw new Error(`Generated shot is not a valid image (${buffer.length} bytes): ${err?.message || err}`)
+  }
+  return buffer
 }
 
 async function stockModelUrl(preferred: string): Promise<string> {
@@ -875,8 +954,13 @@ async function saveShotsState(productId: string, patch: Partial<EtsyShots>): Pro
     .eq('id', productId)
 }
 
-/** Everything a shoot needs off the product row — shared by full shoots and single reshoots. */
-async function loadShotContext(productId: string, userId: string) {
+/**
+ * Everything a shoot needs off the product row — shared by full shoots and
+ * single reshoots. `override.garment` lets a caller that already knows the
+ * garment (the Step Flow, via shootOneModelShot — which may run before
+ * metadata.product_type is even written) skip the metadata guess entirely.
+ */
+async function loadShotContext(productId: string, userId: string, override?: { garment?: GarmentId }) {
   const { data: product, error } = await supabase
     .from('products')
     .select('id, name, images, metadata, category')
@@ -896,6 +980,9 @@ async function loadShotContext(productId: string, userId: string) {
     ? (product as any).metadata.etsy_pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
     : []
 
+  const garment: GarmentId = override?.garment ?? normalizeGarment((product as any).metadata?.product_type) ?? 'tshirt'
+  const garmentNoun = getGarment(garment)?.noun ?? 'crew neck t-shirt'
+
   return {
     category: String((product as any).category || ''),
     colorFor: (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase(),
@@ -905,6 +992,7 @@ async function loadShotContext(productId: string, userId: string) {
       userId,
       placement: String((product as any).metadata?.print_placement || 'front-center'),
       sizeInches: Number((product as any).metadata?.print_size_inches) || 11,
+      garmentNoun,
       onStage: (stage: string) => saveShotsState(productId, { stage })
     } as ShotContext
   }
@@ -1124,6 +1212,119 @@ export async function reshootModelShot(
     console.error(`[etsy-shots] unhandled reshoot error for ${productId}:`, err)
   )
   return state
+}
+
+/**
+ * Render exactly ONE verified on-model shot and append it to
+ * `metadata.etsy_shots.images` — the Step Flow's `model` shot key (plan
+ * 2026-09-01-imagine-studio-step-flow-plan.md, Track A #4). Unlike
+ * `startModelShots` / `reshootModelShot`, this is AWAITED directly by its
+ * caller (a step-flow job renders one shot per call, not a two-shot casting
+ * session), so it does none of their "already generating" fire-and-forget
+ * bookkeeping — it renders, records, and returns.
+ *
+ * `opts.garment` lets the caller pass the garment before it's necessarily
+ * written to `metadata.product_type` yet (loadShotContext falls back to
+ * `normalizeGarment(metadata.product_type)` → 'tshirt' otherwise).
+ * `opts.shirtColor` overrides the product's/pack's color for this one shot.
+ * `opts.nonce` is folded into the shot key purely for log traceability across
+ * retries/redos — casting itself is already always fresh (see castShot).
+ * `opts.replaceUrl` (2026-09-01 review fix): on a Step Flow REDO, pass the
+ * PRIOR call's returned `url` here — the new shot replaces that entry
+ * in-place (images/checks/cast, all parallel arrays) instead of appending a
+ * new one, so a redo never piles up an extra — possibly QA-rejected — take
+ * for the Etsy uploader to find. Omit it for the first shoot (appends).
+ */
+export async function shootOneModelShot(
+  productId: string,
+  userId: string,
+  opts: {
+    shirtColor?: ColorId
+    garment?: GarmentId
+    cast?: ShotCast
+    nonce?: string
+    mirror?: boolean
+    replaceUrl?: string
+  } = {}
+): Promise<{ url: string; check: ShotCheck }> {
+  if (!process.env.OPENAI_API_KEY && !replicate) {
+    throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
+  }
+  const resolved = resolveCast(opts.cast)
+  const { colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
+
+  const member: CastMember = resolved[0] ?? (() => {
+    const a = pick(ARCHETYPES)
+    return { label: a.label, archetype: a, custom: null }
+  })()
+  const plan = castShot(`step-model${opts.nonce ? `-${opts.nonce}` : ''}`, member, pick(SCENES))
+  const shirtColor = opts.shirtColor ? (COLORS[opts.shirtColor]?.label.toLowerCase() ?? opts.shirtColor) : colorFor(0)
+
+  console.log(`[etsy-shots] ${productId} ${plan.key} (step-flow single shot) cast: ${plan.signature} [slate ${plan.variant}]`)
+  const { url, check } = await renderVerifiedShot(plan, shirtColor, ctx)
+
+  // Re-read at write time (same pattern as reshootOne/saveShotsState).
+  const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
+  const metadata = (fresh as any)?.metadata || {}
+  const current: EtsyShots | undefined = metadata.etsy_shots
+  const priorImages = current?.images ?? []
+  const priorChecks = current?.checks ?? []
+  const priorCast = current?.cast ?? []
+  const priorStepModel = current?.stepModel ?? []
+
+  // A redo REPLACES its own prior slot (by URL) instead of appending — see
+  // opts.replaceUrl's doc comment above.
+  const replaceAt = opts.replaceUrl ? priorImages.indexOf(opts.replaceUrl) : -1
+
+  let images: string[]
+  let checks: ShotCheck[]
+  let cast: string[]
+  let stepModel: boolean[]
+  if (replaceAt >= 0) {
+    images = [...priorImages]
+    images[replaceAt] = url
+    checks = [...priorChecks]
+    checks[replaceAt] = check
+    cast = [...priorCast]
+    cast[replaceAt] = plan.label
+    stepModel = [...priorStepModel]
+    stepModel[replaceAt] = true
+  } else {
+    images = [...priorImages, url]
+    checks = [...priorChecks, check]
+    cast = [...priorCast, plan.label]
+    stepModel = [...priorStepModel]
+    stepModel[images.length - 1] = true
+  }
+
+  const { error: updErr } = await supabase
+    .from('products')
+    .update({
+      metadata: {
+        ...metadata,
+        etsy_shots: {
+          ...(current ?? { status: 'done', images: [] }),
+          // Create fresh as 'done' (a single awaited shot is already a
+          // finished result); if the object already existed, leave its
+          // status exactly as it was rather than assuming a state.
+          status: current?.status ?? 'done',
+          images,
+          checks,
+          cast,
+          stepModel,
+          generated_at: new Date().toISOString(),
+        },
+      },
+    })
+    .eq('id', productId)
+  if (updErr) throw new Error(`Failed to record the step-flow model shot: ${updErr.message}`)
+
+  // Mirroring is opt-in here. mirrorShotsToProductAssets assigns roles by
+  // POSITION over the whole accumulated etsy_shots.images, so a caller that
+  // also writes its own mockup_model_1 row (the step flow does, per redo)
+  // would end up with the same shot under two roles. The caller owns the row.
+  if (opts.mirror) await mirrorShotsToProductAssets(productId, images, checks)
+  return { url, check }
 }
 
 // Kick off generation in the background. Returns immediately; the panel polls
