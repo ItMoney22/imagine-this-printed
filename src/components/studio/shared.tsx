@@ -81,13 +81,18 @@ export const InlineError: React.FC<{ message: string | null }> = ({ message }) =
     <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">{message}</div>
   ) : null
 
-/** The six-hex step tracker, click-to-navigate to any already-reachable step. */
+/** The six-hex step tracker, click-to-navigate to any already-reachable step.
+ *  `labelOverrides` lets a caller rename a hex without touching the shared
+ *  `STEP_LABELS` map — used for the Garments hex, which reads "Sizes" on a
+ *  metal print (design doc §14) but "Garment & Color" everywhere else. */
 export const HexTracker: React.FC<{
   step: StepId
   canReach: (step: StepId) => boolean
   onSelect: (step: StepId) => void
-}> = ({ step, canReach, onSelect }) => {
+  labelOverrides?: Partial<Record<StepId, string>>
+}> = ({ step, canReach, onSelect, labelOverrides }) => {
   const activeIndex = STEP_ORDER.indexOf(step)
+  const labelFor = (s: StepId) => labelOverrides?.[s] ?? STEP_LABELS[s]
   return (
     <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
       {STEP_ORDER.map((s, i) => {
@@ -109,7 +114,7 @@ export const HexTracker: React.FC<{
               onClick={() => clickable && onSelect(s)}
               disabled={!clickable}
               className="flex flex-col items-center gap-1.5 disabled:cursor-default"
-              title={reachable ? STEP_LABELS[s] : `Finish the previous step to unlock ${STEP_LABELS[s]}`}
+              title={reachable ? labelFor(s) : `Finish the previous step to unlock ${labelFor(s)}`}
             >
               <div
                 className={
@@ -126,7 +131,7 @@ export const HexTracker: React.FC<{
                 {done ? <Check className="w-5 h-5" /> : <span className="text-xs font-bold uppercase tracking-wide">{i + 1}</span>}
               </div>
               <span className={`text-[10px] md:text-xs uppercase tracking-widest text-center ${isActive ? 'text-primary font-bold' : done ? 'text-text' : 'text-muted'}`}>
-                {STEP_LABELS[s]}
+                {labelFor(s)}
               </span>
             </button>
           </React.Fragment>

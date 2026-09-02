@@ -8,13 +8,15 @@ import type { AIProductCreationRequest, AIProductCreationResponse } from '../../
 import type { SelectedInspiration, StepBrief } from './types'
 
 // The create route's typed request doesn't know about takes/stepFlow yet, and
-// its `background`/`category` unions predate this flow's 'white'|'black'
-// solid-background render and the catalog-capability 't-shirts' category id —
-// extending it locally here keeps src/types/index.ts untouched, which is
-// outside this track's file ownership this round.
-export type StepFlowCreateRequest = Omit<AIProductCreationRequest, 'background' | 'category'> & {
+// its `background`/`category`/`productType` unions predate this flow's
+// 'white'|'black' solid-background render, the catalog-capability
+// 't-shirts' category id, and metal prints (design doc §14) — extending it
+// locally here keeps src/types/index.ts untouched, which is outside this
+// track's file ownership this round.
+export type StepFlowCreateRequest = Omit<AIProductCreationRequest, 'background' | 'category' | 'productType'> & {
   background?: 'white' | 'black'
   category?: AIProductCreationRequest['category'] | 't-shirts'
+  productType?: AIProductCreationRequest['productType'] | 'metal-art'
   takes?: 1 | 2 | 3
   stepFlow?: { idea: string; brief: StepBrief; inspiration?: SelectedInspiration }
 }
@@ -24,15 +26,17 @@ export function buildStepFlowCreateRequest(
   brief: StepBrief,
   inspiration?: SelectedInspiration
 ): StepFlowCreateRequest {
+  const isMetal = brief.productKind === 'metal'
   return {
     prompt: brief.designPrompt,
     modelId: 'openai/gpt-image-2',
     forceSingleModel: true,
     takes: 1,
     background: brief.background,
-    productType: brief.garmentHint,
-    shirtColor: brief.background === 'white' ? 'black' : 'white',
-    category: brief.garmentHint === 'hoodie' ? 'hoodies' : 't-shirts',
+    productType: isMetal ? 'metal-art' : brief.garmentHint,
+    // Metal prints have no shirt to color — only sent for garment kind.
+    ...(isMetal ? {} : { shirtColor: brief.background === 'white' ? 'black' : 'white' }),
+    category: isMetal ? 'metal-art' : brief.garmentHint === 'hoodie' ? 'hoodies' : 't-shirts',
     stepFlow: { idea, brief, ...(inspiration ? { inspiration } : {}) },
   }
 }

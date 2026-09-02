@@ -12,6 +12,7 @@ import type {
   InspirationBreakdown,
   InspirationChoices,
   InspirationQuestion,
+  LetteringStyleId,
   Phrase,
   PrintAdvice,
   PrintAdviceStats,
@@ -31,6 +32,7 @@ import type {
   StepFlowGetResponse,
   StepFlowJob,
   StepFlowMeta,
+  StepFlowProductKind,
   StepFlowProductSnapshot,
   SuggestedPrintOptions,
 } from '../../lib/api'
@@ -44,6 +46,7 @@ export type {
   InspirationBreakdown,
   InspirationChoices,
   InspirationQuestion,
+  LetteringStyleId,
   Phrase,
   PrintAdvice,
   PrintAdviceStats,
@@ -63,6 +66,7 @@ export type {
   StepFlowGetResponse,
   StepFlowJob,
   StepFlowMeta,
+  StepFlowProductKind,
   StepFlowProductSnapshot,
   SuggestedPrintOptions,
 }

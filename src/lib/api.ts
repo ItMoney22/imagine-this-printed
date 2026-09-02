@@ -8,6 +8,7 @@ import type {
   ProductTrendSource,
   SimpleWordPhraseResponse,
 } from '../types'
+import type { MetalArtSizeKey } from '../../backend/shared/metal-art'
 
 export const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : '')
 
@@ -486,11 +487,42 @@ export type StepFlowColorId =
   | 'forest-green'
   | 'royal-blue'
 
+/** Garment (tee/hoodie, DTF) vs. metal print — design doc §14. Chosen on the
+ *  Idea step's product-kind chip row before the brief is written; drives
+ *  what `select-design`/mockups/the Garments-or-Sizes step do. Declared here
+ *  as its own wire-format union (not imported from
+ *  `backend/shared/metal-art`, which has no notion of "garment") so the two
+ *  non-metal kinds stay spelled out where the rest of this file's ids live. */
+export type StepFlowProductKind = 'garment' | 'metal'
+
+/** One lettering style id — mirrors `backend/shared/lettering-styles.ts`'s
+ *  `LETTERING_STYLES` ids exactly (design doc §16). Declared locally, the
+ *  same way `StepFlowGarmentId`/`StepFlowColorId` above are, rather than
+ *  imported from the shared module — this file stays a plain wire-format
+ *  contract; the richer style objects (label/prompt/preview font) are read
+ *  straight from `backend/shared/lettering-styles` by the picker UI. */
+export type LetteringStyleId =
+  | 'graffiti'
+  | 'varsity'
+  | 'brush-script'
+  | 'chrome-3d'
+  | 'retro-70s'
+  | 'distressed'
+  | 'heavy-sans'
+  | 'blackletter'
+  | 'bubble-comic'
+  | 'neon-tube'
+  | 'western'
+
 /** A phrase pitched by Mrs. Imagine (or typed by hand) attached to a brief —
- *  mirrors the `phrase` body field `POST /step/brief` accepts. */
+ *  mirrors the `phrase` body field `POST /step/brief` accepts. `style` is
+ *  the lettering style picked on the Idea step's "How should the words
+ *  look?" grid; `'auto'` means "let Mrs. Imagine pick" (also the default for
+ *  hand-typed text, which has no `suggestedStyle` to default from). */
 export interface SelectedPhrase {
   text: string
   placement: 'below' | 'above' | 'integrated'
+  style?: LetteringStyleId | 'auto'
 }
 
 /** Mrs. Imagine's read on an uploaded/pasted reference image —
@@ -557,6 +589,11 @@ export interface StepBrief {
    *  keep/change choices) this brief was written from, when the Idea step
    *  started from an inspiration upload. Absent otherwise. */
   inspiration?: SelectedInspiration
+  /** Garment vs. metal print (design doc §14) — echoes the `productKind`
+   *  sent to `POST /step/brief`. Optional/absent means 'garment': every
+   *  draft born before this field existed, and every plain tee/hoodie brief,
+   *  reads the same as before. */
+  productKind?: StepFlowProductKind
 }
 
 /** One phrase Mrs. Imagine pitches for an idea — `POST /step/phrases`. */
@@ -565,9 +602,22 @@ export interface Phrase {
   vibe: string
   placement: 'below' | 'above' | 'integrated'
   reason: string
+  /** The lettering style Mrs. Imagine thinks fits this phrase best — defaults
+   *  the Idea step's style picker (design doc §16). Absent on older backend
+   *  responses; the picker falls back to `'auto'`. */
+  suggestedStyle?: LetteringStyleId
 }
 
-export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}`
+export type ShotKey =
+  | 'product'
+  | 'hanger'
+  | 'model'
+  | 'details'
+  | `color:${string}`
+  // Metal print scenes (design doc §14) — one per approved size, e.g.
+  // `scene:4x6`, `scene:8x10`. Never fired alongside product/hanger/model/
+  // color:* — a product is either a garment or a metal print, never both.
+  | `scene:${string}`
 
 export interface ShotState {
   jobId?: string
@@ -659,8 +709,17 @@ export interface StepFlowMeta {
   // flow (e.g. the Admin editor's "Continue in Step Flow" deep link on a
   // classic-wizard product) — every reader must be null-safe.
   brief: StepBrief | null
+  /** Garment vs. metal print (design doc §14) — also mirrored on
+   *  `brief.productKind` once a brief exists; this top-level copy is what
+   *  `GET /:id/step` returns so a resumed metal draft restores its kind
+   *  before/without re-reading the brief. Absent/undefined means 'garment'. */
+  productKind?: StepFlowProductKind
   garment?: StepFlowGarmentId
   colors?: { primary: StepFlowColorId; extras: StepFlowColorId[] }
+  /** Metal print sizes approved on the Sizes step (`POST /:id/step/sizes`) —
+   *  the metal analogue of `colors` above. Absent until that step is
+   *  approved. */
+  sizes?: MetalArtSizeKey[]
   advice?: ColorAdvice[]
   shots: Partial<Record<ShotKey, ShotState>>
   approvals: StepFlowApprovals
@@ -734,15 +793,22 @@ async function stepFlowRequest(path: string, init: RequestInit = {}) {
 
 export const stepFlow = {
   /** POST /api/admin/products/ai/step/brief — idea (+ optional phrase, +
-   *  optional pinned inspiration) → best-prompt brief. Runs before a product
-   *  exists. */
-  brief: (idea: string, phrase?: SelectedPhrase, inspiration?: SelectedInspiration): Promise<{ brief: StepBrief }> =>
+   *  optional pinned inspiration, + optional product kind) → best-prompt
+   *  brief. Runs before a product exists. `productKind` defaults server-side
+   *  to 'garment' when omitted. */
+  brief: (
+    idea: string,
+    phrase?: SelectedPhrase,
+    inspiration?: SelectedInspiration,
+    productKind?: StepFlowProductKind
+  ): Promise<{ brief: StepBrief }> =>
     stepFlowRequest('/api/admin/products/ai/step/brief', {
       method: 'POST',
       body: JSON.stringify({
         idea,
         ...(phrase ? { phrase } : {}),
         ...(inspiration ? { inspiration } : {}),
+        ...(productKind ? { productKind } : {}),
       }),
     }),
 
@@ -800,6 +866,15 @@ export const stepFlow = {
     stepFlowRequest(`/api/admin/products/ai/${productId}/step/garments`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  /** Metal print analogue of `garments` — approves the sizes this listing
+   *  ships in and stamps `approvals.garments` (design doc §14). At least one
+   *  size is required server-side. */
+  sizes: (productId: string, sizes: MetalArtSizeKey[]): Promise<{ step_flow: StepFlowMeta }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/sizes`, {
+      method: 'POST',
+      body: JSON.stringify({ sizes }),
     }),
 
   /** Fires mockup jobs. Omit `keys` to queue every key for the approved garment/colors. */

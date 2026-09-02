@@ -34,6 +34,13 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
   const nobgAsset = useMemo(() => getNobgAsset(state), [state.assets])
   const selectedAssetId = state.assets.find((a) => a.is_primary && a.kind === 'source')?.id ?? null
 
+  // Metal prints (design doc §14): select-design never queues rembg — no
+  // nobg asset will EVER exist — so the "locked in, no more tries" signal
+  // has to be the design approval stamp itself (which the backend sets
+  // synchronously at select-design time for metal) instead of nobgAsset.
+  const isMetal = state.productKind === 'metal'
+  const designLocked = isMetal ? !!state.stepFlow?.approvals?.design : !!nobgAsset
+
   const designJob = [...state.jobs]
     .filter((j) => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && (j.status === 'queued' || j.status === 'running'))
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
@@ -109,9 +116,11 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
     <StepCard>
       <h2 className="text-xl font-bold text-text mb-1">Pick your design</h2>
       <p className="text-sm text-muted mb-4">
-        {state.stepFlow?.brief?.background
-          ? `On a solid ${state.stepFlow.brief.background} background — the background is stripped once you approve.`
-          : 'The background is stripped once you approve.'}
+        {isMetal
+          ? 'Fills the whole panel edge to edge.'
+          : state.stepFlow?.brief?.background
+            ? `On a solid ${state.stepFlow.brief.background} background — the background is stripped once you approve.`
+            : 'The background is stripped once you approve.'}
       </p>
 
       {isGenerating && candidates.length === 0 && (
@@ -137,7 +146,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
                 key={c.assetId}
                 className={`rounded-xl border overflow-hidden ${isSelected ? 'border-primary ring-2 ring-primary/40' : 'border-border-subtle'}`}
               >
-                <div className="aspect-square bg-card-elevated">
+                <div className={`${isMetal ? 'aspect-[3/4]' : 'aspect-square'} bg-card-elevated`}>
                   <img src={c.url} alt={c.label ?? 'Design take'} className="w-full h-full object-contain" />
                 </div>
                 <div className="p-2">
@@ -161,7 +170,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
         </div>
       )}
 
-      {candidates.length > 0 && !nobgAsset && (
+      {candidates.length > 0 && !designLocked && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <SecondaryButton onClick={handleTryAnother} disabled={regenerating}>
             {regenerating ? <BusyDot className="w-2 h-2" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -175,7 +184,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
           </SecondaryButton>
         </div>
       )}
-      {candidates.length > 0 && !nobgAsset && !state.stepFlow?.brief && (
+      {candidates.length > 0 && !designLocked && !state.stepFlow?.brief && (
         <p className="text-[11px] text-muted mt-1.5">
           Tweak isn't available for a draft opened outside the Idea step — there's no prompt to edit.
         </p>
@@ -196,7 +205,15 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
         </div>
       )}
 
-      {selectedAssetId && (
+      {selectedAssetId && isMetal && designLocked && (
+        <div className="mt-6 border-t border-border-subtle pt-4">
+          <ApproveButton onClick={() => dispatch({ type: 'GO_TO_STEP', step: 'garments' })}>
+            Approve design
+          </ApproveButton>
+        </div>
+      )}
+
+      {selectedAssetId && !isMetal && (
         <div className="mt-6 border-t border-border-subtle pt-4">
           {rembgInFlight ? (
             <div className="py-6 px-2 sm:px-6">
