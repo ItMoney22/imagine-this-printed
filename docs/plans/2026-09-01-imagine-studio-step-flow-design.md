@@ -353,3 +353,17 @@ support `is_personalizable`, `personalization_instructions` and
 transaction and flows into the same order line. Open questions for David: which
 fonts/colours the customer may pick, whether number-only products exist, and
 whether personalized items are excluded from the bundle deal.
+
+## 16. Lettering styles for phrases (David, 2026-09-02)
+
+"when in the step flow and i ask for a phrase can there be examples of how i
+want the font to look because it only generates plain font." One shared list
+`backend/shared/lettering-styles.ts` (id, label, prompt descriptor, preview
+Google font + CSS). After a phrase is chosen, the Idea step shows the phrase
+rendered in each style as real web-font tiles (no image generation, instant):
+graffiti, varsity, brush script, chrome/3D, retro 70s, distressed, heavy sans,
+blackletter, bubble/comic, neon tube, western, "let Mrs. Imagine pick". Each
+phrase Mrs. Imagine pitches carries a `suggestedStyle`. The brief's exact-text
+instruction becomes "Render the exact text "…" in <descriptor> lettering …" so
+GPT Image 2 draws that lettering itself. `SelectedPhrase.style` is stored in
+`step_flow.brief.phrase.style`.
