@@ -38,19 +38,37 @@ interface MockupStepProps {
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
 }
 
-/** Every shot key the approved garment/colors should have — product, hanger,
- *  model, details, plus one `color:<id>` per approved extra color. Used to
- *  compute what's still missing so a color added after the first mockup
- *  shoot (Garments → back → add a color → re-approve) still gets its shot
- *  fired instead of silently never appearing. */
-function expectedShotKeys(stepFlow: StepFlowMeta | null): ShotKey[] {
+const SCENE_LABEL: Record<string, string> = {
+  '4x6': '4×6 on a desk',
+  '8x10': '8×10 on the wall',
+  '8x11': '8×11 on the wall',
+}
+
+/** Every shot key the approved garment/colors — or, for a metal print
+ *  (design doc §14), the approved sizes — should have.
+ *  Garment: product, hanger, model, details, plus one `color:<id>` per
+ *  approved extra color.
+ *  Metal: one `scene:<size>` per approved size, plus details — never
+ *  product/hanger/model/color:* (no on-person shot, no garment colors).
+ *  Used to compute what's still missing so a change after the first mockup
+ *  shoot (back to Garments/Sizes, add/change a selection, re-approve) still
+ *  gets its shot fired instead of silently never appearing. Exported (same
+ *  pattern as IdeaStep's PhraseChips / PrintPrepPanel's RecommendationBadge)
+ *  so the metal/garment key sets can be unit-tested directly. */
+export function expectedShotKeys(stepFlow: StepFlowMeta | null, productKind: 'garment' | 'metal'): ShotKey[] {
+  if (productKind === 'metal') {
+    const sizes = stepFlow?.sizes ?? []
+    const keys: ShotKey[] = sizes.map((size) => `scene:${size}` as ShotKey)
+    keys.push('details')
+    return keys
+  }
   const keys: ShotKey[] = ['product', 'hanger', 'model', 'details']
   const extras = stepFlow?.colors?.extras ?? []
   for (const colorId of extras) keys.push(`color:${colorId}` as ShotKey)
   return keys
 }
 
-const shotLabel = (key: ShotKey): string => {
+export const shotLabel = (key: ShotKey): string => {
   if (key === 'product') return 'Product shot'
   if (key === 'hanger') return 'On a hanger'
   if (key === 'model') return 'On a person'
@@ -58,6 +76,10 @@ const shotLabel = (key: ShotKey): string => {
   if (key.startsWith('color:')) {
     const id = key.slice('color:'.length)
     return `Extra color — ${COLORS[id as keyof typeof COLORS]?.label ?? id}`
+  }
+  if (key.startsWith('scene:')) {
+    const size = key.slice('scene:'.length)
+    return SCENE_LABEL[size] ?? `Scene — ${size}`
   }
   return key
 }
@@ -101,7 +123,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   // `color:<id>`.
   useEffect(() => {
     if (!state.productId) return
-    const expected = expectedShotKeys(state.stepFlow)
+    const expected = expectedShotKeys(state.stepFlow, state.productKind)
     const present = new Set(Object.keys(shots) as ShotKey[])
     const missing = expected.filter((key) => !present.has(key) && !requestedKeysRef.current.has(key))
     if (missing.length === 0) return
@@ -122,7 +144,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
       })
       .finally(() => setFiring(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.productId, state.stepFlow?.colors, shots])
+  }, [state.productId, state.productKind, state.stepFlow?.colors, state.stepFlow?.sizes, shots])
 
   const handleApprove = async (key: ShotKey, shot: ShotState) => {
     if (!state.productId || !shot.assetId) return
@@ -232,7 +254,11 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
           </SecondaryButton>
         )}
       </div>
-      <p className="text-sm text-muted mb-4">Product shot, hanger, on-person, details card — and one per extra color.</p>
+      <p className="text-sm text-muted mb-4">
+        {state.productKind === 'metal'
+          ? 'A true-to-scale scene for each size, plus a details card.'
+          : 'Product shot, hanger, on-person, details card — and one per extra color.'}
+      </p>
 
       {firing && entries.length === 0 && (
         <div className="py-8 px-2 sm:px-8">

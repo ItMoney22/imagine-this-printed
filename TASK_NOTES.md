@@ -470,6 +470,16 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
 - `backend/worker/*` only for the template→asset_role mapping
 - `src/pages/AdminAIProductBuilder.tsx`, `src/components/studio/*` (new),
   `src/lib/api.ts` (stepFlow namespace), `src/lib/product-gallery.ts` (ROLE_ORDER)
+- 2026-09-02 metal pricing/gallery fix (David: "$25 ... same price for 4x6 and
+  8x10, no add-ons, main image missing"): `backend/shared/metal-art.ts` (+ test,
+  size/price helpers), `backend/shared/product-gallery.ts` (METAL_ROLE_ORDER),
+  `backend/services/order-pricing.ts` (+ test), `backend/services/step-flow/shots.ts`
+  (+ test), `backend/routes/admin/ai-products-step-flow.ts` (+ test),
+  `src/lib/product-kind.ts` (+ test), `src/context/CartContext.tsx`,
+  `src/pages/{ProductPage,Cart,Checkout,AdminDashboard}.tsx`,
+  `src/components/{ProductCard,FloatingCart}.tsx`,
+  `src/components/mr-imagine/MrImagineCartNotification.tsx`,
+  `src/components/admin/AdminProductEditModal.tsx`, `src/components/studio/ListingStep.tsx`
 - `src/pages/AdminDashboard.tsx` (Products tab/modal), `src/components/admin/AdminProductEditModal.tsx`,
   `src/components/admin/ImageLightbox.tsx` (new)
 - `TASK_NOTES.md`
@@ -557,6 +567,58 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
   PLACEHOLDER prices. Specced, not built: metal prints in the Step Flow (§14)
   and customer personalization + Etsy personalization (§15, three questions
   for David). Not done: the 32 live catalog metal rows still carry $48–$75.
+- 2026-09-02 (third wave) — **Metal prints lane** (design doc §14): product-kind
+  chip Tee/Hoodie/Metal print; metal briefs are full-bleed 2:3 wall art
+  (gpt-image-2 at 1024×1536), no rembg, Sizes step (4x6 / 8x10 priced from
+  `backend/shared/metal-art.ts`, `POST /:id/step/sizes`), shots `scene:4x6`
+  (desk, `metal_shelf`) + `scene:8x10` (wall, `metal_wall`) + a metal details
+  card; gallery roles `mockup_metal_8x10`/`mockup_metal_4x6`. Found a real
+  worker bug on the way: `productMeta.metal_size` outranked `job.input.metalSize`,
+  so both scenes would have rendered at one size — job-first now. **Lettering
+  styles** (§16): `backend/shared/lettering-styles.ts` (11 styles, Google-font
+  previews, prompt descriptors); the phrase block renders the chosen phrase in
+  every style as real web-font tiles, Mrs. Imagine suggests one per phrase, and
+  the brief's exact-text instruction carries the descriptor — David: "it only
+  generates plain font ... looks crappy". **Hero video**: the old prompt asked
+  the fabric to change colour mid-turn; now it animates the approved on-person
+  shot with garment colour + print locked and an open-jacket styling 1 in 3.
+- 2026-09-02 (fourth wave) — **Metal print flow fixed end to end** after David
+  walked the first one through (Golden Gate, `8317bae1`) and got a $25 price,
+  no artwork in the gallery, and 4x6/8x10 charging the same with no add-ons.
+  Root causes, all proven on the live row: (1) the Listing step seeds its draft
+  from the Etsy pack, whose `price` is the $25 **Etsy anchor**, and the publish
+  route wrote any positive client price → it overwrote the Sizes step's $8.95;
+  (2) the Step Flow never created the `design_watermarked` asset (only the
+  classic wizard's mockup fan-out did) and ROLE_ORDER puts the design last
+  anyway; (3) the Sizes step never wrote the `sizes` COLUMN, nothing read
+  `metadata.metal_prices`, every price reader (ProductPage, cart, floating cart,
+  checkout, server engine) used the flat `products.price`, and
+  `resolveProductAddons` only read `metadata.addons`, which the flow never set.
+  Also found on the way: `isPlusSize("4x6")` was TRUE on client AND server
+  ("4X" token), so every 4x6 metal print carried a hidden +$2.50. Fix: shared
+  helpers in `metal-art.ts` (`normalizeMetalSizeKey` 8x11→8x10, `metalSizesFor`,
+  `isMetalProductRow`); `METAL_ROLE_ORDER` (artwork first) + `buildProductGallery(assets, order)`;
+  select-design fires `createWatermarkedDesignAsset` for both kinds and publish
+  makes it synchronously if missing; publish IGNORES the client price for metal
+  and re-stamps price/sizes/metal_* from the shared table; sizes route writes the
+  column; `unitBasePrice(product, size)` in product-kind.ts is now the one
+  storefront answer (ProductPage chips carry prices, "from $8.95" on cards,
+  cart/checkout/floating cart/Mr. Imagine toast all use it); metal products
+  offer the whole add-on catalog by default; server `computeLineItemCents` prices
+  catalog metal by size via a new optional `fetchMetalProductIds` dep; plus-size
+  excludes metal sizes on both sides; Listing step shows locked per-size prices
+  instead of a price box for metal; admin SIZE_OPTIONS metal = 4x6/8x10.
+  VERIFIED: backend `tsc` + frontend `tsc` clean, `npm run build` OK, backend
+  suite 57 files / 845 tests green, frontend 17 / 287 green; re-published the
+  live Golden Gate row through the local branch backend sending `price:25` on
+  purpose → row is now $8.95, sizes [4x6, 8x10], images [watermarked art, wall,
+  desk, details]; real DB-backed `calculateOrderPricing` on that row: 4x6 +
+  8x10 + magnet kit = 3085¢ exactly; storefront on :5174 shows $8.95 → $16.95
+  on the 8x10 chip, six add-ons, item total $21.90 with the magnet kit.
+  NOT changed: the 32 legacy catalog metal rows still carry $48–75 in the
+  `price` column (display + charge now come from the table regardless — card
+  says "from $8.95"); Etsy variation prices stay env-driven
+  (`ETSY_METAL_PRICE_4X6/8X10`, default 25/45 anchors) — separate decision.
 
 ## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
 

@@ -32,6 +32,7 @@ import type {
   InspirationBreakdown,
   InspirationChoices,
   InspirationQuestion,
+  LetteringStyleId,
   PrintAdvice,
   PrintFile,
   PrintFileOptions,
@@ -43,6 +44,7 @@ import type {
   StepFlowGetResponse,
   StepFlowJob,
   StepFlowMeta,
+  StepFlowProductKind,
   StepFlowProductSnapshot,
   StepId,
   SuggestedPrintOptions,
@@ -58,6 +60,7 @@ export type {
   InspirationBreakdown,
   InspirationChoices,
   InspirationQuestion,
+  LetteringStyleId,
   PrintAdvice,
   PrintFile,
   PrintFileOptions,
@@ -69,6 +72,7 @@ export type {
   StepFlowGetResponse,
   StepFlowJob,
   StepFlowMeta,
+  StepFlowProductKind,
   StepFlowProductSnapshot,
   StepId,
   SuggestedPrintOptions,
@@ -97,6 +101,14 @@ export interface StepFlowState {
    *  reference image. Restored on HYDRATE from `stepFlow.brief.inspiration`
    *  so a resumed draft still shows its "Inspired by" chip. */
   inspiration: SelectedInspiration | null
+  /** Garment (tee/hoodie) vs. metal print (design doc §14) — set from the
+   *  Idea step's product-kind chip row before a product exists, and
+   *  reconciled from the server on every HYDRATE (`step_flow.productKind`,
+   *  or `brief.productKind` for an older/plain response) so a resumed metal
+   *  draft branches Design/Garments/Mockups correctly. Defaults to
+   *  'garment' — every product created before this field existed reads the
+   *  same as it always has. */
+  productKind: StepFlowProductKind
   loading: boolean
   error: string | null
 }
@@ -111,6 +123,7 @@ export const initialStepFlowState: StepFlowState = {
   idea: '',
   phrase: null,
   inspiration: null,
+  productKind: 'garment',
   loading: false,
   error: null,
 }
@@ -120,6 +133,7 @@ export type StepFlowAction =
   | { type: 'SET_IDEA'; idea: string }
   | { type: 'SET_PHRASE'; phrase: SelectedPhrase | null }
   | { type: 'SET_INSPIRATION'; inspiration: SelectedInspiration | null }
+  | { type: 'SET_PRODUCT_KIND'; productKind: StepFlowProductKind }
   | { type: 'PRODUCT_CREATED'; productId: string }
   /** advance:true jumps the visible step to the furthest one now reachable
    *  (an initial resume load, or right after the admin's own write/approve).
@@ -261,9 +275,16 @@ export function hasNonTerminalWork(state: Pick<StepFlowState, 'stepFlow' | 'asse
  * header): `design` uses the nobg asset alone (no approval fallback — it's
  * stamped too early to trust), `garments` and `listing` use a concrete
  * fallback signal alongside the approval string.
+ *
+ * Metal prints (design doc §14) are the one exception to the `design` rule:
+ * `select-design` never queues rembg for a metal product — no nobg asset
+ * will EVER exist — so waiting on it would strand a metal draft on the
+ * Design step forever. There the backend's `approvals.design` stamp IS
+ * trustworthy (nothing async is still running underneath it), so metal uses
+ * it directly instead of the nobg-asset signal.
  */
 export function canReachStep(
-  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs'>,
+  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs' | 'productKind'>,
   step: StepId
 ): boolean {
   const idx = STEP_ORDER.indexOf(step)
@@ -273,12 +294,13 @@ export function canReachStep(
     case 'idea':
       return !!state.productId
     case 'design':
+      if (state.productKind === 'metal') return !!approvals.design
       // No approvals.design fallback — see the file header. The nobg asset
       // landing is the only trustworthy signal that the background has
       // actually been stripped.
       return getNobgAsset(state) !== null
     case 'garments':
-      return !!approvals.garments || !!state.stepFlow?.garment
+      return !!approvals.garments || !!state.stepFlow?.garment || !!state.stepFlow?.sizes?.length
     case 'mockups':
       return !!approvals.mockups || areMockupsResolved(state)
     case 'listing':
@@ -289,7 +311,7 @@ export function canReachStep(
 }
 
 export function furthestReachableStep(
-  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs'>
+  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs' | 'productKind'>
 ): StepId {
   let result: StepId = 'idea'
   for (const step of STEP_ORDER) {
@@ -317,6 +339,9 @@ export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): S
     case 'SET_INSPIRATION':
       return { ...state, inspiration: action.inspiration }
 
+    case 'SET_PRODUCT_KIND':
+      return { ...state, productKind: action.productKind }
+
     case 'PRODUCT_CREATED': {
       const next = { ...state, productId: action.productId, loading: false, error: null }
       return { ...next, step: furthestReachableStep(next) }
@@ -335,6 +360,16 @@ export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): S
         // the "Inspired by" chip reappears instead of the admin losing track
         // of what the idea was started from.
         inspiration: action.response.step_flow?.brief?.inspiration ?? state.inspiration,
+        // Same resume treatment as inspiration above, for the phrase (+ its
+        // lettering style) that was actually baked into the design — a
+        // draft resumed past the Idea step still shows what text/style was
+        // rendered if the admin navigates back to review it.
+        phrase: action.response.step_flow?.brief?.phrase ?? state.phrase,
+        // Metal vs. garment (design doc §14) — prefer the top-level
+        // `step_flow.productKind` GET /:id/step returns; fall back to
+        // `brief.productKind` for a response that only carries it there;
+        // otherwise keep whatever the Idea step's chip already set.
+        productKind: action.response.step_flow?.productKind ?? action.response.step_flow?.brief?.productKind ?? state.productKind,
         loading: false,
         error: null,
       }

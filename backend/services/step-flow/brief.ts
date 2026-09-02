@@ -35,6 +35,12 @@
 import OpenAI from 'openai'
 import { normalizeGarment, type GarmentId } from '../../shared/catalog-capability.js'
 import { runCopyrightGate } from '../etsy-copyright-gate.js'
+import {
+  getLetteringStyle,
+  isLetteringStyleId,
+  DEFAULT_LETTERING_STYLE,
+  type LetteringStyleId,
+} from '../../shared/lettering-styles.js'
 import type { InspirationBreakdown } from './inspiration.js'
 
 // Matches ASCII control characters (C0 range + DEL). Built via RegExp(...)
@@ -46,9 +52,21 @@ const stripControlChars = (text: string): string =>
 
 export type PhrasePlacement = 'below' | 'above' | 'integrated'
 
+/** A product-kind hint (design doc §14): 'metal' switches the writing brain to full-bleed wall-art prompts instead of DTF garment art. Defaults to 'garment'. */
+export type StepProductKind = 'garment' | 'metal'
+
 export interface StepBriefPhrase {
   text: string
   placement: PhrasePlacement
+  /**
+   * Lettering style for the exact-text render instruction (design doc §16).
+   * A concrete id embeds that style's `prompt` descriptor; 'auto' lets the
+   * model pick a style that suits the artwork. Always populated once a
+   * phrase is coerced — an unrecognized/missing value coerces to
+   * DEFAULT_LETTERING_STYLE, the same "invalid input -> safe default"
+   * pattern `placement` already uses.
+   */
+  style?: LetteringStyleId | 'auto'
 }
 
 /** Provenance stamped on StepBrief when this design was seeded by an inspiration reference — the slim record, not the full breakdown (see StepFlowInspiration for that). */
@@ -68,14 +86,22 @@ export interface StepFlowInspiration {
 export interface StepBrief {
   /** The full prompt handed to gpt-image-2. */
   designPrompt: string
-  /** Solid render background — rembg strips it into a transparent PNG. */
+  /**
+   * Solid render background — rembg strips it into a transparent PNG.
+   * Metal briefs (productKind:'metal') carry a placeholder value here
+   * ('white') since metal art has no rembg step and no solid-background
+   * rule; downstream metal code paths never read it.
+   */
   background: 'white' | 'black'
   /** Working product title. */
   title: string
   styleTags: string[]
+  /** Placeholder ('tshirt') for metal briefs — unused downstream since metal has no Garments step. */
   garmentHint: GarmentId
   /** One sentence: why this background / style. */
   rationale: string
+  /** 'metal' switches the writing brain + downstream Step Flow routes to the wall-art lane (design doc §14). Defaults to 'garment'. */
+  productKind: StepProductKind
   /** The phrase David picked (from Mrs. Imagine's pitch, or typed himself), if any. */
   phrase?: StepBriefPhrase
   /** The inspiration reference this design was seeded from, if any (design doc §12: never a reproduction — see withInspiration below). */
@@ -97,14 +123,24 @@ export function sanitizePhraseText(raw: unknown, maxLen = 60): string {
     .slice(0, maxLen)
 }
 
-/** Coerces a loosely-typed `{ text, placement? }` body into a clean StepBriefPhrase, or undefined when there's nothing usable. */
+/** Coerces a loosely-typed `{ text, placement?, style? }` body into a clean StepBriefPhrase, or undefined when there's nothing usable. */
 function coercePhraseInput(input: unknown): StepBriefPhrase | undefined {
   if (!input || typeof input !== 'object') return undefined
   const text = sanitizePhraseText((input as any).text)
   if (!text) return undefined
   const placementRaw = (input as any).placement
   const placement: PhrasePlacement = placementRaw === 'above' || placementRaw === 'integrated' ? placementRaw : 'below'
-  return { text, placement }
+  const styleRaw = (input as any).style
+  const style: LetteringStyleId | 'auto' =
+    styleRaw === 'auto' ? 'auto' : isLetteringStyleId(styleRaw) ? styleRaw : DEFAULT_LETTERING_STYLE
+  return { text, placement, style }
+}
+
+/** The "in <style>" clause of the exact-text instruction (design doc §16). 'auto' lets the model pick a style that suits the artwork. */
+function letteringStyleClause(style: LetteringStyleId | 'auto' | undefined): string {
+  if (style === 'auto') return 'in a lettering style that matches the artwork'
+  const resolved = getLetteringStyle(style) ?? getLetteringStyle(DEFAULT_LETTERING_STYLE)!
+  return `in ${resolved.prompt}`
 }
 
 /**
@@ -113,7 +149,7 @@ function coercePhraseInput(input: unknown): StepBriefPhrase | undefined {
  * wording for the same phrase.
  */
 function phraseInstruction(phrase: StepBriefPhrase): string {
-  return `Render the exact text "${phrase.text}" in bold, clean, highly legible lettering, spelled exactly as written, placed ${phrase.placement} the subject, part of the artwork on the same solid background.`
+  return `Render the exact text "${phrase.text}" ${letteringStyleClause(phrase.style)}, spelled exactly as written, placed ${phrase.placement} the subject, part of the artwork on the same solid background.`
 }
 
 /** Appends the exact-text instruction to designPrompt (idempotent) and stamps `phrase` on the brief. */
@@ -275,6 +311,32 @@ Respond with STRICT JSON and nothing else, in exactly this shape:
 - "garmentHint": "tshirt" or "hoodie" — whichever the idea reads as more suited to; default "tshirt" when unclear.
 - "rationale": ONE sentence explaining why this background/style choice.`
 
+// Metal wall-art lane (design doc §14, David 2026-09-02) — a completely
+// different art direction from the DTF garment prompt above: a full-bleed
+// gallery scene that fills the panel edge to edge, not an isolated cut-out
+// subject on a solid background. No rembg step exists for metal (there is no
+// transparency to extract), so this system prompt asks for neither a
+// background color nor a garmentHint — StepBrief still carries placeholder
+// values for those fields (see coerceMetalBrief) purely for type-shape
+// stability; nothing downstream reads them for a metal product.
+const METAL_SYSTEM_PROMPT = `You are an art director for premium metal wall-art prints. Given a one-line idea, write the single best image-generation prompt for a museum-quality, full-bleed fine-art panel.
+
+HARD RULES for the prompt you write:
+1. A COMPLETE scene composed full-bleed, edge to edge, filling the entire frame — never an isolated cut-out subject floating on a background, never a logo/icon-style composition.
+2. Photographic or painterly realism, rich detail, considered lighting and color palette — we get realism throughout.
+3. Portrait 2:3 composition (the physical panel is portrait) — state this explicitly in designPrompt.
+4. NEVER describe a solid-color background, a checkerboard, transparency, a garment, a mockup, a frame, or a border — this is a complete standalone art image, not artwork isolated for later placement.
+5. NO text/words/letters in the design UNLESS the idea explicitly asks for text — if it does, spell the requested text out EXACTLY in the prompt.
+6. If the user content includes a design breakdown of a reference image ("This design takes inspiration from a reference image"), treat it ONLY as inspiration for style/composition/palette/mood — write an ORIGINAL design, never a reproduction, never include anything listed as FLAGGED, and explicitly state in designPrompt that this is an original artwork inspired by the reference, not a copy.
+
+Respond with STRICT JSON and nothing else, in exactly this shape:
+{"designPrompt": string, "title": string, "styleTags": string[], "rationale": string}
+
+- "designPrompt": the full prompt to hand to the image model — a complete, full-bleed, portrait 2:3 fine-art scene.
+- "title": a short working product title (max 80 chars).
+- "styleTags": 2-6 short style/vibe tags.
+- "rationale": ONE sentence explaining the art direction.`
+
 /** Strip ```json fences / stray prose and parse the first JSON object found. */
 function parseJsonLoose(raw: string | null | undefined): any {
   if (!raw) return null
@@ -309,6 +371,7 @@ export function fallbackBrief(idea: string): StepBrief {
     styleTags: [],
     garmentHint: 'tshirt',
     rationale: 'Fallback brief (writing brain unavailable): safe default of a white background and a tee.',
+    productKind: 'garment',
   }
 }
 
@@ -332,7 +395,50 @@ export function coerceBrief(idea: string, raw: any): StepBrief {
   const rationale =
     typeof raw.rationale === 'string' && raw.rationale.trim() ? raw.rationale.trim() : fb.rationale
 
-  return { designPrompt, background, title, styleTags, garmentHint, rationale }
+  return { designPrompt, background, title, styleTags, garmentHint, rationale, productKind: 'garment' }
+}
+
+/**
+ * Deterministic fallback for the metal wall-art lane (design doc §14) — used
+ * whenever the writing brain call fails for a metal brief. A full-bleed
+ * portrait scene description; never a solid-background/garment brief like
+ * fallbackBrief above.
+ */
+export function fallbackMetalBrief(idea: string): StepBrief {
+  const trimmed = (idea || '').trim() || 'a custom design'
+  return {
+    designPrompt: [
+      `${trimmed}.`,
+      'A complete, full-bleed fine-art scene composed edge to edge, filling the entire frame — not an isolated cut-out subject.',
+      'Photographic or painterly realism, rich detail, cinematic lighting and a considered color palette.',
+      'Portrait 2:3 composition, fills the frame — no border, no vignette, no letterboxing, no solid-color margin.',
+      'No garment, no mockup, no product in frame — standalone wall-art imagery only.',
+      'No text or lettering unless explicitly requested.',
+    ].join(' '),
+    background: 'white',
+    title: trimmed.slice(0, 80),
+    styleTags: [],
+    garmentHint: 'tshirt',
+    rationale: 'Fallback metal wall-art brief (writing brain unavailable): full-bleed portrait scene.',
+    productKind: 'metal',
+  }
+}
+
+/** Coerce a loosely-typed model reply into a well-formed metal StepBrief, falling back per-field. */
+export function coerceMetalBrief(idea: string, raw: any): StepBrief {
+  const fb = fallbackMetalBrief(idea)
+  if (!raw || typeof raw !== 'object') return fb
+
+  const designPrompt =
+    typeof raw.designPrompt === 'string' && raw.designPrompt.trim() ? raw.designPrompt.trim() : fb.designPrompt
+  const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim().slice(0, 80) : fb.title
+  const styleTags = Array.isArray(raw.styleTags)
+    ? raw.styleTags.filter((t: unknown): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, 8)
+    : []
+  const rationale =
+    typeof raw.rationale === 'string' && raw.rationale.trim() ? raw.rationale.trim() : fb.rationale
+
+  return { designPrompt, background: fb.background, title, styleTags, garmentHint: fb.garmentHint, rationale, productKind: 'metal' }
 }
 
 /**
@@ -354,12 +460,22 @@ export function coerceBrief(idea: string, raw: any): StepBrief {
  * denylisted term regardless of what the model produced (or whether the
  * model was reached at all), so the design can never read as a reproduction
  * on either the model-written path or the fallback path.
+ *
+ * `productKind` (design doc §14) switches the writing brain (and its
+ * fallback) to the metal wall-art lane — a full-bleed portrait scene
+ * instead of an isolated cut-out on a solid background. Defaults to
+ * 'garment' when omitted/unrecognized.
  */
-export async function writeStepBrief(idea: string, opts?: { phrase?: unknown; inspiration?: unknown }): Promise<StepBrief> {
+export async function writeStepBrief(
+  idea: string,
+  opts?: { phrase?: unknown; inspiration?: unknown; productKind?: unknown }
+): Promise<StepBrief> {
   const trimmed = (idea || '').trim()
   if (!trimmed) throw new Error('idea is required')
   const phrase = coercePhraseInput(opts?.phrase)
   const inspiration = coerceInspirationInput(opts?.inspiration)
+  const productKind: StepProductKind = opts?.productKind === 'metal' ? 'metal' : 'garment'
+  const isMetal = productKind === 'metal'
 
   let brief: StepBrief
   try {
@@ -372,17 +488,17 @@ export async function writeStepBrief(idea: string, opts?: { phrase?: unknown; in
     const completion = await client.chat.completions.create({
       model: MODEL,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: isMetal ? METAL_SYSTEM_PROMPT : SYSTEM_PROMPT },
         { role: 'user', content: userContent },
       ],
       ...(isReasoningModel ? { max_completion_tokens: 500 } : { temperature: 0.7, max_tokens: 500 }),
     })
     const raw = completion.choices[0]?.message?.content || ''
     const parsed = parseJsonLoose(raw)
-    brief = coerceBrief(trimmed, parsed)
+    brief = isMetal ? coerceMetalBrief(trimmed, parsed) : coerceBrief(trimmed, parsed)
   } catch (err: any) {
     console.warn('[step-flow/brief] writing brain call failed, using fallback:', err?.message || err)
-    brief = fallbackBrief(trimmed)
+    brief = isMetal ? fallbackMetalBrief(trimmed) : fallbackBrief(trimmed)
   }
 
   if (phrase) brief = withPhrase(brief, phrase)

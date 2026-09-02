@@ -13,6 +13,10 @@
 //   - Line subtotal for metal-art custom prints — from METAL_ART_PRICES_CENTS
 //     in backend/shared/metal-art.ts (the single source of truth also read by
 //     src/pages/MetalArtStudio.tsx).
+//   - Line subtotal for CATALOG metal prints (a UUID product whose row is
+//     metal-art) — ALSO from METAL_ART_PRICES_CENTS, keyed by the panel size
+//     the customer picked (fetchMetalProductIds tells this engine which ids
+//     are metal). `products.price` on a metal row is only its entry price.
 //   - Add-on prices (easel stand / wall mount / etc.) — from
 //     METAL_ADDONS_CENTS, also from backend/shared/metal-art.ts (mirrors
 //     src/lib/product-kind.ts METAL_ADDONS, which imports the same table).
@@ -70,7 +74,7 @@ import { supabase } from '../lib/supabase.js'
 import Stripe from 'stripe'
 import { getSheetPrice, SHEET_PRESETS, type PrintType } from '../config/imagination-presets.js'
 import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
-import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS } from '../shared/metal-art.js'
+import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normalizeMetalSizeKey } from '../shared/metal-art.js'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 
@@ -120,17 +124,15 @@ const GARMENT_TIER_UPCHARGE_CENTS: Record<string, number> = {
 const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
 const PLUS_SIZE_UPCHARGE_CENTS = 250
 
-// KNOWN PRE-EXISTING BUG, faithfully mirrored (not introduced or fixed here):
-// the substring match below false-positives a metal-art "4x6" print as a
-// plus size, because "4X" is one of the PLUS_SIZES tokens ("4x6".toUpperCase()
-// = "4X6", which .includes("4X")). That means a real 4x6 metal print is
-// currently overcharged $2.50 in production today, via this exact function in
-// src/pages/Checkout.tsx. Fixing it here without also fixing the client would
-// create a NEW client/server mismatch (this engine is the one enforcing the
-// 1-cent tolerance), so it is deliberately left matching the client's current
-// behavior. Flagged as a follow-up — see task handoff.
+// Plus-size is an APPAREL upcharge. The substring match used to false-positive
+// a metal-art "4x6" print as a plus size ("4x6".toUpperCase() = "4X6", which
+// .includes("4X")) and overcharge it $2.50 — FIXED 2026-09-02 together with
+// the client's copies (src/context/CartContext.tsx, src/pages/Checkout.tsx)
+// so the 1-cent client/server tolerance still holds: a metal panel size is
+// never a plus size.
 function isPlusSize(size?: string | null): boolean {
   if (!size) return false
+  if (normalizeMetalSizeKey(size)) return false
   const upper = size.toUpperCase()
   return PLUS_SIZES.some(ps => upper.includes(ps))
 }
@@ -278,6 +280,17 @@ export interface PricingDependencies {
    * and the flat plus-size + garment-tier upcharges are skipped for it.
    */
   fetchBlankPricing: (ids: string[]) => Promise<Map<string, BlankPricing>>
+  /**
+   * Returns the subset of catalog ids that are METAL PRINTS (category /
+   * metadata template, judged by backend/shared/metal-art.ts
+   * isMetalProductRow). A metal print's unit price is decided by the panel
+   * size the customer picked (METAL_ART_PRICES_CENTS), never by the flat
+   * `products.price` column — David 2026-09-02: 4x6 and 8x10 were charging
+   * the same because nothing server-side knew the row was metal. Optional
+   * so existing injected-deps callers/tests keep compiling; absent = no
+   * metal-aware pricing (flat catalog price), same as before.
+   */
+  fetchMetalProductIds?: (ids: string[]) => Promise<Set<string>>
   fetchDiscountCode: (code: string) => Promise<PricingDiscountCodeRow | null>
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
@@ -415,7 +428,8 @@ export function computeLineItemCents(
   item: PricingCartItem,
   productPriceMap: Map<string, number>,
   customItemPriceMap: Map<string, number> = new Map(),
-  blankPricingMap: Map<string, BlankPricing> = new Map()
+  blankPricingMap: Map<string, BlankPricing> = new Map(),
+  metalProductIds: Set<string> = new Set()
 ): { cents: number; errors: string[]; warnings: string[] } {
   const errors: string[] = []
   const warnings: string[] = []
@@ -441,7 +455,28 @@ export function computeLineItemCents(
       unitCents = Math.round(unitDollars * 100)
     }
   } else if (UUID_RE.test(id) && productPriceMap.has(id)) {
-    unitCents = Math.round(productPriceMap.get(id)! * 100)
+    if (metalProductIds.has(id)) {
+      // Catalog METAL PRINT: priced by the panel size picked, from the same
+      // locked table the storefront picker and the studio use — the flat
+      // `products.price` column is only the listing's entry price (its
+      // smallest size) and must not be charged for an 8x10. Legacy '8x11'
+      // rows normalize onto the 8x10 panel. A size that isn't a panel size
+      // at all is a hard error (same posture as the studio line below); a
+      // MISSING size falls back to the column price with a warning so a
+      // pre-existing cart line (or a quick-add with no size) still prices.
+      const sizeKey = normalizeMetalSizeKey(item.selectedSize)
+      const rawSize = String(item.selectedSize ?? '').trim()
+      if (sizeKey) {
+        unitCents = METAL_ART_PRICES_CENTS[sizeKey]
+      } else if (rawSize) {
+        errors.push(`Unknown metal-art print size "${rawSize}" for item ${id}`)
+      } else {
+        warnings.push(`Metal print ${id} has no size selected — charged at its listing price`)
+        unitCents = Math.round(productPriceMap.get(id)! * 100)
+      }
+    } else {
+      unitCents = Math.round(productPriceMap.get(id)! * 100)
+    }
   } else if (id.startsWith('metal-art-custom-')) {
     const sizeKey = String(item.selectedSize || '').toLowerCase()
     // METAL_ART_PRICES_CENTS is keyed by the closed MetalArtSizeKey union
@@ -490,7 +525,8 @@ export function computeSubtotalCents(
   items: PricingCartItem[],
   productPriceMap: Map<string, number>,
   customItemPriceMap: Map<string, number> = new Map(),
-  blankPricingMap: Map<string, BlankPricing> = new Map()
+  blankPricingMap: Map<string, BlankPricing> = new Map(),
+  metalProductIds: Set<string> = new Set()
 ): { subtotalCents: number; errors: string[]; warnings: string[] } {
   let subtotalCents = 0
   const errors: string[] = []
@@ -520,7 +556,7 @@ export function computeSubtotalCents(
       })
 
     if (!eligible) {
-      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap)
+      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
       subtotalCents += result.cents
       errors.push(...result.errors)
       warnings.push(...result.warnings)
@@ -815,6 +851,19 @@ const defaultDependencies: PricingDependencies = {
     return map
   },
 
+  async fetchMetalProductIds(ids: string[]) {
+    const metal = new Set<string>()
+    if (ids.length === 0) return metal
+    const { data, error } = await supabase.from('products').select('id, category, metadata').in('id', ids)
+    if (error) {
+      throw new Error(`Failed to load product kinds: ${error.message}`)
+    }
+    for (const row of data || []) {
+      if (row?.id != null && isMetalProductRow(row)) metal.add(String(row.id))
+    }
+    return metal
+  },
+
   async fetchDiscountCode(code: string) {
     const { data, error } = await supabase
       .from('discount_codes')
@@ -919,6 +968,8 @@ export async function calculateOrderPricing(
   // Blank garments (metadata.garment.blank) price off their own DB size ×
   // colour table — see fetchBlankPricing / backend/shared/blank-pricing.ts.
   const blankPricingMap = catalogIds.length > 0 ? await deps.fetchBlankPricing(catalogIds) : new Map<string, BlankPricing>()
+  const metalProductIds =
+    catalogIds.length > 0 && deps.fetchMetalProductIds ? await deps.fetchMetalProductIds(catalogIds) : new Set<string>()
 
   const customItems = input.items.filter(i => {
     const id = String(i.productId ?? '')
@@ -926,7 +977,7 @@ export async function calculateOrderPricing(
   })
   const customItemPriceMap = customItems.length > 0 ? await deps.fetchCustomItemPrices(customItems) : new Map<string, number>()
 
-  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap, blankPricingMap)
+  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
   errors.push(...subtotalResult.errors)
   warnings.push(...subtotalResult.warnings)
   const subtotalCents = subtotalResult.subtotalCents

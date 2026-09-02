@@ -4,13 +4,15 @@
 import React, { useRef, useState } from 'react'
 import { Mic, Square, Sparkles, ChevronDown, ChevronUp, RefreshCw, X } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
+import { getLetteringStyle } from '../../../backend/shared/lettering-styles'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
-import type { Phrase, StepBrief } from './types'
+import type { LetteringStyleId, Phrase, StepBrief } from './types'
 import { createStepFlowProduct } from './createStepFlowProduct'
 import { useVoiceDictation } from './useVoiceDictation'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import InspirationPanel from './InspirationPanel'
+import LetteringStylePicker from './LetteringStylePicker'
 
 // The writing brain's brief call is fast — a few seconds of GPT chat, not an
 // image render — so a short expected time is enough to keep the bar honest.
@@ -22,6 +24,21 @@ const PHRASE_EXPECTED_MS = 5000
 // phrases land — the backend's own `intro` (if it sends one) wins over this.
 const PHRASE_RESULTS_INTRO = 'Based on this prompt, you can add these phrases that will make this shirt POP.'
 const PHRASE_ASK_INTRO = "Want words on it? I'll pitch a few."
+
+/** The brief panel's "Text in the design: … · <style label>" line (design
+ *  doc §16) — 'auto'/undefined reads as the picker's own "let Mrs. Imagine
+ *  pick" copy rather than a specific style name, since nothing concrete was
+ *  chosen. */
+const letteringStyleLabel = (style: LetteringStyleId | 'auto' | undefined): string => {
+  if (!style || style === 'auto') return "Let Mrs. Imagine pick"
+  return getLetteringStyle(style)?.label ?? style
+}
+
+const PRODUCT_KIND_CHIPS: Array<{ value: 'tshirt' | 'hoodie' | 'metal'; label: string }> = [
+  { value: 'tshirt', label: 'T-Shirt' },
+  { value: 'hoodie', label: 'Hoodie' },
+  { value: 'metal', label: 'Metal print' },
+]
 
 /** One phrase chip — text + vibe tag, with a tap-to-reveal reason. Exported
  *  standalone (same pattern as PrintPrepPanel's RecommendationBadge) so it
@@ -83,6 +100,18 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const [phraseSkipped, setPhraseSkipped] = useState(false)
   const phraseStartedAtRef = useRef<number | null>(null)
 
+  // Product-kind chip (design doc §14) — tee/hoodie/metal print, above the
+  // idea box. Local UI state (not the reducer) since it's only a pre-brief
+  // preference: picking tee/hoodie hints `garmentHint` on the brief that
+  // comes back (overriding whatever the writing brain guessed on its own,
+  // since the admin already told us explicitly); picking metal is what
+  // actually flips `state.productKind` via SET_PRODUCT_KIND. Seeded from a
+  // resumed draft's brief so re-opening the Idea step to review shows the
+  // choice that was actually made.
+  const [kindChoice, setKindChoice] = useState<'tshirt' | 'hoodie' | 'metal'>(() =>
+    state.productKind === 'metal' ? 'metal' : (state.stepFlow?.brief?.garmentHint ?? 'tshirt')
+  )
+
   const {
     supported: voiceSupported,
     listening,
@@ -94,6 +123,11 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const idea = state.idea
   const phrase = state.phrase
   const inspiration = state.inspiration
+
+  const handleSelectKind = (kind: 'tshirt' | 'hoodie' | 'metal') => {
+    setKindChoice(kind)
+    dispatch({ type: 'SET_PRODUCT_KIND', productKind: kind === 'metal' ? 'metal' : 'garment' })
+  }
 
   const handleAskMrsImagine = async () => {
     if (!idea.trim() || askingPhrase) return
@@ -113,14 +147,18 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   }
 
   const handleSelectPhrase = (p: Phrase) => {
-    dispatch({ type: 'SET_PHRASE', phrase: { text: p.text, placement: p.placement } })
+    // Default the style picker to Mrs. Imagine's own suggestion for this
+    // phrase (design doc §16) — 'auto' when she didn't pitch one.
+    dispatch({ type: 'SET_PHRASE', phrase: { text: p.text, placement: p.placement, style: p.suggestedStyle ?? 'auto' } })
     setPhraseSkipped(false)
   }
 
   const handleAddCustomPhrase = () => {
     const text = customPhraseText.trim()
     if (!text) return
-    dispatch({ type: 'SET_PHRASE', phrase: { text, placement: 'below' } })
+    // Hand-typed text has no suggestedStyle to default from — 'auto' lets
+    // Mrs. Imagine pick, same as never touching the style grid at all.
+    dispatch({ type: 'SET_PHRASE', phrase: { text, placement: 'below', style: 'auto' } })
     setCustomPhraseText('')
     setPhraseSkipped(false)
   }
@@ -129,14 +167,23 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     dispatch({ type: 'SET_PHRASE', phrase: null })
   }
 
+  const handleSelectLetteringStyle = (style: LetteringStyleId | 'auto') => {
+    if (!phrase) return
+    dispatch({ type: 'SET_PHRASE', phrase: { ...phrase, style } })
+  }
+
   const handleWriteBrief = async () => {
     if (!idea.trim()) return
     setError(null)
     writingStartedAtRef.current = Date.now()
     setWritingBrief(true)
     try {
-      const { brief: newBrief } = await stepFlow.brief(idea.trim(), phrase ?? undefined, inspiration ?? undefined)
-      setBrief(newBrief)
+      const { brief: newBrief } = await stepFlow.brief(idea.trim(), phrase ?? undefined, inspiration ?? undefined, state.productKind)
+      // The product-kind chip is the admin's explicit choice — it wins over
+      // whatever garment the writing brain guessed from the idea text alone.
+      const resolvedBrief: StepBrief =
+        state.productKind === 'metal' ? newBrief : { ...newBrief, garmentHint: kindChoice === 'hoodie' ? 'hoodie' : 'tshirt' }
+      setBrief(resolvedBrief)
       setBriefOpen(true)
     } catch (err: any) {
       setError(err?.message || 'Failed to write the prompt')
@@ -168,6 +215,24 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     <StepCard>
       <h2 className="text-xl font-bold text-text mb-1">What do you want to make?</h2>
       <p className="text-sm text-muted mb-4">Type it, or speak it — one line is enough. Example: “hip-hop street monkey”.</p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {PRODUCT_KIND_CHIPS.map((chip) => (
+          <button
+            key={chip.value}
+            type="button"
+            onClick={() => handleSelectKind(chip.value)}
+            aria-pressed={kindChoice === chip.value}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+              kindChoice === chip.value
+                ? 'bg-gradient-to-r from-primary to-secondary text-white border-transparent'
+                : 'bg-card border-border-subtle text-text hover:border-primary/40'
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
 
       <InspirationPanel
         idea={idea}
@@ -211,16 +276,26 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
           phrase is chosen; disabled until there's an idea to pitch against. */}
       <div className="mt-4">
         {phrase ? (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs text-text">
-            <span className="font-semibold">Text on design:</span> “{phrase.text}”
-            <button
-              type="button"
-              onClick={handleRemovePhrase}
-              aria-label="Remove phrase"
-              className="text-muted hover:text-red-400"
-            >
-              <X className="w-3 h-3" />
-            </button>
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs text-text">
+              <span className="font-semibold">Text on design:</span> “{phrase.text}”
+              <button
+                type="button"
+                onClick={handleRemovePhrase}
+                aria-label="Remove phrase"
+                className="text-muted hover:text-red-400"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-text mb-2">How should the words look?</p>
+              <LetteringStylePicker
+                phraseText={phrase.text}
+                selected={phrase.style ?? 'auto'}
+                onSelect={handleSelectLetteringStyle}
+              />
+            </div>
           </div>
         ) : phraseSkipped ? (
           <button type="button" onClick={() => setPhraseSkipped(false)} className="text-xs text-muted underline">
@@ -337,7 +412,8 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
             <div className="space-y-3">
               {brief.phrase && (
                 <p className="text-xs text-text">
-                  <span className="font-semibold">Text in the design:</span> “{brief.phrase.text}”
+                  <span className="font-semibold">Text in the design:</span> “{brief.phrase.text}” ·{' '}
+                  {letteringStyleLabel(brief.phrase.style)}
                 </p>
               )}
               <div>
@@ -367,23 +443,32 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-wide text-muted block mb-1">Garment</label>
-                  <div className="inline-flex rounded-lg border border-border-subtle overflow-hidden">
-                    {(['tshirt', 'hoodie'] as const).map((g) => (
-                      <button
-                        key={g}
-                        type="button"
-                        onClick={() => updateBriefField('garmentHint', g)}
-                        className={`px-3 py-1.5 text-xs font-medium capitalize ${
-                          brief.garmentHint === g ? 'bg-primary text-white' : 'bg-card text-muted hover:text-text'
-                        }`}
-                      >
-                        {g === 'tshirt' ? 'T-Shirt' : 'Hoodie'}
-                      </button>
-                    ))}
+                {brief.productKind === 'metal' ? (
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wide text-muted block mb-1">Product</label>
+                    <span className="inline-flex px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-white">
+                      Metal print
+                    </span>
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wide text-muted block mb-1">Garment</label>
+                    <div className="inline-flex rounded-lg border border-border-subtle overflow-hidden">
+                      {(['tshirt', 'hoodie'] as const).map((g) => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => updateBriefField('garmentHint', g)}
+                          className={`px-3 py-1.5 text-xs font-medium capitalize ${
+                            brief.garmentHint === g ? 'bg-primary text-white' : 'bg-card text-muted hover:text-text'
+                          }`}
+                        >
+                          {g === 'tshirt' ? 'T-Shirt' : 'Hoodie'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               {brief.rationale && <p className="text-xs text-muted italic">{brief.rationale}</p>}
             </div>

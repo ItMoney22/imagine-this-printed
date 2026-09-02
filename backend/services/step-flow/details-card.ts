@@ -14,6 +14,13 @@ import sharp from 'sharp'
 import { supabase } from '../../lib/supabase.js'
 import { uploadFile } from '../gcs-storage.js'
 import { GARMENTS, getGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+import {
+  METAL_ART_SIZES,
+  METAL_ART_PRICES,
+  METAL_ADDONS,
+  STUDIO_SIZE_KEYS,
+  type MetalArtSizeKey,
+} from '../../shared/metal-art.js'
 
 const CARD_WIDTH = 1500
 const CARD_HEIGHT = 1500
@@ -130,6 +137,32 @@ function charsPerLine(fontSizePx: number, maxWidthPx: number): number {
 }
 
 /** Build the right-column SVG panel — title, DTF pitch, blank spec, size chart, care line. */
+
+/** Greedy word wrap into at most `maxLines` lines of `maxChars`; the last line is clamped with an ellipsis if text remains. */
+function wrapWords(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word
+    if (candidate.length <= maxChars || !current) {
+      current = candidate
+    } else {
+      lines.push(current)
+      current = word
+      if (lines.length === maxLines - 1) break
+    }
+  }
+  if (current) lines.push(current)
+  if (lines.length > maxLines) lines.length = maxLines
+  const consumed = lines.join(' ').length
+  if (consumed < text.length && lines.length === maxLines) {
+    const last = lines[maxLines - 1]
+    lines[maxLines - 1] = last.length > maxChars - 1 ? last.slice(0, maxChars - 1) + '\u2026' : last + '\u2026'
+  }
+  return lines
+}
+
 export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   const garment = getGarment(opts.garment) ?? GARMENTS[0]
   const chart = SIZE_CHARTS[garment.id]
@@ -335,6 +368,234 @@ export async function renderDetailsCard(opts: RenderDetailsCardOpts): Promise<Re
         template: 'step_flow_details_card',
         garment: opts.garment,
         color: opts.color,
+        generated_at: new Date().toISOString(),
+      },
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to save details card asset: ${error.message}`)
+
+  return { buffer, url: publicUrl, path: gcsPath, assetId: inserted.id }
+}
+
+// ---------------------------------------------------------------------------
+// Metal art variant (design doc §14) — same layout, big-type rules, and
+// square 1500x1500 output as the garment card above, but with metal-specific
+// copy: no DTF pitch, no S–3XL body chart, no "Fit"/"Print" garment rows.
+// Instead: an aluminum-panel pitch, a Panel/Sizes/Finish/Mounting spec block,
+// an inches+cm size table for the sizes actually offered, and a metal care
+// line ("Wipe with a soft cloth · Keep out of direct sun" — never washed).
+// ---------------------------------------------------------------------------
+
+export interface MetalDetailsCardTextOpts {
+  title: string
+  /** The sizes this listing actually offers (from step_flow.sizes) — drives both the "Sizes" spec row and the size table rows. */
+  sizes: MetalArtSizeKey[]
+}
+
+/** Build the right-column SVG panel for a metal print's details card. */
+export function buildMetalDetailsSvg(opts: MetalDetailsCardTextOpts): string {
+  const rawTitle = (opts.title || 'Custom Metal Print').trim() || 'Custom Metal Print'
+  const requested = opts.sizes && opts.sizes.length ? opts.sizes : STUDIO_SIZE_KEYS
+  const ordered = STUDIO_SIZE_KEYS.filter((s) => requested.includes(s))
+  const sizesForDisplay = ordered.length ? ordered : STUDIO_SIZE_KEYS
+
+  const contentX = CARD_MARGIN + TEXT_PAD
+  const contentWidth = RIGHT_WIDTH - 2 * (CARD_MARGIN + TEXT_PAD)
+
+  const nodes: string[] = [
+    `<rect width="100%" height="100%" fill="${BG_OFFWHITE}" />`,
+    `<rect x="${CARD_MARGIN}" y="${CARD_MARGIN}" width="${RIGHT_WIDTH - 2 * CARD_MARGIN}" height="${
+      CARD_HEIGHT - 2 * CARD_MARGIN
+    }" rx="${CARD_RADIUS}" ry="${CARD_RADIUS}" fill="${CARD_WHITE}" />`,
+  ]
+
+  let y = CARD_MARGIN + TEXT_PAD
+
+  const emit = (str: string, x: number, size: number, weight: number, fill: string) => {
+    if (size < MIN_FONT_SIZE) {
+      throw new Error(`details-card: attempted font-size ${size}px, below the ${MIN_FONT_SIZE}px floor`)
+    }
+    nodes.push(
+      `<text x="${x}" y="${y}" font-family="${FONT}" font-size="${size}" font-weight="${weight}" fill="${fill}">${escapeXml(
+        str
+      )}</text>`
+    )
+  }
+
+  // --- 1. Title — same 2-line-at-72px / 3-line-at-60px rule as the garment card.
+  const naturalAt72 = wrapText(rawTitle, charsPerLine(72, contentWidth), 999)
+  let titleSize = 72
+  let titleLines = naturalAt72
+  if (naturalAt72.length > 2) {
+    titleSize = 60
+    titleLines = wrapText(rawTitle, charsPerLine(titleSize, contentWidth), 3)
+  }
+  const titleLineHeight = Math.round(titleSize * 1.15)
+  for (const line of titleLines) {
+    y += titleLineHeight
+    emit(line, contentX, titleSize, 700, INK)
+  }
+
+  // --- 2. Aluminum-panel pitch + one-line benefit underneath.
+  y += 64
+  emit('Printed on aluminum', contentX, 40, 600, BRAND_PURPLE)
+  y += 40
+  emit('glossy, frameless, ready to display', contentX, 30, 400, MUTED)
+
+  // --- 3. Spec rows: Panel · Sizes · Finish · Mounting. The "Sizes" value is
+  // one clamped line (same rule every spec row uses — see clampLine below),
+  // so this uses the short size key ("4x6") rather than METAL_ART_SIZES's
+  // longer labelIn ("4 × 6\"") — the full inches/cm breakdown lives in the
+  // size table beneath, this row just needs to fit the price alongside it.
+  const sizesLabel = sizesForDisplay.map((s) => `${s} $${METAL_ART_PRICES[s].toFixed(2)}`).join(', ')
+  const SPEC_ROW_H = 64
+  const specRows: [string, string][] = [
+    ['Panel', 'Aluminum metal print'],
+    ['Sizes', sizesLabel],
+    ['Finish', 'Glossy'],
+  ]
+  for (const [label, rawValue] of specRows) {
+    y += SPEC_ROW_H
+    const labelWidthPx = label.length * 34 * 0.55
+    const valueBudgetPx = Math.max(60, contentWidth - labelWidthPx - 14)
+    const value = clampLine(rawValue, charsPerLine(34, valueBudgetPx))
+    nodes.push(
+      `<text x="${contentX}" y="${y}" font-family="${FONT}" font-size="34">` +
+        `<tspan fill="${MUTED}" font-weight="600">${escapeXml(label)}</tspan>` +
+        `<tspan fill="${INK}" font-weight="400" dx="14">${escapeXml(value)}</tspan>` +
+        `</text>`
+    )
+  }
+
+  // Mounting (David 2026-09-02: "fix the mounting row" — the add-on list was
+  // clamped to one line and ended in an ellipsis). The label gets its own line
+  // and the add-on names wrap beneath it, up to three lines at 30px, so every
+  // option is readable.
+  y += SPEC_ROW_H
+  emit('Mounting options', contentX, 34, 600, MUTED)
+  // One option per line: six add-ons never fit a three-line paragraph, and the
+  // column has the vertical room. Each name is clamped to the column width.
+  for (const addon of Object.values(METAL_ADDONS)) {
+    y += 40
+    emit(`• ${clampLine(addon.label, charsPerLine(30, contentWidth - 30))}`, contentX, 30, 400, INK)
+  }
+
+  // --- 4. Size table: header, column labels, then one row per offered size
+  // in both inches and centimeters.
+  y += 70
+  emit('Sizes (in / cm)', contentX, 38, 700, INK)
+
+  y += 54
+  const chartColX = [contentX, contentX + Math.round(contentWidth / 3), contentX + Math.round((2 * contentWidth) / 3)]
+  emit('Size', chartColX[0], 32, 700, INK)
+  emit('Inches', chartColX[1], 32, 700, INK)
+  emit('Centimeters', chartColX[2], 32, 700, INK)
+
+  const CHART_ROW_H = 56
+  let rowTop = y + 14
+  for (let i = 0; i < sizesForDisplay.length; i++) {
+    const spec = METAL_ART_SIZES[sizesForDisplay[i]]
+    if (i % 2 === 0) {
+      nodes.push(
+        `<rect x="${CARD_MARGIN}" y="${rowTop}" width="${
+          RIGHT_WIDTH - 2 * CARD_MARGIN
+        }" height="${CHART_ROW_H}" fill="${ROW_TINT}" />`
+      )
+    }
+    y = rowTop + CHART_ROW_H - 16
+    const cmW = (spec.widthIn * 2.54).toFixed(1)
+    const cmH = (spec.heightIn * 2.54).toFixed(1)
+    emit(spec.labelIn, chartColX[0], 32, 400, INK)
+    emit(`${spec.widthIn}x${spec.heightIn}"`, chartColX[1], 32, 400, INK)
+    emit(`${cmW}x${cmH} cm`, chartColX[2], 32, 400, INK)
+    rowTop += CHART_ROW_H
+  }
+  y = rowTop
+
+  // --- 5. Care line — metal, not fabric: never washed.
+  const careLines = wrapText('Wipe with a soft cloth · Keep out of direct sun', charsPerLine(28, contentWidth), 2)
+  const careLineHeight = Math.round(28 * 1.3)
+  y += 64
+  for (const line of careLines) {
+    emit(line, contentX, 28, 400, MUTED)
+    y += careLineHeight
+  }
+
+  return `<svg width="${RIGHT_WIDTH}" height="${CARD_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    ${nodes.join('\n    ')}
+  </svg>`
+}
+
+/** Compose the 1500x1500 metal details card PNG from an already-decoded mockup image buffer. Pure — no network, no upload. */
+export async function composeMetalDetailsCardPng(mockupBuffer: Buffer, opts: MetalDetailsCardTextOpts): Promise<Buffer> {
+  const photoWidth = LEFT_WIDTH - PHOTO_MARGIN * 2
+  const photoHeight = CARD_HEIGHT - PHOTO_MARGIN * 2
+  const leftPanel = await sharp(mockupBuffer)
+    .resize(photoWidth, photoHeight, { fit: 'cover', position: 'centre' })
+    .png()
+    .toBuffer()
+
+  const rightPanel = Buffer.from(buildMetalDetailsSvg(opts))
+
+  return sharp({
+    create: { width: CARD_WIDTH, height: CARD_HEIGHT, channels: 4, background: BG_OFFWHITE },
+  })
+    .composite([
+      { input: leftPanel, left: PHOTO_MARGIN, top: PHOTO_MARGIN },
+      { input: rightPanel, left: LEFT_WIDTH, top: 0 },
+    ])
+    .png()
+    .toBuffer()
+}
+
+export interface RenderMetalDetailsCardOpts extends MetalDetailsCardTextOpts {
+  productId: string
+  mockupUrl: string
+  actorId?: string
+}
+
+/**
+ * Full pipeline for a metal print's details card — mirrors renderDetailsCard
+ * above (fetch the approved size-scene mockup, compose the card, upload to
+ * GCS, insert the product_assets row). Same asset_role ('mockup_details') and
+ * "one per product, replaces any prior one" contract, so the shared
+ * ROLE_ORDER whitelist (backend/shared/product-gallery.ts) needs no
+ * metal-specific entry for this slot.
+ */
+export async function renderMetalDetailsCard(opts: RenderMetalDetailsCardOpts): Promise<RenderDetailsCardResult> {
+  const res = await fetch(opts.mockupUrl)
+  if (!res.ok) throw new Error(`Failed to fetch mockup for details card: ${res.status} ${res.statusText}`)
+  const mockupBuffer = Buffer.from(await res.arrayBuffer())
+
+  const buffer = await composeMetalDetailsCardPng(mockupBuffer, opts)
+
+  const filename = `${opts.productId}-details-${Date.now()}.png`
+  const { publicUrl, gcsPath } = await uploadFile(buffer, {
+    userId: opts.actorId || 'system',
+    folder: 'mockups',
+    filename,
+    contentType: 'image/png',
+  })
+
+  await supabase.from('product_assets').delete().eq('product_id', opts.productId).eq('asset_role', 'mockup_details')
+
+  const { data: inserted, error } = await supabase
+    .from('product_assets')
+    .insert({
+      product_id: opts.productId,
+      kind: 'mockup',
+      path: gcsPath,
+      url: publicUrl,
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
+      asset_role: 'mockup_details',
+      is_primary: false,
+      display_order: 6,
+      metadata: {
+        template: 'step_flow_metal_details_card',
+        sizes: opts.sizes,
         generated_at: new Date().toISOString(),
       },
     })

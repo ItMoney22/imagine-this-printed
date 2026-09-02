@@ -15,6 +15,7 @@ import { HexTracker, InlineError, StepCard } from './shared'
 import IdeaStep from './IdeaStep'
 import DesignStep from './DesignStep'
 import GarmentStep from './GarmentStep'
+import SizesStep from './SizesStep'
 import MockupStep from './MockupStep'
 import ListingStep from './ListingStep'
 import EtsyStep from './EtsyStep'
@@ -82,10 +83,16 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
 
   const canReach = useCallback((step: StepId) => canReachStep(state, step), [state])
   const goTo = useCallback((step: StepId) => dispatch({ type: 'GO_TO_STEP', step }), [])
+  const isMetal = state.productKind === 'metal'
 
   return (
     <div className="space-y-6">
-      <HexTracker step={state.step} canReach={canReach} onSelect={goTo} />
+      <HexTracker
+        step={state.step}
+        canReach={canReach}
+        onSelect={goTo}
+        labelOverrides={isMetal ? { garments: 'Sizes' } : undefined}
+      />
 
       {state.loading && !state.product && (
         <StepCard>
@@ -97,7 +104,12 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
 
       {state.step === 'idea' && <IdeaStep state={state} dispatch={dispatch} refresh={refresh} />}
       {state.step === 'design' && <DesignStep state={state} dispatch={dispatch} refresh={refresh} />}
-      {state.step === 'garments' && <GarmentStep state={state} dispatch={dispatch} refresh={refresh} />}
+      {state.step === 'garments' &&
+        (isMetal ? (
+          <SizesStep state={state} dispatch={dispatch} refresh={refresh} />
+        ) : (
+          <GarmentStep state={state} dispatch={dispatch} refresh={refresh} />
+        ))}
       {state.step === 'mockups' && <MockupStep state={state} dispatch={dispatch} refresh={refresh} />}
       {state.step === 'listing' && <ListingStep state={state} dispatch={dispatch} refresh={refresh} />}
       {state.step === 'etsy' && <EtsyStep state={state} dispatch={dispatch} />}

@@ -8,6 +8,7 @@ import { listingDraftFromPack, type EtsyComposePack, type ListingDraft } from '.
 import { ApproveButton, BusyDot, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import PromoPicker from './PromoPicker'
+import { METAL_ART_PRICES, STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../../backend/shared/metal-art'
 
 // The composer is one LLM call over the approved shots — quick relative to
 // the image jobs earlier in the flow.
@@ -97,6 +98,11 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.stepFlow, state.assets, state.jobs])
 
+  const isMetal = state.productKind === 'metal'
+  const metalSizes: MetalArtSizeKey[] = (state.stepFlow?.sizes as MetalArtSizeKey[] | undefined)?.length
+    ? (state.stepFlow!.sizes as MetalArtSizeKey[])
+    : [...STUDIO_SIZE_KEYS]
+
   const handlePublish = async () => {
     if (!state.productId || !draft) return
     setError(null)
@@ -106,7 +112,9 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
         .split(',')
         .map((t) => t.trim())
         .filter(Boolean)
-      await stepFlow.publish(state.productId, { ...draft, tags })
+      // Metal: never send the pack's price — the server owns it (see above).
+      const { price: draftPrice, ...rest } = draft
+      await stepFlow.publish(state.productId, isMetal ? { ...rest, tags } : { ...rest, tags, price: draftPrice })
       await refresh({ advance: true })
     } catch (err: any) {
       setError(err?.message || 'Failed to publish the listing')
@@ -168,16 +176,36 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
                 className="w-full text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text"
               />
             </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wide text-muted">Price $</label>
-              <input
-                type="number"
-                step="0.01"
-                value={draft.price}
-                onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) })}
-                className="w-28 text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text"
-              />
-            </div>
+            {isMetal ? (
+              // A metal print's price is LOCKED in backend/shared/metal-art.ts
+              // (David 2026-09-02: 4x6 $8.95 / 8x10 $16.95) and enforced by
+              // the publish route — the composed pack's $25 is the ETSY
+              // anchor (40% shop sale), never the website price, and it
+              // used to land here and overwrite the Sizes step's price.
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-muted">Website price (locked per size)</label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {metalSizes.map((key) => (
+                    <span key={key} className="inline-flex items-baseline gap-1.5 text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text">
+                      <span className="font-medium">{key}</span>
+                      <span className="font-semibold text-primary">${METAL_ART_PRICES[key].toFixed(2)}</span>
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted mt-1">Mounting add-ons are offered on the product page. The Etsy step keeps its own anchor price.</p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-muted">Price $</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={draft.price}
+                  onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) })}
+                  className="w-28 text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text"
+                />
+              </div>
+            )}
 
             {state.product && <PromoPicker product={state.product} refresh={refresh} />}
           </div>

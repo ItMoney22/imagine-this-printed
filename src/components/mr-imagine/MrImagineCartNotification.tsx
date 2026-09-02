@@ -4,6 +4,7 @@ import { X, ShoppingCart, ArrowRight } from 'lucide-react'
 import { MrImagineAvatar } from './MrImagineAvatar'
 import { MR_IMAGINE_CONFIG } from './config'
 import { useCart } from '../../context/CartContext'
+import { unitBasePrice } from '../../lib/product-kind'
 import type { Product } from '../../types'
 
 interface CartNotificationItem {
@@ -107,7 +108,7 @@ export const MrImagineCartNotification: React.FC = () => {
                   {lastAddedItem.product.name}
                 </p>
                 <p className="text-xs text-purple-200">
-                  Size: {lastAddedItem.size} &bull; ${lastAddedItem.product.price}
+                  Size: {lastAddedItem.size} &bull; ${unitBasePrice(lastAddedItem.product, lastAddedItem.size).toFixed(2)}
                 </p>
               </div>
             </div>

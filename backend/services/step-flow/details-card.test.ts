@@ -38,7 +38,8 @@ vi.mock('../../lib/supabase.js', () => ({
   },
 }))
 
-const { composeDetailsCardPng, renderDetailsCard, buildDetailsSvg } = await import('./details-card.js')
+const { composeDetailsCardPng, renderDetailsCard, buildDetailsSvg, composeMetalDetailsCardPng, renderMetalDetailsCard, buildMetalDetailsSvg } =
+  await import('./details-card.js')
 
 async function solidPng(size = 400): Promise<Buffer> {
   return sharp({ create: { width: size, height: size, channels: 4, background: { r: 30, g: 30, b: 30, alpha: 255 } } })
@@ -237,6 +238,136 @@ describe('renderDetailsCard (fetch + upload + DB stubbed)', () => {
         title: 'x',
         printWidthInches: 11,
       })
+    ).rejects.toThrow(/Failed to fetch mockup/)
+    vi.unstubAllGlobals()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Metal art variant (design doc §14) — same square 1500x1500 / big-type
+// contract as the garment card, but aluminum-panel copy: no DTF pitch, no
+// S–3XL body chart, an inches+cm size table instead, and a "wipe with a
+// soft cloth" care line (never washed).
+// ---------------------------------------------------------------------------
+
+describe('composeMetalDetailsCardPng', () => {
+  it('always renders exactly 1500x1500 (square) regardless of mockup source size', async () => {
+    const mockup = await solidPng(600)
+    const png = await composeMetalDetailsCardPng(mockup, { title: 'Aurora Wolf', sizes: ['4x6', '8x10'] })
+    const meta = await sharp(png).metadata()
+    expect(meta.width).toBe(1500)
+    expect(meta.height).toBe(1500)
+    expect(meta.format).toBe('png')
+  })
+
+  it('renders for a single selected size too', async () => {
+    const mockup = await solidPng(300)
+    const png = await composeMetalDetailsCardPng(mockup, { title: 'Desk Piece', sizes: ['4x6'] })
+    const meta = await sharp(png).metadata()
+    expect(meta.width).toBe(1500)
+    expect(meta.height).toBe(1500)
+  })
+})
+
+describe('buildMetalDetailsSvg', () => {
+  it('includes the aluminum pitch, spec rows, size table, and care line', () => {
+    const svg = buildMetalDetailsSvg({ title: 'Aurora Wolf', sizes: ['4x6', '8x10'] })
+    expect(svg).toMatch(/Printed on aluminum/)
+    expect(svg).toMatch(/glossy, frameless, ready to display/)
+    expect(svg).toMatch(/Aluminum metal print/)
+    expect(svg).toMatch(/Glossy/)
+    // Mounting row lists METAL_ADDONS labels.
+    expect(svg).toMatch(/Tabletop easel stand/)
+    // Sizes spec row carries prices.
+    expect(svg).toMatch(/4x6 \$8\.95, 8x10 \$16\.95/)
+    // Size table rows in both inches and cm (XML-escaped quote mark).
+    expect(svg).toContain('4x6&quot;')
+    expect(svg).toContain('8x10&quot;')
+    expect(svg).toMatch(/10\.2x15\.2 cm/) // 4in*2.54=10.16 -> 10.2, 6in*2.54=15.24 -> 15.2
+    expect(svg).toMatch(/20\.3x25\.4 cm/) // 8in*2.54=20.32 -> 20.3, 10in*2.54=25.4
+    expect(svg).toMatch(/Wipe with a soft cloth/)
+    expect(svg).toMatch(/Keep out of/)
+    expect(svg).toMatch(/direct sun/)
+    // Never the garment card's language.
+    expect(svg).not.toMatch(/DTF/)
+    expect(svg).not.toMatch(/Wash cold/)
+  })
+
+  it('only lists size-table rows for the sizes actually selected', () => {
+    const svg = buildMetalDetailsSvg({ title: 'Desk Piece', sizes: ['4x6'] })
+    expect(svg).toContain('4x6&quot;')
+    expect(svg).not.toContain('8x10&quot;')
+  })
+
+  // The card floor: nothing on it may render below 28px, anywhere, ever.
+  it('never renders a font-size below the 28px floor', () => {
+    const titles = ['x', 'Aurora Wolf', 'A Genuinely Long Metal Print Title That Keeps On Going And Going']
+    for (const title of titles) {
+      const svg = buildMetalDetailsSvg({ title, sizes: ['4x6', '8x10'] })
+      const sizes = allFontSizes(svg)
+      expect(sizes.length).toBeGreaterThan(0)
+      for (const size of sizes) {
+        expect(size).toBeGreaterThanOrEqual(28)
+      }
+    }
+  })
+
+  it('falls back to every studio size when sizes is empty', () => {
+    const svg = buildMetalDetailsSvg({ title: 'x', sizes: [] })
+    expect(svg).toContain('4x6&quot;')
+    expect(svg).toContain('8x10&quot;')
+  })
+
+  it('escapes XML-unsafe characters in the title', () => {
+    const svg = buildMetalDetailsSvg({ title: 'Rock & Roll <Tour>', sizes: ['4x6'] })
+    expect(svg).not.toMatch(/<Tour>/)
+    expect(svg).toMatch(/&amp;|&lt;Tour&gt;/)
+  })
+})
+
+describe('renderMetalDetailsCard (fetch + upload + DB stubbed)', () => {
+  it('fetches the size-scene mockup, uploads the composed card, and inserts a mockup_details asset', async () => {
+    const mockupBytes = await solidPng(400)
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => mockupBytes.buffer.slice(mockupBytes.byteOffset, mockupBytes.byteOffset + mockupBytes.byteLength),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    uploadFile.mockResolvedValueOnce({
+      gcsPath: 'users/system/mockups/p1-details-123.png',
+      publicUrl: 'https://signed.example/p1-details-123.png',
+      filename: 'p1-details-123.png',
+    })
+
+    const result = await renderMetalDetailsCard({
+      productId: 'p1',
+      mockupUrl: 'https://cdn.example/scene-8x10.png',
+      title: 'Aurora Wolf',
+      sizes: ['4x6', '8x10'],
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('https://cdn.example/scene-8x10.png')
+    expect(uploadFile).toHaveBeenCalledTimes(1)
+    expect(result.url).toBe('https://signed.example/p1-details-123.png')
+    expect(result.assetId).toBe('asset-details-1')
+
+    const meta = await sharp(result.buffer).metadata()
+    expect(meta.width).toBe(1500)
+    expect(meta.height).toBe(1500)
+
+    expect(insertedRows).toHaveLength(1)
+    expect(insertedRows[0]).toMatchObject({ product_id: 'p1', kind: 'mockup', asset_role: 'mockup_details' })
+
+    vi.unstubAllGlobals()
+  })
+
+  it('throws a clear error when the mockup fetch fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, statusText: 'Not Found' })))
+    await expect(
+      renderMetalDetailsCard({ productId: 'p1', mockupUrl: 'https://cdn.example/missing.png', title: 'x', sizes: ['4x6'] })
     ).rejects.toThrow(/Failed to fetch mockup/)
     vi.unstubAllGlobals()
   })

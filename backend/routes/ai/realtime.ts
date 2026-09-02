@@ -351,15 +351,32 @@ router.post('/spin-video', requireAuth, requireRole(['admin', 'manager']), async
     if (error || !product) return res.status(404).json({ error: 'Product not found' })
 
     const meta = (product.metadata || {}) as Record<string, any>
-    const shot: string | undefined = meta.etsy_shots?.images?.[0] || product.images?.[0]
+    // Source frame (David 2026-09-02): ALWAYS the on-person mockup — the
+    // approved Step Flow model shot first, then the Etsy model shoot, then
+    // whatever the gallery leads with. Never a flat lay.
+    const stepModelShot: string | undefined =
+      meta.step_flow?.shots?.model?.approved && typeof meta.step_flow?.shots?.model?.url === 'string'
+        ? meta.step_flow.shots.model.url
+        : undefined
+    const shot: string | undefined = stepModelShot || meta.etsy_shots?.images?.[0] || product.images?.[0]
     if (!shot) return res.status(400).json({ error: 'No model shot or image to animate — shoot the model first.' })
 
-    const baseColor: string = meta.shirt_color || 'black'
-    const altColor = baseColor === 'black' ? 'white' : 'black'
+    // David 2026-09-02: "i dont want the shirt to change color anymore ... they
+    // should be modeling the shirt sometimes the shirt can be under a jacket".
+    // The old prompt asked the fabric to swap colour mid-turn; now the garment
+    // and its print are locked and the person simply models it, with an open
+    // jacket styling one time in three.
+    const baseColor: string = String(meta.shirt_color || 'black').replace(/-/g, ' ')
+    const garmentNoun = meta.product_type === 'hoodie' ? 'hoodie' : 't-shirt'
+    const jacketVariant = Math.random() < 0.34
+    const styling = jacketVariant
+      ? `They are wearing an open, unbuttoned jacket over the ${garmentNoun} (denim, flannel or a light bomber), and the front of the ${garmentNoun} with the printed design stays fully visible the whole time. `
+      : `They model the ${garmentNoun} naturally — shifting their weight, turning slightly to show the print, a relaxed smile, maybe tugging the hem straight. `
     const prompt =
-      `Professional e-commerce product video: the model turns slowly in place, a smooth full turn showing the t-shirt design from front and side. ` +
-      `Halfway through the turn the t-shirt fabric smoothly changes color from ${baseColor} to ${altColor} while the printed design stays EXACTLY the same. ` +
-      `Clean studio backdrop, soft even lighting, steady camera, no cuts, no text overlays.`
+      `Professional lifestyle fashion video of the same person from the reference image modeling the ${baseColor} ${garmentNoun}. ` +
+      styling +
+      `The ${garmentNoun} keeps EXACTLY the same ${baseColor} fabric colour and the printed graphic stays pixel-identical, undistorted and fully legible throughout — no colour change, no new graphics, no text overlays. ` +
+      `Natural handheld-steady camera, soft flattering light, same location as the reference, no cuts.`
 
     const prediction = await replicate.predictions.create({
       model: SPIN_VIDEO_MODEL,

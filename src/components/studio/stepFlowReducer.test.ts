@@ -200,6 +200,63 @@ describe('canReachStep', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Metal prints (design doc §14) — select-design never queues rembg for a
+// metal product, so no nobg asset will EVER exist; garments requires the
+// approved sizes (or approvals.garments, stamped by POST /:id/step/sizes).
+// ---------------------------------------------------------------------------
+
+describe('canReachStep — metal prints (design doc §14)', () => {
+  it('design requires approvals.design directly for metal — the nobg-asset gate would strand it forever', () => {
+    const noApproval = stateWith({ productId: 'p1', productKind: 'metal', stepFlow: stepFlowMeta() })
+    expect(canReachStep(noApproval, 'garments')).toBe(false)
+
+    // No nobg asset at all (never will be, for metal) — approvals.design alone unlocks it.
+    const withApproval = stateWith({
+      productId: 'p1',
+      productKind: 'metal',
+      stepFlow: stepFlowMeta({ approvals: { design: '2026-09-02T00:00:00Z' } }),
+    })
+    expect(canReachStep(withApproval, 'garments')).toBe(true)
+  })
+
+  it('a garment product is unaffected — still gated on the nobg asset, not approvals.design', () => {
+    const approvalOnly = stateWith({
+      productId: 'p1',
+      productKind: 'garment',
+      stepFlow: stepFlowMeta({ approvals: { design: '2026-09-02T00:00:00Z' } }),
+    })
+    expect(canReachStep(approvalOnly, 'garments')).toBe(false)
+  })
+
+  it('mockups is reachable once sizes are approved, even before approvals.garments lands (mirrors the garment fallback)', () => {
+    const withSizes = stateWith({
+      productId: 'p1',
+      productKind: 'metal',
+      stepFlow: stepFlowMeta({ approvals: { design: 't' }, sizes: ['4x6'] }),
+    })
+    expect(canReachStep(withSizes, 'mockups')).toBe(true)
+  })
+
+  it('furthestReachableStep resumes a metal draft straight to Sizes once the design is approved', () => {
+    const state = stateWith({
+      productId: 'p1',
+      productKind: 'metal',
+      stepFlow: stepFlowMeta({ approvals: { design: 't' } }),
+    })
+    expect(furthestReachableStep(state)).toBe('garments')
+  })
+
+  it('furthestReachableStep carries a metal draft all the way to mockups once sizes are approved', () => {
+    const state = stateWith({
+      productId: 'p1',
+      productKind: 'metal',
+      stepFlow: stepFlowMeta({ approvals: { design: 't', garments: 't' }, sizes: ['4x6', '8x10'] }),
+    })
+    expect(furthestReachableStep(state)).toBe('mockups')
+  })
+})
+
 describe('furthestReachableStep', () => {
   it('stops at the first ungated step', () => {
     const state = stateWith({
@@ -348,6 +405,20 @@ describe('stepFlowReducer', () => {
     expect(next.phrase).toEqual({ text: 'STREET ROYALTY', placement: 'below' })
   })
 
+  it('SET_PHRASE carries a lettering style (design doc §16) — a chip pick defaults to its suggestedStyle, custom text to "auto"', () => {
+    const next = stepFlowReducer(initialStepFlowState, {
+      type: 'SET_PHRASE',
+      phrase: { text: 'STREET ROYALTY', placement: 'below', style: 'graffiti' },
+    })
+    expect(next.phrase?.style).toBe('graffiti')
+
+    const customNext = stepFlowReducer(initialStepFlowState, {
+      type: 'SET_PHRASE',
+      phrase: { text: 'Hand-typed line', placement: 'below', style: 'auto' },
+    })
+    expect(customNext.phrase?.style).toBe('auto')
+  })
+
   it('SET_PHRASE with null clears a previously chosen phrase (the chip\'s remove button)', () => {
     const withPhrase = stateWith({ phrase: { text: 'STREET ROYALTY', placement: 'below' } })
     const next = stepFlowReducer(withPhrase, { type: 'SET_PHRASE', phrase: null })
@@ -361,6 +432,50 @@ describe('stepFlowReducer', () => {
     })
     const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
     expect(next.stepFlow?.brief?.phrase).toEqual({ text: 'STREET ROYALTY', placement: 'below' })
+  })
+
+  it('HYDRATE restores state.phrase (including its style) from brief.phrase — a resumed draft shows what was actually baked into the design', () => {
+    const res = response({
+      productId: 'p1',
+      stepFlow: { brief: { ...brief, phrase: { text: 'STREET ROYALTY', placement: 'below', style: 'chrome-3d' } } },
+    })
+    const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
+    expect(next.phrase).toEqual({ text: 'STREET ROYALTY', placement: 'below', style: 'chrome-3d' })
+  })
+
+  it('HYDRATE leaves state.phrase alone when the loaded brief has none', () => {
+    const state = stateWith({ productId: 'p1', phrase: { text: 'kept', placement: 'below' } })
+    const res = response({ productId: 'p1', stepFlow: { brief } })
+    const next = stepFlowReducer(state, { type: 'HYDRATE', response: res })
+    expect(next.phrase).toEqual({ text: 'kept', placement: 'below' })
+  })
+
+  it('SET_PRODUCT_KIND sets state.productKind from the Idea step\'s product-kind chip', () => {
+    const next = stepFlowReducer(initialStepFlowState, { type: 'SET_PRODUCT_KIND', productKind: 'metal' })
+    expect(next.productKind).toBe('metal')
+  })
+
+  it('the default productKind is "garment" — every draft created before this field existed reads the same as always', () => {
+    expect(initialStepFlowState.productKind).toBe('garment')
+  })
+
+  it('HYDRATE restores productKind from the top-level step_flow.productKind (what GET /:id/step returns)', () => {
+    const res = response({ productId: 'p1', stepFlow: { productKind: 'metal' } })
+    const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
+    expect(next.productKind).toBe('metal')
+  })
+
+  it('HYDRATE falls back to brief.productKind when step_flow has no top-level productKind', () => {
+    const res = response({ productId: 'p1', stepFlow: { brief: { ...brief, productKind: 'metal' } } })
+    const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
+    expect(next.productKind).toBe('metal')
+  })
+
+  it('HYDRATE keeps the existing productKind when the response has neither signal (a plain/legacy garment draft)', () => {
+    const state = stateWith({ productId: 'p1', productKind: 'metal' })
+    const res = response({ productId: 'p1', stepFlow: {} })
+    const next = stepFlowReducer(state, { type: 'HYDRATE', response: res })
+    expect(next.productKind).toBe('metal')
   })
 
   it('SET_INSPIRATION pins the uploaded reference + the admin\'s keep/change choices', () => {

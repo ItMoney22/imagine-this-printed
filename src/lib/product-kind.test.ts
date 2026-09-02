@@ -16,7 +16,11 @@ import {
   getProductAssets,
   hasDigitalDeliverables,
   getGalleryImages,
-  getDeliverables
+  getDeliverables,
+  unitBasePrice,
+  startingPrice,
+  hasPriceRange,
+  metalSizeOptions
 } from './product-kind'
 import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import type { Product } from '../types'
@@ -223,5 +227,72 @@ describe('digital deliverables bundle', () => {
   it('tolerates a malformed assets blob', () => {
     expect(getProductAssets(p({ metadata: { assets: 'not-an-object' } }))).toEqual({})
     expect(getProductAssets(p({}))).toEqual({})
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Metal print pricing (David 2026-09-02): "you click 4x6 or 8x10 u get the
+// same price with no addons". The storefront's one answer to a line's base
+// price — shared by ProductPage, cart, floating cart, checkout — must follow
+// the panel size from the locked table, never the flat products.price column
+// (which on the first Golden Gate print was the Etsy anchor's $25).
+// ---------------------------------------------------------------------------
+describe('unitBasePrice / startingPrice — metal prints', () => {
+  const metal = p({ category: 'metal-art', price: 25, sizes: ['4x6', '8x10'], metadata: { metal_sizes: ['4x6', '8x10'] } })
+
+  it('prices a 4x6 pick at $8.95 and an 8x10 pick at $16.95, ignoring the $25 column', () => {
+    expect(unitBasePrice(metal, '4x6')).toBe(8.95)
+    expect(unitBasePrice(metal, '8x10')).toBe(16.95)
+  })
+
+  it('defaults to the smallest offered size when nothing is picked yet', () => {
+    expect(unitBasePrice(metal)).toBe(8.95)
+    expect(unitBasePrice(p({ category: 'metal-art', price: 65, sizes: ['8x10'] }))).toBe(16.95)
+  })
+
+  it('normalizes the legacy 8x11 label onto the 8x10 price', () => {
+    expect(unitBasePrice(metal, '8x11')).toBe(16.95)
+  })
+
+  it('reprices a legacy catalog metal row (no sizes recorded, $65 column) from the table', () => {
+    const legacy = p({ category: 'metal-art', price: 65, sizes: [], metadata: {} })
+    expect(startingPrice(legacy)).toBe(8.95)
+    expect(unitBasePrice(legacy, '8x10')).toBe(16.95)
+    expect(hasPriceRange(legacy)).toBe(true)
+  })
+
+  it('leaves every other product on products.price, size or not', () => {
+    const tee = p({ category: 'shirts', price: 22, sizes: ['S', 'M'] })
+    expect(unitBasePrice(tee, 'M')).toBe(22)
+    expect(startingPrice(tee)).toBe(22)
+    expect(hasPriceRange(tee)).toBe(false)
+  })
+
+  it('offers only one size (no range) when the listing sells a single panel', () => {
+    const single = p({ category: 'metal-art', price: 16.95, sizes: ['8x10'] })
+    expect(metalSizeOptions(single)).toEqual(['8x10'])
+    expect(hasPriceRange(single)).toBe(false)
+  })
+})
+
+describe('resolveProductAddons — metal prints offer the catalog by default', () => {
+  it('offers every metal add-on when the row has no addons list (the Step Flow never wrote one)', () => {
+    const ids = resolveProductAddons(p({ category: 'metal-art', metadata: {} })).map(a => a.id)
+    expect(ids).toEqual(METAL_ADDONS.map(a => a.id))
+    expect(ids).toContain('magnet_mount')
+    expect(ids).toContain('printed_stand')
+  })
+
+  it('offers them for an approval-tab row that saved an EMPTY list too', () => {
+    expect(resolveProductAddons(p({ category: 'metal-art', metadata: { addons: [] } })).length).toBe(METAL_ADDONS.length)
+  })
+
+  it('an explicit non-empty list still wins', () => {
+    const ids = resolveProductAddons(p({ category: 'metal-art', metadata: { addons: ['gift_box'] } })).map(a => a.id)
+    expect(ids).toEqual(['gift_box'])
+  })
+
+  it('a garment with no list still gets nothing', () => {
+    expect(resolveProductAddons(p({ category: 'shirts', metadata: {} }))).toEqual([])
   })
 })

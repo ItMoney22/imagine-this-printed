@@ -48,9 +48,26 @@ describe('fallbackPhrases', () => {
       expect(['funny', 'hype', 'wholesome', 'minimal', 'pun']).toContain(p.vibe)
       expect(['below', 'above', 'integrated']).toContain(p.placement)
       expect(p.reason.length).toBeGreaterThan(0)
+      expect([
+        'graffiti', 'varsity', 'brush-script', 'chrome-3d', 'retro-70s', 'distressed',
+        'heavy-sans', 'blackletter', 'bubble-comic', 'neon-tube', 'western',
+      ]).toContain(p.suggestedStyle)
     }
     // At least one line should riff on the idea itself.
     expect(phrases.some((p) => /hip-hop|street|monkey/i.test(p.text))).toBe(true)
+  })
+
+  it('derives suggestedStyle from each template phrase\'s own vibe', () => {
+    const phrases = fallbackPhrases('idea')
+    for (const p of phrases) {
+      const expected =
+        p.vibe === 'funny' ? 'bubble-comic' :
+        p.vibe === 'hype' ? 'heavy-sans' :
+        p.vibe === 'wholesome' ? 'brush-script' :
+        p.vibe === 'minimal' ? 'heavy-sans' :
+        'retro-70s'
+      expect(p.suggestedStyle).toBe(expected)
+    }
   })
 
   it('never returns an empty list even for a blank idea', () => {
@@ -71,9 +88,9 @@ describe('pitchPhrases', () => {
 
   it('parses a clean reply into a well-formed PhrasesResult', async () => {
     phrasesReply([
-      { text: 'Wild And Free', vibe: 'hype', placement: 'below', reason: 'Matches the untamed energy.' },
-      { text: 'Just Vibing', vibe: 'funny', placement: 'below', reason: 'Light and easy.' },
-      { text: 'Handmade With Heart', vibe: 'wholesome', placement: 'above', reason: 'Warm framing.' },
+      { text: 'Wild And Free', vibe: 'hype', placement: 'below', reason: 'Matches the untamed energy.', suggestedStyle: 'chrome-3d' },
+      { text: 'Just Vibing', vibe: 'funny', placement: 'below', reason: 'Light and easy.', suggestedStyle: 'bubble-comic' },
+      { text: 'Handmade With Heart', vibe: 'wholesome', placement: 'above', reason: 'Warm framing.', suggestedStyle: 'brush-script' },
     ])
 
     const result = await pitchPhrases('a lone wolf howling')
@@ -86,8 +103,23 @@ describe('pitchPhrases', () => {
       vibe: 'hype',
       placement: 'below',
       reason: 'Matches the untamed energy.',
+      suggestedStyle: 'chrome-3d',
     })
     expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('coerces a missing/invalid suggestedStyle to the vibe fallback instead of dropping the candidate', async () => {
+    phrasesReply([
+      { text: 'One Line', vibe: 'funny', placement: 'below', reason: 'ok' }, // no suggestedStyle at all
+      { text: 'Two Line', vibe: 'hype', placement: 'below', reason: 'ok', suggestedStyle: 'not-a-real-style' },
+      { text: 'Three Line', vibe: 'wholesome', placement: 'above', reason: 'ok', suggestedStyle: 'brush-script' },
+    ])
+
+    const result = await pitchPhrases('idea')
+
+    expect(result.phrases[0].suggestedStyle).toBe('bubble-comic') // funny fallback
+    expect(result.phrases[1].suggestedStyle).toBe('heavy-sans') // hype fallback
+    expect(result.phrases[2].suggestedStyle).toBe('brush-script') // model's valid pick passes through
   })
 
   it('strips quotes, hashtags, and caps length on each candidate', async () => {

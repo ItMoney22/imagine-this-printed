@@ -9,7 +9,7 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, defaultSizesFor, getGalleryImages, isBlankProduct } from '../lib/product-kind'
+import { productKindOf, defaultSizesFor, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, metalSizeOptions } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
@@ -76,7 +76,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   // Fallback sizes are type-aware: metal â†’ print sizes, 3D â†’ tiers, else apparel.
   const defaultSizes = defaultSizesFor(kind)
-  const displaySizes = hasSizes ? sizes : defaultSizes
+  // Metal always goes through metalSizeOptions so a legacy '8x11' row shows
+  // the real 8x10 panel and an empty column still offers both sizes.
+  const displaySizes = kind === 'metal' ? metalSizeOptions(product) : hasSizes ? sizes : defaultSizes
+
+  // Card price: a metal print shows the price of the size picked (or "from"
+  // its smallest size); everything else shows products.price.
+  const cardPrice = lineBasePrice(product, selectedSize, selectedColor)
+  const showFrom = kind === 'metal' && !selectedSize && hasPriceRange(product)
 
   // Get colors from product (admin saves them as hex strings on product.colors / metadata.colors)
   const colors: string[] = product.colors || product.metadata?.colors || []
@@ -309,7 +316,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                   ${(blankFromPriceDollars(blankPricingOf(product.metadata)) ?? product.price).toFixed(2)}
                 </span>
               ) : (
-                <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+              <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">{showFrom && <span className="text-xs font-medium text-muted mr-1">from</span>}${cardPrice.toFixed(2)}</span>
               )}
               {(() => {
                 const promo = getPromoBadge(product)
@@ -324,8 +331,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 )
               })()}
             </span>
-            {Number(product.price) > 0 && (
-              <span className="text-[11px] text-muted">or {usdToItcLabel(Number(product.price))}</span>
+            {cardPrice > 0 && (
+              <span className="text-[11px] text-muted">or {usdToItcLabel(cardPrice)}</span>
             )}
           </span>
           {selectedSize && (

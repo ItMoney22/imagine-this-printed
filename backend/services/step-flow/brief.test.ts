@@ -19,7 +19,10 @@ vi.mock('openai', () => ({
 
 process.env.OPENAI_API_KEY ||= 'test-openai-key'
 
-const { writeStepBrief, fallbackBrief, coerceBrief, sanitizePhraseText } = await import('./brief.js')
+const { writeStepBrief, fallbackBrief, coerceBrief, fallbackMetalBrief, coerceMetalBrief, sanitizePhraseText } = await import(
+  './brief.js'
+)
+const { getLetteringStyle, DEFAULT_LETTERING_STYLE } = await import('../../shared/lettering-styles.js')
 
 const reply = (content: string) => create.mockResolvedValueOnce({ choices: [{ message: { content } }] })
 
@@ -64,6 +67,7 @@ describe('coerceBrief', () => {
       styleTags: ['streetwear', 'bold'],
       garmentHint: 'hoodie',
       rationale: 'Bright ink pops on black.',
+      productKind: 'garment',
     })
   })
 
@@ -183,9 +187,9 @@ describe('writeStepBrief with a phrase', () => {
     const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above' } })
 
     expect(b.designPrompt).toContain(
-      'Render the exact text "Stay Wild" in bold, clean, highly legible lettering, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.'
+      `Render the exact text "Stay Wild" in ${getLetteringStyle(DEFAULT_LETTERING_STYLE)!.prompt}, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.`
     )
-    expect(b.phrase).toEqual({ text: 'Stay Wild', placement: 'above' })
+    expect(b.phrase).toEqual({ text: 'Stay Wild', placement: 'above', style: DEFAULT_LETTERING_STYLE })
   })
 
   it('embeds the exact quoted phrase text in designPrompt even on the fallback path (model call throws)', async () => {
@@ -194,10 +198,34 @@ describe('writeStepBrief with a phrase', () => {
     const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above' } })
 
     expect(b.designPrompt).toContain(
-      'Render the exact text "Stay Wild" in bold, clean, highly legible lettering, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.'
+      `Render the exact text "Stay Wild" in ${getLetteringStyle(DEFAULT_LETTERING_STYLE)!.prompt}, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.`
     )
     expect(b.background).toBe('white')
-    expect(b.phrase).toEqual({ text: 'Stay Wild', placement: 'above' })
+    expect(b.phrase).toEqual({ text: 'Stay Wild', placement: 'above', style: DEFAULT_LETTERING_STYLE })
+  })
+
+  it('embeds a specific lettering style descriptor when the phrase names one', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above', style: 'graffiti' } })
+    expect(b.designPrompt).toContain(
+      `Render the exact text "Stay Wild" in ${getLetteringStyle('graffiti')!.prompt}, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.`
+    )
+    expect(b.phrase?.style).toBe('graffiti')
+  })
+
+  it('lets the model pick a style when style is "auto"', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above', style: 'auto' } })
+    expect(b.designPrompt).toContain(
+      'Render the exact text "Stay Wild" in a lettering style that matches the artwork, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.'
+    )
+    expect(b.phrase?.style).toBe('auto')
+  })
+
+  it('coerces an unrecognized style to DEFAULT_LETTERING_STYLE instead of dropping the phrase', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above', style: 'comic-sans-nonsense' } })
+    expect(b.phrase?.style).toBe(DEFAULT_LETTERING_STYLE)
   })
 
   it('embeds the exact quoted phrase text even when the model reply is not valid JSON', async () => {
@@ -213,6 +241,12 @@ describe('writeStepBrief with a phrase', () => {
     const b = await writeStepBrief('idea', { phrase: { text: 'No Placement Given' } })
     expect(b.phrase?.placement).toBe('below')
     expect(b.designPrompt).toContain('placed below the subject')
+  })
+
+  it('defaults style to DEFAULT_LETTERING_STYLE when not given', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea', { phrase: { text: 'No Style Given' } })
+    expect(b.phrase?.style).toBe(DEFAULT_LETTERING_STYLE)
   })
 
   it('sanitizes the incoming phrase text (trims, collapses whitespace, caps at 60 chars)', async () => {
@@ -357,5 +391,105 @@ describe('writeStepBrief with inspiration', () => {
     expect(b.designPrompt).toContain('Render the exact text "Run Wild"')
     expect(b.designPrompt.toLowerCase()).toContain('original artwork inspired by')
     expect(b.designPrompt).not.toMatch(/nike/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Metal wall-art lane (design doc §14, David 2026-09-02): productKind:'metal'
+// switches the writing brain (and its fallback) to a full-bleed portrait
+// scene instead of an isolated cut-out on a solid background — never a
+// garment/mockup/border, and never the DTF solid-background rule.
+// ---------------------------------------------------------------------------
+
+describe('fallbackMetalBrief', () => {
+  it('is a full-bleed portrait scene with no garment/mockup/border language', () => {
+    const b = fallbackMetalBrief('a lone wolf howling')
+    expect(b.productKind).toBe('metal')
+    expect(b.designPrompt).toMatch(/full-bleed/i)
+    expect(b.designPrompt).toMatch(/portrait 2:3/i)
+    expect(b.designPrompt).toMatch(/no garment|no mockup/i)
+    expect(b.designPrompt).toMatch(/no border|no vignette|no letterboxing/i)
+  })
+
+  it('never returns an empty title even for a blank idea', () => {
+    const b = fallbackMetalBrief('   ')
+    expect(b.title.length).toBeGreaterThan(0)
+  })
+})
+
+describe('coerceMetalBrief', () => {
+  it('passes through a well-formed reply and stamps productKind:"metal"', () => {
+    const b = coerceMetalBrief('wolf', {
+      designPrompt: 'A lone wolf on a cliff under an aurora, full-bleed portrait 2:3.',
+      title: 'Aurora Wolf',
+      styleTags: ['cosmic'],
+      rationale: 'Dramatic scene for a gallery piece.',
+    })
+    expect(b).toEqual({
+      designPrompt: 'A lone wolf on a cliff under an aurora, full-bleed portrait 2:3.',
+      background: 'white',
+      title: 'Aurora Wolf',
+      styleTags: ['cosmic'],
+      garmentHint: 'tshirt',
+      rationale: 'Dramatic scene for a gallery piece.',
+      productKind: 'metal',
+    })
+  })
+
+  it('returns the full metal fallback when the reply is not an object', () => {
+    expect(coerceMetalBrief('wolf', null)).toEqual(fallbackMetalBrief('wolf'))
+  })
+
+  it('falls back per-field when the reply is missing fields', () => {
+    const b = coerceMetalBrief('wolf', { title: 'Only A Title' })
+    expect(b.title).toBe('Only A Title')
+    expect(b.designPrompt).toContain('wolf')
+    expect(b.productKind).toBe('metal')
+  })
+})
+
+describe('writeStepBrief with productKind:"metal"', () => {
+  it('uses the metal wall-art system prompt and parses a clean reply', async () => {
+    reply(
+      JSON.stringify({
+        designPrompt: 'A lone wolf howling on a cliff under a swirling aurora, full-bleed portrait 2:3.',
+        title: 'Aurora Wolf',
+        styleTags: ['cosmic', 'fine-art'],
+        rationale: 'Cinematic gallery scene.',
+      })
+    )
+    const b = await writeStepBrief('a lone wolf howling', { productKind: 'metal' })
+    expect(b.productKind).toBe('metal')
+    expect(b.title).toBe('Aurora Wolf')
+    const systemMessage = create.mock.calls[0][0].messages.find((m: any) => m.role === 'system')
+    expect(systemMessage.content).toMatch(/metal wall-art/i)
+  })
+
+  it('falls back to fallbackMetalBrief when the model call throws', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('a lone wolf howling', { productKind: 'metal' })
+    expect(b).toEqual(fallbackMetalBrief('a lone wolf howling'))
+  })
+
+  it('defaults to productKind:"garment" when omitted', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea')
+    expect(b.productKind).toBe('garment')
+  })
+
+  it('defaults to productKind:"garment" for an unrecognized value', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea', { productKind: 'sticker' })
+    expect(b.productKind).toBe('garment')
+  })
+
+  it('still embeds a phrase into a metal brief on the fallback path', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('a lone wolf howling', {
+      productKind: 'metal',
+      phrase: { text: 'Run Wild', placement: 'below' },
+    })
+    expect(b.productKind).toBe('metal')
+    expect(b.designPrompt).toContain('Render the exact text "Run Wild"')
   })
 })
