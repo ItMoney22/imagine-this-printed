@@ -20,6 +20,7 @@ import {
   type EtsyTier,
   TRANSFER_SHEET_SIZES,
   etsyTierConfig,
+  taxonomyIdForCategory,
   tierCopy
 } from '../shared/etsy-tiers.js'
 
@@ -349,17 +350,13 @@ async function sourceDesignFile(productId: string, productName?: string | null):
   return { url, name: `${slug}-300dpi.${ext}` }
 }
 
-// ITP category slug → Etsy taxonomy id. Populated via ETSY_TAXONOMY_MAP env
-// (JSON, e.g. {"shirts":1234,"tumblers":5678}) after browsing
-// GET /api/admin/etsy/taxonomy — Etsy's ids are theirs to define, so none are
-// hardcoded here.
+// ITP category slug → Etsy taxonomy id. Still driven by the ETSY_TAXONOMY_MAP
+// env override, but the resolution order (and the live-resolved per-category
+// defaults behind it) lives in the pure shared module so it stays unit-testable
+// without Supabase. See CATEGORY_TAXONOMY_DEFAULTS for why a bare isFinite
+// check here used to swallow the default.
 export function taxonomyIdFor(category: string | null): number | null {
-  try {
-    const map = JSON.parse(process.env.ETSY_TAXONOMY_MAP || '{}')
-    if (category && Number.isFinite(Number(map[category]))) return Number(map[category])
-  } catch { /* malformed map falls through to default */ }
-  const fallback = Number(process.env.ETSY_DEFAULT_TAXONOMY_ID)
-  return Number.isFinite(fallback) && fallback > 0 ? fallback : null
+  return taxonomyIdForCategory(category)
 }
 
 

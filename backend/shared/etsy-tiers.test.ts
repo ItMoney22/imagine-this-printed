@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   ETSY_TIERS,
   DOWNLOAD_PRICE,
@@ -6,8 +6,10 @@ import {
   TRANSFER_SHEET_SIZES,
   etsyTierConfig,
   isEtsyTier,
+  taxonomyIdForCategory,
   tierCopy,
-  tiersForCategory
+  tiersForCategory,
+  CATEGORY_TAXONOMY_DEFAULTS
 } from './etsy-tiers.js'
 
 // Pure module — no Supabase, no network, no env required beyond the optional
@@ -169,6 +171,68 @@ describe('isEtsyTier', () => {
     for (const t of ETSY_TIERS) expect(isEtsyTier(t)).toBe(true)
     for (const v of ['shirt', 'PRIMARY', '', null, undefined, 42, {}]) {
       expect(isEtsyTier(v)).toBe(false)
+    }
+  })
+})
+
+describe('taxonomyIdForCategory', () => {
+  const KEYS = ['ETSY_TAXONOMY_MAP', 'ETSY_DEFAULT_TAXONOMY_ID'] as const
+  const saved: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k] }
+  })
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k] as string
+    }
+  })
+
+  it('lists a 3D toy with no env at all — the whole point of a built-in default', () => {
+    expect(taxonomyIdForCategory('3d-prints')).toBe(1799)
+  })
+
+  it('ignores the placeholder 0 the shipped .env.example seeds, instead of reading it as configured', () => {
+    // The exact template string from backend/.env.example — the bug that made
+    // every toy promote throw "No Etsy taxonomy id" while the map looked set.
+    process.env.ETSY_TAXONOMY_MAP =
+      '{"shirts":0,"hoodies":0,"tumblers":0,"dtf-transfers":0,"metal-art":0,"3d-prints":0}'
+    expect(taxonomyIdForCategory('3d-prints')).toBe(1799)
+  })
+
+  it('lets a real ETSY_TAXONOMY_MAP id beat the built-in default', () => {
+    process.env.ETSY_TAXONOMY_MAP = '{"3d-prints":1585}'
+    expect(taxonomyIdForCategory('3d-prints')).toBe(1585)
+  })
+
+  it('falls back to the shop-wide default for a category with no preset', () => {
+    process.env.ETSY_DEFAULT_TAXONOMY_ID = '482'
+    expect(taxonomyIdForCategory('shirts')).toBe(482)
+  })
+
+  it('prefers a preset over the shop-wide default so toys never land in the tee category', () => {
+    process.env.ETSY_DEFAULT_TAXONOMY_ID = '482'
+    expect(taxonomyIdForCategory('3d-prints')).toBe(1799)
+  })
+
+  it('returns null — not a wrong category — when nothing resolves', () => {
+    expect(taxonomyIdForCategory('shirts')).toBeNull()
+    expect(taxonomyIdForCategory(null)).toBeNull()
+    expect(taxonomyIdForCategory('')).toBeNull()
+  })
+
+  it('survives a malformed map rather than taking the whole publish down', () => {
+    process.env.ETSY_TAXONOMY_MAP = 'not json {'
+    process.env.ETSY_DEFAULT_TAXONOMY_ID = '482'
+    expect(taxonomyIdForCategory('3d-prints')).toBe(1799)
+    expect(taxonomyIdForCategory('shirts')).toBe(482)
+  })
+
+  it('keeps every built-in default a positive integer — a 0 here would reintroduce the bug', () => {
+    for (const [slug, id] of Object.entries(CATEGORY_TAXONOMY_DEFAULTS)) {
+      expect(Number.isInteger(id), `${slug} must be an integer id`).toBe(true)
+      expect(id, `${slug} must be > 0`).toBeGreaterThan(0)
     }
   })
 })

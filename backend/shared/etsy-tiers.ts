@@ -51,6 +51,54 @@ export function tiersForCategory(category: string | null): EtsyTier[] {
     : ['primary']
 }
 
+// --- Category -> taxonomy (primary tier only) -------------------------------
+// The primary tier lists the product AS CATALOGUED, so its Etsy category comes
+// from the ITP category slug rather than from the tier. `ETSY_TAXONOMY_MAP`
+// stays the override, but a category with no working default cannot list at
+// all until someone edits Render env — and that is exactly how 3D toys died:
+// `.env.example` seeds the map with `"3d-prints":0`, the old lookup accepted
+// any finite number, so the placeholder 0 counted as "configured", suppressed
+// the ETSY_DEFAULT_TAXONOMY_ID fallback, and every toy promote threw
+// "No Etsy taxonomy id for category 3d-prints" while the map looked set.
+//
+// Ids resolved against the LIVE Etsy taxonomy 2026-08-19 via
+// `node backend/scripts/etsy-poc.mjs taxonomy --q figurine` — the same method
+// that produced 6617/6844, never guessed:
+//   1799  Art & Collectibles > Dolls & Miniatures > Figurines
+//         The printed figurine itself. Chosen over 1585 (Toys & Games > Toys >
+//         Dolls & Action Figures > Action Figures) because a Toy Creator print
+//         is a made-to-order collectible figurine, not a licensed action
+//         figure, and 3D-print sellers list under Dolls & Miniatures. Override
+//         per-slug in ETSY_TAXONOMY_MAP if the shop data says otherwise.
+//
+// The STL file is a DIFFERENT node — 12380 Craft Supplies & Tools > Patterns &
+// How To > Craft Machine Files > 3D Printer Files — deliberately NOT wired
+// here: the download tier's source resolver still returns a 300dpi PNG and its
+// copy sells "sublimation / HTV", so 3d-prints stays primary-only until that
+// tier learns about meshes.
+export const CATEGORY_TAXONOMY_DEFAULTS: Record<string, number> = {
+  '3d-prints': 1799
+}
+
+/** Resolve the primary-tier Etsy category for an ITP category slug.
+ *  Order: ETSY_TAXONOMY_MAP override -> built-in default -> shop-wide default. */
+export function taxonomyIdForCategory(category: string | null): number | null {
+  const c = String(category ?? '')
+  if (c) {
+    try {
+      const map = JSON.parse(process.env.ETSY_TAXONOMY_MAP || '{}')
+      const mapped = Number(map[c])
+      // `> 0`, not just isFinite: the shipped template seeds every slug with 0,
+      // and reading that placeholder as configured is the bug described above.
+      if (Number.isFinite(mapped) && mapped > 0) return mapped
+    } catch { /* malformed map falls through to the defaults */ }
+    const preset = CATEGORY_TAXONOMY_DEFAULTS[c]
+    if (Number.isFinite(preset) && preset > 0) return preset
+  }
+  const fallback = Number(process.env.ETSY_DEFAULT_TAXONOMY_ID)
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null
+}
+
 // --- Sheet sizes -----------------------------------------------------------
 // The three sizes ITP already sells on the storefront (see the DTF entry in
 // AdminDashboard.tsx's size map). Anchors ladder roughly with film area; the
