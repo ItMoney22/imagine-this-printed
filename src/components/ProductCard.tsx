@@ -11,7 +11,7 @@ import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import { productKindOf, defaultSizesFor, getGalleryImages, isBlankProduct } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
-import { blankFromPriceDollars, blankPricingOf } from '../../backend/shared/blank-pricing'
+import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
 
 // Customer-facing labels for products.print_locations values. Mirrors
@@ -341,27 +341,40 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-muted font-medium">Select Size:</p>
-              {isApparel && displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
+              {/* Blank garments price per size off their own table (shown on
+                  each button) — the flat $2.50 plus-size rule never applies. */}
+              {isApparel && !isBlankProduct(product) && displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
                 <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">
                   2XL+ = +$2.50
                 </span>
               )}
+              {isBlankProduct(product) && (
+                <span className="text-[10px] text-muted">priced per size</span>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {displaySizes.map((size: string) => {
-                const isPlusSize = isApparel && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                const isPlusSize = isApparel && !isBlankProduct(product) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                const blankSizePrice = isBlankProduct(product)
+                  ? blankUnitPriceDollars(blankPricingOf(product.metadata), size, selectedColor)
+                  : null
                 return (
                   <button
                     key={size}
                     onClick={() => setSelectedSize(size)}
-                    title={isPlusSize ? '+$2.50 upcharge' : undefined}
+                    title={isPlusSize ? '+$2.50 upcharge' : blankSizePrice !== null ? `$${blankSizePrice.toFixed(2)} each` : undefined}
                     className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all relative ${
                       selectedSize === size
                         ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
                         : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
-                    } ${isPlusSize ? 'pr-5' : ''}`}
+                    } ${isPlusSize ? 'pr-5' : ''} ${blankSizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
                   >
                     {size}
+                    {blankSizePrice !== null && (
+                      <span className={`text-[9px] font-medium ${selectedSize === size ? 'text-white/80' : 'text-muted'}`}>
+                        ${blankSizePrice.toFixed(2)}
+                      </span>
+                    )}
                     {isPlusSize && (
                       <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[8px] font-bold ${selectedSize === size ? 'text-amber-200' : 'text-amber-400'}`}>
                         +$

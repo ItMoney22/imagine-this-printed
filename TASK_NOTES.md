@@ -2137,3 +2137,11 @@ Account price is 34-45% under public list. Both stored on every product
   products LIVE (active) via `seed-blanks.ts`: from $3.07 / $3.58 / $5.26 /
   $8.24. Tests: 1081 pass (88 in the two pricing suites); frontend tsc clean;
   lint 0 errors.
+- 2026-09-02 — Browser review of the lane on a local Vite build: grade badges
+  were invisible on the light theme (200-level text; now 500-level), the
+  generic "Essence & Quality" list is hidden for blanks in favour of the spec
+  sheet, blanks no longer carry a print placement into the cart, order lines
+  now record `metadata.blank = true` for fulfillment, and the catalog
+  quick-add shows per-size prices instead of the flat "+$2.50" badge. Added
+  2XL White Premium Retail-Fit to the cart: $8.28, no upcharge stacked.
+  Filed the pre-existing server bundle-eligibility trust hole on the board.
