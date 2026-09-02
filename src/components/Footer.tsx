@@ -35,8 +35,8 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link to="/catalog/blanks" className="text-sm text-muted hover:text-secondary transition-colors">
-                  Blank Shirts
+                <Link to="/blanks" className="text-sm text-muted hover:text-secondary transition-colors">
+                  Blank Tees
                 </Link>
               </li>
               <li>

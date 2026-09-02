@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star, Play, Boxes, Package } from 'lucide-react'
 import { Hero } from '../components/Hero'
 import ProductCard from '../components/ProductCard'
+import BlankTeesSection from '../components/BlankTeesSection'
 import type { Product } from '../types'
 
 import { supabase } from '../lib/supabase'
@@ -360,6 +361,12 @@ const Home: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Blank Tees — David 2026-09-02: customers can buy the relabeled blanks
+          we print on, four quality rungs, priced just over wholesale. Own
+          component so it fetches the live "from" prices without touching
+          this page's state. */}
+      <BlankTeesSection />
 
       {/* How It Works Section */}
       <section className="py-12 sm:py-24 bg-gradient-to-b from-bg to-purple-50/50">

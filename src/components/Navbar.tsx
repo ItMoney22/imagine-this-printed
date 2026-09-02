@@ -79,6 +79,9 @@ const Navbar: React.FC = () => {
             <Link to="/catalog" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Products
             </Link>
+            <Link to="/blanks" className="text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+              Blank Tees
+            </Link>
             <Link
               to="/imagination-station"
               className="text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transition-all shadow-lg hover:shadow-purple-500/25"
@@ -483,6 +486,9 @@ const Navbar: React.FC = () => {
             </Link>
             <Link to="/catalog" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
               Products
+            </Link>
+            <Link to="/blanks" onClick={closeMobileMenu} className="block px-3 py-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md text-base font-medium">
+              Blank Tees
             </Link>
             <Link to="/imagination-station" onClick={closeMobileMenu} className="flex items-center gap-2 px-3 py-2 text-white bg-gradient-to-r from-purple-600 to-pink-600 rounded-md text-base font-medium">
               <Sparkles className="w-4 h-4" />

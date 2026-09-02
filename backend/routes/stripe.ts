@@ -15,6 +15,7 @@ import {
   sendItcPurchaseEmail
 } from '../utils/email.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
+import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -180,13 +181,26 @@ async function resolveMinDpiByPrintType(printTypes: string[]): Promise<Record<st
   return result
 }
 
+// Per-unit price recorded on the order line. For a blank garment the size ×
+// colour table on the product is the real unit price (products.price is
+// only the "from" figure) — see backend/shared/blank-pricing.ts. This is the
+// RECORD, not the charge: the amount charged is always re-derived by
+// order-pricing.ts from the DB row, so a forged cart copy of the table can
+// only mislabel its own receipt, never underpay.
+function lineUnitPriceDollars(item: any): number {
+  const base = Number(item?.product?.price) || 0
+  if (!isBlankGarmentMeta(item?.product?.metadata)) return base
+  const fromTable = blankUnitPriceDollars(blankPricingOf(item.product.metadata), item?.selectedSize, item?.selectedColor)
+  return fromTable ?? base
+}
+
 // Durable cart snapshot stored on orders.metadata.items — what MyOrders and
 // the print bridge read for items that have no products row (custom items).
 function snapshotCartItems(items: any[] | undefined | null) {
   return (items || []).map((i: any) => ({
     id: i.product?.id ?? null,
     name: i.product?.name ?? null,
-    price: i.product?.price ?? 0,
+    price: lineUnitPriceDollars(i),
     quantity: i.quantity || 1,
     image: i.product?.images?.[0] ?? null,
     size: i.selectedSize ?? null,
@@ -201,6 +215,8 @@ function snapshotCartItems(items: any[] | undefined | null) {
     // Garment quality tier (Gildan classic vs Softstyle vs Bella+Canvas vs
     // Comfort Colors) — fulfillment must pull the right blank.
     tier: i.selectedTier ?? null,
+    // Blank garment sold as-is: nothing to print, just relabel + ship.
+    blank: isBlankGarmentMeta(i.product?.metadata) || null,
     // 3D-print attributes the floor needs — these previously died here and the
     // worker email always said "matte grey" (Watchtower 2026-08-19 wave).
     color_mode: i.product?.metadata?.color_mode ?? i.product?.metadata?.print3d?.color_mode ?? null,
@@ -219,15 +235,16 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
     const qty = item.quantity || 1
     const addonUnit = addonsUnitTotal(item)
     const hasAddons = Array.isArray(item.selectedAddons) && item.selectedAddons.length > 0
+    const unitPrice = lineUnitPriceDollars(item)
     return {
       order_id: orderId,
       product_id: rawId && UUID_RE.test(rawId) ? rawId : null,
       product_name: item.product?.name || 'Unknown Product',
       quantity: qty,
-      unit_price: item.product?.price || 0,
+      unit_price: unitPrice,
       // Line subtotal includes per-unit add-ons so it reconciles with the
       // amount charged (which already folds add-ons in).
-      subtotal: ((item.product?.price || 0) + addonUnit) * qty,
+      subtotal: (unitPrice + addonUnit) * qty,
       metadata: {
         client_product_id: rawId,
         image_url: item.product?.images?.[0] ?? null,
@@ -241,6 +258,8 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
         // Garment quality tier for apparel; 3D print attributes for toys —
         // the print bridge and worker emails read these (see print-bridge.ts).
         tier: item.selectedTier ?? null,
+        // Blank garment sold as-is (metadata.garment.blank): nothing to print.
+        blank: isBlankGarmentMeta(item.product?.metadata) || null,
         color_mode: item.product?.metadata?.color_mode ?? item.product?.metadata?.print3d?.color_mode ?? null,
         include_paint_kit: item.product?.metadata?.include_paint_kit === true || null,
         model_id: item.product?.metadata?.model_id ?? null
@@ -318,6 +337,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       productId: item?.product?.id != null ? String(item.product.id) : null,
       quantity: item?.quantity || 1,
       selectedSize: item?.selectedSize ?? null,
+      // Colour NAME — only consulted for blank garments, whose DB price
+      // table is keyed by size + colour group (backend/shared/blank-pricing.ts).
+      selectedColor: item?.selectedColor ?? null,
       selectedTier: item?.selectedTier ?? null,
       selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
       clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null,

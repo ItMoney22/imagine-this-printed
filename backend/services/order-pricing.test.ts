@@ -33,6 +33,7 @@ const PRODUCT_B = '22222222-2222-2222-2222-222222222222'
 function makeFakeDeps(overrides: Partial<PricingDependencies> = {}): PricingDependencies {
   return {
     fetchProductPrices: async () => new Map(),
+    fetchBlankPricing: async () => new Map(),
     fetchDiscountCode: async () => null,
     countCouponUsageForUser: async () => 0,
     fetchWalletItcBalance: async () => 0,
@@ -44,6 +45,90 @@ function makeFakeDeps(overrides: Partial<PricingDependencies> = {}): PricingDepe
     ...overrides
   }
 }
+
+// Blank garment (David 2026-09-02): priced per size + colour group off its
+// own DB table — see backend/shared/blank-pricing.ts / blank-line.ts.
+const BLANK_PRICING = {
+  default: { S: 3.29, M: 3.29, L: 3.29, XL: 3.29, '2XL': 7.62, '3XL': 9.46 },
+  by_color: { White: { S: 3.07, M: 3.07, L: 3.07, XL: 3.07, '2XL': 5.92, '3XL': 7.89 } }
+}
+
+describe('computeLineItemCents — blank garments', () => {
+  const priceMap = new Map([[PRODUCT_A, 3.29]]) // products.price = the "from" figure
+  const blankMap = new Map([[PRODUCT_A, BLANK_PRICING]])
+
+  it('prices from the size/colour table, not products.price', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 2, selectedSize: '3XL', selectedColor: 'Navy', clientUnitPriceDollars: 0.01 },
+      priceMap,
+      new Map(),
+      blankMap
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(1892) // 2 × $9.46
+  })
+
+  it('uses the White override', () => {
+    const { cents } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 1, selectedSize: '2XL', selectedColor: 'white' },
+      priceMap,
+      new Map(),
+      blankMap
+    )
+    expect(cents).toBe(592)
+  })
+
+  it('does NOT stack the flat $2.50 plus-size upcharge or a garment tier on a blank', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 1, selectedSize: '2XL', selectedColor: 'Black', selectedTier: 'heavyweight' },
+      priceMap,
+      new Map(),
+      blankMap
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(762) // exactly the table price
+  })
+
+  it('hard-errors on a size the table does not carry (never falls back to the base price)', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 1, selectedSize: '6XL', selectedColor: 'Black' },
+      priceMap,
+      new Map(),
+      blankMap
+    )
+    expect(cents).toBe(0)
+    expect(errors[0]).toMatch(/no price for size "6XL"/)
+  })
+
+  it('is never bundle-eligible, whatever the cart metadata claims', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [
+        { productId: PRODUCT_A, quantity: 2, selectedSize: 'M', selectedColor: 'Black', isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } }
+      ],
+      priceMap,
+      new Map(),
+      blankMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(658) // 2 × $3.29, not the $25 bundle
+  })
+
+  it('flows through calculateOrderPricing via fetchBlankPricing', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => priceMap,
+      fetchBlankPricing: async () => blankMap
+    })
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 3, selectedSize: 'L', selectedColor: 'Red' }],
+        shipping: { type: 'pickup', clientAmountCents: 0 }
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(987) // 3 × $3.29
+  })
+})
 
 describe('computeLineItemCents', () => {
   it('prices a real catalog item from the DB price map, never the client price', () => {

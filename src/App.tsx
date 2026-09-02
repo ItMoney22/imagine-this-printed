@@ -48,6 +48,7 @@ const Checkout = lazy(() => import('./pages/Checkout'))
 const FoundersDashboard = lazy(() => import('./pages/FoundersDashboard'))
 const VendorDashboard = lazy(() => import('./pages/VendorDashboard'))
 const ToyLand = lazy(() => import('./pages/ToyLand'))
+const BlankShirts = lazy(() => import('./pages/BlankShirts'))
 const Wallet = lazy(() => import('./pages/Wallet'))
 const CRM = lazy(() => import('./pages/CRM'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
@@ -159,6 +160,9 @@ function App() {
                   <Route path="/world-cup" element={<Navigate to="/catalog" replace />} />
                   <Route path="/worldcup" element={<Navigate to="/catalog" replace />} />
                   <Route path="/catalog/:category" element={<ProductCatalog />} />
+                  {/* PUBLIC — the blank-tee lane (Good / Better / Best / Top Line),
+                      David 2026-09-02. Buying goes through the normal cart. */}
+                  <Route path="/blanks" element={<BlankShirts />} />
                   <Route path="/product/:id" element={<ProductPage />} />
                   {/* Redirect old design routes to Imagination Station */}
                   <Route path="/create-design" element={<Navigate to="/imagination-station" replace />} />

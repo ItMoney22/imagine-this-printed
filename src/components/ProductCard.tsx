@@ -9,8 +9,9 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, defaultSizesFor, getGalleryImages } from '../lib/product-kind'
+import { productKindOf, defaultSizesFor, getGalleryImages, isBlankProduct } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
+import { blankFromPriceDollars, blankPricingOf } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
 
 // Customer-facing labels for products.print_locations values. Mirrors
@@ -301,7 +302,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         <div className="flex justify-between items-center mb-4">
           <span className="flex flex-col">
             <span className="flex items-baseline gap-2">
-              <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+              {/* Blank garments price per size + colour — the card shows the honest "from". */}
+              {isBlankProduct(product) ? (
+                <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">
+                  <span className="text-xs font-medium text-muted mr-1">from</span>
+                  ${(blankFromPriceDollars(blankPricingOf(product.metadata)) ?? product.price).toFixed(2)}
+                </span>
+              ) : (
+                <span className="text-xl font-bold text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">${product.price}</span>
+              )}
               {(() => {
                 const promo = getPromoBadge(product)
                 if (!promo) return null
@@ -377,7 +386,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             </div>
             <div className="flex flex-wrap gap-1.5">
               {colors.map((hex) => {
-                const label = getColorName(hex)
+                // Blank garments store Jiffy colour NAMES in products.colors;
+                // their swatch hex rides in metadata.garment.colors.
+                const blankSwatch: string | undefined = isBlankProduct(product)
+                  ? (product.metadata?.garment?.colors as { name?: string; hex?: string }[] | undefined)
+                      ?.find(c => c?.name === hex)?.hex
+                  : undefined
+                const swatch = blankSwatch || hex
+                const label = blankSwatch ? hex : getColorName(hex)
                 const isSelected = selectedColor === hex
                 return (
                   <button
@@ -391,10 +407,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                         ? 'border-primary ring-2 ring-primary/40 ring-offset-1 ring-offset-bg'
                         : 'border-slate-200 hover:border-slate-400'
                     }`}
-                    style={{ backgroundColor: hex }}
+                    style={{ backgroundColor: swatch }}
                   >
                     {isSelected && (
-                      <Check className={`w-4 h-4 ${isLightSwatch(hex) ? 'text-slate-800' : 'text-white'}`} />
+                      <Check className={`w-4 h-4 ${isLightSwatch(swatch) ? 'text-slate-800' : 'text-white'}`} />
                     )}
                   </button>
                 )
@@ -445,7 +461,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               // Single-location products have nothing to choose — carry that
               // one location along automatically so it still reaches the
               // cart/order (matches ProductPage.tsx's auto-select).
-              const printLocation = requiresPrintLocation ? selectedPrintLocation ?? undefined : printLocations[0]
+              // A blank garment has nothing to print — never carry a placement.
+              const printLocation = isBlankProduct(product)
+                ? undefined
+                : requiresPrintLocation ? selectedPrintLocation ?? undefined : printLocations[0]
               addToCart(product, 1, selectedSize ?? undefined, selectedColor ?? undefined, undefined, undefined, undefined, undefined, printLocation)
               setAddedToCart(true)
               // Dispatch custom event for cart notification

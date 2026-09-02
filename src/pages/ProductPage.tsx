@@ -15,7 +15,19 @@ import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct } from '../lib/product-kind'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
+import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
+import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
+
+// Perceived-luminance check for blank-garment swatches (their hexes come off
+// metadata, not the fixed COLOR_PRESETS list isLightSwatch knows about).
+function isLightHex(hex: string | undefined): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  return 0.299 * r + 0.587 * g + 0.114 * b > 186
+}
 
 // Customer-facing labels for products.print_locations values. Mirrors the
 // admin wizard's PrintLocationsDropdown (src/components/AdminCreateProductWizard.tsx),
@@ -318,6 +330,21 @@ const ProductPage: React.FC = () => {
   const showGarmentTiers = isApparel && !isBlank
   const tierUpcharge = showGarmentTiers ? garmentTierUpcharge(selectedTier) : 0
 
+  // Blank garment pricing — per size + colour group off the product's own
+  // table (backend/shared/blank-pricing.ts). products.price is only the
+  // "from" figure; the size buttons and the header show the real unit price.
+  const blankPricing = isBlank ? blankPricingOf(product.metadata) : null
+  const blankUnit = blankPricing ? blankUnitPriceDollars(blankPricing, selectedSize, selectedColor) : null
+  const blankFrom = blankPricing ? blankFromPriceDollars(blankPricing) : null
+  const blankTier = isBlank ? blankTierById(product.metadata?.garment?.tier) : null
+  // Colour NAME → swatch hex for blanks (products.colors holds Jiffy names).
+  const blankSwatches: Record<string, string> = {}
+  if (isBlank && Array.isArray(product.metadata?.garment?.colors)) {
+    for (const c of product.metadata.garment.colors) {
+      if (c?.name && c?.hex) blankSwatches[String(c.name)] = String(c.hex)
+    }
+  }
+
   // Optional add-on upsells configured at approval (metal-art easel stand,
   // wall mount, etc.). Empty for products without any.
   const availableAddons = resolveProductAddons(product)
@@ -417,7 +444,9 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined, showGarmentTiers ? selectedTier : undefined)
+      // A blank has nothing to print, so it carries no placement (its seeded
+      // print_locations exist only to satisfy the shirts CHECK constraint).
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined)
       trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
@@ -438,7 +467,9 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, (selectedPrintLocation || undefined) as TshirtPrintLocation | undefined, showGarmentTiers ? selectedTier : undefined)
+      // A blank has nothing to print, so it carries no placement (its seeded
+      // print_locations exist only to satisfy the shirts CHECK constraint).
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined)
       // Buy Now still puts the item in the cart, so it counts in the funnel.
       trackCartForTryOn()
       navigate('/checkout')
@@ -558,7 +589,20 @@ const ProductPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-baseline gap-3 flex-wrap">
-              <p className="text-3xl font-bold text-text">${product.price}</p>
+              {isBlank ? (
+                <>
+                  <p className="text-3xl font-bold text-text">
+                    {blankUnit !== null ? `$${blankUnit.toFixed(2)}` : `from $${(blankFrom ?? product.price).toFixed(2)}`}
+                  </p>
+                  <span className="text-sm text-muted">
+                    {blankUnit !== null
+                      ? `${selectedSize}${selectedColor ? ` · ${selectedColor}` : ''}`
+                      : 'pick a size and colour for the exact price'}
+                  </span>
+                </>
+              ) : (
+                <p className="text-3xl font-bold text-text">${product.price}</p>
+              )}
               {(() => {
                 const promo = getPromoBadge(product)
                 if (!promo) return null
@@ -575,10 +619,55 @@ const ProductPage: React.FC = () => {
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2 text-text font-serif italic">The Vision</h3>
+            <h3 className="text-lg font-semibold mb-2 text-text font-serif italic">{isBlank ? 'The Shirt' : 'The Vision'}</h3>
             <p className="text-muted leading-relaxed italic border-l-2 border-primary/30 pl-4">"{product.description}"</p>
           </div>
 
+          {/* Blank garment spec sheet — David 2026-09-02: "make sure it has the
+              stats". House name only; the manufacturer appears solely on the
+              "Compared to" line. Specs come from the shared blank line table
+              (same source the seed wrote to metadata). */}
+          {isBlank && blankTier && (
+            <div className="rounded-xl border card-border bg-card/60 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-primary/15 text-primary">
+                  {blankTier.grade}
+                </span>
+                <span className="text-xs text-muted">{compareToLabel(blankTier)}</span>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <dt className="text-muted">Weight</dt>
+                <dd className="text-text font-medium">{blankTier.specs.weightOz} oz</dd>
+                <dt className="text-muted">Fabric</dt>
+                <dd className="text-text font-medium">{blankTier.specs.fabric}</dd>
+                <dt className="text-muted">Fit</dt>
+                <dd className="text-text font-medium">{blankTier.specs.fit}</dd>
+                <dt className="text-muted">Body</dt>
+                <dd className="text-text font-medium capitalize">{blankTier.specs.seams}</dd>
+                <dt className="text-muted">Collar</dt>
+                <dd className="text-text font-medium">{blankTier.specs.collar}</dd>
+                <dt className="text-muted">Sizes</dt>
+                <dd className="text-text font-medium">{blankTier.sizes[0]}–{blankTier.sizes[blankTier.sizes.length - 1]}</dd>
+                <dt className="text-muted">Colours</dt>
+                <dd className="text-text font-medium">{product.colors?.length ?? blankTier.colors.length}</dd>
+                <dt className="text-muted">Label</dt>
+                <dd className="text-text font-medium">{blankTier.specs.label}</dd>
+              </dl>
+              <ul className="mt-3 space-y-1.5 text-sm text-muted">
+                {blankTier.specs.construction.map(line => (
+                  <li key={line} className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs text-muted">{BLANK_LABEL_NOTE}</p>
+              <p className="mt-1 text-xs text-muted">Best for: {blankTier.specs.bestFor}</p>
+            </div>
+          )}
+
+          {/* Generic quality bullets — a blank gets the real spec sheet above instead. */}
+          {!isBlank && (
           <div>
             <h3 className="text-lg font-semibold mb-2 text-text">Essence & Quality</h3>
             <ul className="text-muted space-y-2">
@@ -600,6 +689,7 @@ const ProductPage: React.FC = () => {
               </li>
             </ul>
           </div>
+          )}
 
           <div className="border-t card-border pt-6">
             {/* Size selector — type-aware: apparel shirt sizes, metal print sizes, or 3D tiers */}
@@ -612,8 +702,9 @@ const ProductPage: React.FC = () => {
                 : productKind === '3d' ? ['mini', 'small', 'medium', 'large']
                 : ['S', 'M', 'L', 'XL', '2XL']
               const displaySizes = product.sizes && product.sizes.length > 0 ? product.sizes : defaultSizes
-              // Plus-size upcharge is apparel-only — metal/3D sizes never qualify.
-              const hasPlusSizes = isApparel && displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
+              // Plus-size upcharge is apparel-only — metal/3D sizes never qualify,
+              // and blanks carry their real per-size price instead (shown on each button).
+              const hasPlusSizes = isApparel && !isBlank && displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
               const sizeLabel = productKind === 'metal' ? 'Print Size' : productKind === '3d' ? 'Size' : 'Size'
 
               return (
@@ -628,8 +719,11 @@ const ProductPage: React.FC = () => {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {displaySizes.map(size => {
-                      const isPlusSize = isApparel && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                      const isPlusSize = isApparel && !isBlank && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
+                      // Blank garments: the real price for this size (in the
+                      // selected colour group) lives on the button itself.
+                      const sizePrice = blankPricing ? blankUnitPriceDollars(blankPricing, size, selectedColor) : null
                       return (
                         <button
                           key={size}
@@ -637,10 +731,15 @@ const ProductPage: React.FC = () => {
                           className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
                             ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
                             : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
-                            } ${isPlusSize ? 'pr-6' : ''}`}
-                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
+                            } ${isPlusSize ? 'pr-6' : ''} ${sizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
+                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : undefined}
                         >
                           {size}
+                          {sizePrice !== null && (
+                            <span className={`text-[10px] font-medium ${isSelected ? 'text-white/80' : 'text-muted'}`}>
+                              ${sizePrice.toFixed(2)}
+                            </span>
+                          )}
                           {isPlusSize && (
                             <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-amber-400'}`}>
                               +$
@@ -680,7 +779,8 @@ const ProductPage: React.FC = () => {
                             {tier.upcharge > 0 ? `+$${tier.upcharge.toFixed(2)}` : 'included'}
                           </span>
                         </div>
-                        <p className="text-xs text-muted mt-0.5">{tier.brand} {tier.styleCode} — {tier.blurb}</p>
+                        <p className="text-xs text-muted mt-0.5">{tier.blurb}</p>
+                        <p className="text-[11px] text-muted/80 mt-0.5">{tier.weightOz} oz · {tier.compareTo}</p>
                       </button>
                     )
                   })}
@@ -712,7 +812,11 @@ const ProductPage: React.FC = () => {
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {product.colors.map(color => {
-                    const label = getColorName(color)
+                    // Blanks store Jiffy colour NAMES (so inventory + reorders
+                    // line up); their swatch hex comes off metadata.garment.colors.
+                    const label = isBlank ? color : getColorName(color)
+                    const swatch = isBlank ? (blankSwatches[color] || '#9CA3AF') : color
+                    const light = isBlank ? isLightHex(swatch) : isLightSwatch(color)
                     const isSelected = selectedColor === color
                     return (
                       <button
@@ -727,11 +831,11 @@ const ProductPage: React.FC = () => {
                         }`}
                       >
                         <span
-                          className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center shrink-0"
-                          style={{ backgroundColor: color }}
+                          className="w-5 h-5 rounded-full border border-black/15 flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: swatch }}
                         >
                           {isSelected && (
-                            <Check className={`w-3.5 h-3.5 ${isLightSwatch(color) ? 'text-slate-800' : 'text-white'}`} />
+                            <Check className={`w-3.5 h-3.5 ${light ? 'text-slate-800' : 'text-white'}`} />
                           )}
                         </span>
                         <span className="text-sm">{label}</span>

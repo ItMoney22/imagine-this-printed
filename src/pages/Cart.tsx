@@ -5,6 +5,7 @@ import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { addonsUnitTotal } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
+import { lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
@@ -79,7 +80,8 @@ const Cart: React.FC = () => {
                     )}
                     {item.selectedTier && getGarmentTier(item.selectedTier) && (
                       <p className="text-sm text-muted mt-1">
-                        Quality: <span className="font-medium text-text">{getGarmentTier(item.selectedTier)!.label} ({getGarmentTier(item.selectedTier)!.brand})</span>
+                        Quality: <span className="font-medium text-text">{getGarmentTier(item.selectedTier)!.label}</span>
+                        <span className="text-xs"> · {getGarmentTier(item.selectedTier)!.compareTo}</span>
                         {garmentTierUpcharge(item.selectedTier) > 0 && (
                           <span className="font-medium text-text"> (+${garmentTierUpcharge(item.selectedTier).toFixed(2)})</span>
                         )}
@@ -109,7 +111,7 @@ const Cart: React.FC = () => {
                       <p className="text-sm text-muted mt-1">Print location: {item.printLocation}</p>
                     )}
                     <p className="text-lg font-bold text-purple-600 mt-2">
-                      ${item.product.price.toFixed(2)}
+                      ${lineUnitBasePrice(item.product, item.selectedSize, item.selectedColor).toFixed(2)}
                     </p>
                   </div>
 
@@ -131,7 +133,7 @@ const Cart: React.FC = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold">
-                      ${((item.product.price + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                      ${((lineUnitBasePrice(item.product, item.selectedSize, item.selectedColor) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                     </p>
                     <button
                       onClick={() => removeFromCart(item.id)}

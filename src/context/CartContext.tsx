@@ -4,6 +4,7 @@ import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
 import { addonsUnitTotal, addonsSignature } from '../lib/product-kind'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
+import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 
 interface CartState {
   items: CartItem[]
@@ -148,23 +149,34 @@ const isPlusSize = (size?: string): boolean => {
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
+// Blank garments (metadata.garment.blank) price per size + colour off their
+// own table — backend/shared/blank-pricing.ts — which already carries Jiffy's
+// real 2XL-5XL upcharges. They never get the flat plus-size upcharge, never
+// a garment-tier upcharge, and are never bundle-eligible. Mirrors
+// backend/services/order-pricing.ts exactly (the server re-prices checkout).
+const isBlankLine = (item: CartItem): boolean => isBlankGarmentMeta(item.product.metadata)
+
 const calculateTotal = (items: CartItem[]): number => {
   // Separate eligible and non-eligible items — see backend/shared/promos.ts
   // isBundleEligible, the single source of truth for this rule (also read
   // server-side by backend/services/order-pricing.ts).
-  const eligibleItems = items.filter(item => isBundleEligible(item.product))
-  const nonEligibleItems = items.filter(item => !isBundleEligible(item.product))
+  const eligibleItems = items.filter(item => !isBlankLine(item) && isBundleEligible(item.product))
+  const nonEligibleItems = items.filter(item => isBlankLine(item) || !isBundleEligible(item.product))
 
-  // Calculate plus size upcharge for non-eligible items
+  // Calculate plus size upcharge for non-eligible items (blanks excluded —
+  // their size price is already in the table)
   const nonEligiblePlusSizeUpcharge = nonEligibleItems.reduce((sum, item) => {
-    if (isPlusSize(item.selectedSize)) {
+    if (!isBlankLine(item) && isPlusSize(item.selectedSize)) {
       return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
     }
     return sum
   }, 0)
 
   // Calculate total for non-eligible items (base price + plus size upcharge)
-  const nonEligibleTotal = nonEligibleItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0) + nonEligiblePlusSizeUpcharge
+  const nonEligibleTotal = nonEligibleItems.reduce(
+    (sum, item) => sum + (lineUnitBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity),
+    0
+  ) + nonEligiblePlusSizeUpcharge
 
   // Calculate total for eligible items (BUNDLE_DEAL — "2 for $25", David
   // 2026-09-02, was "3 for $25"). bundleTotalCents pools eligible quantity
@@ -190,7 +202,7 @@ const calculateTotal = (items: CartItem[]): number => {
 
   // Garment quality tier upcharge (Gildan classic vs Softstyle / Bella+Canvas /
   // Comfort Colors). Per unit; mirrors GARMENT_TIER_UPCHARGE_CENTS server-side.
-  const tierTotal = items.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
+  const tierTotal = items.reduce((sum, item) => sum + (isBlankLine(item) ? 0 : garmentTierUpcharge(item.selectedTier)) * item.quantity, 0)
 
   return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal + tierTotal
 }

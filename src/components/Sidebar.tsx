@@ -152,11 +152,11 @@ export function Sidebar() {
             onClick={closeMobile}
           />
           <NavItem
-            to="/catalog/blanks"
+            to="/blanks"
             icon={<Shirt className="w-5 h-5" />}
-            label="Blank Shirts"
+            label="Blank Tees"
             isCollapsed={isCollapsed}
-            isActive={location.pathname === '/catalog/blanks'}
+            isActive={location.pathname === '/blanks' || location.pathname === '/catalog/blanks'}
             onClick={closeMobile}
           />
           <NavItem

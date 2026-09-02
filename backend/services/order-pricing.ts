@@ -72,6 +72,7 @@ import { getSheetPrice, SHEET_PRESETS, type PrintType } from '../config/imaginat
 import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
 import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS } from '../shared/metal-art.js'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
+import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -203,6 +204,10 @@ export interface PricingCartItem {
   productId: string | null | undefined
   quantity: number
   selectedSize?: string | null
+  /** Colour NAME as chosen on the product page. Only consulted for blank
+   *  garments, whose DB price table is keyed by size + colour group (see
+   *  backend/shared/blank-pricing.ts). Never a trusted dollar amount. */
+  selectedColor?: string | null
   /** Garment quality tier id (src/lib/garment-tiers.ts) — apparel only. */
   selectedTier?: string | null
   selectedAddonIds?: (string | null | undefined)[] | null
@@ -264,6 +269,15 @@ export interface PricingDiscountCodeRow {
 export interface PricingDependencies {
   /** Returns a map of productId -> price in DOLLARS for known catalog ids. */
   fetchProductPrices: (ids: string[]) => Promise<Map<string, number>>
+  /**
+   * Returns productId -> per-size/colour price table for the subset of ids
+   * that are BLANK garments (products.metadata.garment.blank = true with a
+   * pricing table). Read from the DB row, never from the cart's copy of
+   * metadata — the client's metadata is exactly as forgeable as its price.
+   * A blank's unit price comes from this table INSTEAD of products.price,
+   * and the flat plus-size + garment-tier upcharges are skipped for it.
+   */
+  fetchBlankPricing: (ids: string[]) => Promise<Map<string, BlankPricing>>
   fetchDiscountCode: (code: string) => Promise<PricingDiscountCodeRow | null>
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
@@ -359,14 +373,23 @@ function resolve3dPrintUnitCents(tierPrintPriceDollars: number, item: PricingCar
 // by computeLineItemCents (non-bundle items) and computeSubtotalCents's
 // bundle-eligible branch so the two paths can never compute "extras"
 // differently.
-function computeExtrasCentsPerUnit(item: PricingCartItem, id: string, errors: string[]): number {
+function computeExtrasCentsPerUnit(
+  item: PricingCartItem,
+  id: string,
+  errors: string[],
+  opts: { blank?: boolean } = {}
+): number {
   let extraCents = 0
 
-  if (isPlusSize(item.selectedSize)) {
+  // Blank garments price per size + colour straight off their DB table
+  // (backend/shared/blank-pricing.ts) — that table already carries Jiffy's
+  // real 2XL-5XL upcharges, and a blank IS its tier, so neither flat
+  // upcharge applies. Mirrors src/context/CartContext.tsx calculateTotal.
+  if (!opts.blank && isPlusSize(item.selectedSize)) {
     extraCents += PLUS_SIZE_UPCHARGE_CENTS
   }
 
-  if (item.selectedTier) {
+  if (!opts.blank && item.selectedTier) {
     const tierCents = GARMENT_TIER_UPCHARGE_CENTS[item.selectedTier]
     if (tierCents === undefined) {
       errors.push(`Unrecognized garment tier "${item.selectedTier}" for item ${id}`)
@@ -391,7 +414,8 @@ function computeExtrasCentsPerUnit(item: PricingCartItem, id: string, errors: st
 export function computeLineItemCents(
   item: PricingCartItem,
   productPriceMap: Map<string, number>,
-  customItemPriceMap: Map<string, number> = new Map()
+  customItemPriceMap: Map<string, number> = new Map(),
+  blankPricingMap: Map<string, BlankPricing> = new Map()
 ): { cents: number; errors: string[]; warnings: string[] } {
   const errors: string[] = []
   const warnings: string[] = []
@@ -404,8 +428,19 @@ export function computeLineItemCents(
   }
 
   let unitCents: number | null = null
+  const isBlank = UUID_RE.test(id) && blankPricingMap.has(id)
 
-  if (UUID_RE.test(id) && productPriceMap.has(id)) {
+  if (isBlank) {
+    // Blank garment: the DB-fetched size × colour table IS the price.
+    // products.price is only the "from" figure shown on cards. An unknown
+    // size is a pricing error, never a fallback to the base price.
+    const unitDollars = blankUnitPriceDollars(blankPricingMap.get(id)!, item.selectedSize, item.selectedColor)
+    if (unitDollars === null) {
+      errors.push(`Blank garment ${id} has no price for size "${item.selectedSize ?? ''}"`)
+    } else {
+      unitCents = Math.round(unitDollars * 100)
+    }
+  } else if (UUID_RE.test(id) && productPriceMap.has(id)) {
     unitCents = Math.round(productPriceMap.get(id)! * 100)
   } else if (id.startsWith('metal-art-custom-')) {
     const sizeKey = String(item.selectedSize || '').toLowerCase()
@@ -446,7 +481,7 @@ export function computeLineItemCents(
     return { cents: 0, errors, warnings }
   }
 
-  const perUnitCents = unitCents + computeExtrasCentsPerUnit(item, id, errors)
+  const perUnitCents = unitCents + computeExtrasCentsPerUnit(item, id, errors, { blank: isBlank })
 
   return { cents: perUnitCents * quantity, errors, warnings }
 }
@@ -454,7 +489,8 @@ export function computeLineItemCents(
 export function computeSubtotalCents(
   items: PricingCartItem[],
   productPriceMap: Map<string, number>,
-  customItemPriceMap: Map<string, number> = new Map()
+  customItemPriceMap: Map<string, number> = new Map(),
+  blankPricingMap: Map<string, BlankPricing> = new Map()
 ): { subtotalCents: number; errors: string[]; warnings: string[] } {
   let subtotalCents = 0
   const errors: string[] = []
@@ -473,13 +509,18 @@ export function computeSubtotalCents(
   let totalEligibleQty = 0
 
   for (const item of items) {
-    const eligible = isBundleEligible({
-      isThreeForTwentyFive: item.isThreeForTwentyFive,
-      metadata: item.metadata
-    })
+    const itemId = String(item.productId ?? '')
+    // A blank garment is never bundle-eligible, whatever the cart's copy of
+    // metadata claims — its price is its DB size/colour table, full stop.
+    const eligible =
+      !blankPricingMap.has(itemId) &&
+      isBundleEligible({
+        isThreeForTwentyFive: item.isThreeForTwentyFive,
+        metadata: item.metadata
+      })
 
     if (!eligible) {
-      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap)
+      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap)
       subtotalCents += result.cents
       errors.push(...result.errors)
       warnings.push(...result.warnings)
@@ -755,6 +796,25 @@ const defaultDependencies: PricingDependencies = {
     return map
   },
 
+  async fetchBlankPricing(ids: string[]) {
+    const map = new Map<string, BlankPricing>()
+    if (ids.length === 0) return map
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, metadata')
+      .in('id', ids)
+      .eq('metadata->garment->>blank', 'true')
+    if (error) {
+      throw new Error(`Failed to load blank garment pricing: ${error.message}`)
+    }
+    for (const row of data || []) {
+      if (row?.id == null || !isBlankGarmentMeta(row.metadata)) continue
+      const pricing = blankPricingOf(row.metadata)
+      if (pricing) map.set(String(row.id), pricing)
+    }
+    return map
+  },
+
   async fetchDiscountCode(code: string) {
     const { data, error } = await supabase
       .from('discount_codes')
@@ -856,6 +916,9 @@ export async function calculateOrderPricing(
     new Set(input.items.map(i => i.productId).filter((id): id is string => typeof id === 'string' && UUID_RE.test(id)))
   )
   const productPriceMap = catalogIds.length > 0 ? await deps.fetchProductPrices(catalogIds) : new Map<string, number>()
+  // Blank garments (metadata.garment.blank) price off their own DB size ×
+  // colour table — see fetchBlankPricing / backend/shared/blank-pricing.ts.
+  const blankPricingMap = catalogIds.length > 0 ? await deps.fetchBlankPricing(catalogIds) : new Map<string, BlankPricing>()
 
   const customItems = input.items.filter(i => {
     const id = String(i.productId ?? '')
@@ -863,7 +926,7 @@ export async function calculateOrderPricing(
   })
   const customItemPriceMap = customItems.length > 0 ? await deps.fetchCustomItemPrices(customItems) : new Map<string, number>()
 
-  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap)
+  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap, blankPricingMap)
   errors.push(...subtotalResult.errors)
   warnings.push(...subtotalResult.warnings)
   const subtotalCents = subtotalResult.subtotalCents

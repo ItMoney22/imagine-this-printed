@@ -9,6 +9,7 @@ import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIU
 import { apiFetch } from '../lib/api'
 import { addonsUnitTotal } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
+import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
@@ -383,18 +384,20 @@ const Checkout: React.FC = () => {
     const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
     const itcItems = state.items.filter(item => item.paymentMethod === 'itc')
 
-    // Calculate base total
-    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
-    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+    // Calculate base total (blank garments price per size + colour off their
+    // own table — backend/shared/blank-pricing.ts; mirrors CartContext)
+    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (lineUnitBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity), 0)
+    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (lineUnitBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity), 0)
 
     // Add-on upsells (e.g. metal-art easel stand / wall mount), priced per unit.
     const usdAddonsTotal = usdItems.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
     const itcAddonsTotal = itcItems.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
     const itcTotal = itcBaseTotal + itcAddonsTotal
 
-    // Calculate plus size upcharge for USD items
+    // Calculate plus size upcharge for USD items (never for blanks — their
+    // 2XL+ price is already in the table)
     const plusSizeUpcharge = usdItems.reduce((sum, item) => {
-      if (isPlusSize(item.selectedSize)) {
+      if (!isBlankGarmentMeta(item.product.metadata) && isPlusSize(item.selectedSize)) {
         return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
       }
       return sum
@@ -1546,7 +1549,7 @@ const Checkout: React.FC = () => {
                     )}
                   </div>
                   <p className="font-semibold text-sm flex-shrink-0">
-                    ${((item.product.price + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                    ${((lineUnitBasePrice(item.product, item.selectedSize, item.selectedColor) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                   </p>
                 </div>
               ))}

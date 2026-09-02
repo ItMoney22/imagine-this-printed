@@ -2067,3 +2067,54 @@ OrderManagement route, and `/account/orders` is behind `ProtectedRoute`.
   NOTE: both `backend/.env` and `.env.local` point at PROD supabase (czzyrmizvjqlifcivrhn), so any
   local test generation writes real rows and burns real Tripo credits. David approved one real
   end-to-end run (full colour, small tier) — NOT yet executed. Nothing committed or pushed.
+
+## Current request (2026-09-02) — blank shirt lane (Good / Better / Best / Top Line)
+
+David: "i want our cust to be able to buy blanks on our site we get our shirts
+from jiffy.com ... we brand our shirts so we rip the tags and put our tags we
+need good better best quaility and the top line ... dont use the word gilden
+next level etc but you can put compared to. make sure it has the stats and
+make sure you put enough on our site with a 10% mockup from jiffy to us."
+
+Design: `docs/plans/2026-09-02-blank-shirt-lane-design.md`.
+
+### What already existed (verified on main)
+`src/lib/garment-tiers.ts` (four rungs = Gildan 5000 / 64000 / Bella+Canvas
+3001 / Comfort Colors 1717, mirrored in `order-pricing.ts`), `isBlankProduct()`,
+the `/catalog/blanks` metadata bucket, Sidebar/Footer links, `blank_inventory`.
+No blank product rows, no spec page, no Navbar link, no per-size pricing.
+
+### Cost basis (captured 2026-09-02, jiffy.com, David's signed-in account)
+Account price is 34-45% under public list. Both stored on every product
+(`metadata.garment.cost.{account,list}`); prices built from `account`.
+| Tier | S-XL colour / white | 2XL | 3XL | 4XL | 5XL |
+|---|---|---|---|---|---|
+| Good (G5000) | 2.99 / 2.79 | 6.93 | 8.60 | 9.53 | 9.53 |
+| Better (G64000) | 3.92 / 3.25 | 6.91 | 8.92 | 10.53 | 10.53 |
+| Best (BC3001) | 5.90 / 4.78 | 8.60 | 10.78 | 14.94 | 15.61 |
+| Top Line (CC1717) | 7.53 / 7.49 | 11.65 | 13.98 | 16.62 | - |
+
+### File shortlist (approved scope — 2026-09-02 blank lane)
+- `backend/shared/blank-line.ts` (new: the four tiers — house names, compare-to, specs, colours, costs)
+- `backend/shared/blank-pricing.ts` + `.test.ts` (new: per-size/colour price table helpers)
+- `backend/services/order-pricing.ts` + `.test.ts` (blank pricing in the server engine)
+- `backend/routes/stripe.ts` (selectedColor → engine; blank unit price on order lines)
+- `backend/scripts/seed-blanks.ts` (new: seed / reprice the four products)
+- `src/lib/garment-tiers.ts` (identity now derived from blank-line.ts; brand only as "Compared to")
+- `src/lib/blank-lane.ts` (new), `src/pages/BlankShirts.tsx` (new, `/blanks`), `src/components/BlankTeesSection.tsx` (new)
+- `src/context/CartContext.tsx`, `src/pages/Checkout.tsx`, `src/pages/Cart.tsx`, `src/pages/ProductPage.tsx`, `src/components/ProductCard.tsx`
+- `src/App.tsx`, `src/components/Navbar.tsx`, `src/components/Sidebar.tsx`, `src/components/Footer.tsx`, `src/pages/Home.tsx`
+- `public/blanks/*.webp` (4 generated flat-lay images)
+- `docs/plans/2026-09-02-blank-shirt-lane-design.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-02 — Scraped Jiffy account + list prices for the four shirts in the
+  browser (public WebFetch showed list only). Built the shared blank line +
+  pricing helpers, wired per-size/colour blank pricing through cart, checkout,
+  product page AND the server pricing engine (blanks skip the flat $2.50
+  plus-size and tier upcharges, and are force-ineligible for the 2-for-$25
+  bundle server-side). New `/blanks` lane with tier cards + full spec/price
+  comparison table, Navbar/Sidebar/Footer links, Home band. Seeded the four
+  products LIVE (active) via `seed-blanks.ts`: from $3.07 / $3.58 / $5.26 /
+  $8.24. Tests: 1081 pass (88 in the two pricing suites); frontend tsc clean;
+  lint 0 errors.

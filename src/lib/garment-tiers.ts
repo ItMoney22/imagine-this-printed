@@ -1,58 +1,49 @@
 // Garment quality tiers — the shirt-quality upsell (David 2026-08-19).
-// Base catalog price buys the standard blank (Gildan 5000, tag pulled and
-// rebranded); premium blanks add a fixed per-unit upcharge. Applies to
-// apparel products that are NOT blanks (a blank IS its tier, priced as-is).
+// Base catalog price buys the standard blank (tag pulled and rebranded);
+// premium blanks add a fixed per-unit upcharge. Applies to apparel products
+// that are NOT blanks (a blank IS its tier, priced as-is from its own
+// size × colour table — see backend/shared/blank-pricing.ts).
 //
 // Keep ids + upcharges in sync with GARMENT_TIER_UPCHARGE_CENTS in
 // backend/services/order-pricing.ts — the server re-prices every checkout and
 // hard-errors on an unrecognized tier, so drift breaks checkout loudly.
 //
-// Brand/style specifics come from the JiffyShirts scout (Watchtower task
-// 14d214d5) — until that data lands these are our four locked quality rungs.
+// Identity (house name, "compared to" manufacturer/style, specs, colours,
+// Jiffy costs) lives in backend/shared/blank-line.ts — the same table the
+// /blanks lane and the blank seed script read. David 2026-09-02: never show
+// the manufacturer brand as OUR name; it may only appear as "Compared to …".
+
+import { BLANK_LINE, compareToLabel, type BlankTierSpec } from '../../backend/shared/blank-line'
 
 export interface GarmentTier {
   id: string
+  /** Good / Better / Best / Top Line */
+  grade: BlankTierSpec['grade']
+  /** House name — no manufacturer brand. */
   label: string
-  brand: string
-  styleCode: string
+  /** "Compared to Gildan 5000" — the ONLY place the manufacturer is named. */
+  compareTo: string
   upcharge: number // dollars per unit, on top of the product price
   blurb: string
+  weightOz: number
 }
 
-export const GARMENT_TIERS: GarmentTier[] = [
-  {
-    id: 'standard',
-    label: 'Classic',
-    brand: 'Gildan',
-    styleCode: '5000',
-    upcharge: 0,
-    blurb: 'Our everyday heavy cotton tee — 5.3 oz, durable and true to size.'
-  },
-  {
-    id: 'soft',
-    label: 'Softstyle',
-    brand: 'Gildan',
-    styleCode: '64000',
-    upcharge: 3,
-    blurb: 'Lighter 4.5 oz ring-spun cotton — noticeably softer, modern fit.'
-  },
-  {
-    id: 'premium',
-    label: 'Premium',
-    brand: 'Bella+Canvas',
-    styleCode: '3001',
-    upcharge: 5,
-    blurb: 'Retail-grade 4.2 oz Airlume combed cotton — the softest print base.'
-  },
-  {
-    id: 'heavyweight',
-    label: 'Garment-Dyed Heavy',
-    brand: 'Comfort Colors',
-    styleCode: '1717',
-    upcharge: 7,
-    blurb: 'Thick 6.1 oz garment-dyed cotton — vintage boxy feel that lasts.'
-  }
-]
+const UPCHARGE_BY_ID: Record<string, number> = {
+  standard: 0,
+  soft: 3,
+  premium: 5,
+  heavyweight: 7
+}
+
+export const GARMENT_TIERS: GarmentTier[] = BLANK_LINE.map(t => ({
+  id: t.id,
+  grade: t.grade,
+  label: t.name.replace(/ Tee$/, ''),
+  compareTo: compareToLabel(t),
+  upcharge: UPCHARGE_BY_ID[t.id] ?? 0,
+  blurb: t.tagline,
+  weightOz: t.specs.weightOz
+}))
 
 export const DEFAULT_GARMENT_TIER_ID = 'standard'
 
