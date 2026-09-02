@@ -106,6 +106,21 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
   PLACEHOLDER prices. Specced, not built: metal prints in the Step Flow (§14)
   and customer personalization + Etsy personalization (§15, three questions
   for David). Not done: the 32 live catalog metal rows still carry $48–$75.
+- 2026-09-02 (third wave) — **Metal prints lane** (design doc §14): product-kind
+  chip Tee/Hoodie/Metal print; metal briefs are full-bleed 2:3 wall art
+  (gpt-image-2 at 1024×1536), no rembg, Sizes step (4x6 / 8x10 priced from
+  `backend/shared/metal-art.ts`, `POST /:id/step/sizes`), shots `scene:4x6`
+  (desk, `metal_shelf`) + `scene:8x10` (wall, `metal_wall`) + a metal details
+  card; gallery roles `mockup_metal_8x10`/`mockup_metal_4x6`. Found a real
+  worker bug on the way: `productMeta.metal_size` outranked `job.input.metalSize`,
+  so both scenes would have rendered at one size — job-first now. **Lettering
+  styles** (§16): `backend/shared/lettering-styles.ts` (11 styles, Google-font
+  previews, prompt descriptors); the phrase block renders the chosen phrase in
+  every style as real web-font tiles, Mrs. Imagine suggests one per phrase, and
+  the brief's exact-text instruction carries the descriptor — David: "it only
+  generates plain font ... looks crappy". **Hero video**: the old prompt asked
+  the fabric to change colour mid-turn; now it animates the approved on-person
+  shot with garment colour + print locked and an open-jacket styling 1 in 3.
 
 ## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
 
