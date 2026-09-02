@@ -137,6 +137,32 @@ function charsPerLine(fontSizePx: number, maxWidthPx: number): number {
 }
 
 /** Build the right-column SVG panel — title, DTF pitch, blank spec, size chart, care line. */
+
+/** Greedy word wrap into at most `maxLines` lines of `maxChars`; the last line is clamped with an ellipsis if text remains. */
+function wrapWords(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let current = ''
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word
+    if (candidate.length <= maxChars || !current) {
+      current = candidate
+    } else {
+      lines.push(current)
+      current = word
+      if (lines.length === maxLines - 1) break
+    }
+  }
+  if (current) lines.push(current)
+  if (lines.length > maxLines) lines.length = maxLines
+  const consumed = lines.join(' ').length
+  if (consumed < text.length && lines.length === maxLines) {
+    const last = lines[maxLines - 1]
+    lines[maxLines - 1] = last.length > maxChars - 1 ? last.slice(0, maxChars - 1) + '\u2026' : last + '\u2026'
+  }
+  return lines
+}
+
 export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   const garment = getGarment(opts.garment) ?? GARMENTS[0]
   const chart = SIZE_CHARTS[garment.id]
@@ -424,15 +450,11 @@ export function buildMetalDetailsSvg(opts: MetalDetailsCardTextOpts): string {
   // longer labelIn ("4 × 6\"") — the full inches/cm breakdown lives in the
   // size table beneath, this row just needs to fit the price alongside it.
   const sizesLabel = sizesForDisplay.map((s) => `${s} $${METAL_ART_PRICES[s].toFixed(2)}`).join(', ')
-  const mountingLabel = Object.values(METAL_ADDONS)
-    .map((a) => a.label)
-    .join(', ')
   const SPEC_ROW_H = 64
   const specRows: [string, string][] = [
     ['Panel', 'Aluminum metal print'],
     ['Sizes', sizesLabel],
     ['Finish', 'Glossy'],
-    ['Mounting', mountingLabel],
   ]
   for (const [label, rawValue] of specRows) {
     y += SPEC_ROW_H
@@ -445,6 +467,19 @@ export function buildMetalDetailsSvg(opts: MetalDetailsCardTextOpts): string {
         `<tspan fill="${INK}" font-weight="400" dx="14">${escapeXml(value)}</tspan>` +
         `</text>`
     )
+  }
+
+  // Mounting (David 2026-09-02: "fix the mounting row" — the add-on list was
+  // clamped to one line and ended in an ellipsis). The label gets its own line
+  // and the add-on names wrap beneath it, up to three lines at 30px, so every
+  // option is readable.
+  y += SPEC_ROW_H
+  emit('Mounting options', contentX, 34, 600, MUTED)
+  const mountingNames = Object.values(METAL_ADDONS).map((a) => a.label)
+  const mountingLines = wrapWords(mountingNames.join(' · '), charsPerLine(30, contentWidth), 3)
+  for (const line of mountingLines) {
+    y += 42
+    emit(line, contentX, 30, 400, INK)
   }
 
   // --- 4. Size table: header, column labels, then one row per offered size

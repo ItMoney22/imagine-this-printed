@@ -3,6 +3,8 @@
 import React, { useRef, useState } from 'react'
 import { Check, ExternalLink, Send } from 'lucide-react'
 import { etsy, type EtsyTier } from '../../lib/api'
+import { tiersForCategory } from '../../../backend/shared/etsy-tiers'
+import { METAL_ART_PRICES, STUDIO_SIZE_KEYS } from '../../../backend/shared/metal-art'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
@@ -17,15 +19,27 @@ interface EtsyStepProps {
 
 // Mirrors AdminEtsyPanel.tsx's TIER_META — no shared frontend type module for
 // this yet, so it's a deliberate small second copy rather than new coupling.
-const TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
+const GARMENT_TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
   primary: { label: 'Shirt', blurb: 'The tee/hoodie itself, sizes S–3XL', shown: '$25 → $15' },
   transfer: { label: 'Transfer', blurb: 'Printed DTF film you mail — buyer presses it', shown: 'from $12 → $7.20' },
   download: { label: 'Download', blurb: 'The design file, delivered instantly by Etsy', shown: '$5 → $3' },
 }
-const TIER_ORDER: EtsyTier[] = ['primary', 'transfer', 'download']
+// Metal art only ever has the primary tier (backend/shared/etsy-tiers.ts
+// tiersForCategory) — David 2026-09-02: "it came up as shirt transfer and
+// download for a metal print".
+const METAL_PRIMARY_META = {
+  label: 'Metal print',
+  blurb: 'Aluminum panel listing with a size variation',
+  shown: STUDIO_SIZE_KEYS.map((k) => `${k} $${METAL_ART_PRICES[k].toFixed(2)}`).join(' · '),
+}
 
 const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
+  const category: string | null = (state.product as { category?: string } | null)?.category ?? null
+  const isMetal = category === 'metal-art'
+  const tierOrder: EtsyTier[] = tiersForCategory(category)
+  const tierMeta = (t: EtsyTier) => (isMetal && t === 'primary' ? METAL_PRIMARY_META : GARMENT_TIER_META[t])
   const [tiers, setTiers] = useState<EtsyTier[]>(['primary'])
+  const [skipped, setSkipped] = useState(false)
   const [queueing, setQueueing] = useState(false)
   const [result, setResult] = useState<{ queued: string[]; skipped: Array<{ tier: string; reason: string }> } | null>(null)
   const [gateReason, setGateReason] = useState<string | null>(null)
@@ -65,7 +79,16 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
         Posts invisible drafts for review — nothing goes live until you flip it in Etsy Shop Manager.
       </p>
 
-      {result ? (
+      {skipped ? (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+          <p className="text-sm font-semibold text-text mb-1">Done — published without Etsy.</p>
+          <p className="text-sm text-muted mb-3">The product is live on the storefront. You can queue it to Etsy later from the Etsy panel or by reopening this flow.</p>
+          <div className="flex flex-wrap gap-3">
+            <a href={`/admin/ai/products/create?mode=steps`} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white text-sm font-bold">Start another</a>
+            <SecondaryButton onClick={() => setSkipped(false)}>Back to Etsy</SecondaryButton>
+          </div>
+        </div>
+      ) : result ? (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
           <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm mb-1">
             <Check className="w-4 h-4" /> Queued
@@ -88,22 +111,22 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
       ) : (
         <>
           <div className="flex flex-wrap gap-2 mb-4">
-            {TIER_ORDER.map((t) => {
+            {tierOrder.map((t) => {
               const on = tiers.includes(t)
               return (
                 <button
                   key={t}
                   type="button"
                   onClick={() => toggleTier(t)}
-                  title={TIER_META[t].blurb}
+                  title={tierMeta(t).blurb}
                   className={`inline-flex flex-col items-start gap-0.5 px-3 py-2 rounded-xl border text-left transition-colors ${
                     on ? 'bg-primary/10 border-primary text-text' : 'bg-card border-border-subtle text-muted hover:border-primary/40'
                   }`}
                 >
                   <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
-                    {on && <Check className="w-3.5 h-3.5 text-primary" />} {TIER_META[t].label}
+                    {on && <Check className="w-3.5 h-3.5 text-primary" />} {tierMeta(t).label}
                   </span>
-                  <span className="text-[11px]">{TIER_META[t].shown}</span>
+                  <span className="text-[11px]">{tierMeta(t).shown}</span>
                 </button>
               )
             })}
@@ -120,6 +143,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
 
           <InlineError message={error} />
 
+          <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={handleQueue}
@@ -129,6 +153,10 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
             <Send className="w-5 h-5" />
             {queueing ? 'Queueing…' : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
           </button>
+          <SecondaryButton onClick={() => setSkipped(true)} disabled={queueing}>
+            Skip Etsy — finish here
+          </SecondaryButton>
+          </div>
 
           {queueing && (
             <div className="mt-4">
