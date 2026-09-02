@@ -7,7 +7,8 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
-import { addonsUnitTotal } from '../lib/product-kind'
+import { addonsUnitTotal, unitBasePrice } from '../lib/product-kind'
+import { normalizeMetalSizeKey } from '../../backend/shared/metal-art'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
@@ -18,8 +19,11 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 // Module scope so they aren't rebuilt on every Checkout render.
 const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
 const PLUS_SIZE_UPCHARGE = 2.50
+// Plus-size is an apparel upcharge — a metal panel size ("4x6" contains the
+// "4X" token) is never one. Mirrors CartContext + order-pricing.ts.
 const isPlusSize = (size?: string): boolean => {
   if (!size) return false
+  if (normalizeMetalSizeKey(size)) return false
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
@@ -383,9 +387,10 @@ const Checkout: React.FC = () => {
     const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
     const itcItems = state.items.filter(item => item.paymentMethod === 'itc')
 
-    // Calculate base total
-    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
-    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0)
+    // Calculate base total (unitBasePrice: metal prints price by the panel
+    // size picked — mirrors CartContext + order-pricing.ts server-side)
+    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (unitBasePrice(item.product, item.selectedSize) * item.quantity), 0)
+    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (unitBasePrice(item.product, item.selectedSize) * item.quantity), 0)
 
     // Add-on upsells (e.g. metal-art easel stand / wall mount), priced per unit.
     const usdAddonsTotal = usdItems.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
@@ -1546,7 +1551,7 @@ const Checkout: React.FC = () => {
                     )}
                   </div>
                   <p className="font-semibold text-sm flex-shrink-0">
-                    ${((item.product.price + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                    ${((unitBasePrice(item.product, item.selectedSize) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                   </p>
                 </div>
               ))}

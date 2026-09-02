@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import api, { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
+import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import { BUNDLE_DEAL } from '../../backend/shared/promos'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
@@ -278,10 +279,10 @@ const AdminDashboard: React.FC = () => {
     tumblers: ['12oz', '20oz', '30oz', '40oz'],
     'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
     '3d-models': [],
-    // Metal print sizes WITHOUT the inch mark — must match the canonical values
-    // written by the approval flow + defaultSizesFor (['4x6','8x11']) so the
-    // size buttons reflect the product's actual selection.
-    'metal-art': ['4x6', '8x11']
+    // Metal print sizes WITHOUT the inch mark — the real stocked panels from
+    // backend/shared/metal-art.ts STUDIO_SIZE_KEYS (4x6, 8x10). The old
+    // hardcoded '8x11' here was the pre-2026-07-28 canvas size, not a panel.
+    'metal-art': [...STUDIO_SIZE_KEYS]
   }
 
   // Preset colors for products

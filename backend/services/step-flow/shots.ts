@@ -22,7 +22,7 @@ import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.j
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot } from '../etsy-model-shots.js'
 import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
-import { buildProductGallery, type GalleryAsset } from '../../shared/product-gallery.js'
+import { buildProductGallery, METAL_ROLE_ORDER, ROLE_ORDER, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief, StepFlowInspiration } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
 import type { PrintAdvice, PrintFileResult } from './print-prep.js'
@@ -1106,5 +1106,9 @@ export function buildApprovedGallery(
     return !!a.id && approvedAssetIds.has(a.id)
   })
 
-  return { images: buildProductGallery(filtered), approvedFlowCount: approvedAssetIds.size }
+  // Metal prints lead with the (watermarked) artwork — the panel IS the art
+  // — then the size scenes and the details card (METAL_ROLE_ORDER); garments
+  // keep the mockup-first ROLE_ORDER.
+  const order = isMetalStepFlow(stepFlow) ? METAL_ROLE_ORDER : ROLE_ORDER
+  return { images: buildProductGallery(filtered, order), approvedFlowCount: approvedAssetIds.size }
 }

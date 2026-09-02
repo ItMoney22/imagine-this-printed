@@ -8,7 +8,14 @@
 // the category column) have a null category but carry product_template
 // 'metal-art' in metadata — without the fallback they'd render as t-shirts.
 import type { Product, CartAddon } from '../types'
-import { STUDIO_SIZE_KEYS, METAL_ADDONS as METAL_ADDONS_SHARED } from '../../backend/shared/metal-art'
+import {
+  STUDIO_SIZE_KEYS,
+  METAL_ADDONS as METAL_ADDONS_SHARED,
+  METAL_ART_PRICES,
+  metalSizesFor,
+  normalizeMetalSizeKey,
+  type MetalArtSizeKey
+} from '../../backend/shared/metal-art'
 
 export type ProductKind = 'metal' | '3d' | 'apparel'
 
@@ -50,13 +57,58 @@ export function getAddonById(id: string) {
 }
 
 // Resolve the add-on ids stored on a product (metadata.addons) into the full
-// catalog entries the storefront can render + price.
+// catalog entries the storefront can render + price. A METAL PRINT with no
+// explicit list offers the whole metal add-on catalog (mounting magnets, 3D
+// printed stands, ...): David 2026-09-02 — the Step Flow never wrote
+// metadata.addons, so every metal print published through it reached the
+// storefront with no add-ons at all. An explicit non-empty list still wins.
 export function resolveProductAddons(product: Product): typeof METAL_ADDONS {
   const ids = product?.metadata?.addons
-  if (!Array.isArray(ids)) return []
-  return ids
-    .map((id: string) => getAddonById(id))
-    .filter((a): a is (typeof METAL_ADDONS)[number] => !!a)
+  if (Array.isArray(ids) && ids.length > 0) {
+    return ids
+      .map((id: string) => getAddonById(id))
+      .filter((a): a is (typeof METAL_ADDONS)[number] => !!a)
+  }
+  if (productKindOf(product) === 'metal') return METAL_ADDONS
+  return []
+}
+
+// ---------------------------------------------------------------------------
+// Per-unit BASE price (before add-ons / tier / plus-size extras) — the ONE
+// storefront answer to "what does this line cost", shared by ProductPage, the
+// cart, the floating cart and the checkout summary so they can never
+// disagree. Mirrors backend/services/order-pricing.ts server-side:
+//   - metal print → the panel size's price from the locked shared table
+//     (4x6 $8.95 / 8x10 $16.95), defaulting to the listing's smallest offered
+//     size when no size is picked yet. `products.price` on a metal row is
+//     only its entry price and is never charged for a larger panel.
+//   - everything else → products.price.
+export function unitBasePrice(product: Pick<Product, 'price' | 'category' | 'metadata' | 'sizes'>, selectedSize?: string | null): number {
+  if (productKindOf(product) === 'metal') {
+    const key: MetalArtSizeKey = normalizeMetalSizeKey(selectedSize) ?? metalSizesFor(product)[0]
+    return METAL_ART_PRICES[key]
+  }
+  return Number(product?.price) || 0
+}
+
+/** Catalog-card price: a metal print's smallest offered size ("from $8.95"), else products.price. */
+export function startingPrice(product: Pick<Product, 'price' | 'category' | 'metadata' | 'sizes'>): number {
+  return unitBasePrice(product)
+}
+
+/** True when the card/page should say "from" — a metal print offering more than one size. */
+export function hasPriceRange(product: Pick<Product, 'price' | 'category' | 'metadata' | 'sizes'>): boolean {
+  return productKindOf(product) === 'metal' && metalSizesFor(product).length > 1
+}
+
+/** The panel sizes a metal print offers, canonical + in studio order (legacy 8x11 → 8x10). */
+export function metalSizeOptions(product: Pick<Product, 'metadata' | 'sizes'>): MetalArtSizeKey[] {
+  return metalSizesFor(product)
+}
+
+/** Price of one panel size in dollars, for size-picker labels. */
+export function metalSizePrice(sizeKey: MetalArtSizeKey): number {
+  return METAL_ART_PRICES[sizeKey]
 }
 
 // True when the product is a blank garment sold as-is (no print). Blanks are

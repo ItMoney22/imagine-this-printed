@@ -153,6 +153,13 @@ vi.mock('../../worker/ai-jobs-worker.js', () => ({
   processMockupJob: (...args: any[]) => processMockupJob(...args),
 }))
 
+// product-build.js pulls in sharp + GCS + Replicate at import; the route only
+// needs its createWatermarkedDesignAsset, which the tests below assert on.
+const createWatermarkedDesignAsset = vi.fn(async () => {})
+vi.mock('../../services/product-build.js', () => ({
+  createWatermarkedDesignAsset: (...args: any[]) => createWatermarkedDesignAsset(...args),
+}))
+
 const stepFlowRouter = (await import('./ai-products-step-flow.js')).default
 
 /** Pulls the actual async handler off a registered route, skipping its auth/role-check middleware. */
@@ -213,6 +220,8 @@ beforeEach(() => {
   processRemoveBgJob.mockReset()
   processMockupJob.mockReset()
   adviseColorsForMetal.mockReset()
+  createWatermarkedDesignAsset.mockReset()
+  createWatermarkedDesignAsset.mockResolvedValue(undefined)
 })
 
 describe('POST /:id/step/select-design — background removal renders inline (2026-09-02)', () => {
@@ -372,6 +381,8 @@ describe('POST /:id/step/sizes', () => {
     expect(savedProduct.metadata.metal_size).toBe('8x10') // largest selected size
     expect(savedProduct.metadata.metal_sizes).toEqual(['4x6', '8x10'])
     expect(savedProduct.metadata.metal_prices).toEqual({ '4x6': 8.95, '8x10': 16.95 })
+    // The sizes COLUMN is what the storefront picker + admin editor read.
+    expect(savedProduct.sizes).toEqual(['4x6', '8x10'])
   })
 
   it('prices at the single selected size when only one is picked', async () => {
@@ -431,5 +442,140 @@ describe('GET /:id/step — productKind', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body?.step_flow?.productKind).toBe('garment')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /:id/step/select-design — the watermarked design (gallery contract
+// slot) is made for BOTH kinds. The Step Flow never created it before, so a
+// metal print's storefront gallery had no artwork at all.
+// ---------------------------------------------------------------------------
+describe('POST /:id/step/select-design — watermarked design copy', () => {
+  it('kicks off createWatermarkedDesignAsset for the picked source on a metal product', async () => {
+    seedMetalProduct()
+    db.product_assets.push({ id: 'src1', product_id: 'p1', kind: 'source', url: 'https://cdn/raw.png', metadata: {} })
+    const handler = getRouteHandler('post', '/:id/step/select-design')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { assetId: 'src1' }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    await waitUntil(() => createWatermarkedDesignAsset.mock.calls.length === 1)
+    expect(createWatermarkedDesignAsset).toHaveBeenCalledWith('p1', { id: 'src1', url: 'https://cdn/raw.png' })
+  })
+
+  it('kicks it off for a garment too (contract slot #10)', async () => {
+    seedProduct()
+    db.product_assets.push({ id: 'src1', product_id: 'p1', kind: 'source', url: 'https://cdn/raw.png', metadata: {} })
+    processRemoveBgJob.mockResolvedValue(undefined)
+    const handler = getRouteHandler('post', '/:id/step/select-design')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { assetId: 'src1' }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    await waitUntil(() => createWatermarkedDesignAsset.mock.calls.length === 1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /:id/step/publish — metal print (David 2026-09-02, Golden Gate):
+//   * the price is OWNED by shared/metal-art.ts — the Listing step's $25 Etsy
+//     anchor must not overwrite the Sizes step's $8.95
+//   * the sizes column + metal_* metadata are (re)stamped
+//   * the gallery leads with the watermarked artwork, made at publish if the
+//     select-design background run never landed
+// ---------------------------------------------------------------------------
+describe('POST /:id/step/publish — metal print', () => {
+  function seedPublishableMetal(withWatermark: boolean) {
+    seedMetalProduct({
+      step_flow: {
+        version: 1,
+        idea: 'golden gate',
+        brief: { title: 'Golden Gate', productKind: 'metal' },
+        productKind: 'metal',
+        sizes: ['4x6', '8x10'],
+        shots: {
+          'scene:4x6': { approved: true, status: 'done', assetId: 's4', url: 'desk.png' },
+          'scene:8x10': { approved: true, status: 'done', assetId: 's8', url: 'wall.png' },
+          details: { approved: true, status: 'done', assetId: 'd1', url: 'details.png' },
+        },
+        approvals: { design: 'x', garments: 'x', mockups: 'x' },
+      },
+      metal_sizes: ['4x6', '8x10'],
+    })
+    const p = db.products.find((r) => r.id === 'p1')!
+    p.price = 8.95
+    p.sizes = []
+    db.product_assets.push(
+      { id: 'src1', product_id: 'p1', kind: 'source', asset_role: 'design', is_primary: true, url: 'raw.png', created_at: '2026-01-01', metadata: {} },
+      { id: 's8', product_id: 'p1', kind: 'mockup', asset_role: 'mockup_metal_8x10', url: 'wall.png', created_at: '2026-01-01' },
+      { id: 's4', product_id: 'p1', kind: 'mockup', asset_role: 'mockup_metal_4x6', url: 'desk.png', created_at: '2026-01-01' },
+      { id: 'd1', product_id: 'p1', kind: 'mockup', asset_role: 'mockup_details', url: 'details.png', created_at: '2026-01-01' },
+    )
+    if (withWatermark) {
+      db.product_assets.push({ id: 'w1', product_id: 'p1', kind: 'design_preview', asset_role: 'design_watermarked', url: 'art-wm.png', created_at: '2026-01-02' })
+    }
+  }
+
+  it('ignores the $25 client price, keeps the 4x6 entry price, and stamps sizes + metal metadata', async () => {
+    seedPublishableMetal(true)
+    const handler = getRouteHandler('post', '/:id/step/publish')
+    const res = makeRes()
+    await handler(
+      { params: { id: 'p1' }, body: { title: 'Golden Gate Metal Print', description: 'd', tags: ['metal'], price: 25 }, user: { id: 'u1', sub: 'u1' }, log: undefined },
+      res
+    )
+    expect(res.statusCode).toBe(200)
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.price).toBe(8.95)
+    expect(saved.sizes).toEqual(['4x6', '8x10'])
+    expect(saved.metadata.metal_prices).toEqual({ '4x6': 8.95, '8x10': 16.95 })
+    expect(saved.metadata.metal_size).toBe('8x10')
+    expect(saved.status).toBe('active')
+  })
+
+  it('leads the gallery with the watermarked artwork, then wall, desk, details', async () => {
+    seedPublishableMetal(true)
+    const handler = getRouteHandler('post', '/:id/step/publish')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { title: 't', description: 'd', tags: [] }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.images).toEqual(['art-wm.png', 'wall.png', 'desk.png', 'details.png'])
+    expect(createWatermarkedDesignAsset).not.toHaveBeenCalled()
+  })
+
+  it('makes the watermarked copy synchronously at publish when it is missing, and re-reads the assets', async () => {
+    seedPublishableMetal(false)
+    createWatermarkedDesignAsset.mockImplementation(async (productId: string) => {
+      db.product_assets.push({ id: 'w-new', product_id: productId, kind: 'design_preview', asset_role: 'design_watermarked', url: 'art-wm-new.png', created_at: '2026-01-03' })
+    })
+    const handler = getRouteHandler('post', '/:id/step/publish')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { title: 't', description: 'd', tags: [] }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    expect(createWatermarkedDesignAsset).toHaveBeenCalledWith('p1', { id: 'src1', url: 'raw.png' })
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.images[0]).toBe('art-wm-new.png')
+    expect(saved.images).not.toContain('raw.png')
+  })
+
+  it('still honours a client price for a GARMENT publish', async () => {
+    seedProduct()
+    const p = db.products.find((r) => r.id === 'p1')!
+    p.price = 20
+    p.metadata.step_flow = {
+      version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+      shots: { product: { approved: true, status: 'done', assetId: 'a1', url: 'ghost.png' } },
+      approvals: { design: 'x', garments: 'x', mockups: 'x' },
+    }
+    db.product_assets.push(
+      { id: 'a1', product_id: 'p1', kind: 'mockup', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
+      { id: 'w1', product_id: 'p1', kind: 'design_preview', asset_role: 'design_watermarked', url: 'wm.png', created_at: '2026-01-01' },
+    )
+    const handler = getRouteHandler('post', '/:id/step/publish')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { title: 't', description: 'd', tags: [], price: 27.5 }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.price).toBe(27.5)
+    expect(saved.images).toEqual(['ghost.png', 'wm.png'])
   })
 })

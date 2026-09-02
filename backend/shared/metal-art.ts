@@ -80,6 +80,72 @@ export const METAL_ART_PRICES: Record<MetalArtSizeKey, number> = Object.fromEntr
 ) as Record<MetalArtSizeKey, number>
 
 // ---------------------------------------------------------------------------
+// Size helpers — the ONE place that knows how a raw size string on a product
+// row / cart line / edit form maps to a sellable panel, and what a product
+// row actually offers. Every reader (ProductPage's picker, the cart, the
+// checkout summary, order-pricing.ts, the Step Flow publish route) goes
+// through these so "4x6 and 8x10 charge the same" (David 2026-09-02) can't
+// come back through a second hand-rolled copy.
+//
+// Legacy '8x11' (the pre-2026-07-28 studio canvas size that the approval
+// flow + ProductPage's old fallback wrote onto rows) collapses to '8x10':
+// same physical panel, same price, one label.
+
+/** Canonical size key for a raw size string, or null when it isn't a metal panel size at all. */
+export function normalizeMetalSizeKey(raw: unknown): MetalArtSizeKey | null {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/(in|inch|inches|"|″)$/, '')
+  if (s === '4x6') return '4x6'
+  if (s === '8x10' || s === '8x11') return '8x10'
+  return null
+}
+
+/**
+ * The panel sizes a product row offers, in STUDIO_SIZE_KEYS order. Reads the
+ * `sizes` column first (what the Step Flow's Sizes step / the admin editor
+ * write), then `metadata.metal_sizes` (the Sizes step's mirror), and falls
+ * back to every studio size for legacy rows that recorded neither — a metal
+ * product is never left with zero buyable sizes.
+ */
+export function metalSizesFor(product: { sizes?: unknown; metadata?: any } | null | undefined): MetalArtSizeKey[] {
+  const column = Array.isArray(product?.sizes) ? (product!.sizes as unknown[]) : []
+  const mirror = Array.isArray(product?.metadata?.metal_sizes) ? (product!.metadata.metal_sizes as unknown[]) : []
+  const raw = column.length > 0 ? column : mirror
+  const keys = new Set<MetalArtSizeKey>()
+  for (const r of raw) {
+    const k = normalizeMetalSizeKey(r)
+    if (k) keys.add(k)
+  }
+  const ordered = STUDIO_SIZE_KEYS.filter((k) => keys.has(k))
+  return ordered.length > 0 ? ordered : [...STUDIO_SIZE_KEYS]
+}
+
+/** Unit price in cents for a panel size. */
+export function metalUnitPriceCents(sizeKey: MetalArtSizeKey): number {
+  return METAL_ART_PRICES_CENTS[sizeKey]
+}
+
+/** The listing's entry price in cents — its smallest offered size. */
+export function metalStartingPriceCents(product: { sizes?: unknown; metadata?: any } | null | undefined): number {
+  return METAL_ART_PRICES_CENTS[metalSizesFor(product)[0]]
+}
+
+/**
+ * True when a product row is a metal print, judged the same way the
+ * storefront's productKindOf (src/lib/product-kind.ts) does: the category
+ * column first, then the metadata template/type. Used server-side by
+ * order-pricing.ts, which only has the row, not the frontend classifier.
+ */
+export function isMetalProductRow(row: { category?: unknown; metadata?: any } | null | undefined): boolean {
+  const c = String(row?.category ?? '').toLowerCase()
+  const t = String(row?.metadata?.product_template ?? row?.metadata?.product_type ?? row?.metadata?.category ?? '').toLowerCase()
+  return c.includes('metal') || t.includes('metal') || t.includes('wall')
+}
+
+// ---------------------------------------------------------------------------
 // Add-on catalog — single source of truth for the storefront
 // (src/lib/product-kind.ts) and the server-side pricing engine
 // (backend/services/order-pricing.ts). Both used to carry their own

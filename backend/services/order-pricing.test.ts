@@ -100,9 +100,9 @@ describe('computeLineItemCents', () => {
     expect(bad.errors[0]).toMatch(/Unrecognized add-on/)
   })
 
-  it('KNOWN PRE-EXISTING BUG (mirrored for client/server parity, not introduced here): a 4x6 metal-art size false-positives the plus-size upcharge because "4X" is a PLUS_SIZES substring token', () => {
+  it('never treats a 4x6 metal-art size as a plus size (FIXED 2026-09-02 with the client copies): "4X" is a PLUS_SIZES substring token but a panel size is not apparel', () => {
     const { cents } = computeLineItemCents({ productId: 'metal-art-custom-1', quantity: 1, selectedSize: '4x6' }, new Map())
-    expect(cents).toBe(895 + 250) // matches src/pages/Checkout.tsx's current (buggy) isPlusSize behavior
+    expect(cents).toBe(895) // no +$2.50 — mirrors src/context/CartContext.tsx + src/pages/Checkout.tsx isPlusSize
   })
 
   it('applies the plus-size upcharge regardless of client price', () => {
@@ -1004,5 +1004,105 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
     // the server total, same posture as any other mismatch.
     const check = evaluateCheckoutAmount(1800, result.totalCents)
     expect(check.ok).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Catalog METAL PRINTS (David 2026-09-02): a UUID product whose row is
+// metal-art is priced by the PANEL SIZE the customer picked, from the same
+// locked table the storefront picker uses (4x6 $8.95 / 8x10 $16.95) — never
+// the flat products.price column, which is only the listing's entry price.
+// Before this, 4x6 and 8x10 charged the same and the column ($25 from the
+// Etsy anchor) was what got billed.
+// ---------------------------------------------------------------------------
+describe('computeLineItemCents — catalog metal prints price by panel size', () => {
+  const METAL = '33333333-3333-3333-3333-333333333333'
+  const priceMap = new Map([[METAL, 25]]) // the stale $25 column the bug shipped with
+  const metalIds = new Set([METAL])
+
+  it('charges the 4x6 price for a 4x6 pick, ignoring the column', () => {
+    const { cents, errors } = computeLineItemCents({ productId: METAL, quantity: 1, selectedSize: '4x6' }, priceMap, new Map(), metalIds)
+    expect(errors).toEqual([])
+    expect(cents).toBe(895)
+  })
+
+  it('charges the 8x10 price for an 8x10 pick — the two sizes must differ', () => {
+    const { cents, errors } = computeLineItemCents({ productId: METAL, quantity: 2, selectedSize: '8x10' }, priceMap, new Map(), metalIds)
+    expect(errors).toEqual([])
+    expect(cents).toBe(2 * 1695)
+  })
+
+  it('normalizes the legacy 8x11 label onto the 8x10 panel price', () => {
+    const { cents, errors } = computeLineItemCents({ productId: METAL, quantity: 1, selectedSize: '8x11' }, priceMap, new Map(), metalIds)
+    expect(errors).toEqual([])
+    expect(cents).toBe(1695)
+  })
+
+  it('rejects a size that is not a metal panel size at all', () => {
+    const { cents, errors } = computeLineItemCents({ productId: METAL, quantity: 1, selectedSize: 'XL' }, priceMap, new Map(), metalIds)
+    expect(cents).toBe(0)
+    expect(errors.join(' ')).toMatch(/Unknown metal-art print size "XL"/)
+  })
+
+  it('falls back to the column price with a warning when no size was sent (pre-existing cart line)', () => {
+    const { cents, errors, warnings } = computeLineItemCents({ productId: METAL, quantity: 1 }, priceMap, new Map(), metalIds)
+    expect(errors).toEqual([])
+    expect(cents).toBe(2500)
+    expect(warnings.join(' ')).toMatch(/no size selected/)
+  })
+
+  it('still prices a NON-metal product flat from the column even when a size is sent', () => {
+    const { cents, errors } = computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: 'M' }, new Map([[PRODUCT_A, 25]]), new Map(), metalIds)
+    expect(errors).toEqual([])
+    expect(cents).toBe(2500)
+  })
+
+  it('adds metal add-ons on top of the size price', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: METAL, quantity: 1, selectedSize: '4x6', selectedAddonIds: ['magnet_mount', 'printed_stand'] },
+      priceMap, new Map(), metalIds
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(895 + 495 + 695)
+  })
+})
+
+describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-to-end', () => {
+  const METAL = '33333333-3333-3333-3333-333333333333'
+
+  it('bills an 8x10 and a 4x6 of the same listing at their own panel prices', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[METAL, 25]]),
+      fetchMetalProductIds: async () => new Set([METAL])
+    })
+    const result = await calculateOrderPricing(
+      {
+        items: [
+          { productId: METAL, quantity: 1, selectedSize: '8x10' },
+          { productId: METAL, quantity: 1, selectedSize: '4x6' }
+        ],
+        shippingAddress: { state: 'TX' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(1695 + 895)
+  })
+
+  it('without the dependency (legacy injected deps) prices flat from the column, as before', async () => {
+    const deps = makeFakeDeps({ fetchProductPrices: async () => new Map([[METAL, 25]]) })
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: METAL, quantity: 1, selectedSize: '8x10' }],
+        shippingAddress: { state: 'TX' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(2500)
   })
 })

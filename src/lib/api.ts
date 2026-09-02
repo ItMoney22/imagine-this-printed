@@ -936,10 +936,12 @@ export const stepFlow = {
       body: JSON.stringify(options ?? {}),
     }),
 
-  /** Publishes: status active, images from buildProductGallery, stamps approvals.listing. */
+  /** Publishes: status active, images from buildProductGallery, stamps approvals.listing.
+   *  `price` is for garments only — a metal print's price is owned server-side
+   *  (backend/shared/metal-art.ts) and ignored if sent. */
   publish: (
     productId: string,
-    payload: { title: string; description: string; tags: string[]; price: number }
+    payload: { title: string; description: string; tags: string[]; price?: number }
   ): Promise<{ product: StepFlowProductSnapshot }> =>
     stepFlowRequest(`/api/admin/products/ai/${productId}/step/publish`, {
       method: 'POST',

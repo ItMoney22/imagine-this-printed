@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
 import { COLOR_PRESETS, isLightSwatch } from '../../utils/color-presets'
+import { STUDIO_SIZE_KEYS, METAL_ART_PRICES } from '../../../backend/shared/metal-art'
 import { MockupProgressPanel, type MockupProgress } from '../MockupProgressPanel'
 import { ImageLightbox, type LightboxImage } from './ImageLightbox'
 
@@ -389,6 +390,14 @@ const DetailsTab: React.FC<{
             onChange={(e) => onField('price', parseFloat(e.target.value))}
             className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-2.5 text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
           />
+          {product.category === 'metal-art' && (
+            // Metal prints charge by panel size from backend/shared/metal-art.ts
+            // (storefront picker, cart and server pricing all read that table);
+            // this column is only the listing's entry price.
+            <p className="text-xs text-muted mt-2">
+              Charged per size: {STUDIO_SIZE_KEYS.map((k) => `${k} $${METAL_ART_PRICES[k].toFixed(2)}`).join(' · ')}. This field is the entry price shown on the card.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-muted mb-2">Category</label>

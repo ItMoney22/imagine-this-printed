@@ -18,6 +18,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ShoppingCart, X, ArrowRight, Trash2, Plus, Minus } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { getColorName } from '../utils/color-presets'
+import { unitBasePrice } from '../lib/product-kind'
 
 const AUTO_HIDE_MS = 8000
 
@@ -163,7 +164,7 @@ const FloatingCart: React.FC = () => {
                         </span>
                       )}
                       <span className="text-text/80 font-medium ml-auto">
-                        ${(item.product.price * item.quantity).toFixed(2)}
+                        ${(unitBasePrice(item.product, item.selectedSize) * item.quantity).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 mt-1">

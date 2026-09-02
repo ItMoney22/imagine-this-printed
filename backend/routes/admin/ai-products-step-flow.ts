@@ -17,7 +17,8 @@ import { pitchPhrases } from '../../services/step-flow/phrases.js'
 import { analyzeInspirationImage, InspirationValidationError } from '../../services/step-flow/inspiration.js'
 import { adviseColors, adviseColorsForMetal } from '../../services/step-flow/color-advice.js'
 import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
-import { STUDIO_SIZE_KEYS, METAL_ART_PRICES, type MetalArtSizeKey } from '../../shared/metal-art.js'
+import { STUDIO_SIZE_KEYS, METAL_ART_PRICES, metalSizesFor, type MetalArtSizeKey } from '../../shared/metal-art.js'
+import { createWatermarkedDesignAsset } from '../../services/product-build.js'
 import {
   queueStepShots,
   redoShot,
@@ -272,6 +273,15 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
     stepFlow.approvals = { ...stepFlow.approvals, design: new Date().toISOString() }
     await saveStepFlow(id, product.metadata, stepFlow)
 
+    // Gallery contract slot (shared/product-gallery.ts): the WATERMARKED copy
+    // of the chosen design. The classic wizard made this on its mockup
+    // fan-out; the Step Flow never did, so a metal print — whose gallery
+    // LEADS with the artwork — published with scenes only (David 2026-09-02:
+    // "didn't put the main image in the product details, just the mockups").
+    // Fire-and-forget (sharp + GCS upload); /step/publish re-checks and
+    // makes it synchronously if this hasn't landed by then.
+    if (updatedAsset?.url) void createWatermarkedDesignAsset(id, { id: updatedAsset.id, url: updatedAsset.url })
+
     if (isMetalStepFlow(stepFlow)) {
       return res.json({ ok: true, asset: updatedAsset, rembgJob: null })
     }
@@ -503,7 +513,8 @@ router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req
 // Metal prints' analog of /step/garments above (design doc §14): picks which
 // physical panel sizes this listing offers. Must be a non-empty subset of
 // STUDIO_SIZE_KEYS (currently ['4x6','8x10']). Mirrors onto the product row
-// the same way /step/garments does: products.price becomes the price of the
+// the same way /step/garments does: products.sizes holds the selection,
+// products.price becomes the price of the
 // SMALLEST selected size (the listing's entry price), metadata.metal_size
 // becomes the LARGEST selected size (drives the mockup scale anchors and
 // every other metal_size reader), and metadata.metal_prices carries every
@@ -542,6 +553,10 @@ router.post('/:id/step/sizes', requireAuth, requireAdminOrManager, async (req: R
       .from('products')
       .update({
         price: METAL_ART_PRICES[smallest],
+        // The `sizes` COLUMN is what the storefront picker, the admin editor
+        // and metalSizesFor() read first — without it ProductPage fell back
+        // to a hardcoded list and the editor showed nothing selected.
+        sizes: ordered,
         metadata: {
           ...product.metadata,
           step_flow: stepFlow,
@@ -639,10 +654,12 @@ router.post('/:id/step/shots/approve', requireAuth, requireAdminOrManager, async
   }
 })
 
-// POST /:id/step/publish — { title, description, tags, price } -> { product }.
+// POST /:id/step/publish — { title, description, tags, price? } -> { product }.
 // Server-side activation: status active, is_active true, images from
 // buildApprovedGallery (approved step-flow shots only, ordered by the
-// shared backend/shared/product-gallery.ts ROLE_ORDER).
+// shared backend/shared/product-gallery.ts ROLE_ORDER — METAL_ROLE_ORDER,
+// artwork first, for a metal print). `price` is honoured for garments only;
+// a metal print's price comes from shared/metal-art.ts (see below).
 router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
@@ -651,8 +668,25 @@ router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req:
     const { data: product, error: productError } = await supabase.from('products').select('*').eq('id', id).single()
     if (productError || !product) return res.status(404).json({ error: 'Product not found' })
 
-    const { data: assets } = await supabase.from('product_assets').select('*').eq('product_id', id)
+    let { data: assets } = await supabase.from('product_assets').select('*').eq('product_id', id)
     const stepFlow = getStepFlow(product)
+    const isMetal = isMetalStepFlow(stepFlow)
+
+    // Gallery contract slot: the watermarked design (see /step/select-design,
+    // which makes it in the background). If it hasn't landed — an older
+    // draft, or that background run failed — make it now, synchronously, so
+    // the storefront gallery is complete on the first publish. For a metal
+    // print this is the LEAD image (METAL_ROLE_ORDER).
+    if (!(assets || []).some((a: any) => a.asset_role === 'design_watermarked')) {
+      const design =
+        (assets || []).find((a: any) => a.kind === 'source' && a.is_primary && a.url) ||
+        (assets || []).find((a: any) => a.asset_role === 'design' && a.url)
+      if (design) {
+        await createWatermarkedDesignAsset(id, { id: design.id, url: design.url })
+        const refreshed = await supabase.from('product_assets').select('*').eq('product_id', id)
+        if (refreshed.data) assets = refreshed.data
+      }
+    }
     // SHOULD-FIX #4: build from APPROVED step-flow shots only — a rendered
     // but never-approved (or since-redone) mockup must not sneak onto the
     // storefront just because a product_assets row for it exists. The "zero
@@ -675,7 +709,30 @@ router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req:
     }
     if (typeof title === 'string' && title.trim()) updates.name = title.trim()
     if (typeof description === 'string' && description.trim()) updates.description = description.trim()
-    if (typeof price === 'number' && price > 0) updates.price = price
+    if (isMetal) {
+      // A metal print's price is OWNED by backend/shared/metal-art.ts (David
+      // 2026-09-02: 4x6 $8.95 / 8x10 $16.95) — never the listing pack's $25
+      // Etsy anchor, which is what the Listing step used to send here and
+      // what overwrote the Sizes step's price on the first Golden Gate
+      // print. products.price stays the entry (smallest offered) price; the
+      // per-size prices ride on metadata.metal_prices + the sizes column.
+      const offered = stepFlow.sizes?.length ? stepFlow.sizes : metalSizesFor(product)
+      const metalPrices: Record<string, number> = {}
+      for (const s of offered) metalPrices[s] = METAL_ART_PRICES[s]
+      updates.price = METAL_ART_PRICES[offered[0]]
+      updates.sizes = offered
+      updates.metadata = {
+        ...updates.metadata,
+        metal_sizes: offered,
+        metal_size: offered[offered.length - 1],
+        metal_prices: metalPrices,
+      }
+      if (typeof price === 'number' && price > 0 && Math.abs(price - updates.price) > 0.005) {
+        req.log?.warn?.({ productId: id, sent: price, used: updates.price }, '[step-flow] publish: ignored client price for a metal print')
+      }
+    } else if (typeof price === 'number' && price > 0) {
+      updates.price = price
+    }
     if (stepFlow.colors?.primary) {
       // SHOULD-FIX #6: products.colors is the swatch-matching COLUMN
       // (ProductPage renders each entry directly as a CSS backgroundColor),

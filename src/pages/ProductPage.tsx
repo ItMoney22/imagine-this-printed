@@ -13,7 +13,7 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf } from '../lib/product-kind'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 
@@ -114,6 +114,11 @@ const ProductPage: React.FC = () => {
             digital_price: data.digital_price || 0
           }
           setProduct(mappedProduct)
+          // Metal print: pre-select the smallest panel so the page opens on a
+          // real, buyable price (the "from" price) instead of an empty pick.
+          if (productKindOf(mappedProduct) === 'metal') {
+            setSelectedSize(metalSizeOptions(mappedProduct)[0])
+          }
           // Single-option products have nothing to choose — auto-select so the
           // cart still carries a print_location without showing a selector
           // (multi-option products require the customer to pick one below).
@@ -223,11 +228,12 @@ const ProductPage: React.FC = () => {
         brand: { '@type': 'Brand', name: 'Imagine This Printed' }
       }
       if (product.category) ld.category = product.category
-      if (Number.isFinite(product.price) && product.price > 0) {
+      const ldPrice = startingPrice(product)
+      if (Number.isFinite(ldPrice) && ldPrice > 0) {
         ld.offers = {
           '@type': 'Offer',
           url: canonicalUrl,
-          price: product.price.toFixed(2),
+          price: ldPrice.toFixed(2),
           priceCurrency: 'USD',
           availability: product.inStock === false ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
           itemCondition: 'https://schema.org/NewCondition'
@@ -319,9 +325,17 @@ const ProductPage: React.FC = () => {
   const tierUpcharge = showGarmentTiers ? garmentTierUpcharge(selectedTier) : 0
 
   // Optional add-on upsells configured at approval (metal-art easel stand,
-  // wall mount, etc.). Empty for products without any.
+  // wall mount, etc.). A metal print offers the whole metal catalog by
+  // default (magnets, 3D-printed stands, ...); empty for other products
+  // without any.
   const availableAddons = resolveProductAddons(product)
   const addonsTotal = addonsUnitTotal(selectedAddons)
+  // Per-unit BASE price for the current selection — a metal print's follows
+  // the panel size (4x6 $8.95 / 8x10 $16.95), shared with the cart/checkout
+  // and the server's pricing engine so the number can't change on the way
+  // to the receipt. Everything else is products.price.
+  const unitPrice = unitBasePrice(product, selectedSize)
+  const priceIsFrom = productKind === 'metal' && !selectedSize && hasPriceRange(product)
   const toggleAddon = (addon: { id: string; name: string; price: number }) => {
     setSelectedAddons(prev =>
       prev.some(a => a.id === addon.id)
@@ -558,7 +572,10 @@ const ProductPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-baseline gap-3 flex-wrap">
-              <p className="text-3xl font-bold text-text">${product.price}</p>
+              <p className="text-3xl font-bold text-text">
+                {priceIsFrom && <span className="text-base font-medium text-muted mr-1.5">from</span>}
+                ${unitPrice.toFixed(2)}
+              </p>
               {(() => {
                 const promo = getPromoBadge(product)
                 if (!promo) return null
@@ -608,10 +625,14 @@ const ProductPage: React.FC = () => {
               // their sizes on the column (set at approval); these are fallbacks
               // for legacy rows that predate per-type sizing.
               const defaultSizes =
-                productKind === 'metal' ? ['4x6', '8x11']
-                : productKind === '3d' ? ['mini', 'small', 'medium', 'large']
+                productKind === '3d' ? ['mini', 'small', 'medium', 'large']
                 : ['S', 'M', 'L', 'XL', '2XL']
-              const displaySizes = product.sizes && product.sizes.length > 0 ? product.sizes : defaultSizes
+              // Metal: always the canonical panel list (legacy '8x11' rows
+              // collapse onto the real 8x10 panel; an empty column offers
+              // both sizes) — each chip carries its own price.
+              const displaySizes: string[] =
+                productKind === 'metal' ? metalSizeOptions(product)
+                : product.sizes && product.sizes.length > 0 ? product.sizes : defaultSizes
               // Plus-size upcharge is apparel-only — metal/3D sizes never qualify.
               const hasPlusSizes = isApparel && displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
               const sizeLabel = productKind === 'metal' ? 'Print Size' : productKind === '3d' ? 'Size' : 'Size'
@@ -641,6 +662,11 @@ const ProductPage: React.FC = () => {
                           title={isPlusSize ? '+$2.50 upcharge for plus sizes' : undefined}
                         >
                           {size}
+                          {productKind === 'metal' && (
+                            <span className={`ml-2 text-xs font-semibold ${isSelected ? 'text-white/90' : 'text-primary'}`}>
+                              ${metalSizePrice(size as '4x6' | '8x10').toFixed(2)}
+                            </span>
+                          )}
                           {isPlusSize && (
                             <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-amber-400'}`}>
                               +$
@@ -814,8 +840,8 @@ const ProductPage: React.FC = () => {
                 </div>
                 {addonsTotal > 0 && (
                   <p className="text-sm text-muted mt-2">
-                    Item total: <span className="font-bold text-text">${(product.price + addonsTotal).toFixed(2)}</span>
-                    <span className="text-xs"> (base ${product.price.toFixed(2)} + add-ons ${addonsTotal.toFixed(2)})</span>
+                    Item total: <span className="font-bold text-text">${(unitPrice + addonsTotal).toFixed(2)}</span>
+                    <span className="text-xs"> (base ${unitPrice.toFixed(2)} + add-ons ${addonsTotal.toFixed(2)})</span>
                   </p>
                 )}
               </div>

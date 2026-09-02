@@ -1080,3 +1080,59 @@ describe('buildApprovedGallery — metal ordering', () => {
     expect(images).toEqual(['large.png'])
   })
 })
+
+describe('buildApprovedGallery — metal prints lead with the artwork', () => {
+  // David 2026-09-02 (first Golden Gate metal print): the flow "didn't put
+  // the main image in the product details, just the mockups". A metal panel
+  // IS the flat art, so the watermarked design is the hero, then the wall
+  // (8x10) and desk (4x6) scenes, then the details card — METAL_ROLE_ORDER.
+  const metalFlow = (shots: Record<string, any>): any => ({
+    version: 1,
+    idea: 'golden gate',
+    brief: { title: 'Golden Gate', productKind: 'metal' },
+    productKind: 'metal',
+    sizes: ['4x6', '8x10'],
+    shots,
+    approvals: {},
+  })
+
+  it('orders design_watermarked → 8x10 scene → 4x6 scene → details', () => {
+    const sf = metalFlow({
+      'scene:4x6': { approved: true, status: 'done', assetId: 's4', url: 'desk.png' },
+      'scene:8x10': { approved: true, status: 'done', assetId: 's8', url: 'wall.png' },
+      details: { approved: true, status: 'done', assetId: 'd1', url: 'details.png' },
+    })
+    const assets = [
+      { id: 'd1', asset_role: 'mockup_details', url: 'details.png', created_at: '2026-01-01' },
+      { id: 's4', asset_role: 'mockup_metal_4x6', url: 'desk.png', created_at: '2026-01-01' },
+      { id: 's8', asset_role: 'mockup_metal_8x10', url: 'wall.png', created_at: '2026-01-01' },
+      { id: 'w1', asset_role: 'design_watermarked', url: 'art-wm.png', created_at: '2026-01-01' },
+    ]
+    const { images, approvedFlowCount } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['art-wm.png', 'wall.png', 'desk.png', 'details.png'])
+    expect(approvedFlowCount).toBe(3)
+  })
+
+  it('never surfaces the RAW source design — only the watermarked copy can lead', () => {
+    const sf = metalFlow({ 'scene:8x10': { approved: true, status: 'done', assetId: 's8', url: 'wall.png' } })
+    const assets = [
+      { id: 'src', kind: 'source', asset_role: 'design', url: 'raw.png', created_at: '2026-01-01' },
+      { id: 's8', asset_role: 'mockup_metal_8x10', url: 'wall.png', created_at: '2026-01-01' },
+    ]
+    const { images } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['wall.png'])
+  })
+
+  it('keeps garments mockup-first with the watermarked design LAST', () => {
+    const sf: any = {
+      version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+      shots: { product: { approved: true, status: 'done', assetId: 'a1', url: 'ghost.png' } },
+      approvals: {},
+    }
+    const assets = [
+      { id: 'w1', asset_role: 'design_watermarked', url: 'wm.png', created_at: '2026-01-01' },
+      { id: 'a1', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
+    ]
+    expect(buildApprovedGallery(sf, assets).images).toEqual(['ghost.png', 'wm.png'])
+  })
+})

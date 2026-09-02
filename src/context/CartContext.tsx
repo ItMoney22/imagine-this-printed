@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useReducer, useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
-import { addonsUnitTotal, addonsSignature } from '../lib/product-kind'
+import { addonsUnitTotal, addonsSignature, unitBasePrice } from '../lib/product-kind'
+import { normalizeMetalSizeKey } from '../../backend/shared/metal-art'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 
@@ -143,8 +144,11 @@ const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL
 const PLUS_SIZE_UPCHARGE = 2.50
 
 // Check if a size is a plus size (2XL and above)
+// Plus-size is an apparel upcharge — a metal panel size ("4x6" contains the
+// "4X" token) is never one. Mirrors backend/services/order-pricing.ts.
 const isPlusSize = (size?: string): boolean => {
   if (!size) return false
+  if (normalizeMetalSizeKey(size)) return false
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
@@ -163,8 +167,10 @@ const calculateTotal = (items: CartItem[]): number => {
     return sum
   }, 0)
 
-  // Calculate total for non-eligible items (base price + plus size upcharge)
-  const nonEligibleTotal = nonEligibleItems.reduce((sum, item) => sum + (item.product.price * item.quantity), 0) + nonEligiblePlusSizeUpcharge
+  // Calculate total for non-eligible items (base price + plus size upcharge).
+  // unitBasePrice: a metal print's base price follows the PANEL SIZE picked
+  // (4x6 $8.95 / 8x10 $16.95 — shared table), not the flat products.price.
+  const nonEligibleTotal = nonEligibleItems.reduce((sum, item) => sum + (unitBasePrice(item.product, item.selectedSize) * item.quantity), 0) + nonEligiblePlusSizeUpcharge
 
   // Calculate total for eligible items (BUNDLE_DEAL — "2 for $25", David
   // 2026-09-02, was "3 for $25"). bundleTotalCents pools eligible quantity
