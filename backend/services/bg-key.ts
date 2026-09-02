@@ -8,6 +8,13 @@
 // ramp gives a clean, anti-aliased cutout (standard chroma-key technique).
 
 import sharp from 'sharp'
+import {
+  borderPatternOf,
+  CHECKER_MIN_SEPARATION,
+  CHECKER_MAX_SPREAD,
+  CHECKER_MIN_LUMA,
+  CHECKER_MIN_ALTERNATIONS,
+} from './image-metrics.js'
 
 export type SolidBg = 'black' | 'white'
 
@@ -27,6 +34,56 @@ export async function transparentFraction(input: Buffer): Promise<number> {
     return transparent / total
   } catch {
     return 0
+  }
+}
+
+/**
+ * Is the border a PAINTED checkerboard — fake transparency baked into the
+ * pixels, which several of our generated sources carry?
+ *
+ * It has to be asked at native resolution. Downsampling a fine checker averages
+ * its two tones into one flat mid-grey, so the border reads as a perfectly solid
+ * light field and a colour key gets chosen — but at full size the key removes
+ * only the white squares and leaves the grey ones, printing the checkerboard
+ * onto the garment. A key cannot clean this source at all, so it is not a solid
+ * background as far as this module is concerned.
+ *
+ * Reuses the QA gate's own detector (`borderPatternOf` + its thresholds) rather
+ * than growing a second opinion about what a checkerboard is.
+ */
+async function borderIsPaintedCheckerboard(input: Buffer): Promise<boolean> {
+  try {
+    const meta = await sharp(input).metadata()
+    const W = meta.width ?? 0, H = meta.height ?? 0
+    if (W < 16 || H < 16) return false
+    // Flatten onto white BEFORE greyscale: on an RGBA source .greyscale() keeps
+    // the alpha channel and .raw() then emits two bytes per pixel, which reads a
+    // genuinely transparent border as a 235/248 checker. Flattening also means
+    // real transparency is uniform here, so only PAINTED patterns survive.
+    const line = async (left: number, top: number, width: number, height: number) => {
+      const b = await sharp(input).extract({ left, top, width, height })
+        .flatten({ background: '#ffffff' }).greyscale().raw().toBuffer()
+      return b.length === width * height ? [...b] : null
+    }
+    const edges = await Promise.all([
+      line(0, 1, W, 1), line(0, H - 2, W, 1), line(1, 0, 1, H), line(W - 2, 0, 1, H),
+    ])
+    for (const e of edges) {
+      if (!e) continue
+      // Artwork touching an edge mid-line drags the two-cluster split onto
+      // art-vs-background and hides the pattern, so the corner eighths - almost
+      // always pure background - get looked at on their own too.
+      const eighth = Math.floor(e.length / 8)
+      const candidates = eighth >= 8 ? [e, e.slice(0, eighth), e.slice(-eighth)] : [e]
+      for (const c of candidates) {
+        const bp = borderPatternOf(c)
+        if (bp && bp.separation >= CHECKER_MIN_SEPARATION && bp.spread <= CHECKER_MAX_SPREAD &&
+            bp.clusterLow >= CHECKER_MIN_LUMA && bp.alternations >= CHECKER_MIN_ALTERNATIONS) return true
+      }
+    }
+    return false
+  } catch {
+    return false
   }
 }
 
@@ -96,6 +153,11 @@ export async function detectSolidBg(input: Buffer): Promise<SolidBg | null> {
     const avg = onField.reduce((a, b) => a + b, 0) / onField.length
     const spread = Math.sqrt(onField.reduce((a, b) => a + (b - avg) ** 2, 0) / onField.length)
     if (spread > MAX_FIELD_SPREAD) return null
+
+    // Everything above is measured on a 96px sample, which is what makes it
+    // robust to art bleeding off the frame - and also what makes it blind to a
+    // painted checkerboard. Ask the question the sample cannot answer.
+    if (await borderIsPaintedCheckerboard(input)) return null
 
     return field
   } catch {

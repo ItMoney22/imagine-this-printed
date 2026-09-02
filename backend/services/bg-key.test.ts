@@ -88,6 +88,41 @@ describe('detectSolidBg', () => {
     expect(await detectSolidBg(img)).toBeNull()
   })
 
+  // Several of our generated sources carry a PAINTED checkerboard - fake
+  // transparency baked into the pixels. Downsampling averages its two tones into
+  // one flat light grey, so the border looks like a perfect solid field, but at
+  // full size a colour key removes only the white squares and prints the grey
+  // ones onto the garment. Measured on the live catalogue this is not rare: 57
+  // of the 71 designs with a cut on file alternate ~228/~253 on a 10px period.
+  it('refuses a painted checkerboard that averages out to a flat field', async () => {
+    // Full-size like the real sources (1024px art, ~10px squares), because the
+    // whole point is that the 96px sample cannot see it.
+    const N = 480, cell = 5
+    const raw = Buffer.alloc(N * N * 3)
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const v = (Math.floor(x / cell) + Math.floor(y / cell)) % 2 ? 253 : 228
+      const i = (y * N + x) * 3
+      raw[i] = raw[i + 1] = raw[i + 2] = v
+    }
+    const checker = await sharp(raw, { raw: { width: N, height: N, channels: 3 } }).png().toBuffer()
+
+    // The 96px sample really is fooled - it sees a flat light field.
+    const { data } = await sharp(checker).resize(96, 96, { fit: 'fill' }).greyscale().raw().toBuffer({ resolveWithObject: true })
+    const ring = [...data.subarray(0, 96)]
+    const avg = ring.reduce((a, b) => a + b, 0) / ring.length
+    expect(avg).toBeGreaterThan(205)
+    expect(Math.sqrt(ring.reduce((a, b) => a + (b - avg) ** 2, 0) / ring.length)).toBeLessThan(12)
+
+    expect(await detectSolidBg(checker)).toBeNull()
+  })
+
+  // ...but a field that is genuinely flat at full size still passes, even at the
+  // near-black levels a checker test could be twitchy about.
+  it('accepts a field that is flat at full size', async () => {
+    const flat = await make((x, y) => (inBox(x, y, 30, 30, 70, 70) ? [240, 60, 60] : [(x + y) % 2, 0, 1]))
+    expect(await detectSolidBg(flat)).toBe('black')
+  })
+
   it('refuses a mid-tone border', async () => {
     expect(await detectSolidBg(await make(() => [130, 130, 130]))).toBeNull()
   })
