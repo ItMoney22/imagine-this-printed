@@ -6,6 +6,7 @@ import { createStepFlowProduct } from './createStepFlowProduct'
 import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
 import { ApproveButton, BusyDot, Checkerboard, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
+import PrintPrepPanel from './PrintPrepPanel'
 
 // gpt-image-2 takes ~2-3 minutes; rembg is a quick Replicate call once the
 // design is picked. Both are real timed waits David complained about.
@@ -226,6 +227,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
                   Approve design
                 </ApproveButton>
               </div>
+              <PrintPrepPanel state={state} refresh={refresh} />
             </>
           ) : null}
         </div>

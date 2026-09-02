@@ -534,6 +534,52 @@ export interface ArtworkStats {
 
 export type StepFlowApprovals = Partial<Record<'design' | 'garments' | 'mockups' | 'listing', string>>
 
+// Print prep — a separate, team-only screened file for the press (never a
+// design/nobg asset, never customer-facing). See design doc §10.
+export type PrintMethod = 'halftone' | 'diffusion'
+export type PrintShape = 'round' | 'line'
+
+export interface PrintAdviceStats {
+  smoothShare: number
+  colorCount: number
+  softEdgeShare: number
+}
+
+/** The screen settings print-advice suggests, and also what a rendered
+ *  print file's `options` come back as (server-resolved, every field set). */
+export interface SuggestedPrintOptions {
+  method: PrintMethod
+  frequency: number
+  angle: number
+  shape: PrintShape
+  invertDark: boolean
+}
+
+export interface PrintAdvice {
+  recommend: 'halftone' | 'clean'
+  confidence: number
+  reason: string
+  stats: PrintAdviceStats
+  suggested: SuggestedPrintOptions
+}
+
+/** POST body for /step/print-file — every field optional; the server fills
+ *  in anything omitted from the last print-advice's `suggested` values. */
+export interface PrintFileOptions {
+  method?: PrintMethod
+  frequency?: number
+  angle?: number
+  shape?: PrintShape
+  invertDark?: boolean
+}
+
+export interface PrintFile {
+  assetId: string
+  url: string
+  options: SuggestedPrintOptions
+  createdAt: string
+}
+
 export interface StepFlowMeta {
   version: 1
   idea: string
@@ -546,6 +592,9 @@ export interface StepFlowMeta {
   advice?: ColorAdvice[]
   shots: Partial<Record<ShotKey, ShotState>>
   approvals: StepFlowApprovals
+  /** Team-only print prep — never gates any approval, purely informational/optional. */
+  printAdvice?: PrintAdvice
+  printFile?: PrintFile
 }
 
 // product_assets row (the columns the flow actually reads).
@@ -690,6 +739,23 @@ export const stepFlow = {
     stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/approve`, {
       method: 'POST',
       body: JSON.stringify({ keys, approved, skipped }),
+    }),
+
+  /** Measures the nobg asset for halftone-vs-clean printability (smooth-ramp
+   *  share, color count, soft-edge share) and returns a suggested screen.
+   *  Never gates any approval — purely advisory. */
+  printAdvice: (productId: string): Promise<{ advice: PrintAdvice }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/print-advice`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  /** Renders the team-only halftone/diffusion print file from the nobg asset
+   *  (synchronous, ~3-8s). Redo overwrites — one print file per product. */
+  printFile: (productId: string, options?: PrintFileOptions): Promise<{ printFile: PrintFile }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/print-file`, {
+      method: 'POST',
+      body: JSON.stringify(options ?? {}),
     }),
 
   /** Publishes: status active, images from buildProductGallery, stamps approvals.listing. */

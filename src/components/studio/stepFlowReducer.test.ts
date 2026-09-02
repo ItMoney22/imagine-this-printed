@@ -297,6 +297,32 @@ describe('stepFlowReducer', () => {
     expect(next.step).toBe('listing')
   })
 
+  it('HYDRATE carries printFile/printAdvice through onto stepFlow — print prep is plain data, never gated', () => {
+    // step_flow.printAdvice/printFile ride along on the same step_flow object
+    // HYDRATE already assigns wholesale — this locks that in so a future
+    // refactor of the HYDRATE case can't silently drop them.
+    const printAdvice = {
+      recommend: 'halftone' as const,
+      confidence: 0.82,
+      reason: '61% of the artwork is smooth shading',
+      stats: { smoothShare: 0.61, colorCount: 14, softEdgeShare: 0.12 },
+      suggested: { method: 'halftone' as const, frequency: 55, angle: 45, shape: 'round' as const, invertDark: false },
+    }
+    const printFile = {
+      assetId: 'print-1',
+      url: 'https://x/print.png',
+      options: printAdvice.suggested,
+      createdAt: '2026-09-02T00:00:00Z',
+    }
+    const res = response({
+      productId: 'p1',
+      stepFlow: { printAdvice, printFile },
+    })
+    const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
+    expect(next.stepFlow?.printAdvice).toEqual(printAdvice)
+    expect(next.stepFlow?.printFile).toEqual(printFile)
+  })
+
   it('SET_ERROR clears loading and records the message', () => {
     const next = stepFlowReducer(stateWith({ loading: true }), { type: 'SET_ERROR', error: 'boom' })
     expect(next.error).toBe('boom')

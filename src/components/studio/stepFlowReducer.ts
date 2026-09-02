@@ -28,6 +28,9 @@
 import type {
   ColorAdvice,
   DesignCandidate,
+  PrintAdvice,
+  PrintFile,
+  PrintFileOptions,
   ShotKey,
   ShotState,
   StepFlowAsset,
@@ -36,6 +39,7 @@ import type {
   StepFlowMeta,
   StepFlowProductSnapshot,
   StepId,
+  SuggestedPrintOptions,
 } from './types'
 import { STEP_ORDER } from './types'
 
@@ -44,6 +48,9 @@ import { STEP_ORDER } from './types'
 export type {
   ColorAdvice,
   DesignCandidate,
+  PrintAdvice,
+  PrintFile,
+  PrintFileOptions,
   ShotKey,
   ShotState,
   StepFlowAsset,
@@ -52,6 +59,7 @@ export type {
   StepFlowMeta,
   StepFlowProductSnapshot,
   StepId,
+  SuggestedPrintOptions,
 }
 
 export interface StepFlowState {

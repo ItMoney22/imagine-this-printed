@@ -16,7 +16,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   X, RefreshCw, Scissors, ArrowUpCircle, LayoutGrid, Sparkles,
-  ExternalLink, Wand2, ImageOff, Check,
+  ExternalLink, Wand2, ImageOff, Check, Download,
 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
 import { COLOR_PRESETS, isLightSwatch } from '../../utils/color-presets'
@@ -116,6 +116,15 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
 
   const gallery = useMemo(() => buildGallery(product, assetGroups), [product, assetGroups])
   const mainImageUrl: string | null = product?.images?.[0] ?? null
+
+  // Team-only halftone/diffusion print files (`kind:'print'`, see step-flow
+  // print prep, design doc §10) — deliberately kept OUT of `gallery` above so
+  // they never reach the Mockups group, the flattened lightbox, or "Set as
+  // main"; they get their own read-only section below with just a download.
+  const printAssets = useMemo(
+    () => (assetGroups?.print || []).filter((a: any) => !!a?.url),
+    [assetGroups]
+  )
 
   // Keep the big-viewer selection valid: default to the main image (or the
   // first gallery image) on open, and fall back the same way if whatever was
@@ -268,6 +277,7 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
                   selectedUrl={selectedUrl}
                   mainImageUrl={mainImageUrl}
                   onSelect={setSelectedUrl}
+                  printAssets={printAssets}
                 />
               )}
               {activeTab === 'ai' && (
@@ -558,8 +568,9 @@ const ImagesTab: React.FC<{
   selectedUrl: string | null
   mainImageUrl: string | null
   onSelect: (url: string) => void
-}> = ({ gallery, selectedUrl, mainImageUrl, onSelect }) => {
-  if (gallery.length === 0) {
+  printAssets: any[]
+}> = ({ gallery, selectedUrl, mainImageUrl, onSelect, printAssets }) => {
+  if (gallery.length === 0 && printAssets.length === 0) {
     return <p className="text-sm text-muted">No images yet for this product.</p>
   }
 
@@ -597,6 +608,39 @@ const ImagesTab: React.FC<{
           </div>
         )
       })}
+
+      {printAssets.length > 0 && (
+        <div>
+          <h5 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
+            Print files (team only) <span className="text-muted/60">({printAssets.length})</span>
+          </h5>
+          <p className="text-[11px] text-muted mb-2">
+            Halftone/diffusion screens for the press. Never shown to customers, never a main image.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {printAssets.map((asset: any, i: number) => (
+              <div
+                key={asset.id || `print-${i}`}
+                className={`relative aspect-square rounded-lg overflow-hidden border border-white/10 ${CHECKERBOARD_BG}`}
+              >
+                <img src={asset.url} alt={`Print file ${i + 1}`} className="w-full h-full object-contain" />
+                <span className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-black">
+                  TEAM ONLY
+                </span>
+                <a
+                  href={asset.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute bottom-1 right-1 inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-1 rounded-full bg-black/70 text-white hover:bg-black/90"
+                  title="Download print file"
+                >
+                  <Download className="w-3 h-3" /> Download
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

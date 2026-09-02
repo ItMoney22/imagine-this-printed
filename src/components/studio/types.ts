@@ -8,6 +8,12 @@ import type {
   ColorAdvice,
   EtsyComposePack,
   EtsyTier,
+  PrintAdvice,
+  PrintAdviceStats,
+  PrintFile,
+  PrintFileOptions,
+  PrintMethod,
+  PrintShape,
   ShotKey,
   ShotState,
   StepBrief,
@@ -19,6 +25,7 @@ import type {
   StepFlowJob,
   StepFlowMeta,
   StepFlowProductSnapshot,
+  SuggestedPrintOptions,
 } from '../../lib/api'
 
 export type {
@@ -26,6 +33,12 @@ export type {
   ColorAdvice,
   EtsyComposePack,
   EtsyTier,
+  PrintAdvice,
+  PrintAdviceStats,
+  PrintFile,
+  PrintFileOptions,
+  PrintMethod,
+  PrintShape,
   ShotKey,
   ShotState,
   StepBrief,
@@ -37,6 +50,7 @@ export type {
   StepFlowJob,
   StepFlowMeta,
   StepFlowProductSnapshot,
+  SuggestedPrintOptions,
 }
 
 /** The six stops of the builder, in order. */
