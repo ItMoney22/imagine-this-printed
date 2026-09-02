@@ -67,16 +67,31 @@ export async function processQueuedJobs() {
     // Recover orphaned 'running' jobs: only when they've been stuck >12 min with no
     // updates AND aren't 3D Tripo jobs (those legitimately run 2-10 min on fal).
     // Skipping 3d_model_tripo prevents yanking an actively-running Tripo job mid-execution.
+    //
+    // Step Flow (2026-09-02, Track B) ALSO pre-claims jobs as 'running' at
+    // insert time — see services/step-flow/shots.ts's queueMockupJob/
+    // queueModelShot — and renders them inline in the API process via
+    // processMockupJob, tagging them with `input.stepKey`. Those rows have no
+    // `prediction_id` either, so without this exclusion a slow render (QA
+    // retry, cold Replicate model, ...) crossing the 12-min mark would get
+    // reset to 'queued' by THIS sweep and then picked up a second time by
+    // the production worker's polling loop — a double render racing the
+    // inline one still finishing in the API. Selecting `input` and filtering
+    // in JS (rather than a `.filter('input->>stepKey', 'is', null)` Postgrest
+    // path expression) is the simplest option that doesn't depend on getting
+    // JSON-path query syntax exactly right; the stuck-row batch is capped at
+    // 20 so the extra column costs nothing.
     const twelveMinAgo = new Date(Date.now() - 12 * 60 * 1000).toISOString()
-    const { data: stuck } = await supabase
+    const { data: stuckCandidates } = await supabase
       .from('ai_jobs')
-      .select('id, type, updated_at')
+      .select('id, type, updated_at, input')
       .eq('status', 'running')
       .is('prediction_id', null)
       .lt('updated_at', twelveMinAgo)
       .neq('type', '3d_model_tripo')
       .limit(20)
-    if (stuck && stuck.length > 0) {
+    const stuck = (stuckCandidates || []).filter((j: any) => !j.input?.stepKey)
+    if (stuck.length > 0) {
       console.log('[worker] 🔁 Resetting', stuck.length, 'stuck running jobs to queued')
       for (const j of stuck) {
         await supabase
@@ -253,6 +268,570 @@ export async function claimQueuedJob(
       .eq('status', 'queued')
       .select('id')
   )
+}
+
+/**
+ * Renders one 'replicate_mockup' / 'replicate_mockup_v2' job to completion:
+ * resolves the source/DTF/nobg art, calls the mockup model (+ QA retry),
+ * uploads to GCS, writes the product_assets row (honouring input.mockupRole
+ * pinning), and marks the ai_jobs row succeeded/failed.
+ *
+ * Extracted verbatim from the worker's polling-loop branch (2026-09-02,
+ * Step Flow Track B) so it can ALSO be called directly, inline, right after
+ * a job is inserted pre-claimed as 'running' (see services/step-flow/shots.ts) —
+ * the same fix already applied to design jobs via processImageJobInline in
+ * routes/admin/ai-products.ts. `startJob` below now just calls this. Same
+ * logs, same DB writes, same error handling as before the extraction —
+ * behaviour-preserving; the ONLY caller-visible difference is that this can
+ * now be awaited/invoked without going through claimQueuedJob first, so
+ * callers that pre-claim their own job row (status already 'running') must
+ * do so BEFORE calling this. Importing this module has no side effects —
+ * `startWorker()` (bottom of this file) is only ever invoked from
+ * backend/worker/index.ts, never at module scope.
+ */
+export async function processMockupJob(job: any): Promise<void> {
+  // Check if source image job exists and its status. Match both the legacy
+  // 'replicate_image' and the admin-builder 'replicate_image_v2' types so the
+  // mockup actually waits for the design to finish instead of racing ahead.
+  const { data: sourceImageJob } = await supabase
+    .from('ai_jobs')
+    .select('status')
+    .eq('product_id', job.product_id)
+    .in('type', ['replicate_image', 'replicate_image_v2'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  // If source image job exists but hasn't completed, wait for it
+  if (sourceImageJob && sourceImageJob.status !== 'succeeded' && sourceImageJob.status !== 'failed') {
+    // Reset to queued, will try again next cycle
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'queued',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+    console.log('[worker] ⏳ Source image job still processing (status:', sourceImageJob.status, '), will retry...')
+    return
+  }
+
+  // If no source image job exists, check if product has a source asset directly
+  // This handles manually uploaded products or products from Imagination Station
+  if (!sourceImageJob) {
+    const { data: sourceAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('product_id', job.product_id)
+      .eq('kind', 'source')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (!sourceAsset) {
+      // Also check for products.images array as fallback
+      const { data: product } = await supabase
+        .from('products')
+        .select('images')
+        .eq('id', job.product_id)
+        .single()
+
+      if (!product?.images?.length) {
+        console.error('[worker] ❌ No source image job and no source asset found for product')
+        await supabase
+          .from('ai_jobs')
+          .update({
+            status: 'failed',
+            error: 'No source image available for mockup generation',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.id)
+        return
+      }
+      console.log('[worker] 📸 No source image job, but product has images array - proceeding with mockup')
+    } else {
+      console.log('[worker] 📸 No source image job, but found source asset - proceeding with mockup')
+    }
+  }
+
+  // Check if background removal job exists (optional)
+  const { data: rembgJob } = await supabase
+    .from('ai_jobs')
+    .select('status')
+    .eq('product_id', job.product_id)
+    .eq('type', 'replicate_rembg')
+    .single()
+
+  // If background removal job exists and is still running, wait for it
+  // BUT if it failed, proceed anyway (we'll use source image for mockup)
+  if (rembgJob && (rembgJob.status === 'queued' || rembgJob.status === 'running')) {
+    // Reset to queued, will try again next cycle
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'queued',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+    console.log('[worker] ⏳ Background removal job is still processing (status:', rembgJob.status, '), will retry...')
+    return
+  }
+
+  // If rembg job failed, log it but proceed with mockup using source image
+  if (rembgJob && rembgJob.status === 'failed') {
+    console.log('[worker] ⚠️ Background removal failed, will use source image for mockup')
+  }
+
+  // Priority order: Selected asset > DTF-optimized > no-background > source
+  let garmentImageUrl: string | undefined
+
+  // If user selected a specific asset, use that one
+  if (job.input?.selected_asset_id) {
+    console.log('[worker] 🎯 Using user-selected asset:', job.input.selected_asset_id)
+
+    // Get the selected asset
+    const { data: selectedAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('id', job.input.selected_asset_id)
+      .single()
+
+    if (selectedAsset) {
+      garmentImageUrl = selectedAsset.url
+      console.log('[worker] ✅ Using selected image for mockup:', garmentImageUrl)
+    } else {
+      console.error('[worker] ❌ Selected asset not found, falling back to default priority')
+    }
+  }
+
+  // If no selected asset or not found, fall back to priority order
+  if (!garmentImageUrl) {
+    // Try DTF-optimized asset first (if DTF optimization was done)
+    const { data: dtfAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('product_id', job.product_id)
+      .eq('kind', 'dtf')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (dtfAsset) {
+      garmentImageUrl = dtfAsset.url
+      console.log('[worker] 🎨 Using DTF-optimized image for mockup:', garmentImageUrl)
+    }
+  }
+
+  if (!garmentImageUrl) {
+    // Try to get the no-background asset (if background removal was done)
+    const { data: nobgAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('product_id', job.product_id)
+      .eq('kind', 'nobg')
+      .single()
+
+    if (nobgAsset) {
+      garmentImageUrl = nobgAsset.url
+      console.log('[worker] 📸 Using no-background image for mockup:', garmentImageUrl)
+    }
+  }
+
+  if (!garmentImageUrl) {
+    // Get the most recent source image (for "Skip to Mockups" workflow)
+    const { data: sourceAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('product_id', job.product_id)
+      .eq('kind', 'source')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (sourceAsset) {
+      garmentImageUrl = sourceAsset.url
+      console.log('[worker] 📸 Using source image for mockup (no optimization):', garmentImageUrl)
+    }
+  }
+
+  // Final fallback: use products.images array (for manually created products)
+  if (!garmentImageUrl) {
+    const { data: product } = await supabase
+      .from('products')
+      .select('images')
+      .eq('id', job.product_id)
+      .single()
+
+    if (product?.images?.length) {
+      garmentImageUrl = product.images[0]
+      console.log('[worker] 📸 Using product.images[0] for mockup:', garmentImageUrl)
+    } else {
+      console.error('[worker] ❌ No source image found anywhere!')
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'failed',
+          error: 'No source image available for mockup generation',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+      return
+    }
+  }
+
+  // If garmentImageUrl is a base64 data URL, upload to GCS first
+  // (Gemini and other APIs require HTTP(S) URLs)
+  if (garmentImageUrl && garmentImageUrl.startsWith('data:')) {
+    console.log('[worker] 📤 Converting base64 image to GCS URL...')
+    try {
+      const productSlug = await getProductSlug(job.product_id)
+      const uploadResult = await uploadImageFromBase64(
+        garmentImageUrl,
+        `products/${productSlug}/source-${Date.now()}.png`
+      )
+      console.log('[worker] ✅ Base64 converted to GCS URL:', uploadResult.publicUrl.substring(0, 80) + '...')
+      garmentImageUrl = uploadResult.publicUrl
+
+      // Also update the product's images array to use the permanent URL
+      const { data: product } = await supabase
+        .from('products')
+        .select('images')
+        .eq('id', job.product_id)
+        .single()
+
+      if (product?.images?.length && product.images[0].startsWith('data:')) {
+        await supabase
+          .from('products')
+          .update({ images: [uploadResult.publicUrl, ...product.images.slice(1)] })
+          .eq('id', job.product_id)
+        console.log('[worker] ✅ Updated product.images with permanent GCS URL')
+      }
+    } catch (uploadError: any) {
+      console.error('[worker] ❌ Failed to upload base64 image:', uploadError.message)
+      await supabase
+        .from('ai_jobs')
+        .update({
+          status: 'failed',
+          error: `Failed to upload source image: ${uploadError.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
+      return
+    }
+  }
+
+  // Store template info in job metadata for organized upload later
+  await supabase
+    .from('ai_jobs')
+    .update({
+      input: {
+        ...job.input,
+        garment_image_url: garmentImageUrl, // Store for reference
+      },
+    })
+    .eq('id', job.id)
+
+  // Get DTF settings from original image generation job. Match BOTH the
+  // legacy 'replicate_image' and the admin-builder 'replicate_image_v2' — a
+  // stale 'replicate_image'-only filter is why shirt color used to default to
+  // black even when the user picked white.
+  const { data: imageJob } = await supabase
+    .from('ai_jobs')
+    .select('input')
+    .eq('product_id', job.product_id)
+    .in('type', ['replicate_image', 'replicate_image_v2'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  // Authoritative DTF settings live on the product row's metadata (written by
+  // every create path, including one-shot/bulk which create no image job at
+  // all). job.input carries the route-resolved values forward; the image job
+  // is the last structured fallback before hard defaults.
+  const { data: mockupProduct } = await supabase
+    .from('products')
+    .select('metadata')
+    .eq('id', job.product_id)
+    .single()
+  const productMeta = (mockupProduct?.metadata as any) || {}
+
+  // Job-first for the garment color (Step Flow, David 2026-09-01): a
+  // `color:<id>` run asks for THIS render in another color, so the job's
+  // shirtColor outranks the product's primary. Every pre-existing caller
+  // copies metadata.shirt_color into input.shirtColor anyway, so this is
+  // behaviour-preserving for them. (Smoke 2026-09-01: metadata-first rendered
+  // the "white" variant in black.)
+  const shirtColor = job.input?.shirtColor || productMeta.shirt_color || imageJob?.input?.shirtColor || 'black'
+  const productType = productMeta.product_type || job.input?.productType || imageJob?.input?.productType || 'tshirt'
+  // Placement is the ONE setting where THIS JOB outranks the product default.
+  // The product's print_placement describes what the product IS; a mockup job
+  // that names a placement is asking for a specific RENDER of it — that is how
+  // the pocket-scale shot is requested for a front-center product.
+  //
+  // Metadata-first here silently discarded that: the pocket job rendered at
+  // front scale, was therefore tagged mockup_flat_lay, and DELETED the real
+  // front flat_lay via the replace-by-role write. Caught on a live build
+  // 2026-08-09 — the job was created, ran, cost a render, and left no trace.
+  //
+  // Safe for every other job: baseInput.printPlacement is itself derived from
+  // productMeta.print_placement at fan-out, so the two agree unless a job
+  // deliberately overrode it.
+  const printPlacement = job.input?.printPlacement || productMeta.print_placement || imageJob?.input?.printPlacement || 'front-center'
+  // Physical print width in inches — feeds the explicit scale language in
+  // the mockup prompt and the QA coverage gate. Job-first for the same
+  // reason as placement above.
+  const printSizeInches = Number(job.input?.printSizeInches) || Number(productMeta.print_size_inches) || 11
+  const productCategory = job.input?.product_type || 'shirts'
+
+  console.log('[worker] 🎨 MOCKUP COLOR RESOLVE:', JSON.stringify({
+    template: job.input?.template,
+    product_id: job.product_id,
+    resolved_shirtColor: shirtColor,
+    meta_shirt_color: productMeta.shirt_color ?? null,
+    job_input_shirtColor: job.input?.shirtColor ?? null,
+    imageJob_shirtColor: imageJob?.input?.shirtColor ?? null,
+  }))
+
+  // Get template type - determines which mockup style to generate
+  const template = job.input?.template || 'flat_lay'
+  const templateName = template === 'mr_imagine' ? 'Mr. Imagine mascot' :
+                       template === 'flat_lay' ? 'professional flat lay' :
+                       template === 'ghost_mannequin' ? 'ghost mannequin' :
+                       template === 'metal_shelf' ? 'metal print shelf scene' :
+                       template === 'metal_wall' ? 'metal print wall scene' : template
+
+  await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Replicate AI...`, 1, 3)
+  console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
+
+  let mockupImageUrl: string
+  // Placeholder only — overwritten below by the model the pipeline actually
+  // used (mockupResult.modelId). Kept in sync with image-flow's mockup default.
+  let mockupModelId: string = 'google/nano-banana-2-lite'
+  // Declared out here (not inside the try) because the QA retry below needs
+  // the same character base to re-render mr_imagine with.
+  let characterImageUrl: string | undefined
+
+  try {
+    // Template routing (see worker-helpers.runImageFlowMockup):
+    //   - mr_imagine        → single call to google/nano-banana-2-lite with [character, design]
+    //   - flat_lay          → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana-2-lite (composite)
+    //   - ghost_mannequin   → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana-2-lite (composite)
+    // The 2-step path exists specifically to defeat Money's recurring
+    // "all three mockups come back as Mr. Imagine" bug — gpt-image-2 used
+    // to handle both halves and kept hallucinating the mascot.
+    //
+    // DEFAULT (2026-08-16): a single black-forest-labs/flux-2-pro call
+    // collapses flat_lay + ghost_mannequin into ONE call that takes the
+    // design (and optionally a blank-garment photo) as reference images —
+    // ~$0.03/mockup vs ~$0.054, one round-trip instead of two. It falls
+    // back to the 2-step chain on any error, so a refusal costs latency,
+    // never a failed job. It stayed opt-in until a 40-job real-batch grade
+    // (Watchtower task 6456344b) showed 0 wearer/mascot hallucinations and
+    // 0 E005 refusals — see docs/FLUX2_SINGLE_CALL_GRADING_REPORT.md.
+    // Set MOCKUP_FLUX2_SINGLE_CALL=false on the worker to force the old
+    // chain. mockupResult.modelId records which path actually produced the
+    // image, so product_assets.metadata.model_id is the audit trail.
+    if (template === 'mr_imagine') {
+      const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
+      const side = printPlacement === 'back-only' ? 'back' : 'front'
+      const colorKey = shirtColor === 'grey' ? 'gray' : shirtColor
+      // Path mirrors the legacy MR_IMAGINE_MOCKUPS map in services/replicate.ts.
+      const path = `/mr-imagine/mockups/mr-imagine-${productType}-${colorKey}-${side}.png`
+      characterImageUrl = `${siteUrl}${path}`
+      console.log('[worker] 🎭 mr_imagine character asset (colorKey=' + colorKey + '):', characterImageUrl)
+    }
+
+    console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana 2 Lite for flat_lay/ghost_mannequin, Nano Banana 2 Lite for mr_imagine)')
+    await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
+
+    const mockupResult = await runImageFlowMockup({
+      template: template as MockupTemplate,
+      designImageUrl: garmentImageUrl!,
+      productType: productType as 'tshirt' | 'hoodie' | 'tank',
+      shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
+      characterImageUrl,
+      printPlacement: printPlacement as any,
+      printSizeInches,
+      // Metal templates: physical panel size for the scale anchors.
+      metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
+    })
+
+    mockupImageUrl = mockupResult.url
+    mockupModelId = mockupResult.modelId
+    console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
+  } catch (mockupError: any) {
+    console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: mockupError.message || 'Mockup generation failed',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+    return
+  }
+
+  console.log('[worker] ✅ Replicate mockup generated successfully')
+
+  // QA — David 2026-08-09: the shirt must be true to the design, and the
+  // print must not cover the whole shirt unless that was asked for. Compares
+  // the render against the source art and buys ONE corrective re-render.
+  //
+  // A shot that fails twice is KEPT and flagged, never discarded: a flagged
+  // mockup an admin can look at beats a product with no mockup at all. QA
+  // being unavailable is likewise a pass — see services/mockup-qa.ts.
+  let mockupCheck: MockupCheck = { ok: true }
+  if (garmentImageUrl) {
+    await updateJobProgress(job.id, `🔍 Checking the ${templateName} against the design...`, 2, 4)
+    const verified = await verifyWithOneRetry(
+      garmentImageUrl,
+      mockupImageUrl,
+      printPlacement,
+      async (reason) => {
+        console.warn(`[worker] 🔁 re-rendering ${template} mockup — QA said: ${reason}`)
+        await updateJobProgress(job.id, `🔁 Mockup came back wrong (${reason}) — re-rendering...`, 2, 4)
+        try {
+          const retry = await runImageFlowMockup({
+            template: template as MockupTemplate,
+            designImageUrl: garmentImageUrl!,
+            productType: productType as 'tshirt' | 'hoodie' | 'tank',
+            shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
+            characterImageUrl,
+            printPlacement: printPlacement as any,
+            printSizeInches,
+            metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
+            // Tell the model what to fix rather than re-rolling blind.
+            retryNote: reason,
+          } as any)
+          return retry.url || null
+        } catch (e: any) {
+          // A failed retry must not fail the job — we still have shot one.
+          console.error('[worker] ❌ mockup re-render failed:', e?.message)
+          return null
+        }
+      },
+      `${template} (${job.product_id})`,
+      printSizeInches
+    )
+    mockupImageUrl = verified.url
+    mockupCheck = verified.check
+    if (!mockupCheck.ok) {
+      console.warn(`[worker] ⚠️ ${template} mockup landing FLAGGED (${mockupCheck.failed}): ${mockupCheck.reason}`)
+    }
+  }
+
+  await updateJobProgress(job.id, `📤 Uploading ${templateName} mockup to cloud storage...`, 3, 4)
+
+  // Upload the mockup image to GCS (from Replicate URL)
+  const productSlug = await getProductSlug(job.product_id)
+  const timestamp = Date.now()
+  const filename = `${productSlug}-${template}-${timestamp}.png`
+  const gcsPath = `mockups/${productSlug}/${template}/${filename}`
+
+  console.log('[worker] 📤 Uploading mockup to GCS:', gcsPath)
+
+  const { publicUrl, path } = await uploadImageFromUrl(mockupImageUrl, gcsPath)
+
+  console.log('[worker] ✅ Mockup uploaded to GCS:', publicUrl)
+
+  // Determine asset_role and display_order based on template
+  // Ghost mannequin is PRIMARY (display first), then flat_lay, mr_imagine
+  // Order: ghost_mannequin(1) PRIMARY -> flat_lay(2) -> mr_imagine(3) -> pocket(4)
+  //
+  // A pocket shot is the SAME template rendered at a smaller print scale, so
+  // it must NOT inherit the template's role: the delete-by-role below would
+  // make the pocket shot evict the front shot (and then the next front run
+  // evict the pocket), leaving one survivor forever. Placement is part of the
+  // identity of a mockup, not just its prompt.
+  const isPocketShot = printPlacement === 'left-pocket'
+  // A fan-out can pin the role explicitly (input.mockupRole) — that is how
+  // the two-sided product's back view lands as mockup_back instead of
+  // fighting the front flat lay for the mockup_flat_lay slot.
+  const explicitRole = typeof job.input?.mockupRole === 'string' && job.input.mockupRole.startsWith('mockup_')
+    ? job.input.mockupRole
+    : null
+  const assetRole = explicitRole ??
+                    (isPocketShot ? 'mockup_pocket' :
+                    template === 'flat_lay' ? 'mockup_flat_lay' :
+                    template === 'mr_imagine' ? 'mockup_mr_imagine' :
+                    template === 'ghost_mannequin' ? 'mockup_ghost_mannequin' :
+                    'mockup_flat_lay')
+  const displayOrder = assetRole === 'mockup_back' ? 4 :
+                       isPocketShot ? 4 :
+                       template === 'ghost_mannequin' ? 1 :
+                       template === 'flat_lay' ? 2 :
+                       template === 'mr_imagine' ? 3 :
+                       2
+  // Never let a pocket render (or an explicitly-roled extra view like the
+  // back shot) become the hero image — the hero stays the front ghost.
+  const isPrimary = !isPocketShot && !explicitRole && template === 'ghost_mannequin'
+
+  // If this is the primary image (ghost mannequin), unset any existing primary images first
+  if (isPrimary) {
+    console.log('[worker] 🌟 Ghost mannequin mockup will be set as PRIMARY image')
+    await supabase
+      .from('product_assets')
+      .update({ is_primary: false })
+      .eq('product_id', job.product_id)
+      .eq('is_primary', true)
+  }
+
+  // One asset per mockup role, ever — replace any prior asset for this role
+  // (kills the "duplicate Mr. Imagine mockups" accumulation when mockups re-run).
+  await supabase
+    .from('product_assets')
+    .delete()
+    .eq('product_id', job.product_id)
+    .eq('asset_role', assetRole)
+
+  // Save to product_assets — record the model that actually produced the
+  // final image (mockupResult.modelId), not a hardcoded value. The
+  // 2-step pipeline returns the composite model (google/nano-banana-2-lite)
+  // for flat_lay/ghost_mannequin; mr_imagine also returns it.
+  const { error: assetError } = await supabase
+    .from('product_assets')
+    .insert({
+      product_id: job.product_id,
+      kind: 'mockup',
+      path: path,
+      url: publicUrl,
+      width: 1024,
+      height: 1024,
+      asset_role: assetRole,
+      is_primary: isPrimary,
+      display_order: displayOrder,
+      metadata: {
+        template: template,
+        generated_with: 'image-flow',
+        model_id: mockupModelId,
+        generated_at: new Date().toISOString(),
+        printPlacement,
+        // QA verdict rides WITH the asset so a flagged mockup stays
+        // identifiable after the job row is gone. qa_ok:false means it
+        // failed twice and a human should look at it.
+        qa_ok: mockupCheck.ok,
+        ...(mockupCheck.ok ? {} : { qa_failed: mockupCheck.failed, qa_reason: mockupCheck.reason }),
+        ...(mockupCheck.retried ? { qa_retried: true } : {}),
+      },
+    })
+
+  if (assetError) {
+    console.error('[worker] ❌ Error saving mockup asset:', assetError)
+    throw assetError
+  }
+
+  // Update job as succeeded
+  await supabase
+    .from('ai_jobs')
+    .update({
+      status: 'succeeded',
+      output: { url: publicUrl, gcs_path: path },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', job.id)
+
+  console.log('[worker] ✅ Mockup job completed:', job.id, publicUrl)
 }
 
 async function startJob(job: any) {
@@ -565,548 +1144,7 @@ async function startJob(job: any) {
         .eq('id', job.id)
     }
   } else if (job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') {
-    // Check if source image job exists and its status. Match both the legacy
-    // 'replicate_image' and the admin-builder 'replicate_image_v2' types so the
-    // mockup actually waits for the design to finish instead of racing ahead.
-    const { data: sourceImageJob } = await supabase
-      .from('ai_jobs')
-      .select('status')
-      .eq('product_id', job.product_id)
-      .in('type', ['replicate_image', 'replicate_image_v2'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    // If source image job exists but hasn't completed, wait for it
-    if (sourceImageJob && sourceImageJob.status !== 'succeeded' && sourceImageJob.status !== 'failed') {
-      // Reset to queued, will try again next cycle
-      await supabase
-        .from('ai_jobs')
-        .update({
-          status: 'queued',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.id)
-      console.log('[worker] ⏳ Source image job still processing (status:', sourceImageJob.status, '), will retry...')
-      return
-    }
-
-    // If no source image job exists, check if product has a source asset directly
-    // This handles manually uploaded products or products from Imagination Station
-    if (!sourceImageJob) {
-      const { data: sourceAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('product_id', job.product_id)
-        .eq('kind', 'source')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      if (!sourceAsset) {
-        // Also check for products.images array as fallback
-        const { data: product } = await supabase
-          .from('products')
-          .select('images')
-          .eq('id', job.product_id)
-          .single()
-
-        if (!product?.images?.length) {
-          console.error('[worker] ❌ No source image job and no source asset found for product')
-          await supabase
-            .from('ai_jobs')
-            .update({
-              status: 'failed',
-              error: 'No source image available for mockup generation',
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.id)
-          return
-        }
-        console.log('[worker] 📸 No source image job, but product has images array - proceeding with mockup')
-      } else {
-        console.log('[worker] 📸 No source image job, but found source asset - proceeding with mockup')
-      }
-    }
-
-    // Check if background removal job exists (optional)
-    const { data: rembgJob } = await supabase
-      .from('ai_jobs')
-      .select('status')
-      .eq('product_id', job.product_id)
-      .eq('type', 'replicate_rembg')
-      .single()
-
-    // If background removal job exists and is still running, wait for it
-    // BUT if it failed, proceed anyway (we'll use source image for mockup)
-    if (rembgJob && (rembgJob.status === 'queued' || rembgJob.status === 'running')) {
-      // Reset to queued, will try again next cycle
-      await supabase
-        .from('ai_jobs')
-        .update({
-          status: 'queued',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.id)
-      console.log('[worker] ⏳ Background removal job is still processing (status:', rembgJob.status, '), will retry...')
-      return
-    }
-
-    // If rembg job failed, log it but proceed with mockup using source image
-    if (rembgJob && rembgJob.status === 'failed') {
-      console.log('[worker] ⚠️ Background removal failed, will use source image for mockup')
-    }
-
-    // Priority order: Selected asset > DTF-optimized > no-background > source
-    let garmentImageUrl: string | undefined
-
-    // If user selected a specific asset, use that one
-    if (job.input?.selected_asset_id) {
-      console.log('[worker] 🎯 Using user-selected asset:', job.input.selected_asset_id)
-
-      // Get the selected asset
-      const { data: selectedAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('id', job.input.selected_asset_id)
-        .single()
-
-      if (selectedAsset) {
-        garmentImageUrl = selectedAsset.url
-        console.log('[worker] ✅ Using selected image for mockup:', garmentImageUrl)
-      } else {
-        console.error('[worker] ❌ Selected asset not found, falling back to default priority')
-      }
-    }
-
-    // If no selected asset or not found, fall back to priority order
-    if (!garmentImageUrl) {
-      // Try DTF-optimized asset first (if DTF optimization was done)
-      const { data: dtfAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('product_id', job.product_id)
-        .eq('kind', 'dtf')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      if (dtfAsset) {
-        garmentImageUrl = dtfAsset.url
-        console.log('[worker] 🎨 Using DTF-optimized image for mockup:', garmentImageUrl)
-      }
-    }
-
-    if (!garmentImageUrl) {
-      // Try to get the no-background asset (if background removal was done)
-      const { data: nobgAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('product_id', job.product_id)
-        .eq('kind', 'nobg')
-        .single()
-
-      if (nobgAsset) {
-        garmentImageUrl = nobgAsset.url
-        console.log('[worker] 📸 Using no-background image for mockup:', garmentImageUrl)
-      }
-    }
-
-    if (!garmentImageUrl) {
-      // Get the most recent source image (for "Skip to Mockups" workflow)
-      const { data: sourceAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('product_id', job.product_id)
-        .eq('kind', 'source')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      if (sourceAsset) {
-        garmentImageUrl = sourceAsset.url
-        console.log('[worker] 📸 Using source image for mockup (no optimization):', garmentImageUrl)
-      }
-    }
-
-    // Final fallback: use products.images array (for manually created products)
-    if (!garmentImageUrl) {
-      const { data: product } = await supabase
-        .from('products')
-        .select('images')
-        .eq('id', job.product_id)
-        .single()
-
-      if (product?.images?.length) {
-        garmentImageUrl = product.images[0]
-        console.log('[worker] 📸 Using product.images[0] for mockup:', garmentImageUrl)
-      } else {
-        console.error('[worker] ❌ No source image found anywhere!')
-        await supabase
-          .from('ai_jobs')
-          .update({
-            status: 'failed',
-            error: 'No source image available for mockup generation',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', job.id)
-        return
-      }
-    }
-
-    // If garmentImageUrl is a base64 data URL, upload to GCS first
-    // (Gemini and other APIs require HTTP(S) URLs)
-    if (garmentImageUrl && garmentImageUrl.startsWith('data:')) {
-      console.log('[worker] 📤 Converting base64 image to GCS URL...')
-      try {
-        const productSlug = await getProductSlug(job.product_id)
-        const uploadResult = await uploadImageFromBase64(
-          garmentImageUrl,
-          `products/${productSlug}/source-${Date.now()}.png`
-        )
-        console.log('[worker] ✅ Base64 converted to GCS URL:', uploadResult.publicUrl.substring(0, 80) + '...')
-        garmentImageUrl = uploadResult.publicUrl
-
-        // Also update the product's images array to use the permanent URL
-        const { data: product } = await supabase
-          .from('products')
-          .select('images')
-          .eq('id', job.product_id)
-          .single()
-
-        if (product?.images?.length && product.images[0].startsWith('data:')) {
-          await supabase
-            .from('products')
-            .update({ images: [uploadResult.publicUrl, ...product.images.slice(1)] })
-            .eq('id', job.product_id)
-          console.log('[worker] ✅ Updated product.images with permanent GCS URL')
-        }
-      } catch (uploadError: any) {
-        console.error('[worker] ❌ Failed to upload base64 image:', uploadError.message)
-        await supabase
-          .from('ai_jobs')
-          .update({
-            status: 'failed',
-            error: `Failed to upload source image: ${uploadError.message}`,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', job.id)
-        return
-      }
-    }
-
-    // Store template info in job metadata for organized upload later
-    await supabase
-      .from('ai_jobs')
-      .update({
-        input: {
-          ...job.input,
-          garment_image_url: garmentImageUrl, // Store for reference
-        },
-      })
-      .eq('id', job.id)
-
-    // Get DTF settings from original image generation job. Match BOTH the
-    // legacy 'replicate_image' and the admin-builder 'replicate_image_v2' — a
-    // stale 'replicate_image'-only filter is why shirt color used to default to
-    // black even when the user picked white.
-    const { data: imageJob } = await supabase
-      .from('ai_jobs')
-      .select('input')
-      .eq('product_id', job.product_id)
-      .in('type', ['replicate_image', 'replicate_image_v2'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    // Authoritative DTF settings live on the product row's metadata (written by
-    // every create path, including one-shot/bulk which create no image job at
-    // all). job.input carries the route-resolved values forward; the image job
-    // is the last structured fallback before hard defaults.
-    const { data: mockupProduct } = await supabase
-      .from('products')
-      .select('metadata')
-      .eq('id', job.product_id)
-      .single()
-    const productMeta = (mockupProduct?.metadata as any) || {}
-
-    // Job-first for the garment color (Step Flow, David 2026-09-01): a
-    // `color:<id>` run asks for THIS render in another color, so the job's
-    // shirtColor outranks the product's primary. Every pre-existing caller
-    // copies metadata.shirt_color into input.shirtColor anyway, so this is
-    // behaviour-preserving for them. (Smoke 2026-09-01: metadata-first rendered
-    // the "white" variant in black.)
-    const shirtColor = job.input?.shirtColor || productMeta.shirt_color || imageJob?.input?.shirtColor || 'black'
-    const productType = productMeta.product_type || job.input?.productType || imageJob?.input?.productType || 'tshirt'
-    // Placement is the ONE setting where THIS JOB outranks the product default.
-    // The product's print_placement describes what the product IS; a mockup job
-    // that names a placement is asking for a specific RENDER of it — that is how
-    // the pocket-scale shot is requested for a front-center product.
-    //
-    // Metadata-first here silently discarded that: the pocket job rendered at
-    // front scale, was therefore tagged mockup_flat_lay, and DELETED the real
-    // front flat_lay via the replace-by-role write. Caught on a live build
-    // 2026-08-09 — the job was created, ran, cost a render, and left no trace.
-    //
-    // Safe for every other job: baseInput.printPlacement is itself derived from
-    // productMeta.print_placement at fan-out, so the two agree unless a job
-    // deliberately overrode it.
-    const printPlacement = job.input?.printPlacement || productMeta.print_placement || imageJob?.input?.printPlacement || 'front-center'
-    // Physical print width in inches — feeds the explicit scale language in
-    // the mockup prompt and the QA coverage gate. Job-first for the same
-    // reason as placement above.
-    const printSizeInches = Number(job.input?.printSizeInches) || Number(productMeta.print_size_inches) || 11
-    const productCategory = job.input?.product_type || 'shirts'
-
-    console.log('[worker] 🎨 MOCKUP COLOR RESOLVE:', JSON.stringify({
-      template: job.input?.template,
-      product_id: job.product_id,
-      resolved_shirtColor: shirtColor,
-      meta_shirt_color: productMeta.shirt_color ?? null,
-      job_input_shirtColor: job.input?.shirtColor ?? null,
-      imageJob_shirtColor: imageJob?.input?.shirtColor ?? null,
-    }))
-
-    // Get template type - determines which mockup style to generate
-    const template = job.input?.template || 'flat_lay'
-    const templateName = template === 'mr_imagine' ? 'Mr. Imagine mascot' :
-                         template === 'flat_lay' ? 'professional flat lay' :
-                         template === 'ghost_mannequin' ? 'ghost mannequin' :
-                         template === 'metal_shelf' ? 'metal print shelf scene' :
-                         template === 'metal_wall' ? 'metal print wall scene' : template
-
-    await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Replicate AI...`, 1, 3)
-    console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
-
-    let mockupImageUrl: string
-    // Placeholder only — overwritten below by the model the pipeline actually
-    // used (mockupResult.modelId). Kept in sync with image-flow's mockup default.
-    let mockupModelId: string = 'google/nano-banana-2-lite'
-    // Declared out here (not inside the try) because the QA retry below needs
-    // the same character base to re-render mr_imagine with.
-    let characterImageUrl: string | undefined
-
-    try {
-      // Template routing (see worker-helpers.runImageFlowMockup):
-      //   - mr_imagine        → single call to google/nano-banana-2-lite with [character, design]
-      //   - flat_lay          → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana-2-lite (composite)
-      //   - ghost_mannequin   → 2-step: google/imagen-4-fast (empty garment) → google/nano-banana-2-lite (composite)
-      // The 2-step path exists specifically to defeat Money's recurring
-      // "all three mockups come back as Mr. Imagine" bug — gpt-image-2 used
-      // to handle both halves and kept hallucinating the mascot.
-      //
-      // DEFAULT (2026-08-16): a single black-forest-labs/flux-2-pro call
-      // collapses flat_lay + ghost_mannequin into ONE call that takes the
-      // design (and optionally a blank-garment photo) as reference images —
-      // ~$0.03/mockup vs ~$0.054, one round-trip instead of two. It falls
-      // back to the 2-step chain on any error, so a refusal costs latency,
-      // never a failed job. It stayed opt-in until a 40-job real-batch grade
-      // (Watchtower task 6456344b) showed 0 wearer/mascot hallucinations and
-      // 0 E005 refusals — see docs/FLUX2_SINGLE_CALL_GRADING_REPORT.md.
-      // Set MOCKUP_FLUX2_SINGLE_CALL=false on the worker to force the old
-      // chain. mockupResult.modelId records which path actually produced the
-      // image, so product_assets.metadata.model_id is the audit trail.
-      if (template === 'mr_imagine') {
-        const siteUrl = process.env.FRONTEND_URL || process.env.APP_ORIGIN || 'https://imaginethisprinted.com'
-        const side = printPlacement === 'back-only' ? 'back' : 'front'
-        const colorKey = shirtColor === 'grey' ? 'gray' : shirtColor
-        // Path mirrors the legacy MR_IMAGINE_MOCKUPS map in services/replicate.ts.
-        const path = `/mr-imagine/mockups/mr-imagine-${productType}-${colorKey}-${side}.png`
-        characterImageUrl = `${siteUrl}${path}`
-        console.log('[worker] 🎭 mr_imagine character asset (colorKey=' + colorKey + '):', characterImageUrl)
-      }
-
-      console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana 2 Lite for flat_lay/ghost_mannequin, Nano Banana 2 Lite for mr_imagine)')
-      await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
-
-      const mockupResult = await runImageFlowMockup({
-        template: template as MockupTemplate,
-        designImageUrl: garmentImageUrl!,
-        productType: productType as 'tshirt' | 'hoodie' | 'tank',
-        shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
-        characterImageUrl,
-        printPlacement: printPlacement as any,
-        printSizeInches,
-        // Metal templates: physical panel size for the scale anchors.
-        metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
-      })
-
-      mockupImageUrl = mockupResult.url
-      mockupModelId = mockupResult.modelId
-      console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
-    } catch (mockupError: any) {
-      console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
-      await supabase
-        .from('ai_jobs')
-        .update({
-          status: 'failed',
-          error: mockupError.message || 'Mockup generation failed',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.id)
-      return
-    }
-
-    console.log('[worker] ✅ Replicate mockup generated successfully')
-
-    // QA — David 2026-08-09: the shirt must be true to the design, and the
-    // print must not cover the whole shirt unless that was asked for. Compares
-    // the render against the source art and buys ONE corrective re-render.
-    //
-    // A shot that fails twice is KEPT and flagged, never discarded: a flagged
-    // mockup an admin can look at beats a product with no mockup at all. QA
-    // being unavailable is likewise a pass — see services/mockup-qa.ts.
-    let mockupCheck: MockupCheck = { ok: true }
-    if (garmentImageUrl) {
-      await updateJobProgress(job.id, `🔍 Checking the ${templateName} against the design...`, 2, 4)
-      const verified = await verifyWithOneRetry(
-        garmentImageUrl,
-        mockupImageUrl,
-        printPlacement,
-        async (reason) => {
-          console.warn(`[worker] 🔁 re-rendering ${template} mockup — QA said: ${reason}`)
-          await updateJobProgress(job.id, `🔁 Mockup came back wrong (${reason}) — re-rendering...`, 2, 4)
-          try {
-            const retry = await runImageFlowMockup({
-              template: template as MockupTemplate,
-              designImageUrl: garmentImageUrl!,
-              productType: productType as 'tshirt' | 'hoodie' | 'tank',
-              shirtColor: shirtColor as 'black' | 'white' | 'gray' | 'grey',
-              characterImageUrl,
-              printPlacement: printPlacement as any,
-              printSizeInches,
-              metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
-              // Tell the model what to fix rather than re-rolling blind.
-              retryNote: reason,
-            } as any)
-            return retry.url || null
-          } catch (e: any) {
-            // A failed retry must not fail the job — we still have shot one.
-            console.error('[worker] ❌ mockup re-render failed:', e?.message)
-            return null
-          }
-        },
-        `${template} (${job.product_id})`,
-        printSizeInches
-      )
-      mockupImageUrl = verified.url
-      mockupCheck = verified.check
-      if (!mockupCheck.ok) {
-        console.warn(`[worker] ⚠️ ${template} mockup landing FLAGGED (${mockupCheck.failed}): ${mockupCheck.reason}`)
-      }
-    }
-
-    await updateJobProgress(job.id, `📤 Uploading ${templateName} mockup to cloud storage...`, 3, 4)
-
-    // Upload the mockup image to GCS (from Replicate URL)
-    const productSlug = await getProductSlug(job.product_id)
-    const timestamp = Date.now()
-    const filename = `${productSlug}-${template}-${timestamp}.png`
-    const gcsPath = `mockups/${productSlug}/${template}/${filename}`
-
-    console.log('[worker] 📤 Uploading mockup to GCS:', gcsPath)
-
-    const { publicUrl, path } = await uploadImageFromUrl(mockupImageUrl, gcsPath)
-
-    console.log('[worker] ✅ Mockup uploaded to GCS:', publicUrl)
-
-    // Determine asset_role and display_order based on template
-    // Ghost mannequin is PRIMARY (display first), then flat_lay, mr_imagine
-    // Order: ghost_mannequin(1) PRIMARY -> flat_lay(2) -> mr_imagine(3) -> pocket(4)
-    //
-    // A pocket shot is the SAME template rendered at a smaller print scale, so
-    // it must NOT inherit the template's role: the delete-by-role below would
-    // make the pocket shot evict the front shot (and then the next front run
-    // evict the pocket), leaving one survivor forever. Placement is part of the
-    // identity of a mockup, not just its prompt.
-    const isPocketShot = printPlacement === 'left-pocket'
-    // A fan-out can pin the role explicitly (input.mockupRole) — that is how
-    // the two-sided product's back view lands as mockup_back instead of
-    // fighting the front flat lay for the mockup_flat_lay slot.
-    const explicitRole = typeof job.input?.mockupRole === 'string' && job.input.mockupRole.startsWith('mockup_')
-      ? job.input.mockupRole
-      : null
-    const assetRole = explicitRole ??
-                      (isPocketShot ? 'mockup_pocket' :
-                      template === 'flat_lay' ? 'mockup_flat_lay' :
-                      template === 'mr_imagine' ? 'mockup_mr_imagine' :
-                      template === 'ghost_mannequin' ? 'mockup_ghost_mannequin' :
-                      'mockup_flat_lay')
-    const displayOrder = assetRole === 'mockup_back' ? 4 :
-                         isPocketShot ? 4 :
-                         template === 'ghost_mannequin' ? 1 :
-                         template === 'flat_lay' ? 2 :
-                         template === 'mr_imagine' ? 3 :
-                         2
-    // Never let a pocket render (or an explicitly-roled extra view like the
-    // back shot) become the hero image — the hero stays the front ghost.
-    const isPrimary = !isPocketShot && !explicitRole && template === 'ghost_mannequin'
-
-    // If this is the primary image (ghost mannequin), unset any existing primary images first
-    if (isPrimary) {
-      console.log('[worker] 🌟 Ghost mannequin mockup will be set as PRIMARY image')
-      await supabase
-        .from('product_assets')
-        .update({ is_primary: false })
-        .eq('product_id', job.product_id)
-        .eq('is_primary', true)
-    }
-
-    // One asset per mockup role, ever — replace any prior asset for this role
-    // (kills the "duplicate Mr. Imagine mockups" accumulation when mockups re-run).
-    await supabase
-      .from('product_assets')
-      .delete()
-      .eq('product_id', job.product_id)
-      .eq('asset_role', assetRole)
-
-    // Save to product_assets — record the model that actually produced the
-    // final image (mockupResult.modelId), not a hardcoded value. The
-    // 2-step pipeline returns the composite model (google/nano-banana-2-lite)
-    // for flat_lay/ghost_mannequin; mr_imagine also returns it.
-    const { error: assetError } = await supabase
-      .from('product_assets')
-      .insert({
-        product_id: job.product_id,
-        kind: 'mockup',
-        path: path,
-        url: publicUrl,
-        width: 1024,
-        height: 1024,
-        asset_role: assetRole,
-        is_primary: isPrimary,
-        display_order: displayOrder,
-        metadata: {
-          template: template,
-          generated_with: 'image-flow',
-          model_id: mockupModelId,
-          generated_at: new Date().toISOString(),
-          printPlacement,
-          // QA verdict rides WITH the asset so a flagged mockup stays
-          // identifiable after the job row is gone. qa_ok:false means it
-          // failed twice and a human should look at it.
-          qa_ok: mockupCheck.ok,
-          ...(mockupCheck.ok ? {} : { qa_failed: mockupCheck.failed, qa_reason: mockupCheck.reason }),
-          ...(mockupCheck.retried ? { qa_retried: true } : {}),
-        },
-      })
-
-    if (assetError) {
-      console.error('[worker] ❌ Error saving mockup asset:', assetError)
-      throw assetError
-    }
-
-    // Update job as succeeded
-    await supabase
-      .from('ai_jobs')
-      .update({
-        status: 'succeeded',
-        output: { url: publicUrl, gcs_path: path },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', job.id)
-
-    console.log('[worker] ✅ Mockup job completed:', job.id, publicUrl)
+    await processMockupJob(job)
   } else if (job.type === 'ghost_mannequin') {
     // Generate ghost mannequin mockup using ITP Enhance Engine
     await updateJobProgress(job.id, '👻 Starting ghost mannequin mockup generation...', 1, 4)

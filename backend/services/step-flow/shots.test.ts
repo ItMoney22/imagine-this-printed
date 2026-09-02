@@ -116,6 +116,14 @@ vi.mock('../etsy-model-shots.js', () => ({ shootOneModelShot: (...args: any[]) =
 const renderDetailsCard = vi.fn()
 vi.mock('./details-card.js', () => ({ renderDetailsCard: (...args: any[]) => renderDetailsCard(...args) }))
 
+// Track B (2026-09-02): shots.ts now calls the worker's mockup renderer
+// directly/inline instead of leaving the job 'queued' for the worker's poll
+// loop to pick up. Mocked here the same way the other real-model/network
+// calls above are — a real ai-jobs-worker.js import would pull in Replicate/
+// GCS/etc. calls this test file never wants to make.
+const processMockupJob = vi.fn()
+vi.mock('../../worker/ai-jobs-worker.js', () => ({ processMockupJob: (...args: any[]) => processMockupJob(...args) }))
+
 const {
   queueStepShots,
   redoShot,
@@ -163,6 +171,7 @@ beforeEach(() => {
   resetDb()
   shootOneModelShot.mockReset()
   renderDetailsCard.mockReset()
+  processMockupJob.mockReset()
 })
 
 describe('defaultShotKeys', () => {
@@ -304,11 +313,24 @@ describe('queueStepShots', () => {
     const modelJob = db.ai_jobs.find((j) => j.type === 'step_flow_model_shot')
     expect(['running', 'succeeded']).toContain(modelJob?.status)
 
+    // Pre-claimed as 'running' at insert, same as the mockup ai_jobs rows
+    // above — never 'queued', so the production worker's polling loop never
+    // sees these.
     const savedProduct = db.products.find((p) => p.id === 'p1')!
     const sf = getStepFlow(savedProduct)
-    expect(sf.shots.product?.status).toBe('queued')
+    expect(sf.shots.product?.status).toBe('running')
     expect(sf.shots.hanger?.approved).toBe(false)
     expect(sf.shots.details).toEqual({ status: 'queued', error: undefined, approved: false })
+
+    // processMockupJob fired inline for each of the 3 mockup-type shots
+    // (product/hanger/color:white) — never for 'model' (its own
+    // shootOneModelShot path) or 'details' (deferred, no job at all).
+    await waitUntil(() => processMockupJob.mock.calls.length === 3)
+    expect(hangerJob).toBeDefined()
+    expect(colorJob).toBeDefined()
+    expect(productJob).toBeDefined()
+    const calledIds = processMockupJob.mock.calls.map((args: any[]) => args[0]?.id)
+    expect(calledIds.sort()).toEqual([hangerJob!.id, colorJob!.id, productJob!.id].sort())
 
     // The model shot resolves asynchronously (fire-and-forget) — wait for its
     // continuation to mirror the result into product_assets AND finish
@@ -411,6 +433,68 @@ describe('runModelShot (via queueStepShots) — design-fidelity QA gating', () =
   })
 })
 
+// Track B (2026-09-02): mockup jobs are pre-claimed 'running' and rendered
+// inline via processMockupJob (mirroring processImageJobInline for design
+// jobs), with a per-product concurrency cap so a multi-color fan-out doesn't
+// burst every render at Replicate at once.
+describe('processMockupJob wiring — inline render, never the worker queue', () => {
+  it('marks the shot (and the ai_jobs row) failed when processMockupJob throws', async () => {
+    seedProduct()
+    processMockupJob.mockRejectedValueOnce(new Error('replicate refused'))
+
+    await queueStepShots('p1', 'user-1', ['hanger'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.hanger?.status === 'failed')
+
+    const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
+    expect(sf.shots.hanger).toMatchObject({ status: 'failed', error: 'replicate refused' })
+
+    const hangerJob = db.ai_jobs.find((j) => j.input?.stepKey === 'hanger')
+    expect(hangerJob?.status).toBe('failed')
+    expect(hangerJob?.error).toBe('replicate refused')
+  })
+
+  it('caps concurrent mockup renders at 3 per product; extra shots queue for a free slot', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: '',
+          brief: null,
+          garment: 'tshirt',
+          colors: { primary: 'black', extras: ['white', 'navy', 'red'] },
+          shots: {},
+          approvals: {},
+        },
+      },
+    })
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/model.png', check: { ok: true } })
+
+    // Each call parks on an unresolved promise until the test releases it —
+    // lets us observe exactly how many are in flight at once.
+    const resolvers: Array<() => void> = []
+    processMockupJob.mockImplementation(() => new Promise<void>((resolve) => resolvers.push(resolve)))
+
+    // Default fan-out = product, hanger, model, details, color:white,
+    // color:navy, color:red — 5 of those 7 are mockup-type (go through
+    // processMockupJob); model/details don't.
+    await queueStepShots('p1', 'user-1')
+
+    await waitUntil(() => resolvers.length === 3)
+    // Give any 4th call a chance to sneak in before asserting it didn't.
+    await new Promise((r) => setTimeout(r, 5))
+    expect(resolvers.length).toBe(3)
+    expect(processMockupJob).toHaveBeenCalledTimes(3)
+
+    // Release the 3 in-flight renders — the 2 queued ones should backfill.
+    resolvers.splice(0).forEach((resolve) => resolve())
+    await waitUntil(() => processMockupJob.mock.calls.length === 5)
+
+    // Drain the last 2 so no state leaks into another test via the
+    // module-level per-product slot map.
+    resolvers.splice(0).forEach((resolve) => resolve())
+  })
+})
+
 describe('redoShot', () => {
   it('keeps the old asset visible and resets approved=false, with a fresh job', async () => {
     seedProduct({
@@ -431,7 +515,7 @@ describe('redoShot', () => {
 
     const { job } = await redoShot('p1', 'user-1', 'hanger')
     expect(job.id).not.toBe('old-job')
-    expect(job.status).toBe('queued')
+    expect(job.status).toBe('running') // pre-claimed, not left 'queued' for the worker
 
     const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
     expect(sf.shots.hanger?.approved).toBe(false)

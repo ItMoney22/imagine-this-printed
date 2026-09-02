@@ -24,6 +24,15 @@ import { renderDetailsCard } from './details-card.js'
 import { buildProductGallery, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
+// Renders one mockup ai_jobs row to completion (source resolve -> model call
+// + QA -> GCS upload -> product_assets write -> job succeeded/failed). Same
+// function the worker's polling loop calls for the old 'queued' path; here it
+// is called directly, inline, right after this module pre-claims the job as
+// 'running' — see queueMockupJob below and the `processImageJobInline`
+// pattern it mirrors (routes/admin/ai-products.ts). Importing this has no
+// side effects: `startWorker()` lives in the same file but is only invoked
+// from backend/worker/index.ts.
+import { processMockupJob } from '../../worker/ai-jobs-worker.js'
 
 export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}`
 
@@ -195,6 +204,40 @@ function randomNonce(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Mockup render concurrency guard (2026-09-02, Track B) — a single
+// `queueStepShots` call can fan out product/hanger + one color:<id> per extra
+// color, each a REAL Replicate call (+ a QA retry on top). Firing every
+// mockup's `processMockupJob` at once the way the single-shot design job does
+// would burst-hammer Replicate proportional to how many colors the admin
+// picked. Caps concurrent renders to 3 per product; anything past that waits
+// in FIFO order for a slot to free up. In-process only — same footprint/
+// reasoning as `productLocks` above (one Node process per Render instance).
+// ---------------------------------------------------------------------------
+const MAX_CONCURRENT_MOCKUP_RENDERS = 3
+type RenderSlot = { active: number; queue: Array<() => void> }
+const mockupRenderSlots = new Map<string, RenderSlot>()
+
+async function withMockupRenderSlot<T>(productId: string, fn: () => Promise<T>): Promise<T> {
+  let slot = mockupRenderSlots.get(productId)
+  if (!slot) {
+    slot = { active: 0, queue: [] }
+    mockupRenderSlots.set(productId, slot)
+  }
+  if (slot.active >= MAX_CONCURRENT_MOCKUP_RENDERS) {
+    await new Promise<void>((resolve) => slot!.queue.push(resolve))
+  }
+  slot.active++
+  try {
+    return await fn()
+  } finally {
+    slot.active--
+    const next = slot.queue.shift()
+    if (next) next()
+    else if (slot.active === 0) mockupRenderSlots.delete(productId)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Per-key job builders
 // ---------------------------------------------------------------------------
 
@@ -228,12 +271,18 @@ async function queueMockupJob(
     mockupRole = undefined
   }
 
+  // Pre-claimed as 'running' at insert (Track B, 2026-09-02) — exactly the
+  // `replicate_image_v2` pattern in routes/admin/ai-products.ts. Production
+  // Render worker only ever picks up 'queued' rows, so this keeps it from
+  // ever seeing the job at all; this API process renders it inline instead
+  // (below). `input.stepKey` also excludes the row from the worker's
+  // stale-'running' sweep — see ai-jobs-worker.ts's processQueuedJobs.
   const { data: job, error } = await supabase
     .from('ai_jobs')
     .insert({
       product_id: product.id,
       type: 'replicate_mockup_v2',
-      status: 'queued',
+      status: 'running',
       input: {
         product_type: productTypeCategory,
         productType: garment,
@@ -249,8 +298,26 @@ async function queueMockupJob(
     .select()
     .single()
   if (error) throw new Error(`Failed to queue "${key}" shot: ${error.message}`)
-  await patchShotState(product.id, key, { status: 'queued', jobId: job.id, approved: false, error: undefined })
-  return { jobId: job.id, status: 'queued' }
+
+  // Persist the 'running' shot state BEFORE firing the render — same
+  // ordering reason as queueModelShot below: a fully-mocked/very-fast render
+  // could otherwise patch its own terminal state first and have this stale
+  // 'running' write clobber it back.
+  await patchShotState(product.id, key, { status: 'running', jobId: job.id, approved: false, error: undefined })
+
+  void withMockupRenderSlot(product.id, () => processMockupJob(job)).catch(async (err: any) => {
+    // processMockupJob already marks the ai_jobs row failed for every
+    // failure path it knows about; this is the safety net for anything that
+    // throws past it (e.g. a product_assets insert error) so the row and the
+    // shot never get stuck spinning forever — mirrors the `.catch()` wrapper
+    // every processImageJobInline call site uses.
+    const message = err?.message || 'Mockup render failed'
+    console.error(`[step-flow/shots] "${key}" mockup render failed:`, message)
+    await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', job.id)
+    await patchShotState(product.id, key, { status: 'failed', error: message })
+  })
+
+  return { jobId: job.id, status: 'running' }
 }
 
 /** Mirror one already-hosted image URL into product_assets under `role`, replacing any prior asset in that slot. */
