@@ -834,6 +834,136 @@ export async function processMockupJob(job: any): Promise<void> {
   console.log('[worker] ✅ Mockup job completed:', job.id, publicUrl)
 }
 
+/**
+ * Renders one 'replicate_rembg' job to completion: resolves the selected
+ * (or most recent source) asset, strips the background via Replicate's
+ * 851-labs model, uploads the transparent PNG to GCS, and writes the
+ * product_assets row (kind:'nobg'). Marks the ai_jobs row
+ * succeeded/failed exactly as before.
+ *
+ * Extracted verbatim from the worker's polling-loop branch (2026-09-02,
+ * Step Flow scope addition) so POST /:id/step/select-design
+ * (routes/admin/ai-products-step-flow.ts) can call it directly, inline,
+ * right after inserting the job pre-claimed as 'running' — same fix as
+ * processMockupJob above and processImageJobInline in
+ * routes/admin/ai-products.ts. `startJob` below now just calls this.
+ * Job type stays 'replicate_rembg' — the frontend filters on it.
+ */
+export async function processRemoveBgJob(job: any): Promise<void> {
+  // Remove background from source image
+  await updateJobProgress(job.id, '🔍 Locating selected design image...', 1, 3)
+  // If user selected a specific asset, use that one; otherwise get the most recent source image
+  let sourceAsset: { url: string } | null = null
+
+  if (job.input?.selected_asset_id) {
+    console.log('[worker] 🎯 Using user-selected asset for background removal:', job.input.selected_asset_id)
+
+    const { data: selectedAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('id', job.input.selected_asset_id)
+      .single()
+
+    if (selectedAsset) {
+      sourceAsset = selectedAsset
+      console.log('[worker] ✅ Found selected asset:', selectedAsset.url)
+    } else {
+      console.warn('[worker] ⚠️ Selected asset not found, falling back to most recent source')
+    }
+  }
+
+  // Fallback: get the most recent source image
+  if (!sourceAsset) {
+    const { data: fallbackAsset } = await supabase
+      .from('product_assets')
+      .select('url')
+      .eq('product_id', job.product_id)
+      .eq('kind', 'source')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    sourceAsset = fallbackAsset
+  }
+
+  if (!sourceAsset) {
+    console.error('[worker] ❌ Source image not found for background removal!')
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: 'Source image asset not found',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+    return
+  }
+
+  try {
+    // Remove background via Replicate 851-labs (returns a URL). Switched off
+    // Remove.bg — that account has 0 credits so every call 402'd. Replicate is
+    // already in the bill (~$0.001/call) and gives full-res RGBA output.
+    await updateJobProgress(job.id, '✂️ Removing background with AI...', 2, 3)
+    const rembgUrl = await removeBackgroundSync(sourceAsset.url)
+
+    // Generate organized path for GCS
+    const productSlug = await getProductSlug(job.product_id)
+    const timestamp = Date.now()
+    const filename = `${productSlug}-transparent-${timestamp}.png`
+    const gcsPath = `graphics/${productSlug}/transparent/${filename}`
+
+    console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
+    await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
+
+    // Persist the Replicate output to Google Cloud Storage
+    const { publicUrl, path } = await uploadImageFromUrl(rembgUrl, gcsPath)
+
+    console.log('[worker] ✅ No-background image uploaded to GCS:', publicUrl)
+
+    // Save to product_assets
+    const { error: assetError } = await supabase
+      .from('product_assets')
+      .insert({
+        product_id: job.product_id,
+        kind: 'nobg',
+        path: path,
+        url: publicUrl,
+        width: 1024,
+        height: 1024,
+        asset_role: 'auxiliary',
+        is_primary: false,
+        display_order: 99,
+      })
+
+    if (assetError) {
+      console.error('[worker] ❌ Error saving asset:', assetError)
+      throw assetError
+    }
+
+    // Update job as succeeded
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'succeeded',
+        output: { url: publicUrl, gcs_path: path },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+
+    console.log('[worker] ✅ Background removal completed:', job.id, publicUrl)
+  } catch (error: any) {
+    console.error('[worker] ❌ Background removal failed:', error.message)
+    await supabase
+      .from('ai_jobs')
+      .update({
+        status: 'failed',
+        error: error.message,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', job.id)
+  }
+}
+
 async function startJob(job: any) {
   console.log('[worker] 🔄 Starting job:', job.id, job.type)
 
@@ -1031,118 +1161,7 @@ async function startJob(job: any) {
       console.log('[worker] ✅ Design generation completed:', job.id, publicUrl)
     }
   } else if (job.type === 'replicate_rembg') {
-    // Remove background from source image
-    await updateJobProgress(job.id, '🔍 Locating selected design image...', 1, 3)
-    // If user selected a specific asset, use that one; otherwise get the most recent source image
-    let sourceAsset: { url: string } | null = null
-
-    if (job.input?.selected_asset_id) {
-      console.log('[worker] 🎯 Using user-selected asset for background removal:', job.input.selected_asset_id)
-
-      const { data: selectedAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('id', job.input.selected_asset_id)
-        .single()
-
-      if (selectedAsset) {
-        sourceAsset = selectedAsset
-        console.log('[worker] ✅ Found selected asset:', selectedAsset.url)
-      } else {
-        console.warn('[worker] ⚠️ Selected asset not found, falling back to most recent source')
-      }
-    }
-
-    // Fallback: get the most recent source image
-    if (!sourceAsset) {
-      const { data: fallbackAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('product_id', job.product_id)
-        .eq('kind', 'source')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      sourceAsset = fallbackAsset
-    }
-
-    if (!sourceAsset) {
-      console.error('[worker] ❌ Source image not found for background removal!')
-      await supabase
-        .from('ai_jobs')
-        .update({
-          status: 'failed',
-          error: 'Source image asset not found',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.id)
-      return
-    }
-
-    try {
-      // Remove background via Replicate 851-labs (returns a URL). Switched off
-      // Remove.bg — that account has 0 credits so every call 402'd. Replicate is
-      // already in the bill (~$0.001/call) and gives full-res RGBA output.
-      await updateJobProgress(job.id, '✂️ Removing background with AI...', 2, 3)
-      const rembgUrl = await removeBackgroundSync(sourceAsset.url)
-
-      // Generate organized path for GCS
-      const productSlug = await getProductSlug(job.product_id)
-      const timestamp = Date.now()
-      const filename = `${productSlug}-transparent-${timestamp}.png`
-      const gcsPath = `graphics/${productSlug}/transparent/${filename}`
-
-      console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
-      await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
-
-      // Persist the Replicate output to Google Cloud Storage
-      const { publicUrl, path } = await uploadImageFromUrl(rembgUrl, gcsPath)
-
-      console.log('[worker] ✅ No-background image uploaded to GCS:', publicUrl)
-
-      // Save to product_assets
-      const { error: assetError } = await supabase
-        .from('product_assets')
-        .insert({
-          product_id: job.product_id,
-          kind: 'nobg',
-          path: path,
-          url: publicUrl,
-          width: 1024,
-          height: 1024,
-          asset_role: 'auxiliary',
-          is_primary: false,
-          display_order: 99,
-        })
-
-      if (assetError) {
-        console.error('[worker] ❌ Error saving asset:', assetError)
-        throw assetError
-      }
-
-      // Update job as succeeded
-      await supabase
-        .from('ai_jobs')
-        .update({
-          status: 'succeeded',
-          output: { url: publicUrl, gcs_path: path },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.id)
-
-      console.log('[worker] ✅ Background removal completed:', job.id, publicUrl)
-    } catch (error: any) {
-      console.error('[worker] ❌ Background removal failed:', error.message)
-      await supabase
-        .from('ai_jobs')
-        .update({
-          status: 'failed',
-          error: error.message,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.id)
-    }
+    await processRemoveBgJob(job)
   } else if (job.type === 'replicate_mockup' || job.type === 'replicate_mockup_v2') {
     await processMockupJob(job)
   } else if (job.type === 'ghost_mannequin') {

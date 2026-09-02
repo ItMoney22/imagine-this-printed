@@ -27,6 +27,15 @@ import {
   StepFlowValidationError,
   type ShotKey,
 } from '../../services/step-flow/shots.js'
+// Renders one 'replicate_rembg' job to completion (851-labs -> GCS ->
+// product_assets kind:'nobg') — same worker function the polling loop calls
+// for the classic (queued) path; here it is invoked directly, inline, right
+// after this route pre-claims the job as 'running'. Mirrors processMockupJob
+// (services/step-flow/shots.ts) and processImageJobInline
+// (routes/admin/ai-products.ts). Importing this has no side effects —
+// `startWorker()` lives in the same file but is only invoked from
+// backend/worker/index.ts.
+import { processRemoveBgJob } from '../../worker/ai-jobs-worker.js'
 
 /**
  * Mirrors ai-products.ts's local requireAdmin (admin OR manager) for
@@ -154,12 +163,39 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
       .single()
     if (updateError) return res.status(500).json({ error: updateError.message })
 
+    // Pre-claimed as 'running' at insert (2026-09-02) — same pattern as the
+    // mockup jobs in services/step-flow/shots.ts: the production Render
+    // worker only ever picks up 'queued' rows, so this keeps it from seeing
+    // the job at all, and this API process renders it inline instead (below).
+    // Job type stays 'replicate_rembg' — the frontend filters on it.
+    // `input.stepKey` also excludes the row from the worker's stale-'running'
+    // sweep (ai-jobs-worker.ts's processQueuedJobs) — a rembg call rarely
+    // runs long, but without this a slow one crossing 12 minutes would get
+    // reset to 'queued' and double-processed by the worker's old code.
     const { data: rembgJob, error: jobError } = await supabase
       .from('ai_jobs')
-      .insert({ product_id: id, type: 'replicate_rembg', status: 'queued', input: { selected_asset_id: assetId } })
+      .insert({
+        product_id: id,
+        type: 'replicate_rembg',
+        status: 'running',
+        input: { selected_asset_id: assetId, stepKey: 'design_rembg' },
+      })
       .select()
       .single()
     if (jobError) return res.status(500).json({ error: 'Failed to create background removal job' })
+
+    // Fire-and-forget: processRemoveBgJob already marks the ai_jobs row
+    // succeeded/failed for every failure path it knows about; this .catch is
+    // the safety net for anything that throws past it, so the row never gets
+    // stuck spinning forever — mirrors every processImageJobInline call site.
+    void processRemoveBgJob(rembgJob).catch(async (err: any) => {
+      const message = err?.message || 'Background removal failed'
+      req.log?.error({ jobId: rembgJob.id, err: message }, '[step-flow] rembg inline job failed')
+      await supabase
+        .from('ai_jobs')
+        .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
+        .eq('id', rembgJob.id)
+    })
 
     // Picking a take IS the step's one approval — there's no separate
     // "approve design" route in the contract, so this stamp is what gates
