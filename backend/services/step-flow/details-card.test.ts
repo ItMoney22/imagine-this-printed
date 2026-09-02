@@ -5,10 +5,10 @@ import sharp from 'sharp'
 // Tests for the Step Flow "details" card (backend/services/step-flow/details-card.ts).
 //
 // composeDetailsCardPng is pure (no network, no upload) so the size/shape
-// contract — always exactly 1200x1500 — is pinned directly. renderDetailsCard
-// wraps that with fetch + GCS upload + a product_assets insert, all stubbed
-// below per the plan ("Test: returns a PNG buffer of 1200x1500, upload
-// stubbed").
+// contract — always exactly 1500x1500 (square, per David 2026-09-02: "the
+// text is way too small" + Etsy crops non-square thumbnails) — is pinned
+// directly. renderDetailsCard wraps that with fetch + GCS upload + a
+// product_assets insert, all stubbed below.
 // ---------------------------------------------------------------------------
 
 process.env.SUPABASE_URL ||= 'http://localhost:54321'
@@ -46,6 +46,11 @@ async function solidPng(size = 400): Promise<Buffer> {
     .toBuffer()
 }
 
+/** Every `font-size="N"` (attribute or on a bare number) that appears in the SVG. */
+function allFontSizes(svg: string): number[] {
+  return [...svg.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]))
+}
+
 beforeEach(() => {
   insertedRows = []
   uploadFile.mockReset()
@@ -53,7 +58,7 @@ beforeEach(() => {
 })
 
 describe('composeDetailsCardPng', () => {
-  it('always renders exactly 1200x1500 regardless of mockup source size', async () => {
+  it('always renders exactly 1500x1500 (square) regardless of mockup source size', async () => {
     const mockup = await solidPng(777) // deliberately non-matching aspect ratio
     const png = await composeDetailsCardPng(mockup, {
       garment: 'tshirt',
@@ -62,7 +67,7 @@ describe('composeDetailsCardPng', () => {
       printWidthInches: 11,
     })
     const meta = await sharp(png).metadata()
-    expect(meta.width).toBe(1200)
+    expect(meta.width).toBe(1500)
     expect(meta.height).toBe(1500)
     expect(meta.format).toBe('png')
   })
@@ -76,20 +81,52 @@ describe('composeDetailsCardPng', () => {
       printWidthInches: 10,
     })
     const meta = await sharp(png).metadata()
-    expect(meta.width).toBe(1200)
+    expect(meta.width).toBe(1500)
     expect(meta.height).toBe(1500)
   })
 })
 
 describe('buildDetailsSvg', () => {
-  it('includes the DTF pitch, blank spec, care bullets, and a size row for every chart size', () => {
+  it('includes the DTF pitch, blank spec, care line, and a size row for every chart size', () => {
     const svg = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: 'Test Design', printWidthInches: 11 })
     expect(svg).toMatch(/Printed with DTF/)
-    expect(svg).toMatch(/Gildan 5000/)
-    expect(svg).toMatch(/Design width ~11 in/)
+    expect(svg).toMatch(/vivid, stretch-safe, wash-tested/)
+    expect(svg).toMatch(/Gildan 5000 Heavy Cotton/)
+    expect(svg).toMatch(/Design width/)
+    expect(svg).toMatch(/~11 in/)
+    expect(svg).toMatch(/DTF heat transfer/)
+    expect(svg).toMatch(/Unisex, true to size/)
+    expect(svg).toMatch(/Wash cold inside out/)
     for (const size of ['S', 'M', 'L', 'XL', '2XL', '3XL']) {
       expect(svg).toContain(`>${size}<`)
     }
+  })
+
+  // The card floor: nothing on it may render below 28px, anywhere, ever.
+  it('never renders a font-size below the 28px floor', () => {
+    const titles = [
+      'x',
+      'Test Design',
+      'A Perfectly Normal Two Line Title For A Tee',
+      'This Is A Genuinely Long Product Title For The Details Card That Keeps Going',
+    ]
+    for (const title of titles) {
+      for (const garment of ['tshirt', 'hoodie'] as const) {
+        const svg = buildDetailsSvg({ garment, color: 'black', title, printWidthInches: 11 })
+        const sizes = allFontSizes(svg)
+        expect(sizes.length).toBeGreaterThan(0)
+        for (const size of sizes) {
+          expect(size).toBeGreaterThanOrEqual(28)
+        }
+      }
+    }
+  })
+
+  it('escapes an ampersand in the title exactly once', () => {
+    const svg = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: 'Rock & Roll Tour', printWidthInches: 11 })
+    const matches = svg.match(/&amp;/g) ?? []
+    expect(matches).toHaveLength(1)
+    expect(svg).not.toMatch(/&amp;amp;/)
   })
 
   it('escapes XML-unsafe characters in the title', () => {
@@ -98,10 +135,11 @@ describe('buildDetailsSvg', () => {
     expect(svg).toMatch(/&amp;|&lt;Tour&gt;/)
   })
 
-  // Fix #7: the title used to be escaped ONCE up front (`escapeXml(...)`) and
-  // then split/rejoined/escaped a SECOND time while wrapping across lines —
-  // every "&" came out as "&amp;amp;" instead of "&amp;". Escaping now
-  // happens exactly once, at push time, on the wrapped (raw) line.
+  // Fix #7 (carried forward): the title used to be escaped ONCE up front
+  // (`escapeXml(...)`) and then split/rejoined/escaped a SECOND time while
+  // wrapping across lines — every "&" came out as "&amp;amp;" instead of
+  // "&amp;". Escaping now happens exactly once, at push time, on the
+  // wrapped (raw) line.
   it('never double-escapes an ampersand, even in a title long enough to wrap across lines', () => {
     const svg = buildDetailsSvg({
       garment: 'tshirt',
@@ -113,10 +151,9 @@ describe('buildDetailsSvg', () => {
     expect(svg).toMatch(/&amp;/)
   })
 
-  // Fix #7: no more hard `.slice(0, 60)` + silent 2-line cap — a long title
-  // gets a 3rd, smaller-font line instead of being cut off with no
-  // indication anything was dropped.
-  it('wraps a long title across a 3rd line at a smaller size instead of silently truncating it', () => {
+  // 2 lines max at 72px; a title that needs a 3rd line shrinks to 60px — the
+  // floor for the title block — instead of being silently cut off.
+  it('wraps a long title across a 3rd line at 60px instead of silently truncating it', () => {
     const longTitle = 'This Is A Genuinely Long Product Title For The Details Card'
     const svg = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: longTitle, printWidthInches: 11 })
     // The early words of the title must still be present somewhere in the
@@ -124,8 +161,20 @@ describe('buildDetailsSvg', () => {
     expect(svg).toContain('This')
     expect(svg).toContain('Genuinely')
     expect(svg).toContain('Product')
-    // The smaller 3-line font size kicks in.
-    expect(svg).toMatch(/font-size="23"/)
+    // The 60px shrink kicks in, and never goes smaller than that.
+    expect(svg).toMatch(/font-size="60"/)
+  })
+
+  it('keeps a short title at the full 72px size', () => {
+    const svg = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: 'Cozy Hoodie', printWidthInches: 11 })
+    expect(svg).toMatch(/font-size="72"/)
+  })
+
+  it('renders the full blank name for both garments without truncating a name that fits', () => {
+    const tshirt = buildDetailsSvg({ garment: 'tshirt', color: 'black', title: 'x', printWidthInches: 11 })
+    expect(tshirt).toMatch(/Gildan 5000 Heavy Cotton</)
+    const hoodie = buildDetailsSvg({ garment: 'hoodie', color: 'navy', title: 'x', printWidthInches: 11 })
+    expect(hoodie).toMatch(/Gildan 18500 Heavy Blend</)
   })
 
   it('uses a font stack with a Linux-available fallback (Render has no Arial/Helvetica)', () => {
@@ -168,7 +217,7 @@ describe('renderDetailsCard (fetch + upload + DB stubbed)', () => {
     expect(result.assetId).toBe('asset-details-1')
 
     const meta = await sharp(result.buffer).metadata()
-    expect(meta.width).toBe(1200)
+    expect(meta.width).toBe(1500)
     expect(meta.height).toBe(1500)
 
     expect(insertedRows).toHaveLength(1)

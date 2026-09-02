@@ -5,15 +5,32 @@
 // AI-rendered. It's composed in-house with `sharp` (already a dependency):
 // the approved product mockup on the left, spec bullets + a size chart as SVG
 // text on the right. Deterministic, free, always legible.
+//
+// David 2026-09-02: "the text is way too small." This card is a listing
+// image buyers scroll on Etsy/the storefront at thumbnail size, so it's
+// rebuilt square (1500x1500 — Etsy crops non-square thumbnails) with a big,
+// legible text column. Nothing on the card renders below MIN_FONT_SIZE.
 import sharp from 'sharp'
 import { supabase } from '../../lib/supabase.js'
 import { uploadFile } from '../gcs-storage.js'
 import { GARMENTS, getGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 
-const CARD_WIDTH = 1200
+const CARD_WIDTH = 1500
 const CARD_HEIGHT = 1500
-const LEFT_WIDTH = Math.round(CARD_WIDTH * 0.6) // 720
-const RIGHT_WIDTH = CARD_WIDTH - LEFT_WIDTH // 480
+const LEFT_WIDTH = Math.round(CARD_WIDTH * 0.52) // 780 — the mockup photo
+const RIGHT_WIDTH = CARD_WIDTH - LEFT_WIDTH // 720 — the text column
+const PHOTO_MARGIN = 40 // inner margin around the cropped mockup photo
+const CARD_MARGIN = 24 // off-white gutter around the white text-column card
+const CARD_RADIUS = 24
+const TEXT_PAD = 40 // inner padding from the white card's edge to the text
+const MIN_FONT_SIZE = 28 // floor — nothing on this card may render smaller
+
+const INK = '#111827'
+const MUTED = '#6b7280'
+const BRAND_PURPLE = '#7c3aed'
+const BG_OFFWHITE = '#f7f7f8'
+const CARD_WHITE = '#ffffff'
+const ROW_TINT = '#f3f4f6'
 
 /**
  * S–3XL size charts, inches. Body width = garment laid flat, measured pit to
@@ -45,13 +62,6 @@ const SIZE_CHARTS: Record<GarmentId, { size: string; widthIn: number; lengthIn: 
   ],
 }
 
-const CARE_BULLETS = [
-  'Machine wash cold, inside out',
-  'Tumble dry low or hang dry',
-  'Do not iron directly on the print',
-  'Do not dry clean',
-]
-
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -80,13 +90,13 @@ const FONT = "Arial, Helvetica, 'DejaVu Sans', sans-serif"
  * still doesn't fit, the LAST line is visibly truncated with an ellipsis —
  * a deliberate, visible cut, never a silent one.
  */
-function wrapText(text: string, charsPerLine: number, maxLines: number): string[] {
+function wrapText(text: string, charsPerLineN: number, maxLines: number): string[] {
   const words = text.split(/\s+/).filter(Boolean)
   const wrapped: string[] = []
   let cur = ''
   for (const w of words) {
     const attempt = (cur + ' ' + w).trim()
-    if (attempt.length > charsPerLine && cur) {
+    if (attempt.length > charsPerLineN && cur) {
       wrapped.push(cur)
       cur = w
     } else {
@@ -100,124 +110,171 @@ function wrapText(text: string, charsPerLine: number, maxLines: number): string[
   return kept
 }
 
-/** Build the right-column SVG panel — title, DTF pitch, blank spec, care, size chart. */
+/**
+ * Clamp a single line of RAW text to `maxChars`, visibly truncating with an
+ * ellipsis. Used for the blank name (and, as a general safety net, every
+ * spec-row value) — these rows must never wrap onto a second line.
+ */
+function clampLine(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  return text.slice(0, Math.max(1, maxChars - 1)).trimEnd() + '…'
+}
+
+/**
+ * ~0.55em average glyph width for this bold sans-serif stack — there's no
+ * real text-measuring lib in play, so line breaks are decided by character
+ * count against this heuristic rather than actual rendered pixel width.
+ */
+function charsPerLine(fontSizePx: number, maxWidthPx: number): number {
+  return Math.max(1, Math.floor(maxWidthPx / (fontSizePx * 0.55)))
+}
+
+/** Build the right-column SVG panel — title, DTF pitch, blank spec, size chart, care line. */
 export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   const garment = getGarment(opts.garment) ?? GARMENTS[0]
   const chart = SIZE_CHARTS[garment.id]
   const rawTitle = (opts.title || 'Custom Design').trim() || 'Custom Design'
 
-  const pad = 36
-  let y = 64
+  const contentX = CARD_MARGIN + TEXT_PAD // 64 — left edge every text node sits at
+  const contentWidth = RIGHT_WIDTH - 2 * (CARD_MARGIN + TEXT_PAD) // 592
 
-  const lines: string[] = []
-  const addText = (text: string, opts2: { size: number; weight?: number; fill?: string; dy?: number }) => {
-    y += opts2.dy ?? opts2.size + 10
-    lines.push(
-      `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="${opts2.size}" font-weight="${
-        opts2.weight ?? 400
-      }" fill="${opts2.fill ?? '#111827'}">${escapeXml(text)}</text>`
+  const nodes: string[] = [
+    `<rect width="100%" height="100%" fill="${BG_OFFWHITE}" />`,
+    `<rect x="${CARD_MARGIN}" y="${CARD_MARGIN}" width="${RIGHT_WIDTH - 2 * CARD_MARGIN}" height="${
+      CARD_HEIGHT - 2 * CARD_MARGIN
+    }" rx="${CARD_RADIUS}" ry="${CARD_RADIUS}" fill="${CARD_WHITE}" />`,
+  ]
+
+  let y = CARD_MARGIN + TEXT_PAD
+
+  /** Push one <text> node at the current y and advance nothing — callers move y first. */
+  const emit = (str: string, x: number, size: number, weight: number, fill: string) => {
+    if (size < MIN_FONT_SIZE) {
+      // A hard fail, not a silent shrink — this card's whole point is legibility.
+      throw new Error(`details-card: attempted font-size ${size}px, below the ${MIN_FONT_SIZE}px floor`)
+    }
+    nodes.push(
+      `<text x="${x}" y="${y}" font-family="${FONT}" font-size="${size}" font-weight="${weight}" fill="${fill}">${escapeXml(
+        str
+      )}</text>`
     )
   }
 
-  // Wrap the RAW title, then escape EACH LINE ONCE at push time. The old
-  // version escaped the whole title up front (`escapeXml(...).slice(0,60)`)
-  // and THEN split/rejoined/escaped it again while wrapping — every entity
-  // got escaped twice ("&" -> "&amp;" -> "&amp;amp;"). It also hard-capped
-  // the title at 60 characters and 2 lines with no visible indication
-  // anything was cut. Try 2 lines at the normal size first; a title that
-  // doesn't fit gets 3 lines at a smaller size instead of being silently
-  // sliced.
-  let titleLines = wrapText(rawTitle, 22, 999)
-  let titleFontSize = 30
-  let titleLineHeight = 34
-  if (titleLines.length > 2) {
-    titleLines = wrapText(rawTitle, 26, 3)
-    titleFontSize = 23
-    titleLineHeight = 27
+  // --- 1. Title — 2 lines max at 72px bold. A title that needs a 3rd line
+  // shrinks to 60px (the floor for this block, never smaller) instead of
+  // being silently cut. Wrapped on the RAW title (never pre-escaped — the
+  // old version escaped once up front and then AGAIN while wrapping, which
+  // doubled every "&" to "&amp;amp;"; escaping now happens exactly once, at
+  // push time, on the wrapped raw line).
+  const naturalAt72 = wrapText(rawTitle, charsPerLine(72, contentWidth), 999)
+  let titleSize = 72
+  let titleLines = naturalAt72
+  if (naturalAt72.length > 2) {
+    titleSize = 60
+    titleLines = wrapText(rawTitle, charsPerLine(titleSize, contentWidth), 3)
   }
-  for (const t of titleLines) {
+  const titleLineHeight = Math.round(titleSize * 1.15)
+  for (const line of titleLines) {
     y += titleLineHeight
-    lines.push(
-      `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="${titleFontSize}" font-weight="700" fill="#111827">${escapeXml(
-        t
-      )}</text>`
+    emit(line, contentX, titleSize, 700, INK)
+  }
+
+  // --- 2. DTF pitch + one-line benefit underneath.
+  y += 64
+  emit('Printed with DTF', contentX, 40, 600, BRAND_PURPLE)
+  y += 40
+  emit('vivid, stretch-safe, wash-tested', contentX, 30, 400, MUTED)
+
+  // --- 3. Spec rows: Blank · Weight · Design width · Print · Fit. Each row
+  // is one <text> with a muted label tspan and a dark value tspan so they
+  // share a baseline without needing a hand-tuned two-column x layout. The
+  // value is clamped to one line (ellipsis) sized off THIS row's own label
+  // width — the blank name is the one that can realistically run long.
+  const SPEC_ROW_H = 64
+  const specRows: [string, string][] = [
+    ['Blank', garment.blank],
+    ['Weight', `${garment.weightOz} oz`],
+    ['Design width', `~${Math.round(opts.printWidthInches)} in`],
+    ['Print', 'DTF heat transfer'],
+    ['Fit', 'Unisex, true to size'],
+  ]
+  for (const [label, rawValue] of specRows) {
+    y += SPEC_ROW_H
+    const labelWidthPx = label.length * 34 * 0.55
+    const valueBudgetPx = Math.max(60, contentWidth - labelWidthPx - 14)
+    const value = clampLine(rawValue, charsPerLine(34, valueBudgetPx))
+    nodes.push(
+      `<text x="${contentX}" y="${y}" font-family="${FONT}" font-size="34">` +
+        `<tspan fill="${MUTED}" font-weight="600">${escapeXml(label)}</tspan>` +
+        `<tspan fill="${INK}" font-weight="400" dx="14">${escapeXml(value)}</tspan>` +
+        `</text>`
     )
   }
 
-  y += 18
-  lines.push(
-    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="17" font-weight="600" fill="#7C3AED">Printed with DTF — vivid, stretch-safe, wash-tested</text>`
-  )
+  // --- 4. Size chart: header, column labels, then S–3XL rows with
+  // alternating row tint.
+  y += 70
+  emit('Size chart (inches)', contentX, 38, 700, INK)
 
-  y += 40
-  lines.push(
-    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="15" fill="#374151">Blank: ${escapeXml(
-      garment.blank
-    )} (${garment.weightOz} oz)</text>`
-  )
-  y += 26
-  lines.push(
-    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="15" fill="#374151">Design width ~${Math.round(
-      opts.printWidthInches
-    )} in</text>`
-  )
+  y += 54
+  const chartColX = [contentX, contentX + Math.round(contentWidth / 3), contentX + Math.round((2 * contentWidth) / 3)]
+  emit('Size', chartColX[0], 32, 700, INK)
+  emit('Chest', chartColX[1], 32, 700, INK)
+  emit('Length', chartColX[2], 32, 700, INK)
 
-  y += 38
-  lines.push(
-    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="16" font-weight="700" fill="#111827">Care</text>`
-  )
-  for (const bullet of CARE_BULLETS) {
-    y += 24
-    lines.push(
-      `<text x="${pad + 4}" y="${y}" font-family="${FONT}" font-size="14" fill="#4B5563">• ${escapeXml(
-        bullet
-      )}</text>`
-    )
+  const CHART_ROW_H = 56
+  let rowTop = y + 14
+  for (let i = 0; i < chart.length; i++) {
+    const row = chart[i]
+    if (i % 2 === 0) {
+      nodes.push(
+        `<rect x="${CARD_MARGIN}" y="${rowTop}" width="${
+          RIGHT_WIDTH - 2 * CARD_MARGIN
+        }" height="${CHART_ROW_H}" fill="${ROW_TINT}" />`
+      )
+    }
+    y = rowTop + CHART_ROW_H - 16
+    emit(row.size, chartColX[0], 32, 400, INK)
+    emit(`${row.widthIn}"`, chartColX[1], 32, 400, INK)
+    emit(`${row.lengthIn}"`, chartColX[2], 32, 400, INK)
+    rowTop += CHART_ROW_H
   }
+  y = rowTop
 
-  y += 40
-  lines.push(
-    `<text x="${pad}" y="${y}" font-family="${FONT}" font-size="16" font-weight="700" fill="#111827">${escapeXml(
-      garment.label
-    )} Size Chart (in)</text>`
-  )
-  y += 14
-  const colX = [pad, pad + 90, pad + 220]
-  y += 24
-  lines.push(
-    `<text x="${colX[0]}" y="${y}" font-family="${FONT}" font-size="13" font-weight="700" fill="#111827">Size</text>`,
-    `<text x="${colX[1]}" y="${y}" font-family="${FONT}" font-size="13" font-weight="700" fill="#111827">Chest W</text>`,
-    `<text x="${colX[2]}" y="${y}" font-family="${FONT}" font-size="13" font-weight="700" fill="#111827">Length</text>`
-  )
-  for (const row of chart) {
-    y += 24
-    lines.push(
-      `<text x="${colX[0]}" y="${y}" font-family="${FONT}" font-size="13" fill="#374151">${row.size}</text>`,
-      `<text x="${colX[1]}" y="${y}" font-family="${FONT}" font-size="13" fill="#374151">${row.widthIn}"</text>`,
-      `<text x="${colX[2]}" y="${y}" font-family="${FONT}" font-size="13" fill="#374151">${row.lengthIn}"</text>`
-    )
+  // --- 5. Care line. Wrapped the same way as the title (never a single
+  // fixed-width <text> with no safety net): at 28px this exact string
+  // measures wider than contentWidth in real Arial-metric rendering, so
+  // without a wrap check it silently overflowed past the card's right edge
+  // — caught by rendering a real card and pixel-scanning it, not by eye.
+  const careLines = wrapText('Wash cold inside out · Tumble low · No iron on print', charsPerLine(28, contentWidth), 2)
+  const careLineHeight = Math.round(28 * 1.3)
+  y += 64
+  for (const line of careLines) {
+    emit(line, contentX, 28, 400, MUTED)
+    y += careLineHeight
   }
 
   return `<svg width="${RIGHT_WIDTH}" height="${CARD_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="100%" height="100%" fill="#FFFFFF" />
-    ${lines.join('\n    ')}
+    ${nodes.join('\n    ')}
   </svg>`
 }
 
-/** Compose the 1200x1500 details card PNG from an already-decoded mockup image buffer. Pure — no network, no upload. */
+/** Compose the 1500x1500 details card PNG from an already-decoded mockup image buffer. Pure — no network, no upload. */
 export async function composeDetailsCardPng(mockupBuffer: Buffer, opts: DetailsCardTextOpts): Promise<Buffer> {
+  const photoWidth = LEFT_WIDTH - PHOTO_MARGIN * 2
+  const photoHeight = CARD_HEIGHT - PHOTO_MARGIN * 2
   const leftPanel = await sharp(mockupBuffer)
-    .resize(LEFT_WIDTH, CARD_HEIGHT, { fit: 'cover', position: 'centre' })
+    .resize(photoWidth, photoHeight, { fit: 'cover', position: 'centre' })
     .png()
     .toBuffer()
 
   const rightPanel = Buffer.from(buildDetailsSvg(opts))
 
   return sharp({
-    create: { width: CARD_WIDTH, height: CARD_HEIGHT, channels: 4, background: '#FFFFFF' },
+    create: { width: CARD_WIDTH, height: CARD_HEIGHT, channels: 4, background: BG_OFFWHITE },
   })
     .composite([
-      { input: leftPanel, left: 0, top: 0 },
+      { input: leftPanel, left: PHOTO_MARGIN, top: PHOTO_MARGIN },
       { input: rightPanel, left: LEFT_WIDTH, top: 0 },
     ])
     .png()
