@@ -297,3 +297,59 @@ her creating designs on her own anymore but i do like this new stepflow."
   is now pitching inside the Step Flow (phrases today; design ideas next), never
   generating products unattended. Closes board rows 5b6dac39 (halt daily batch)
   and the "pitch-first" intent of 11698ea1.
+
+## 12. Inspiration upload (David, 2026-09-02)
+
+"upload a photo of a design mrs imagine will analyze it and ask what we like if
+we want the same just ours or if we want diff words diff subject she basically
+breaks down the whole design." Optional "Start from inspiration" card at the top
+of the Idea step. `POST /step/inspiration` (image data URL or https URL) →
+Mrs. Imagine's breakdown (subject, style, palette, words, composition, mood,
+techniques, what works, IP flags) + her questions with option chips + a
+suggested original idea. Presets: "Same vibe, make it ours" / "Same subject,
+new words" / "Different subject, same style". The brief takes the breakdown +
+choices and writes an ORIGINAL prompt inspired by the reference; logos, brand
+marks, characters, lyrics and verbatim text are never requested (copyright gate
+on every text candidate). Stored on `step_flow.inspiration`.
+
+## 13. Promotions and pricing (David, 2026-09-02)
+
+- **Bundle deal changes from 3 for $25 to 2 for $25.** One rule in
+  `backend/shared/promos.ts` used by Cart, ProductCard, Admin and — new — the
+  server's `order-pricing.ts`, which never applied the bundle (board 54405e88).
+- **Listing step gets a Promotions section:** bundle inclusion + flat sale price
+  (existing `promo/bulk` mechanism, strike-through badge).
+- **Metal art:** 4x6 $8.95, 8x10 $16.95 (supersedes 14.99/29.99 — "i want to beat
+  everyone at their pricing"), single source in `backend/shared/metal-art.ts`
+  incl. add-ons; new add-ons "magnet mounting kit" and "3D-printed display
+  stand" at placeholder prices David has not confirmed. The 32 live catalog
+  metal products still carry $48–$75 and must come down (data job).
+
+## 14. Metal prints in the Step Flow (spec — next wave)
+
+Idea step gets a product-kind chip: Tee / Hoodie / **Metal print**. For metal:
+Garments step becomes **Sizes** (4x6 and 8x10 both on by default, prices from
+the shared module); Mockups = size-true scenes reusing the existing
+`metal_shelf`/`metal_wall` templates with the scale anchors: **4x6 on a desk or
+table**, **8x10 hung on a wall**, plus a metal details card (sizes, aluminum
+panel, mounting options); no on-person shot. Publish writes `category:
+'metal-art'` with per-size pricing; the Etsy tiers for metal already exist.
+Note: board row c11af937 records a standing hold on metal-art PRODUCTION — the
+flow can build listings, but David decides when production resumes.
+
+## 15. Customer personalization (spec — needs David's answers)
+
+"we made a shirt for a football team we should be able to let the customer
+change name jersey number etc ... and if we can figure out how to translate that
+to our Etsy store". Shape: a product declares personalization fields
+(`metadata.personalization = [{ key:'name', label:'Name', maxLen:14 },
+{ key:'number', label:'Jersey #', maxLen:2, numeric:true }]`) and the design
+keeps **text slots** (position, font, colour, max width) in the sheet; the
+storefront product page renders live preview text into the slots; the order
+line carries the values; the print file is generated at order time from the
+template + values (Imagination Station already renders sheets). Etsy: listings
+support `is_personalizable`, `personalization_instructions` and
+`personalization_char_count_max`; buyer text arrives on the receipt
+transaction and flows into the same order line. Open questions for David: which
+fonts/colours the customer may pick, whether number-only products exist, and
+whether personalized items are excluded from the bundle deal.
