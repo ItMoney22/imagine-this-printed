@@ -13,6 +13,7 @@ import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { assertOffered, COLORS, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
+import { pitchPhrases } from '../../services/step-flow/phrases.js'
 import { adviseColors } from '../../services/step-flow/color-advice.js'
 import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
 import {
@@ -110,18 +111,47 @@ async function resolveDesignArtworkUrl(productId: string): Promise<string | unde
 
 const router = Router()
 
-// POST /step/brief — { idea } -> { brief }. Step 1: idea -> best prompt.
+// POST /step/brief — { idea, phrase? } -> { brief }. Step 1: idea -> best
+// prompt. `phrase` (design doc §11) is either David's typed line or one Mrs.
+// Imagine pitched via /step/phrases below; writeStepBrief guarantees the
+// exact quoted text reaches designPrompt on every path (model success AND
+// fallback), so passing it straight through here is enough — no extra
+// validation needed, brief.ts sanitizes it.
 router.post('/step/brief', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
   try {
-    const { idea } = req.body || {}
+    const { idea, phrase } = req.body || {}
     if (typeof idea !== 'string' || !idea.trim()) {
       return res.status(400).json({ error: 'idea is required' })
     }
-    const brief = await writeStepBrief(idea)
+    const brief = await writeStepBrief(idea, { phrase })
     res.json({ brief })
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] brief error')
     res.status(500).json({ error: err?.message || 'Failed to write brief' })
+  }
+})
+
+// POST /step/phrases — { idea, brief?, count? } -> { persona, intro, phrases }.
+// Mrs. Imagine's pitch inside Step 1 (design doc §11, David 2026-09-02): "add
+// Mrs Imagine to this step i dont want her creating designs on her own
+// anymore" — she now pitches short print-ready phrases for the idea instead
+// of generating whole products unattended (her daily autonomous batch is off
+// by default — see worker/mrs-imagine-daily.ts).
+router.post('/step/phrases', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { idea, brief, count } = req.body || {}
+    if (typeof idea !== 'string' || !idea.trim()) {
+      return res.status(400).json({ error: 'idea is required' })
+    }
+    const result = await pitchPhrases(
+      idea,
+      brief && typeof brief === 'object' ? brief : undefined,
+      typeof count === 'number' ? count : undefined
+    )
+    res.json(result)
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] phrases error')
+    res.status(500).json({ error: err?.message || 'Failed to pitch phrases' })
   }
 })
 

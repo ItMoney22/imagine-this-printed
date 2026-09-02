@@ -19,7 +19,7 @@ vi.mock('openai', () => ({
 
 process.env.OPENAI_API_KEY ||= 'test-openai-key'
 
-const { writeStepBrief, fallbackBrief, coerceBrief } = await import('./brief.js')
+const { writeStepBrief, fallbackBrief, coerceBrief, sanitizePhraseText } = await import('./brief.js')
 
 const reply = (content: string) => create.mockResolvedValueOnce({ choices: [{ message: { content } }] })
 
@@ -137,5 +137,100 @@ describe('writeStepBrief', () => {
   it('rejects a blank idea before ever calling the model', async () => {
     await expect(writeStepBrief('   ')).rejects.toThrow(/idea is required/i)
     expect(create).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phrase step (design doc §11, David 2026-09-02): "add a phrase to this
+// design then a agent thinks of catchy phrase ... add Mrs Imagine to this
+// step." The property under test: the exact-text render instruction MUST
+// reach designPrompt verbatim whether the writing brain succeeds or fails —
+// a picked phrase can never silently go missing.
+// ---------------------------------------------------------------------------
+
+describe('sanitizePhraseText', () => {
+  it('trims and collapses internal whitespace', () => {
+    expect(sanitizePhraseText('  Wild   And   Free  ')).toBe('Wild And Free')
+  })
+
+  it('caps at 60 characters by default', () => {
+    const long = 'x'.repeat(100)
+    expect(sanitizePhraseText(long)).toHaveLength(60)
+  })
+
+  it('strips ASCII control characters', () => {
+    expect(sanitizePhraseText('Wild\u0000And\u0007Free')).toBe('WildAndFree')
+  })
+
+  it('returns an empty string for non-string input', () => {
+    expect(sanitizePhraseText(undefined)).toBe('')
+    expect(sanitizePhraseText(42 as any)).toBe('')
+  })
+})
+
+describe('writeStepBrief with a phrase', () => {
+  it('embeds the exact quoted phrase text in designPrompt when the model succeeds', async () => {
+    reply(
+      JSON.stringify({
+        designPrompt: 'A fierce street monkey, solid white background.',
+        background: 'white',
+        title: 'Street Monkey',
+        styleTags: ['streetwear'],
+        garmentHint: 'tshirt',
+        rationale: 'Bold ink pops on white.',
+      })
+    )
+    const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above' } })
+
+    expect(b.designPrompt).toContain(
+      'Render the exact text "Stay Wild" in bold, clean, highly legible lettering, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.'
+    )
+    expect(b.phrase).toEqual({ text: 'Stay Wild', placement: 'above' })
+  })
+
+  it('embeds the exact quoted phrase text in designPrompt even on the fallback path (model call throws)', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+
+    const b = await writeStepBrief('street monkey', { phrase: { text: 'Stay Wild', placement: 'above' } })
+
+    expect(b.designPrompt).toContain(
+      'Render the exact text "Stay Wild" in bold, clean, highly legible lettering, spelled exactly as written, placed above the subject, part of the artwork on the same solid background.'
+    )
+    expect(b.background).toBe('white')
+    expect(b.phrase).toEqual({ text: 'Stay Wild', placement: 'above' })
+  })
+
+  it('embeds the exact quoted phrase text even when the model reply is not valid JSON', async () => {
+    reply('Sorry, I cannot help with that.')
+
+    const b = await writeStepBrief('idea', { phrase: { text: 'Catch Phrase', placement: 'below' } })
+
+    expect(b.designPrompt).toContain('Render the exact text "Catch Phrase"')
+  })
+
+  it('defaults placement to "below" when not given', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea', { phrase: { text: 'No Placement Given' } })
+    expect(b.phrase?.placement).toBe('below')
+    expect(b.designPrompt).toContain('placed below the subject')
+  })
+
+  it('sanitizes the incoming phrase text (trims, collapses whitespace, caps at 60 chars)', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea', { phrase: { text: '  Too   Much   Space  ', placement: 'below' } })
+    expect(b.phrase?.text).toBe('Too Much Space')
+  })
+
+  it('treats an empty/whitespace-only phrase as no phrase at all', async () => {
+    const b = await writeStepBrief('idea', { phrase: { text: '   ' } })
+    expect(b.phrase).toBeUndefined()
+    expect(b.designPrompt).not.toContain('Render the exact text')
+  })
+
+  it('never adds phrase language when no phrase is given', async () => {
+    create.mockRejectedValueOnce(new Error('network down'))
+    const b = await writeStepBrief('idea')
+    expect(b.phrase).toBeUndefined()
+    expect(b.designPrompt).not.toContain('Render the exact text')
   })
 })

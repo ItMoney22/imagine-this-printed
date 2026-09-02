@@ -1,18 +1,25 @@
 // Mrs. Imagine's daily clock (David 2026-08-20: "she needs to do all the work
 // e2e — im just gonna sign into etsy and change drafts to active").
 //
-// The admin card's Run button stays for manual runs, but nobody should have to
-// press it: once a day, at MRS_IMAGINE_DAILY_HOUR_UTC, the worker starts a
-// full batch by itself. The batch orchestrator runs in THIS process — that is
-// fine by construction: it is all async I/O, and the mockup jobs it enqueues
-// are drained by this same process's ai-jobs poll loop running independently.
+// REVERSED 2026-09-02 (design doc §11, "Phrase step with Mrs. Imagine"):
+// "add Mrs Imagine to this step i dont want her creating designs on her own
+// anymore but i do like this new stepflow." This clock used to default ON
+// (opt OUT via MRS_IMAGINE_DAILY=false); it now defaults OFF and requires an
+// explicit MRS_IMAGINE_DAILY=true to re-enable. Her job in the product line
+// is now pitching phrases inside the Step Flow
+// (services/step-flow/phrases.ts), never generating whole products
+// unattended. The admin card's manual Run button is untouched — this only
+// gates the unattended clock.
 //
-// Guard rails:
+// The batch orchestrator (when armed) runs in THIS process — that is fine by
+// construction: it is all async I/O, and the mockup jobs it enqueues are
+// drained by this same process's ai-jobs poll loop running independently.
+//
+// Guard rails, once armed:
 //   - one batch per 20h window (keyed on ai_jobs rows of type
 //     'mrs_imagine_batch', any status) — restarts can't double-run a day,
 //   - a 'running' batch with a stale heartbeat (>20 min without an update,
-//     i.e. killed by a deploy) is marked failed so it can't wedge the clock,
-//   - MRS_IMAGINE_DAILY=false switches the whole clock off.
+//     i.e. killed by a deploy) is marked failed so it can't wedge the clock.
 
 import { supabase } from '../lib/supabase.js'
 import { startMrsImagineBatch } from '../services/mrs-imagine.js'
@@ -21,9 +28,13 @@ const CHECK_INTERVAL_MS = 10 * 60 * 1000
 const RUN_WINDOW_HOURS = 20
 const STALE_RUNNING_MS = 20 * 60 * 1000
 
+/** Opt-in only — the string "true", nothing else (unset/false/1/yes all stay off). */
 function dailyEnabled(): boolean {
-  return process.env.MRS_IMAGINE_DAILY !== 'false'
+  return process.env.MRS_IMAGINE_DAILY === 'true'
 }
+
+export const DAILY_OFF_MESSAGE =
+  'Mrs. Imagine daily batch is OFF (David 2026-09-02) — she pitches inside the Step Flow now; set MRS_IMAGINE_DAILY=true to re-enable'
 
 function targetHourUtc(): number {
   const h = Number(process.env.MRS_IMAGINE_DAILY_HOUR_UTC)
@@ -73,7 +84,7 @@ async function tick(): Promise<void> {
 
 export function startMrsImagineDaily(): void {
   if (!dailyEnabled()) {
-    console.log('[mrs-imagine-daily] disabled (MRS_IMAGINE_DAILY=false)')
+    console.log(`[mrs-imagine-daily] ${DAILY_OFF_MESSAGE}`)
     return
   }
   console.log(`[mrs-imagine-daily] armed — daily batch at ${String(targetHourUtc()).padStart(2, '0')}:00 UTC`)

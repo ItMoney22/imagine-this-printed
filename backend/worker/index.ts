@@ -39,8 +39,11 @@ startEtsyWorker()
 // Privacy: expires shopper try-on photos out of GCS on a timer. See
 // backend/worker/tryon-retention-sweep.ts and docs/VIRTUAL_TRYON.md §7.
 startTryOnRetentionSweep()
-// Mrs. Imagine designs a full batch daily, end to end — research through Etsy
-// drafts. David's only manual step is activating drafts in Shop Manager.
+// Mrs. Imagine's unattended daily batch (research through Etsy drafts) is OFF
+// by default as of 2026-09-02 — she now pitches phrases inside the Step Flow
+// instead of generating whole products on her own. Set MRS_IMAGINE_DAILY=true
+// to re-arm the old end-to-end clock; startMrsImagineDaily() logs which mode
+// it started in.
 startMrsImagineDaily()
 
 console.log('Worker is running. Press Ctrl+C to stop.')

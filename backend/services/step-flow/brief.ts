@@ -11,9 +11,29 @@
 // Same OpenRouter-or-OpenAI client pattern as services/imagine-brain.ts:
 // gemini-2.5-flash via OpenRouter when available (cheap text job, separate
 // wallet from the OpenAI image budget), OPENAI_TEXT_MODEL otherwise.
+//
+// Phrase step (design doc §11, David 2026-09-02): "add a phrase to this
+// design then a agent thinks of catchy phrase based on the design before gpt
+// does the image ... add Mrs Imagine to this step". Mrs. Imagine's pitch
+// lives in ./phrases.ts; this file only has to (a) carry the picked phrase on
+// StepBrief and (b) guarantee the exact quoted text reaches designPrompt — on
+// BOTH the model-written path and the deterministic fallback path, so a
+// picked phrase can never silently go missing from the render.
 
 import OpenAI from 'openai'
 import { normalizeGarment, type GarmentId } from '../../shared/catalog-capability.js'
+
+// Matches ASCII control characters (C0 range + DEL). Built via RegExp(...)
+// rather than a /[...]/  literal so no raw control bytes ever have to live in
+// this source file.
+const CONTROL_CHARS_RE = new RegExp('[\\u0000-\\u001F\\u007F]', 'g')
+
+export type PhrasePlacement = 'below' | 'above' | 'integrated'
+
+export interface StepBriefPhrase {
+  text: string
+  placement: PhrasePlacement
+}
 
 export interface StepBrief {
   /** The full prompt handed to gpt-image-2. */
@@ -26,6 +46,50 @@ export interface StepBrief {
   garmentHint: GarmentId
   /** One sentence: why this background / style. */
   rationale: string
+  /** The phrase David picked (from Mrs. Imagine's pitch, or typed himself), if any. */
+  phrase?: StepBriefPhrase
+}
+
+/**
+ * Trim, collapse internal whitespace, strip control characters, and cap
+ * length — the exact sanitize contract for an incoming phrase (design doc
+ * §11: "Sanitize the phrase (trim, collapse whitespace, max 60 chars, strip
+ * control chars)"). Exported for phrases.ts / the route layer to reuse the
+ * same rule instead of re-implementing it.
+ */
+export function sanitizePhraseText(raw: unknown, maxLen = 60): string {
+  if (typeof raw !== 'string') return ''
+  return raw
+    .replace(CONTROL_CHARS_RE, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLen)
+}
+
+/** Coerces a loosely-typed `{ text, placement? }` body into a clean StepBriefPhrase, or undefined when there's nothing usable. */
+function coercePhraseInput(input: unknown): StepBriefPhrase | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const text = sanitizePhraseText((input as any).text)
+  if (!text) return undefined
+  const placementRaw = (input as any).placement
+  const placement: PhrasePlacement = placementRaw === 'above' || placementRaw === 'integrated' ? placementRaw : 'below'
+  return { text, placement }
+}
+
+/**
+ * The exact-text render instruction (design doc §11). Built once and reused
+ * so the model-written path and the fallback path produce byte-identical
+ * wording for the same phrase.
+ */
+function phraseInstruction(phrase: StepBriefPhrase): string {
+  return `Render the exact text "${phrase.text}" in bold, clean, highly legible lettering, spelled exactly as written, placed ${phrase.placement} the subject, part of the artwork on the same solid background.`
+}
+
+/** Appends the exact-text instruction to designPrompt (idempotent) and stamps `phrase` on the brief. */
+function withPhrase(brief: StepBrief, phrase: StepBriefPhrase): StepBrief {
+  const instruction = phraseInstruction(phrase)
+  const designPrompt = brief.designPrompt.includes(instruction) ? brief.designPrompt : `${brief.designPrompt} ${instruction}`
+  return { ...brief, designPrompt, phrase }
 }
 
 const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
@@ -131,25 +195,39 @@ export function coerceBrief(idea: string, raw: any): StepBrief {
  * Step 1 of the flow: idea → best prompt. Never throws — any failure (network,
  * bad key, malformed JSON) resolves to the deterministic fallback so the flow
  * always advances.
+ *
+ * `phrase` (design doc §11) is either David's own typed line or one Mrs.
+ * Imagine pitched (services/step-flow/phrases.ts). When present, the model is
+ * asked to write it into designPrompt — but `withPhrase` below APPENDS the
+ * canonical exact-text instruction regardless of what the model produced (or
+ * whether the model was reached at all), so the picked phrase is guaranteed
+ * to reach the render on both the model-written path and the fallback path.
  */
-export async function writeStepBrief(idea: string): Promise<StepBrief> {
+export async function writeStepBrief(idea: string, opts?: { phrase?: unknown }): Promise<StepBrief> {
   const trimmed = (idea || '').trim()
   if (!trimmed) throw new Error('idea is required')
+  const phrase = coercePhraseInput(opts?.phrase)
 
+  let brief: StepBrief
   try {
+    const userContent = phrase
+      ? `${trimmed}\n\nInclude this exact phrase, spelled exactly as written, as legible text within the artwork: "${phrase.text}" (placement: ${phrase.placement} the subject).`
+      : trimmed
     const completion = await client.chat.completions.create({
       model: MODEL,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: trimmed },
+        { role: 'user', content: userContent },
       ],
       ...(isReasoningModel ? { max_completion_tokens: 500 } : { temperature: 0.7, max_tokens: 500 }),
     })
     const raw = completion.choices[0]?.message?.content || ''
     const parsed = parseJsonLoose(raw)
-    return coerceBrief(trimmed, parsed)
+    brief = coerceBrief(trimmed, parsed)
   } catch (err: any) {
     console.warn('[step-flow/brief] writing brain call failed, using fallback:', err?.message || err)
-    return fallbackBrief(trimmed)
+    brief = fallbackBrief(trimmed)
   }
+
+  return phrase ? withPhrase(brief, phrase) : brief
 }
