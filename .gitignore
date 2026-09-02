@@ -32,6 +32,14 @@ dist-ssr
 backend/.env
 backend/.env.local
 backend/.env.tmp
+# Any hand-made env backup (e.g. .env.bak-prerotate from a credential
+# rotation) — these hold LIVE secrets and are one 'git add .' from being
+# published. Catch every variant, not just the ones we happened to name.
+.env.bak*
+.env.*.bak
+*.env.bak*
+backend/.env.bak*
+backend/.env.*.bak
 
 /src/generated/prisma
 nul
