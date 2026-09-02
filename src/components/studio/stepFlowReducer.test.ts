@@ -447,6 +447,11 @@ describe('areMockupsResolved / hasNonTerminalWork', () => {
     expect(hasNonTerminalWork(state)).toBe(true)
   })
 
+  it('hasNonTerminalWork is true while a replicate_rembg job is running (the actual type the backend inserts for background removal)', () => {
+    const state = stateWith({ jobs: [job({ id: 'j1', type: 'replicate_rembg', status: 'running' })] })
+    expect(hasNonTerminalWork(state)).toBe(true)
+  })
+
   it('hasNonTerminalWork ignores a queued/running job of a type this flow never queues', () => {
     const state = stateWith({ jobs: [job({ id: 'j1', type: 'some_other_feature_job', status: 'running' })] })
     expect(hasNonTerminalWork(state)).toBe(false)

@@ -1,10 +1,16 @@
 // Step 2 — Design: pick a take, approve it, watch it go transparent.
 import React, { useMemo, useState } from 'react'
-import { Check, Loader2, RefreshCw, Wand2 } from 'lucide-react'
+import { Check, RefreshCw, Wand2 } from 'lucide-react'
 import { aiProducts, stepFlow } from '../../lib/api'
 import { createStepFlowProduct } from './createStepFlowProduct'
 import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
-import { ApproveButton, Checkerboard, InlineError, SecondaryButton, StepCard } from './shared'
+import { ApproveButton, BusyDot, Checkerboard, InlineError, SecondaryButton, StepCard } from './shared'
+import ProgressBar from './ProgressBar'
+
+// gpt-image-2 takes ~2-3 minutes; rembg is a quick Replicate call once the
+// design is picked. Both are real timed waits David complained about.
+const DESIGN_EXPECTED_MS = 150_000
+const REMBG_EXPECTED_MS = 15_000
 
 interface DesignStepProps {
   state: StepFlowState
@@ -27,9 +33,10 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
   const nobgAsset = useMemo(() => getNobgAsset(state), [state.assets])
   const selectedAssetId = state.assets.find((a) => a.is_primary && a.kind === 'source')?.id ?? null
 
-  const isGenerating = state.jobs.some(
-    (j) => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && (j.status === 'queued' || j.status === 'running')
-  )
+  const designJob = [...state.jobs]
+    .filter((j) => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && (j.status === 'queued' || j.status === 'running'))
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
+  const isGenerating = !!designJob
   const rembgJob = [...state.jobs]
     .filter((j) => j.type === 'replicate_rembg')
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
@@ -107,8 +114,15 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
       </p>
 
       {isGenerating && candidates.length === 0 && (
-        <div className="flex items-center gap-2 text-sm text-muted py-8 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Generating your design…
+        <div className="py-8 px-2 sm:px-8">
+          <ProgressBar
+            size="lg"
+            label={designJob?.output?.message || 'Painting your design with GPT Image 2'}
+            startedAt={designJob?.created_at ? new Date(designJob.created_at).getTime() : Date.now()}
+            expectedMs={DESIGN_EXPECTED_MS}
+            step={designJob?.output?.step}
+            totalSteps={designJob?.output?.total_steps}
+          />
         </div>
       )}
 
@@ -136,7 +150,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
                         : 'bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50'
                     }`}
                   >
-                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    {busy ? <BusyDot className="w-2 h-2" /> : <Check className="w-3.5 h-3.5" />}
                     {isSelected ? 'Selected' : 'Use this'}
                   </button>
                 </div>
@@ -149,7 +163,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
       {candidates.length > 0 && !nobgAsset && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <SecondaryButton onClick={handleTryAnother} disabled={regenerating}>
-            {regenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {regenerating ? <BusyDot className="w-2 h-2" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Try another
           </SecondaryButton>
           <SecondaryButton
@@ -184,8 +198,14 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
       {selectedAssetId && (
         <div className="mt-6 border-t border-border-subtle pt-4">
           {rembgInFlight ? (
-            <div className="flex items-center gap-2 text-sm text-muted py-6 justify-center">
-              <Loader2 className="w-4 h-4 animate-spin" /> Removing the background…
+            <div className="py-6 px-2 sm:px-6">
+              <ProgressBar
+                label="Stripping the background"
+                startedAt={rembgJob?.created_at ? new Date(rembgJob.created_at).getTime() : Date.now()}
+                expectedMs={REMBG_EXPECTED_MS}
+                step={rembgJob?.output?.step}
+                totalSteps={rembgJob?.output?.total_steps}
+              />
             </div>
           ) : nobgAsset ? (
             <>

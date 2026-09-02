@@ -2,11 +2,14 @@
 // DTF only), with contrast-aware color advice so a mostly-black design never
 // gets pushed onto a black shirt by default.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import { GARMENTS, colorsForGarment, normalizeGarment, type ColorId, type GarmentId } from '../../../backend/shared/catalog-capability'
 import type { ColorAdvice, StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { ApproveButton, InlineError, StepCard } from './shared'
+import ProgressBar from './ProgressBar'
+
+// Just a stats-on-the-nobg-asset call, not a render — short by nature.
+const ARTWORK_MEASURE_EXPECTED_MS = 3000
 
 interface GarmentStepProps {
   state: StepFlowState
@@ -38,12 +41,14 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
   const [approving, setApproving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestedAdviceRef = useRef(false)
+  const measureStartedAtRef = useRef<number | null>(null)
 
   const advice = useMemo(() => state.stepFlow?.advice ?? [], [state.stepFlow?.advice])
 
   useEffect(() => {
     if (!state.productId || requestedAdviceRef.current || advice.length > 0) return
     requestedAdviceRef.current = true
+    measureStartedAtRef.current = Date.now()
     setLoadingAdvice(true)
     stepFlow
       .colorAdvice(state.productId)
@@ -131,8 +136,12 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
       </div>
 
       {(loadingAdvice || (advice.length === 0 && !error)) && (
-        <div className="flex items-center gap-2 text-sm text-muted py-6 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Measuring your artwork…
+        <div className="py-6 px-2 sm:px-6">
+          <ProgressBar
+            label="Measuring your artwork…"
+            startedAt={measureStartedAtRef.current ?? Date.now()}
+            expectedMs={ARTWORK_MEASURE_EXPECTED_MS}
+          />
         </div>
       )}
 

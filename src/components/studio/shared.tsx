@@ -3,11 +3,20 @@
 // AdminAIProductBuilder.tsx, not an import of it (that file's BuildState is a
 // different state machine entirely; Track C does not depend on it).
 import React from 'react'
-import { Check, Loader2 } from 'lucide-react'
+import { Check } from 'lucide-react'
 import type { StepId } from './types'
 import { STEP_LABELS, STEP_ORDER } from './types'
 
 export const HEX_CLIP = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)'
+
+/** Small non-spinning busy indicator for a quick inline button action
+ *  (Approve, Redo, Skip, Use this…) — David doesn't want ANY spinning
+ *  glyphs, but a click that resolves in well under a second is too
+ *  short-lived to deserve its own progress bar (those live in
+ *  ProgressBar.tsx, wired to the real multi-second/minute waits). */
+export const BusyDot: React.FC<{ className?: string }> = ({ className }) => (
+  <span className={`inline-block rounded-full bg-current animate-pulse ${className ?? 'w-2.5 h-2.5'}`} />
+)
 
 /** Card shell every step renders inside — matches the page's glass/neon look. */
 export const StepCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
@@ -31,7 +40,7 @@ export const ApproveButton: React.FC<{
     disabled={disabled || busy}
     className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-base shadow-glow disabled:opacity-40 disabled:shadow-none hover:scale-[1.02] active:scale-[0.99] transition-all"
   >
-    {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+    {busy ? <BusyDot className="w-3 h-3" /> : <Check className="w-5 h-5" />}
     {children}
   </button>
 )

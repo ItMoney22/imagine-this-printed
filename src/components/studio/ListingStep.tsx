@@ -1,11 +1,16 @@
 // Step 5 — Listing: SEO copy from the composer, editable, next to a
 // storefront-style preview built from the approved mockups.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { etsy, stepFlow } from '../../lib/api'
 import { getShots, type ShotKey, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
 import { listingDraftFromPack, type EtsyComposePack, type ListingDraft } from './types'
-import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
+import { ApproveButton, BusyDot, InlineError, SecondaryButton, StepCard } from './shared'
+import ProgressBar from './ProgressBar'
+
+// The composer is one LLM call over the approved shots — quick relative to
+// the image jobs earlier in the flow.
+const COMPOSE_EXPECTED_MS = 12_000
 
 interface ListingStepProps {
   state: StepFlowState
@@ -31,6 +36,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const composedRef = useRef(false)
+  const composeStartedAtRef = useRef<number | null>(null)
 
   const applyPack = (pack: EtsyComposePack) => {
     const d = listingDraftFromPack(pack)
@@ -51,6 +57,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
       applyPack(existingPack)
       return
     }
+    composeStartedAtRef.current = Date.now()
     setComposing(true)
     etsy
       .compose(state.productId)
@@ -65,6 +72,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
   const handleRecompose = async () => {
     if (!state.productId) return
     setError(null)
+    composeStartedAtRef.current = Date.now()
     setComposing(true)
     try {
       const { pack } = await etsy.compose(state.productId)
@@ -112,7 +120,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
         <h2 className="text-xl font-bold text-text">Listing</h2>
         {draft && (
           <SecondaryButton onClick={handleRecompose} disabled={composing}>
-            {composing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {composing ? <BusyDot className="w-2 h-2" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Re-compose
           </SecondaryButton>
         )}
@@ -120,8 +128,12 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
       <p className="text-sm text-muted mb-4">SEO copy is generated, then it's yours to edit before it goes live.</p>
 
       {composing && (
-        <div className="flex items-center gap-2 text-sm text-muted py-8 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Composing listing copy…
+        <div className="py-8 px-2 sm:px-8">
+          <ProgressBar
+            label="Composing listing copy…"
+            startedAt={composeStartedAtRef.current ?? Date.now()}
+            expectedMs={COMPOSE_EXPECTED_MS}
+          />
         </div>
       )}
 

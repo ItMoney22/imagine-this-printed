@@ -183,8 +183,21 @@ export function areMockupsResolved(state: Pick<StepFlowState, 'stepFlow' | 'asse
 }
 
 /** The job types this flow actually queues — filters out any stray row from
- *  another feature so it can never keep the poll loop alive. */
-const FLOW_JOB_TYPES = new Set(['replicate_image_v2', 'replicate_remove_bg', 'replicate_mockup_v2', 'step_flow_model_shot'])
+ *  another feature so it can never keep the poll loop alive. The backend
+ *  inserts the background-removal job as type 'replicate_rembg' (see
+ *  backend/routes/admin/ai-products-step-flow.ts and DesignStep.tsx's own
+ *  'replicate_rembg' filter) — 'replicate_remove_bg' was never actually
+ *  produced, so without 'replicate_rembg' here polling stopped mid-rembg and
+ *  the Design step sat on "Removing the background…" forever even after the
+ *  server finished. Both names are kept — 'replicate_remove_bg' costs nothing
+ *  to leave in case some path still emits it. */
+const FLOW_JOB_TYPES = new Set([
+  'replicate_image_v2',
+  'replicate_remove_bg',
+  'replicate_rembg',
+  'replicate_mockup_v2',
+  'step_flow_model_shot',
+])
 
 /** True while any job or shot is still in flight — the poll loop's condition. */
 export function hasNonTerminalWork(state: Pick<StepFlowState, 'stepFlow' | 'assets' | 'jobs'>): boolean {

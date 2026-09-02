@@ -1,6 +1,6 @@
 // Step 1 — Idea: type or speak it, the writing brain turns it into the best
 // prompt for gpt-image-2, then the design job fires.
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Mic, Square, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
@@ -8,6 +8,11 @@ import type { StepBrief } from './types'
 import { createStepFlowProduct } from './createStepFlowProduct'
 import { useVoiceDictation } from './useVoiceDictation'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
+import ProgressBar from './ProgressBar'
+
+// The writing brain's brief call is fast — a few seconds of GPT chat, not an
+// image render — so a short expected time is enough to keep the bar honest.
+const BRIEF_EXPECTED_MS = 4000
 
 interface IdeaStepProps {
   state: StepFlowState
@@ -21,6 +26,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const [error, setError] = useState<string | null>(null)
   const [brief, setBrief] = useState<StepBrief | null>(null)
   const [briefOpen, setBriefOpen] = useState(true)
+  const writingStartedAtRef = useRef<number | null>(null)
 
   const {
     supported: voiceSupported,
@@ -35,6 +41,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const handleWriteBrief = async () => {
     if (!idea.trim()) return
     setError(null)
+    writingStartedAtRef.current = Date.now()
     setWritingBrief(true)
     try {
       const { brief: newBrief } = await stepFlow.brief(idea.trim())
@@ -106,6 +113,16 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
           {writingBrief ? 'Writing the prompt…' : 'Write my prompt'}
         </ApproveButton>
       </div>
+
+      {writingBrief && (
+        <div className="mt-3">
+          <ProgressBar
+            label="Writing your prompt…"
+            startedAt={writingStartedAtRef.current ?? Date.now()}
+            expectedMs={BRIEF_EXPECTED_MS}
+          />
+        </div>
+      )}
 
       <InlineError message={error} />
 

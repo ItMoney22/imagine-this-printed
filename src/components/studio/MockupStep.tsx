@@ -2,7 +2,7 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, Loader2, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Check, RefreshCw, X } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import { COLORS } from '../../../backend/shared/catalog-capability'
 import {
@@ -11,10 +11,26 @@ import {
   type ShotKey,
   type ShotState,
   type StepFlowAction,
+  type StepFlowJob,
   type StepFlowMeta,
   type StepFlowState,
 } from './stepFlowReducer'
-import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
+import { ApproveButton, BusyDot, InlineError, SecondaryButton, StepCard } from './shared'
+import ProgressBar from './ProgressBar'
+
+// Per-shot expected render time — used when the job hasn't reported real
+// step/total_steps progress yet. Extra colors reuse the product/hanger
+// (ghost-flat) mockup pipeline.
+const SHOT_EXPECTED_MS: Partial<Record<ShotKey, number>> = {
+  product: 35_000,
+  hanger: 35_000,
+  model: 45_000,
+  details: 8_000,
+}
+const shotExpectedMs = (key: ShotKey): number => (key.startsWith('color:') ? 35_000 : SHOT_EXPECTED_MS[key] ?? 35_000)
+
+// Firing is just the POST that queues the jobs, not a render — short by nature.
+const FIRING_EXPECTED_MS = 4000
 
 interface MockupStepProps {
   state: StepFlowState
@@ -67,6 +83,13 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   // against both React StrictMode's double-invoke and re-firing a key whose
   // shot just hasn't landed in `shots` yet (the async request is in flight).
   const requestedKeysRef = useRef<Set<ShotKey>>(new Set())
+  const firingStartedAtRef = useRef<number | null>(null)
+  // `details` has no job row of its own (rendered synchronously server-side
+  // once `product` lands an asset — see hasNonTerminalWork's comment), so
+  // there's no `created_at` to clock its wait against. Track the first time
+  // each such shot is observed in flight instead, so its card still gets an
+  // honest elapsed clock.
+  const shotFirstSeenRef = useRef<Partial<Record<ShotKey, number>>>({})
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getShots only reads these three fields
   const shots = useMemo(() => getShots(state), [state.stepFlow, state.assets, state.jobs])
@@ -83,6 +106,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     const missing = expected.filter((key) => !present.has(key) && !requestedKeysRef.current.has(key))
     if (missing.length === 0) return
     missing.forEach((key) => requestedKeysRef.current.add(key))
+    firingStartedAtRef.current = Date.now()
     setFiring(true)
     stepFlow
       .shots(state.productId, missing)
@@ -176,13 +200,34 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   // silently ships without that shot.
   const canContinue = areMockupsResolved(state)
 
+  /** The job row backing a shot (when it has one — `details` doesn't), for
+   *  reading real `output.step`/`total_steps` progress and a `created_at` to
+   *  clock the wait against. */
+  const jobForShot = (shot: ShotState): StepFlowJob | undefined =>
+    shot.jobId ? state.jobs.find((j) => j.id === shot.jobId) : undefined
+
+  /** Epoch ms this shot's current wait started — from its job's `created_at`
+   *  when it has one, otherwise the first time this component observed it
+   *  in flight (see shotFirstSeenRef above). */
+  const shotStartedAt = (key: ShotKey, shot: ShotState, job: StepFlowJob | undefined): number | undefined => {
+    if (job?.created_at) return new Date(job.created_at).getTime()
+    if (shot.status === 'queued' || shot.status === 'running') {
+      const existing = shotFirstSeenRef.current[key]
+      if (existing) return existing
+      const now = Date.now()
+      shotFirstSeenRef.current[key] = now
+      return now
+    }
+    return shotFirstSeenRef.current[key]
+  }
+
   return (
     <StepCard>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
         <h2 className="text-xl font-bold text-text">Mockups</h2>
         {entries.some(([, s]) => s.status === 'done' && !s.approved) && (
           <SecondaryButton onClick={handleApproveAll} disabled={approvingAll}>
-            {approvingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            {approvingAll ? <BusyDot className="w-2 h-2" /> : <Check className="w-3.5 h-3.5" />}
             Approve all
           </SecondaryButton>
         )}
@@ -190,8 +235,12 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
       <p className="text-sm text-muted mb-4">Product shot, hanger, on-person, details card — and one per extra color.</p>
 
       {firing && entries.length === 0 && (
-        <div className="flex items-center gap-2 text-sm text-muted py-8 justify-center">
-          <Loader2 className="w-4 h-4 animate-spin" /> Starting the mockup shoot…
+        <div className="py-8 px-2 sm:px-8">
+          <ProgressBar
+            label="Starting the mockup shoot…"
+            startedAt={firingStartedAtRef.current ?? Date.now()}
+            expectedMs={FIRING_EXPECTED_MS}
+          />
         </div>
       )}
 
@@ -208,15 +257,26 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
             const isSkipped = !!shot.skipped && !inFlight
             const canSkip = (shot.status === 'failed' || orphaned) && !isSkipped && !shot.approved
             const badgeLabel = shot.approved ? 'approved' : isSkipped ? 'skipped' : orphaned ? 'blocked' : shot.status
+            const job = jobForShot(shot)
+            const failedVisual = shot.status === 'failed' || orphaned
             return (
               <div key={key} className="rounded-xl border border-border-subtle overflow-hidden flex flex-col">
-                <div className="aspect-square bg-card-elevated flex items-center justify-center">
+                <div className="aspect-square bg-card-elevated flex items-center justify-center p-3">
                   {shot.url ? (
                     <img src={shot.url} alt={shotLabel(key)} className="w-full h-full object-contain" />
-                  ) : shot.status === 'failed' || orphaned ? (
-                    <AlertTriangle className="w-8 h-8 text-red-400" />
+                  ) : failedVisual ? (
+                    <div className="w-full flex flex-col items-center gap-2">
+                      <AlertTriangle className="w-6 h-6 text-red-400" />
+                      <ProgressBar label={shotLabel(key)} failed />
+                    </div>
                   ) : (
-                    <Loader2 className="w-6 h-6 text-muted animate-spin" />
+                    <ProgressBar
+                      label={shotLabel(key)}
+                      startedAt={shotStartedAt(key, shot, job)}
+                      expectedMs={shotExpectedMs(key)}
+                      step={job?.output?.step}
+                      totalSteps={job?.output?.total_steps}
+                    />
                   )}
                 </div>
                 <div className="p-2.5 flex flex-col gap-2">
@@ -240,7 +300,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         disabled={busy}
                         className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
                       >
-                        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
+                        {busy ? <BusyDot className="w-1.5 h-1.5" /> : <Check className="w-3 h-3" />} Approve
                       </button>
                     )}
                     {(shot.status === 'done' || shot.status === 'failed') && (
@@ -250,7 +310,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         disabled={busy}
                         className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 rounded-lg bg-card border border-border-subtle text-text hover:bg-card-elevated disabled:opacity-50"
                       >
-                        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Redo
+                        {busy ? <BusyDot className="w-1.5 h-1.5" /> : <RefreshCw className="w-3 h-3" />} Redo
                       </button>
                     )}
                     {canSkip && (
@@ -261,7 +321,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         className="inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg text-muted hover:text-text disabled:opacity-50"
                         title="Move on without this shot"
                       >
-                        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />} Skip
+                        {busy ? <BusyDot className="w-1.5 h-1.5" /> : <X className="w-3 h-3" />} Skip
                       </button>
                     )}
                   </div>

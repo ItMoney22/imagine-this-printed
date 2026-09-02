@@ -1,10 +1,14 @@
 // Step 6 — Etsy: queue invisible drafts for the tiers David wants to sell.
 // Nothing here goes live — he still flips drafts active in Etsy Shop Manager.
-import React, { useState } from 'react'
-import { Check, ExternalLink, Loader2, Send } from 'lucide-react'
+import React, { useRef, useState } from 'react'
+import { Check, ExternalLink, Send } from 'lucide-react'
 import { etsy, type EtsyTier } from '../../lib/api'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { InlineError, SecondaryButton, StepCard } from './shared'
+import ProgressBar from './ProgressBar'
+
+// No live job to watch here — it's a synchronous write-a-draft call.
+const QUEUE_EXPECTED_MS = 6000
 
 interface EtsyStepProps {
   state: StepFlowState
@@ -26,6 +30,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
   const [result, setResult] = useState<{ queued: string[]; skipped: Array<{ tier: string; reason: string }> } | null>(null)
   const [gateReason, setGateReason] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const queueStartedAtRef = useRef<number | null>(null)
 
   const toggleTier = (tier: EtsyTier) =>
     setTiers((prev) => (prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]))
@@ -34,6 +39,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
     if (!state.productId || tiers.length === 0) return
     setError(null)
     setGateReason(null)
+    queueStartedAtRef.current = Date.now()
     setQueueing(true)
     try {
       const res = await etsy.queue(state.productId, tiers)
@@ -120,9 +126,19 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
             disabled={queueing || tiers.length === 0}
             className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-base shadow-glow disabled:opacity-40 disabled:shadow-none hover:scale-[1.02] active:scale-[0.99] transition-all"
           >
-            {queueing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            <Send className="w-5 h-5" />
             {queueing ? 'Queueing…' : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
           </button>
+
+          {queueing && (
+            <div className="mt-4">
+              <ProgressBar
+                label="Queueing to Etsy…"
+                startedAt={queueStartedAtRef.current ?? Date.now()}
+                expectedMs={QUEUE_EXPECTED_MS}
+              />
+            </div>
+          )}
         </>
       )}
     </StepCard>
