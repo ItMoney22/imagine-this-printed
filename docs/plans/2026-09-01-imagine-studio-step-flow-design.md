@@ -224,3 +224,44 @@ place this round; the module is the one new code must import.
 - Frontend: `tsc -b`, `eslint`, `vite build`; StepFlowBuilder reducer tests
   (approval gating: a step cannot advance without its approval).
 - Manual: one real end-to-end run against the local backend before merge.
+
+## 10. Print prep: halftone print file (David, 2026-09-02)
+
+David: "if i feel the design needs to be halftones after can i do it there but i
+dont want the main design to be comprimised and i dont want the cust to see the
+halftoned design its only for my team to use when they are pressing and
+printing the design. and reccomend if a design should be half toned or not."
+
+- **Where:** a "Print prep" panel on the Design step, shown once the transparent
+  design exists (after ✓ Approve design). It never changes the design assets
+  (`source`, `nobg`) — it produces a separate file.
+- **Recommendation is measured, not guessed.** `POST /:id/step/print-advice`
+  samples the nobg PNG with sharp: share of opaque pixels sitting in smooth
+  tonal ramps (local luminance gradient small but non-zero across a 5px window),
+  count of distinct quantized colors, share of semi-transparent pixels (soft
+  edges/glows). Rule of thumb for DTF: flat vector-style art (few colors, hard
+  edges) prints best as-is; photoreal or heavily shaded art (large smooth-ramp
+  share) benefits from a halftone screen so the white underbase and gradients do
+  not turn into solid blocks. Returns `{ recommend: 'halftone' | 'clean',
+  confidence, reason, suggested: { frequency, angle, shape, invertDark } }`,
+  where `invertDark` follows the approved primary shirt color (dark shirt →
+  true).
+- **Render:** `POST /:id/step/print-file { method:'halftone'|'diffusion',
+  frequency?, angle?, shape?, invertDark? }` runs the existing
+  `backend/services/halftone.ts` `applyHalftone()` on the nobg PNG, uploads via
+  gcs-storage, inserts `product_assets { kind:'print', asset_role:'print_halftone' }`
+  with the halftone metadata, and records `step_flow.printFile = { assetId, url,
+  options, createdAt }`. Redo overwrites (one print file per product; older ones
+  are deleted from product_assets, not the bucket).
+- **Team-only, never customer-facing:** `asset_role: 'print_halftone'` is not in
+  the gallery whitelist (`backend/shared/product-gallery.ts` ROLE_ORDER), so
+  `publish` cannot put it in `products.images`; the storefront never reads
+  `kind:'print'`. The Admin product editor shows it under a new **Print files
+  (team only)** group in the Images tab with a Download button, and the Etsy
+  uploader ignores it (it reads the gallery).
+- **UI:** the panel shows the recommendation badge ("Halftone recommended — 61%
+  of the artwork is smooth shading" / "Print clean — flat colors, hard edges"),
+  a Make print file button (with the suggested frequency/angle prefilled and a
+  small advanced disclosure), a side-by-side preview of design vs. print file
+  labelled TEAM ONLY, and Download. The Design step's ✓ Approve is not gated on
+  this — it is optional.
