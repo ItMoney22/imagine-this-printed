@@ -72,14 +72,16 @@
       "mcp__stripe__list_prices",
       "mcp__stripe__search_stripe_documentation",
       "mcp__supabase__get_logs",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(mkdir *)",
+      "Bash(netstat *)"
     ],
     "deny": [],
     "ask": []
   },
-  "outputStyle": "default",
   "enabledMcpjsonServers": [
     "codex",
     "supabase"
-  ]
+  ],
+  "outputStyle": "default"
 }

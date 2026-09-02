@@ -1,4 +1,261 @@
 # TASK_NOTES
+## Current request (2026-09-01) — photo → printable product pipeline (design only)
+
+David: "a customer sent me a photo and asked me to make this ... how do we make
+stuff our own and functioning correctly" — re: a Ghostface-style candle holder,
+plus more products wanted for Darrell's site. Saturn holds the printers, Blender
+and the Tripo key.
+
+### Locked decisions (David, 2026-09-01)
+- **Parametric fixture + AI skin.** Functional geometry (base, candle cradle,
+  hollowing) comes from a Blender Python fixture library computed from params;
+  Tripo generates only the decorative shell. Booleaned together in Blender.
+  Rejected: post-processing Tripo output alone (candle fit becomes luck), and a
+  human-in-the-loop Blender step (does not scale, Saturn can't run it unattended).
+- **Design doc first**, before any implementation.
+
+### File shortlist (approved scope — 2026-09-01 pipeline design)
+- `docs/plans/2026-09-01-photo-to-printable-pipeline-design.md` (new, write)
+- `TASK_NOTES.md` (work-log bullet)
+- Read-only for grounding: `backend/services/tripo3d.ts`,
+  `backend/services/glb-to-stl.ts`, `backend/routes/print-bridge.ts`,
+  `backend/services/etsy-copyright-gate.ts`
+- No implementation files edited this session.
+
+### Work log (append-only)
+- 2026-09-01 — Wrote `docs/plans/2026-09-01-photo-to-printable-pipeline-design.md`.
+  Audited what exists first: Tripo image→3D, GLB→STL (mm/Z-up/grounded), the
+  Saturn print bridge, Etsy tiers and the copyright gate are all live; **Blender
+  appears nowhere in the repo**, and `print-bridge.ts` exposes only `/queue` and
+  `/status`. Identified the real gap as the one already locked on 2026-08-19 and
+  never built — the print-economics/printability gate. Design covers: the
+  fixture library, the headless Blender prep chain, two-tier costing (volume
+  estimate → slicer truth), extending the print bridge with `/model-queue` +
+  `/model-result` so heavy compute stays on Saturn, and an IP-gate upgrade.
+  Flagged that `etsy-copyright-gate.ts` has zero coverage for ghostface/scream/
+  fun world and is text-only, so it cannot catch a geometry clone at all.
+- 2026-09-01 — David answered the four open questions; folded into the doc as
+  §12–§14. Printer is an **A1** (256³, bed-slinger — tall prints need slower
+  outer walls, and AMS purge can double filament cost, so default to
+  single-colour with a socketed mask part). **PLA ships now**; PETG only for
+  pillar/tea-light contact, so nothing is blocked. **Three jar sizes** (76/89/
+  104mm) — one Tripo shell booleaned against three cradle params gives 3 SKUs
+  for one generation cost, which is the direct payoff of the fixture split.
+  New §13 for Darrell's line (QR/WiFi/NFC business items): **pure generated
+  geometry, no Tripo**, and `print-bridge.ts` already ships `magnetSockets` +
+  `nfcUrl` + an `insert_pause` floor workflow, so the insert rail exists. Called
+  out QR scannability (contrast, quiet zone, ≥1.6mm modules, ECC-H) as the
+  failure mode that would kill that product, with a phone-scan QA gate.
+- 2026-09-01 — David chose to run BOTH product lines in parallel. Wrote
+  `docs/plans/2026-09-01-print-factory-phase1.md` (14 tasks, TDD, exact paths).
+  Key sequencing call: the two lines are parallel but the **core is not** — both
+  consume the same fixture interface and `metrics.json`, so Tasks 0–6 land and
+  MERGE on one short-lived branch before the lines fork into their own worktrees
+  (CLAUDE.md worktree discipline; no mega-branch). Design keeps a pure-Python
+  core (params, QR matrix, metrics math — pytest-able anywhere) separate from a
+  thin Blender adapter, and computes QR matrices with `segno` on the SYSTEM
+  interpreter so Blender's un-pip-able bundled Python is never a problem.
+  **Blocker found: Blender is NOT installed on this machine** — the
+  `Blender 4.4` folder holds only a config subdir, and the sole `blender.exe` on
+  disk is an archived copy under `E:\Archive\Google-Drive-Export-Mar2024\`.
+  Bambu Studio IS installed (`C:\Program Files\Bambu Studio\bambu-studio.exe`,
+  CLI unvalidated — Phase 3). Filed as Task 0; runner takes a `$BLENDER` env var
+  so it runs unchanged on Saturn.
+- 2026-09-01 — **Task 0 DONE: Blender 5.2.1 LTS installed and verified on the
+  Earth machine.** Two install traps recorded in the plan for when Saturn needs
+  the same: (1) `winget` fails because `download.blender.org` returns **403 for
+  every path on this network**, directory listings included, while blender.org
+  itself is fine — use the dotsrc/nluug mirrors; (2) the **MSI dies with 1603**,
+  starting then rolling back for lack of elevation, so the **portable ZIP** is
+  the right answer and needs no admin. MSI signature verified Valid (Blender
+  Foundation, Amsterdam) before install. Landed at
+  `C:\Users\David\AppData\Local\Programs\blender-5.2.1-windows-x64\blender.exe`,
+  persisted as User env var `BLENDER` + on PATH. **API probe passed on all 8
+  dependencies** — voxel_remesh, BOOLEAN/EXACT, SOLIDIFY, wm.stl_export,
+  modifier_apply, remesh_voxel_size, and `bmesh.calc_volume` returning **exactly
+  8000.0 mm³ for a 20mm cube**, which is the literal assertion in plan Task 6 —
+  so the metrics contract is validated against the real engine before any
+  fixture code exists. Bundled Python 3.13.13; being LTS, my earlier
+  bleeding-edge-major concern does not apply. System-side `segno` + `pytest
+  9.0.2` on C:\Python312 verified (33x33 module matrix for the ITP URL at ECC H
+  → ~66mm plaque at 1.6mm modules, well inside the A1).
+- 2026-09-01 — Execution started, subagent-driven, on worktree
+  `itp-worktrees/earth/zero-nine/print-factory-core`. **Task 1 done** (1ed2ff7):
+  filament mass calc, 5/5 green, real red-then-green. Implementer surfaced a
+  genuine repo gap — `.gitignore` has NO Python rules, so `__pycache__` would be
+  committed; folded the fix into Task 2.
+- 2026-09-01 — **Smoke-tested the whole Blender op chain on 5.2.1 before writing
+  fixture code**, and it de-risks the two scariest assumptions in the design:
+  (1) **voxel remesh preserved volume EXACTLY** (64,000.0 → 64,000.0 mm³), so
+  the step most likely to corrupt the filament estimate does not; (2) **Solidify
+  hollowing cut material 68%** (72,989 → 23,608 mm³), which makes the §5
+  economics argument measured rather than asserted. Manifold held at every stage
+  (remesh → UNION/EXACT → hollow → decimate → STL). Also fixed two real bugs in
+  the plan's own Task 5 code while verifying: `mathutils.Vector` was imported at
+  the BOTTOM of `blender_ops.py` (works, but fragile), and `prep.py` imported a
+  `registry_import` module the plan never defined — without it the fixture
+  registry is empty and `get_fixture()` fails for a fixture that exists on disk.
+- 2026-09-01 — Surveyed Replicate for functional-geometry models (David's ask).
+  **No CAD/parametric model exists** — searches for "cad" and "parametric solid
+  model" returned cat photos and Whisper variants. That CONFIRMS the fixture
+  architecture rather than undermining it. Real finds for the *shell* stage,
+  all GLB-out so they need zero new plumbing: `tencent/hunyuan-3d-3.1` (128k
+  runs) has **`generate_type: "Geometry"` = untextured white model**, which
+  suits us better than Tripo since we print single-colour and discard textures;
+  min `face_count` 40k happens to equal our medium tier. `firtoz/trellis` (883k
+  runs) takes an image ARRAY for multi-angle reconstruction. Part-aware models
+  (`part-crafter`/`partpacker`/`omnipart`) are research-grade — 104-178 lifetime
+  runs — so noted, not adopted. Wrote up as design §16: a shell-provider
+  abstraction with fallback, deferred to Phase 3 because choosing a provider is
+  meaningless until the QA gate can score which yields better PRINTABLE parts.
+- 2026-09-01 — **Phase 1 CORE COMPLETE** on `earth/zero-nine/print-factory-core`
+  (7 commits, 1ed2ff7..ea69bf4). 25/25 tests green: 20 pure-Python + 5 real
+  headless-Blender integration. Real METRICS from the engine for a 20mm cube:
+  `volume_mm3 7999.999999999999, grams_est 9.9, manifold true, bbox 20/20/20,
+  fits_build_volume true, warnings []` — the metrics contract now demonstrably
+  works end to end. Deviations from my own plan, all justified: replaced the
+  `_selftest_cube_mm` hack with a dedicated `_selftest` fixture (the plan would
+  have put test-only branches inside the production `qr_plaque`, which does not
+  exist until Task 7); fixed `mathutils.Vector` imported at the bottom of
+  `blender_ops.py`; defined the `registry_import` module the plan referenced but
+  never specified; added Task 6b for KNOWN_FIXTURES/_REGISTRY drift.
+- 2026-09-01 — **IMPORTANT, affects the Phase 2 bridge contract: Blender exits 0
+  when a `--python` script raises an uncaught exception.** Verified directly on
+  5.2.1 — raise → exit 0; `sys.exit(1)` → 1; raise + `--python-exit-code 1` → 1.
+  So a crashed prep job (bad spec, boolean failure, OOM) is indistinguishable
+  from a successful one, and `assert returncode == 0` can never fail on its own.
+  Every caller of `prep.py` — including Saturn over the print bridge — MUST pass
+  `--python-exit-code 1` or it will mark failed jobs complete with no artifacts,
+  surfacing much later as a missing file instead of a failed job. Fixed +
+  committed (ea69bf4) and written into the plan as a Phase 2 requirement.
+- 2026-09-01 — **Both product lines shipped real STLs.** QR plaque (`3135175`):
+  65.6x65.6x3mm, 14.6g, manifold, and the agent PROVED it is not mirrored by
+  re-parsing the exported STL and rebuilding the code from actual pocket depths
+  — bit-identical, 541/541 dark. Candle cradles S/M/L (`38985c5`): 232/272/321g,
+  all manifold, bores exactly on the ladder. Caveat recorded: the cradle is still
+  the bare fixture (a cylinder) — not a sellable product until the shell union.
+- 2026-09-01 — **Shell generated for the union, and the provider survey needs
+  correcting.** `hunyuan-3d-3.1` FAILED with `ResourceInsufficient` (Tencent's
+  own upstream capacity error) — the model I recommended in §16 is currently
+  unreliable and must not be the default. `firtoz/trellis` worked but ONLY via
+  the versioned endpoint: `POST /v1/models/<owner>/<name>/predictions` 404s for
+  community models; they need `POST /v1/predictions` with `{"version": id}`.
+  Working route: text -> gpt-image-2 (~$0.04, first try) -> trellis -> GLB.
+  **Raw output measured 15,658 non-manifold edges on 39,434 tris** from a clean
+  reference image — the hardest evidence yet that voxel_remesh before any
+  boolean is load-bearing, not precautionary. The generated wraith has a blank
+  featureless face: §7's interpretation path executed, original IP.
+- 2026-09-01 — **Publish pipeline built, DRY-RUN ONLY, nothing written to prod**
+  (`060f454`, `d38ec41` on `earth/zero-nine/print-factory-publish`). 37/37
+  pricing tests (independently re-run by me), full backend suite 567 pass.
+  Prices: plaque $9.99, cradles $54.99/$61.99/$70.99 off measured mass + an
+  ESTIMATED print time (nothing sliced yet — the layer-count term is ~60% of
+  cost on a tall part and is the model's largest error term). Price floor is
+  pinned to $8.00 deliberately = `PRICE_BANDS['3d-prints']` in
+  `presentation-qa.ts`, so the module cannot price a product that fails ITP's
+  own QA gate. Refusal path proven: `--commit` CANNOT bypass the metrics gate.
+  Agent added an unrequested STL/metrics pairing check that catches publishing
+  one fixture's STL against another's metrics (wrong price, wrong object, no
+  error) via exact binary-STL triangle count — genuinely good catch.
+- 2026-09-01 — **Three live-schema findings from the publish work, worth acting
+  on separately:** (1) **`3d-prints` has NO row in `product_categories`** (only
+  dtf-transfers/hoodies/metal-art/shirts/test-category/tumblers) yet 3 live
+  products carry `category='3d-prints'` and `presentation-qa.ts:273` +
+  `seo.ts:21` + print-bridge + approvals all treat it as real — VERIFIED in code
+  by me; `products.category` (text) and `category_id` (FK) have drifted.
+  (2) `gcs-storage.ts#uploadFile()` CANNOT write arbitrary paths — it hardcodes
+  `users/<userId>/<folder>/<file>` with a closed folder union; use
+  `google-cloud-storage.ts#uploadImageFromBuffer(buffer, destPath, contentType)`
+  (generic despite the name). Public GCS reads are blocked org-wide, so plain
+  storage.googleapis.com URLs 403 — signed URLs required. (3) `products.status`
+  has NO CHECK constraint; 'draft'/'pending_approval'/'active' are free text
+  from different call sites, and the vendor RLS trigger that pins
+  `is_active := false` does NOT apply to service-role scripts — so both flags
+  must be set explicitly, never left to defaults.
+- 2026-09-01 — **Shell union SHIPPED and works** (7c37ff1, 1cf12cb, c368cd9,
+  92e6d28, 4f0cbf6 — 159 tests). Generated an original-IP wraith shell
+  (text -> gpt-image-2 -> trellis) and fused it with `candle_cradle`. First
+  attempt was a failure worth recording: the figure was NARROWER than the jar it
+  had to hold, so the cradle swallowed it — shell contributed 0.26% of the part
+  and it rendered as a plain cylinder. Root cause was MY prompt (a tall slender
+  standing statue); David's reference is squat and wide, robe flaring PAST the
+  jar. Regenerated wide -> 56.5% proud. **Lesson for the pipeline: the shell
+  prompt must be constrained by the fixture's dimensions — a figure narrower
+  than the vessel cannot survive the union.**
+- 2026-09-01 — **Two of my own analyses were wrong and were corrected by
+  measurement.** (1) I transposed the glTF y/z axes; real aspect is 1.7144 not
+  1.511, so my "150mm fits" would have shipped a 257mm part, 1.2mm over the A1.
+  The new `fit: "bbox"` mode caught it at the spec boundary. (2) I recommended
+  regenerating a NARROWER shell to cut cost — wrong: volume goes as W^3/aspect,
+  so at equal functional width a 1.2 aspect is TALLER and ~43% MORE material.
+  Also mistook a parameter I chose (150mm height) for a constraint the jar
+  imposed; the jar only ever forces the ⌀104 barrel / ⌀91.4 bore.
+- 2026-09-01 — **Size ladder measured, and the visual verdict is the opposite of
+  the cost verdict.** S95 162.8x107.7x95 196.5g 12.3% proud; M120
+  205.7x136.1x120 318.4g 38.4%; wideM 254x168x148 513.4g 56.5%. All manifold,
+  jar_fits 33/33. Rendered all three: **at 12.3% it is a bucket with a foot, at
+  38.4% a barrel with a skirt, only at 56.5% does the sculpture read.** Prices
+  (hand-computed from the pricing module's constants): ~$48 / ~$70 / ~$110 at
+  8.8h / 14.3h / 23h. **The real blocker is the fixture, not the shell**: the
+  ⌀104 barrel is a full-height solid that visually and materially dominates
+  until the piece is big enough for the figure to out-mass it. Slimming the
+  barrel to a bore recess + a slender column would make the CHEAP sizes look
+  right — that is the highest-value next piece of work on this line.
+- 2026-09-01 — **Two more silent-lie classes found, both now guarded.** (1) The
+  union SILENTLY DROPPED the shell and reported the bare cradle as `ok: true`
+  with `proud_of_body: 0.0` — the bbox check only compared against the body,
+  and the body was the survivor. (2) A cavity cut removed NOTHING, yielding
+  1038.8g — heavier than the same product 28mm TALLER — while manifold, correct
+  bbox, bore open, no warnings. Now caught by an exact identity rather than a
+  heuristic: every fixture cut lies strictly inside its own body, so
+  `final == bare_fixture + proud_of_body`; holds to ±0.09% on correct runs and
+  +226% on the broken one. That is now four distinct ways this pipeline has
+  produced a confidently wrong `ok: true`.
+- 2026-09-01 — **ARCHITECTURE ISSUE: the boolean solver is NOT monotonic in
+  voxel size**, which is the assumption the retry ladder rests on. Sweeping the
+  120mm fusion: 0.60 drops the shell, 0.50 SUCCEEDS, 0.45 and 0.40 non-manifold,
+  0.30 loses the cavity, 0.25 collapses the union, 0.20 breaks in decimate.
+  **One of seven works and it is not the finest.** So "retry at half the voxel"
+  is not a valid recovery strategy — it needs a validated sweep over candidate
+  sizes. `candle_wraith_M120.json` pins `voxel_mm: 0.5`; at the default the
+  pipeline correctly writes no STL and exits 1. Flagged, not yet fixed.
+  Related: decimation breaks the 0.6mm union at ANY ratio (0.61 fails exactly
+  like 0.04), so it is a local mesh defect, not a decimation-strength problem.
+
+## Prior request (2026-08-20) — weekly Etsy shop review
+
+- Review the live Etsy storefront against the 2026-08-13 baseline.
+- Capture the shop home, strongest listing, weaker listing, and About/policies.
+- Email the report from Mr. Imagine with all four screenshots embedded by CID and attached as PNG files.
+
+## Current status (2026-08-20)
+
+- No meaningful storefront change: 7 active listings, 0 sales, 0 reviews, and 0 admirers.
+- All seven listings remain $17.50 at 30% off; the same four products remain featured.
+- `Y2K Vibe` remains strongest; `HIM WAS BAD` remains weakest for gallery depth, option depth, and thumbnail legibility.
+- Real finished-shirt proof, readable size charts, storefront sections/banner, simpler iconography, and aligned AI wording remain the priority gaps.
+- Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
+- Verified four CID attachments in Resend, four attachments in Mr. Imagine's Sent record, and four downloadable PNG attachments in the recipient record.
+- No live Etsy changes or repo implementation-code changes were made.
+
+## File shortlist (approved scope — 2026-08-20 weekly Etsy review)
+
+### Read first
+- `AGENTS.md`
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md`
+- `backend/routes/email.ts`
+- `backend/services/email-resend.ts`
+- `supabase/migrations/20260612000001_email_system.sql`
+
+### Edit allowed
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
+- No repo implementation files.
+- External state approved for this request: one report email from the existing Mr. Imagine mailbox.
+
+## Prior current request retained below
+
 ## Current request (2026-08-19) — 3D toy gen → store + Etsy → sales signal
 
 David: "finetune our 3d toy gen as we need to add them to the store and etsy,
@@ -44,6 +301,7 @@ we need to see what sells and make sure we are printing money."
   print, target margin. Watchtower approval `8ffa97fe` still pending.
 
 ### Work log (append-only)
+- 2026-08-20 — Codex weekly Etsy review: captured fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Verified no meaningful change from August 13: seven active listings, all $17.50 at 30% off, the same four featured products, and zero sales/reviews/admirers. Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified four CID image attachments in Resend, four attachments in Mr. Imagine's Sent record, and four working PNG downloads in the recipient record. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-19 — Probed live prod and established the 4-blocker chain above.
   Merged the two unmerged catalog-3D print fixes into `main`:
   `076e2a0` (chase-valenti — `catalog-toy` → `custom-toy` at the emit site,
