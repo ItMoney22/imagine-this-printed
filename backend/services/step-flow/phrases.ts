@@ -16,6 +16,7 @@
 
 import OpenAI from 'openai'
 import { runCopyrightGate } from '../etsy-copyright-gate.js'
+import { isLetteringStyleId, type LetteringStyleId } from '../../shared/lettering-styles.js'
 import type { StepBrief, PhrasePlacement } from './brief.js'
 
 export interface MrsImaginePhrase {
@@ -23,6 +24,31 @@ export interface MrsImaginePhrase {
   vibe: 'funny' | 'hype' | 'wholesome' | 'minimal' | 'pun'
   placement: PhrasePlacement
   reason: string
+  /**
+   * Lettering style Mrs. Imagine thinks fits this phrase (design doc §16) —
+   * feeds straight into StepBriefPhrase.style once picked. Always a real
+   * style id, never 'auto': an invalid/missing model reply coerces to
+   * `defaultStyleForVibe(vibe)`, never dropped.
+   */
+  suggestedStyle: LetteringStyleId
+}
+
+/** Deterministic vibe -> lettering-style fallback (design doc §16), used both to coerce an invalid model reply and to build fallbackPhrases. */
+function defaultStyleForVibe(vibe: MrsImaginePhrase['vibe']): LetteringStyleId {
+  switch (vibe) {
+    case 'funny':
+      return 'bubble-comic'
+    case 'hype':
+      return 'heavy-sans'
+    case 'wholesome':
+      return 'brush-script'
+    case 'minimal':
+      return 'heavy-sans'
+    case 'pun':
+      return 'retro-70s'
+    default:
+      return 'heavy-sans'
+  }
 }
 
 export interface PhrasesResult {
@@ -73,12 +99,13 @@ HARD RULES for every phrase:
 4. Spread the set across a mix of vibes: funny, hype, wholesome, minimal, pun.
 
 Respond with STRICT JSON and nothing else, in exactly this shape:
-{"phrases": [{"text": string, "vibe": "funny"|"hype"|"wholesome"|"minimal"|"pun", "placement": "below"|"above"|"integrated", "reason": string}]}
+{"phrases": [{"text": string, "vibe": "funny"|"hype"|"wholesome"|"minimal"|"pun", "placement": "below"|"above"|"integrated", "reason": string, "suggestedStyle": "graffiti"|"varsity"|"brush-script"|"chrome-3d"|"retro-70s"|"distressed"|"heavy-sans"|"blackletter"|"bubble-comic"|"neon-tube"|"western"}]}
 
 - "text": the phrase itself, 2-6 words, spelled exactly as it should print.
 - "vibe": one of funny, hype, wholesome, minimal, pun.
 - "placement": where the phrase reads best relative to the artwork's subject.
-- "reason": one short sentence on why this phrase fits the idea.`
+- "reason": one short sentence on why this phrase fits the idea.
+- "suggestedStyle": the ONE lettering style (from the list above) that best fits this phrase's vibe and the design — e.g. a funny phrase suits bubble-comic, a hype phrase suits heavy-sans or chrome-3d, a wholesome phrase suits brush-script.`
 
 /** Strip ```json fences / stray prose and parse the first JSON object found. Mirrors brief.ts's parseJsonLoose. */
 function parseJsonLoose(raw: string | null | undefined): any {
@@ -134,7 +161,9 @@ function coercePhrases(raw: any): MrsImaginePhrase[] {
       typeof (item as any).reason === 'string' && (item as any).reason.trim()
         ? (item as any).reason.trim()
         : 'A fitting line for this design.'
-    out.push({ text, vibe, placement, reason })
+    const suggestedStyleRaw = (item as any).suggestedStyle
+    const suggestedStyle: LetteringStyleId = isLetteringStyleId(suggestedStyleRaw) ? suggestedStyleRaw : defaultStyleForVibe(vibe)
+    out.push({ text, vibe, placement, reason, suggestedStyle })
   }
   return out
 }
@@ -172,13 +201,18 @@ export function fallbackPhrases(idea: string, count = 6): MrsImaginePhrase[] {
   const words = trimmed.split(/\s+/).filter(Boolean).slice(0, 3)
   const titled = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'This Drop'
 
+  const withStyle = (p: Omit<MrsImaginePhrase, 'suggestedStyle'>): MrsImaginePhrase => ({
+    ...p,
+    suggestedStyle: defaultStyleForVibe(p.vibe),
+  })
+
   const templates: MrsImaginePhrase[] = [
-    { text: `${titled} Vibes Only`, vibe: 'hype', placement: 'below', reason: 'A hype line built straight off the idea.' },
-    { text: `Powered By ${titled}`, vibe: 'funny', placement: 'below', reason: 'A playful tagline anyone can read fast.' },
-    { text: 'Made With Love', vibe: 'wholesome', placement: 'below', reason: 'A warm, generic line that fits almost any art.' },
-    { text: 'Est. Today', vibe: 'minimal', placement: 'below', reason: 'A clean minimal stamp that never crowds the art.' },
-    { text: `${titled} Or Nothing`, vibe: 'hype', placement: 'above', reason: 'Confident hype phrasing built off the idea.' },
-    { text: 'Good Vibes Guaranteed', vibe: 'wholesome', placement: 'below', reason: 'A safe, upbeat catch-all line.' },
+    withStyle({ text: `${titled} Vibes Only`, vibe: 'hype', placement: 'below', reason: 'A hype line built straight off the idea.' }),
+    withStyle({ text: `Powered By ${titled}`, vibe: 'funny', placement: 'below', reason: 'A playful tagline anyone can read fast.' }),
+    withStyle({ text: 'Made With Love', vibe: 'wholesome', placement: 'below', reason: 'A warm, generic line that fits almost any art.' }),
+    withStyle({ text: 'Est. Today', vibe: 'minimal', placement: 'below', reason: 'A clean minimal stamp that never crowds the art.' }),
+    withStyle({ text: `${titled} Or Nothing`, vibe: 'hype', placement: 'above', reason: 'Confident hype phrasing built off the idea.' }),
+    withStyle({ text: 'Good Vibes Guaranteed', vibe: 'wholesome', placement: 'below', reason: 'A safe, upbeat catch-all line.' }),
   ]
 
   return filterClean(dedupe(templates)).slice(0, Math.max(1, Math.min(count, templates.length)))

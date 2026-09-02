@@ -18,9 +18,10 @@ import {
   type ColorId,
   type GarmentId,
 } from '../../shared/catalog-capability.js'
+import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.js'
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot } from '../etsy-model-shots.js'
-import { renderDetailsCard } from './details-card.js'
+import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
 import { buildProductGallery, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief, StepFlowInspiration } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
@@ -35,7 +36,7 @@ import type { PrintAdvice, PrintFileResult } from './print-prep.js'
 // from backend/worker/index.ts.
 import { processMockupJob } from '../../worker/ai-jobs-worker.js'
 
-export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}`
+export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}` | `scene:${string}`
 
 export interface ShotState {
   jobId?: string
@@ -66,6 +67,15 @@ export interface StepFlowMeta {
   brief: StepBrief | null
   garment?: GarmentId
   colors?: { primary: ColorId; extras: ColorId[] }
+  /**
+   * Metal prints' analog of garment/colors (design doc §14) — the physical
+   * panel sizes this listing offers, written by POST /:id/step/sizes.
+   * Ordered smallest-to-largest (STUDIO_SIZE_KEYS order). A metal StepBrief
+   * (brief.productKind === 'metal') never has `garment`/`colors` set — this
+   * is what drives the metal branches through queueStepShots/resolveStepFlow
+   * instead.
+   */
+  metalSizes?: MetalArtSizeKey[]
   advice?: ColorAdvice[]
   shots: Partial<Record<ShotKey, ShotState>>
   approvals: Partial<Record<'design' | 'garments' | 'mockups' | 'listing', string>>
@@ -115,6 +125,9 @@ export function getStepFlow(product: { metadata?: any } | null | undefined): Ste
       brief: raw.brief && typeof raw.brief === 'object' ? raw.brief : null,
       garment: raw.garment,
       colors: raw.colors,
+      metalSizes: Array.isArray(raw.metalSizes)
+        ? raw.metalSizes.filter((s: unknown): s is MetalArtSizeKey => s === '4x6' || s === '8x10')
+        : undefined,
       advice: Array.isArray(raw.advice) ? raw.advice : undefined,
       shots: raw.shots && typeof raw.shots === 'object' ? raw.shots : {},
       approvals: raw.approvals && typeof raw.approvals === 'object' ? raw.approvals : {},
@@ -209,17 +222,47 @@ export function defaultShotKeys(colors: { primary: ColorId; extras: ColorId[] })
   return ['product', 'hanger', 'model', 'details', ...extras.map((c) => `color:${c}` as ShotKey)]
 }
 
+/**
+ * Metal prints' analog of defaultShotKeys (design doc §14): one size-true
+ * scene per SELECTED panel size, plus one details card — no product/hanger/
+ * model/color:* keys (a metal panel has no garment, no colors, no on-person
+ * shot). Ordered smallest-to-largest (STUDIO_SIZE_KEYS order) so a redo/
+ * publish loop always sees the same deterministic order regardless of the
+ * order sizes were selected in.
+ */
+export function defaultMetalShotKeys(sizes: MetalArtSizeKey[]): ShotKey[] {
+  const set = new Set(sizes || [])
+  const ordered = STUDIO_SIZE_KEYS.filter((s) => set.has(s))
+  return [...ordered.map((s) => `scene:${s}` as ShotKey), 'details']
+}
+
+/** True when this product's brief opted into the metal wall-art lane (design doc §14). */
+export function isMetalStepFlow(stepFlow: StepFlowMeta): boolean {
+  return stepFlow.brief?.productKind === 'metal'
+}
+
 function pickTemplate(garment: GarmentId): 'ghost_mannequin' | 'flat_lay' {
   return (GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES as string[]).includes(garment) ? 'ghost_mannequin' : 'flat_lay'
 }
 
-/** Gallery/asset_role slot a shot key lands in — used both to look up its result and to sort the publish gallery. */
-export function roleForShotKey(key: ShotKey, garment: GarmentId): string {
-  if (key === 'product') return pickTemplate(garment) === 'ghost_mannequin' ? 'mockup_ghost_mannequin' : 'mockup_flat_lay'
+/**
+ * Gallery/asset_role slot a shot key lands in — used both to look up its
+ * result and to sort the publish gallery. `garment` is only needed for the
+ * 'product' key (it decides ghost_mannequin vs flat_lay) — every other key,
+ * including the metal `scene:*` keys, resolves without it, so callers that
+ * only ever see metal keys (no `garment` set on the step flow) can pass it
+ * through as `undefined`.
+ */
+export function roleForShotKey(key: ShotKey, garment?: GarmentId): string {
+  if (key.startsWith('scene:')) return `mockup_metal_${key.slice('scene:'.length)}`
   if (key === 'hanger') return 'mockup_hanger'
   if (key === 'model') return 'mockup_model_1'
   if (key === 'details') return 'mockup_details'
   if (key.startsWith('color:')) return `mockup_color_${key.slice('color:'.length)}`
+  if (key === 'product') {
+    if (!garment) throw new Error('roleForShotKey: garment is required for the "product" shot key')
+    return pickTemplate(garment) === 'ghost_mannequin' ? 'mockup_ghost_mannequin' : 'mockup_flat_lay'
+  }
   throw new Error(`Unknown shot key: ${key}`)
 }
 
@@ -341,6 +384,58 @@ async function queueMockupJob(
     // throws past it (e.g. a product_assets insert error) so the row and the
     // shot never get stuck spinning forever — mirrors the `.catch()` wrapper
     // every processImageJobInline call site uses.
+    const message = err?.message || 'Mockup render failed'
+    console.error(`[step-flow/shots] "${key}" mockup render failed:`, message)
+    await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', job.id)
+    await patchShotState(product.id, key, { status: 'failed', error: message })
+  })
+
+  return { jobId: job.id, status: 'running' }
+}
+
+/**
+ * Metal prints' analog of queueMockupJob (design doc §14) — one size-true
+ * scene render for a single `scene:<size>` key. `metal_shelf`/`metal_wall`
+ * already carry the desk-vs-wall scene split per template (see
+ * services/image-flow/worker-helpers.ts's runImageFlowMockup); the 4x6/8x10
+ * split within each is driven by `metalSize`, so 4x6 always renders on a
+ * desk/table and 8x10 always renders hung on a wall regardless of which
+ * template maps to which — no worker changes were needed for this.
+ *
+ * `printPlacement: 'not-applicable'` opts this render out of the garment
+ * coverage-QA check (services/mockup-qa.ts's coverageIsExempt) — judging
+ * "how much of the garment does the print cover" on a wall panel is a
+ * category error, not a defect (see that module's own comment on the exact
+ * false-failure this was already fixed for at the listing-QA layer).
+ */
+async function queueMetalSceneJob(product: ProductRow, key: ShotKey): Promise<{ jobId: string; status: ShotState['status'] }> {
+  const sizeKey = key.slice('scene:'.length) as MetalArtSizeKey
+  const template: 'metal_shelf' | 'metal_wall' = sizeKey === '8x10' ? 'metal_wall' : 'metal_shelf'
+  const mockupRole = `mockup_metal_${sizeKey}`
+
+  const { data: job, error } = await supabase
+    .from('ai_jobs')
+    .insert({
+      product_id: product.id,
+      type: 'replicate_mockup_v2',
+      status: 'running',
+      input: {
+        product_type: 'metal-art',
+        template,
+        metalSize: sizeKey,
+        mockupRole,
+        printPlacement: 'not-applicable',
+        stepKey: key,
+        nonce: randomNonce(),
+      },
+    })
+    .select()
+    .single()
+  if (error) throw new Error(`Failed to queue "${key}" shot: ${error.message}`)
+
+  await patchShotState(product.id, key, { status: 'running', jobId: job.id, approved: false, error: undefined })
+
+  void withMockupRenderSlot(product.id, () => processMockupJob(job)).catch(async (err: any) => {
     const message = err?.message || 'Mockup render failed'
     console.error(`[step-flow/shots] "${key}" mockup render failed:`, message)
     await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', job.id)
@@ -482,14 +577,62 @@ async function queueModelShot(
 }
 
 /**
- * Render the details card once the product shot has landed. Not a job — this
+ * Metal prints' analog of `stepFlow.shots.product` (design doc §14) — the
+ * shot key the details card is composed FROM. Metal has no single "product"
+ * shot; instead it's the LARGEST selected size's scene (the same "largest
+ * wins" convention `POST /:id/step/sizes` uses for metadata.metal_size), so
+ * the card's source photo is the most representative one. Returns undefined
+ * when no size has been selected yet (nothing to key off of).
+ */
+function metalDetailsSourceKey(stepFlow: StepFlowMeta): ShotKey | undefined {
+  const sizes = stepFlow.metalSizes || []
+  const largestFirst = [...STUDIO_SIZE_KEYS].reverse().filter((s) => sizes.includes(s))
+  if (!largestFirst.length) return undefined
+  // Prefer the largest size whose scene is already DONE — the details card
+  // shouldn't block on a specific size finishing if a smaller one already
+  // has (progressive rendering, same spirit as the garment card rendering
+  // the instant its one product shot lands).
+  const doneSize = largestFirst.find((s) => stepFlow.shots[`scene:${s}` as ShotKey]?.status === 'done')
+  if (doneSize) return `scene:${doneSize}` as ShotKey
+  // Nothing done yet — key off the largest selected size; its own status
+  // ('running'/'queued'/'failed') is what drives the "not ready yet" /
+  // "failed, nothing to render" branches in resolveStepFlow's details block.
+  return `scene:${largestFirst[0]}` as ShotKey
+}
+
+/** The shot this product's details card is composed FROM — 'product' for a garment, the largest selected size's scene for metal. */
+function detailsSourceKey(stepFlow: StepFlowMeta): ShotKey | undefined {
+  return isMetalStepFlow(stepFlow) ? metalDetailsSourceKey(stepFlow) : 'product'
+}
+
+/**
+ * Render the details card once its source shot has landed. Not a job — this
  * runs synchronously (from `redoShot` immediately, or from `resolveStepFlow`
- * on the next `GET /:id/step` poll once the product asset exists).
+ * on the next `GET /:id/step` poll once the source asset exists).
  */
 async function renderDetailsShot(
   product: ProductRow,
   stepFlow: StepFlowMeta
 ): Promise<{ jobId: null; patch: Partial<ShotState> }> {
+  if (isMetalStepFlow(stepFlow)) {
+    const sourceKey = metalDetailsSourceKey(stepFlow)
+    const sourceShot = sourceKey ? stepFlow.shots[sourceKey] : undefined
+    if (!sourceShot?.assetId || !sourceShot.url) {
+      throw new StepFlowValidationError('Approve a size scene before rendering the details card')
+    }
+    const sizes = stepFlow.metalSizes || []
+    const result = await renderMetalDetailsCard({
+      productId: product.id,
+      mockupUrl: sourceShot.url,
+      sizes,
+      title: stepFlow.brief?.title || product.metadata?.step_flow?.brief?.title || 'Custom Metal Print',
+    })
+    return {
+      jobId: null,
+      patch: { status: 'done', assetId: result.assetId, url: result.url, sourceAssetId: sourceShot.assetId, error: undefined },
+    }
+  }
+
   const garment = stepFlow.garment!
   // Read the product shot straight off step_flow (not a separate
   // product_assets-by-role query) so this function's own "ready?" check is
@@ -524,6 +667,29 @@ async function buildShotJob(
   userId: string,
   mode: 'queue' | 'redo'
 ): Promise<{ jobId: string | null; status: ShotState['status'] }> {
+  if (isMetalStepFlow(stepFlow)) {
+    const sizes = stepFlow.metalSizes || []
+    if (!sizes.length) {
+      throw new StepFlowValidationError('Select sizes before queuing shots')
+    }
+
+    if (key === 'details') {
+      if (mode === 'queue') {
+        await patchShotState(product.id, key, { status: 'queued', jobId: undefined, approved: false, error: undefined })
+        return { jobId: null, status: 'queued' }
+      }
+      const { patch } = await renderDetailsShot(product, stepFlow)
+      await patchShotState(product.id, key, { ...patch, jobId: undefined, approved: false })
+      return { jobId: null, status: patch.status as ShotState['status'] }
+    }
+
+    if (key.startsWith('scene:')) {
+      return queueMetalSceneJob(product, key)
+    }
+
+    throw new StepFlowValidationError(`Unknown shot key "${key}" for a metal product`)
+  }
+
   const garment = stepFlow.garment
   const colors = stepFlow.colors
   if (!garment || !colors?.primary) {
@@ -563,13 +729,23 @@ export async function queueStepShots(
 ): Promise<{ jobs: { key: ShotKey; jobId: string | null }[] }> {
   const product = await loadProductRow(productId)
   const stepFlow = getStepFlow(product)
-  if (!stepFlow.garment || !stepFlow.colors?.primary) {
-    throw new StepFlowValidationError('Approve garments & colors before queuing shots')
-  }
-  assertOffered(stepFlow.garment, stepFlow.colors.primary)
-  for (const c of stepFlow.colors.extras || []) assertOffered(stepFlow.garment, c)
 
-  const allKeys = defaultShotKeys(stepFlow.colors)
+  let allKeys: ShotKey[]
+  if (isMetalStepFlow(stepFlow)) {
+    const sizes = stepFlow.metalSizes || []
+    if (!sizes.length) {
+      throw new StepFlowValidationError('Select sizes before queuing shots')
+    }
+    allKeys = defaultMetalShotKeys(sizes)
+  } else {
+    if (!stepFlow.garment || !stepFlow.colors?.primary) {
+      throw new StepFlowValidationError('Approve garments & colors before queuing shots')
+    }
+    assertOffered(stepFlow.garment, stepFlow.colors.primary)
+    for (const c of stepFlow.colors.extras || []) assertOffered(stepFlow.garment, c)
+    allKeys = defaultShotKeys(stepFlow.colors)
+  }
+
   const explicit = !!(requestedKeys && requestedKeys.length)
   let targetKeys = explicit ? requestedKeys!.filter((k) => allKeys.includes(k)) : allKeys
 
@@ -613,10 +789,21 @@ export async function redoShot(
 ): Promise<{ job: { id: string | null; key: ShotKey; status: ShotState['status'] } }> {
   const product = await loadProductRow(productId)
   const stepFlow = getStepFlow(product)
-  if (!stepFlow.garment || !stepFlow.colors?.primary) {
-    throw new StepFlowValidationError('Approve garments & colors before redoing shots')
+
+  let allKeys: ShotKey[]
+  if (isMetalStepFlow(stepFlow)) {
+    const sizes = stepFlow.metalSizes || []
+    if (!sizes.length) {
+      throw new StepFlowValidationError('Select sizes before redoing shots')
+    }
+    allKeys = defaultMetalShotKeys(sizes)
+  } else {
+    if (!stepFlow.garment || !stepFlow.colors?.primary) {
+      throw new StepFlowValidationError('Approve garments & colors before redoing shots')
+    }
+    allKeys = defaultShotKeys(stepFlow.colors)
   }
-  const allKeys = defaultShotKeys(stepFlow.colors)
+
   if (!allKeys.includes(key)) {
     throw new StepFlowValidationError(`Unknown shot key "${key}" for the current garment/colors`)
   }
@@ -686,8 +873,13 @@ export async function approveShotsBatch(
       // skipped, stamp the group approval so the flow can advance to
       // Listing.
       const approvals = { ...stepFlow.approvals }
-      if (!approvals.mockups && stepFlow.colors) {
-        const tracked = defaultShotKeys(stepFlow.colors).filter((k) => shots[k])
+      if (!approvals.mockups) {
+        const trackedKeys = isMetalStepFlow(stepFlow)
+          ? defaultMetalShotKeys(stepFlow.metalSizes || [])
+          : stepFlow.colors
+            ? defaultShotKeys(stepFlow.colors)
+            : []
+        const tracked = trackedKeys.filter((k) => shots[k])
         const allSettled =
           tracked.length > 0 &&
           tracked.every((k) => shots[k]?.approved === true || shots[k]?.status === 'failed' || shots[k]?.skipped === true)
@@ -713,6 +905,9 @@ export async function approveShot(
 /** Fifteen minutes with no result is a stuck job (worker crash, etc.), not a slow one — MUST-FIX #11. */
 const STALE_RUNNING_MS = 15 * 60 * 1000
 
+/** The error stamped on 'details' when its source shot (product, or a metal scene) failed — checked below to avoid re-stamping the same failure every poll. */
+const DETAILS_SOURCE_FAILED_ERROR = 'source shot failed — nothing to render'
+
 /**
  * Called from GET /:id/step — brings `step_flow.shots` up to date with the
  * ai_jobs rows the worker has already processed, and (for 'details' only)
@@ -729,7 +924,12 @@ const STALE_RUNNING_MS = 15 * 60 * 1000
 export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: any[]): Promise<StepFlowMeta> {
   const stepFlow = getStepFlow(product)
   const garment = stepFlow.garment
-  if (!garment) return stepFlow
+  const isMetal = isMetalStepFlow(stepFlow)
+  // A garment flow with no `garment` picked yet has nothing to resolve
+  // (Step 3 hasn't run). A metal flow has no `garment` EVER — its readiness
+  // signal is productKind, not garment — so it still proceeds; the loop
+  // below is a no-op anyway until `shots` has entries in it.
+  if (!garment && !isMetal) return stepFlow
 
   let touched = false
 
@@ -738,25 +938,26 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
     if (!state) continue
 
     if (key === 'details') {
-      const productShot = stepFlow.shots.product
+      const sourceKey = detailsSourceKey(stepFlow)
+      const sourceShot = sourceKey ? stepFlow.shots[sourceKey] : undefined
 
-      if (productShot?.status === 'failed') {
-        // MUST-FIX #2: the details card is composed FROM the product shot —
+      if (sourceShot?.status === 'failed') {
+        // MUST-FIX #2: the details card is composed FROM the source shot —
         // if that failed there is nothing to render it from.
-        const alreadyMarked = state.status === 'failed' && state.error === 'product shot failed — nothing to render'
+        const alreadyMarked = state.status === 'failed' && state.error === DETAILS_SOURCE_FAILED_ERROR
         if (!alreadyMarked) {
-          await patchShotState(product.id, key, { status: 'failed', error: 'product shot failed — nothing to render' })
+          await patchShotState(product.id, key, { status: 'failed', error: DETAILS_SOURCE_FAILED_ERROR })
           touched = true
         }
         continue
       }
 
-      if (productShot?.status !== 'done') continue // not ready yet — leave queued for the next poll
+      if (sourceShot?.status !== 'done') continue // not ready yet — leave queued for the next poll
 
-      // MUST-FIX #8: render once the product shot is done, and RE-render if
-      // the product shot has since changed (a redo) — sourceAssetId is the
+      // MUST-FIX #8: render once the source shot is done, and RE-render if
+      // the source shot has since changed (a redo) — sourceAssetId is the
       // freshness check, not just "status is already done".
-      if (state.status === 'done' && state.sourceAssetId === productShot.assetId) continue
+      if (state.status === 'done' && state.sourceAssetId === sourceShot.assetId) continue
 
       try {
         // Render OUTSIDE the lock (network fetch + sharp compose + GCS
@@ -767,7 +968,7 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         await patchShotState(product.id, key, { ...patch, jobId: undefined })
         touched = true
       } catch (err: any) {
-        // "Not ready yet" (no product asset) is expected while mockups are
+        // "Not ready yet" (no source asset) is expected while mockups are
         // still rendering — leave it queued for the next poll rather than
         // flagging a failure that never happened.
         if (!(err instanceof StepFlowValidationError)) {
@@ -862,15 +1063,19 @@ export function buildApprovedGallery(
       .map((s) => s.assetId as string)
   )
 
+  // No `if (garment)` gate here (2026-09-02, Track B metal lane): a metal
+  // flow never has `garment` set, but its `scene:*`/`details` roles still
+  // need to be tracked — roleForShotKey resolves those without a garment,
+  // and only throws for a 'product' key with no garment, which the catch
+  // below already treats as "leave it out" the same as any other unknown key.
   const trackedRoles = new Set<string>()
-  if (garment) {
-    for (const k of Object.keys(stepFlow.shots) as ShotKey[]) {
-      try {
-        trackedRoles.add(roleForShotKey(k, garment))
-      } catch {
-        // Unknown/legacy key — nothing to track it against; leave it out
-        // rather than let a malformed key crash the publish route.
-      }
+  for (const k of Object.keys(stepFlow.shots) as ShotKey[]) {
+    try {
+      trackedRoles.add(roleForShotKey(k, garment))
+    } catch {
+      // Unknown/legacy key (or a 'product' key with no garment) — nothing to
+      // track it against; leave it out rather than let a malformed key crash
+      // the publish route.
     }
   }
 

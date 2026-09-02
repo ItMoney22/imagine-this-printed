@@ -114,6 +114,11 @@ export async function processImageJobInline(job: any): Promise<void> {
       imageStyle: job.input?.imageStyle,
       rawPrompt: Boolean(job.input?.rawPrompt),
       backgroundClause: typeof job.input?.backgroundClause === 'string' ? job.input.backgroundClause : undefined,
+      // Metal prints' portrait 2:3 generation (design doc §14) — set on the
+      // job by POST /create as `extra: { aspect_ratio: '2:3' }`; forwarded
+      // straight through to the OpenAI-direct provider's real request size
+      // (services/image-flow/worker-helpers.ts's houseOpenAISize).
+      extra: job.input?.extra && typeof job.input.extra === 'object' ? job.input.extra : undefined,
     })
 
     const succeeded = results.filter((r) => r.status === 'succeeded' && r.url)
@@ -144,8 +149,12 @@ export async function processImageJobInline(job: any): Promise<void> {
           kind: 'source',
           path: storagePath,
           url: publicUrl,
-          width: 1024,
-          height: 1024,
+          // Reflects the job's real requested size — 1024x1536 for a Step
+          // Flow metal portrait generation (see POST /create), 1024x1024 for
+          // everything else. Falls back to 1024x1024 for any caller that
+          // never set these (every pre-existing call site).
+          width: Number(job.input?.width) || 1024,
+          height: Number(job.input?.height) || 1024,
           asset_role: 'design',
           is_primary: false,
           display_order: 99,
@@ -341,10 +350,22 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
       )
     )
 
+    // Metal prints lane (design doc §14, David 2026-09-02) — computed early
+    // (stepFlow itself is destructured from req.body above) since `metalSize`
+    // just below needs it. A step-flow metal brief has NOT reached the Sizes
+    // step yet at creation time (Idea/Design precede Sizes) — this is a
+    // placeholder value POST /:id/step/sizes overwrites with the real
+    // largest-selected size once the admin picks sizes.
+    const stepProductKindEarly: 'garment' | 'metal' =
+      stepFlow && typeof stepFlow === 'object' && stepFlow.brief?.productKind === 'metal' ? 'metal' : 'garment'
+
     // Metal art panel size (4x6 | 8x10) → metadata.metal_size. Drives the
     // size-accurate mockup scale anchors (David 2026-07-28: a 4x6 must never
-    // be mocked up looking massive on a wall).
-    const metalSize: '4x6' | '8x10' = req.body.metal_size === '8x10' ? '8x10' : '4x6'
+    // be mocked up looking massive on a wall). Step Flow metal creation
+    // always starts at '8x10' (see comment above) — the classic wizard's
+    // req.body.metal_size selector still drives the non-step-flow path.
+    const metalSize: '4x6' | '8x10' =
+      stepProductKindEarly === 'metal' ? '8x10' : req.body.metal_size === '8x10' ? '8x10' : '4x6'
 
     // Only a slug we actually recognize counts as a selection; anything else is
     // treated as "not specified" so the model's answer still gets a chance.
@@ -399,12 +420,26 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     if (stepBriefPrompt && !(typeof imagePromptOverride === 'string' && imagePromptOverride.trim())) {
       normalized.image_prompt = stepBriefPrompt
     }
+
+    // Metal prints lane (design doc §14, David 2026-09-02): the Step Flow
+    // Idea step carries `stepFlow.brief.productKind === 'metal'` for a metal
+    // wall-art brief — full-bleed portrait art, never the DTF solid-background
+    // rule. Only meaningful when a step-flow brief is actually present.
+    const stepProductKind: 'garment' | 'metal' = stepBriefPrompt ? stepProductKindEarly : 'garment'
+
     const stepBackground: 'white' | 'black' | null =
-      stepBriefPrompt && (stepFlow.brief?.background === 'white' || stepFlow.brief?.background === 'black')
+      stepBriefPrompt && stepProductKind === 'garment' && (stepFlow.brief?.background === 'white' || stepFlow.brief?.background === 'black')
         ? stepFlow.brief.background
         : null
-    const stepBackgroundClause = stepBackground
-      ? `Render the artwork on a SOLID, FLAT, uniform ${stepBackground} background that fills the entire canvas edge to edge. No gradient, no vignette, no drop shadow, no checkerboard, no simulated or painted transparency, no border, no frame.`
+    const stepBackgroundClause = stepBriefPrompt
+      ? stepProductKind === 'metal'
+        // No solid-background rule for metal — a full-bleed scene fills the
+        // whole panel edge to edge instead (design doc §14: "portrait 2:3,
+        // fills the frame").
+        ? 'Full-bleed, portrait 2:3, fills the frame edge to edge — no border, no vignette, no letterboxing, no solid-color margin.'
+        : stepBackground
+          ? `Render the artwork on a SOLID, FLAT, uniform ${stepBackground} background that fills the entire canvas edge to edge. No gradient, no vignette, no drop shadow, no checkerboard, no simulated or painted transparency, no border, no frame.`
+          : undefined
       : undefined
 
     // Photo-template products (Imagine Studio, 2026-07-31): the caller pins the
@@ -419,7 +454,15 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     // Settings" — so shirts were landing as `dtf-transfers` at random, which
     // then blocked them at the Etsy taxonomy check. An unrecognized slug also
     // falls back here rather than upserting a junk category row.
-    if (isTemplate) {
+    //
+    // Step Flow metal prints (design doc §14) win over everything else here —
+    // the brief itself declared productKind:'metal', a stronger signal than
+    // either the admin dropdown or isTemplate, neither of which the Step Flow
+    // studio ever sends alongside a metal brief.
+    if (stepProductKind === 'metal') {
+      normalized.category_slug = 'metal-art'
+      normalized.category_name = 'Metal Art'
+    } else if (isTemplate) {
       normalized.category_slug = 'templates'
       normalized.category_name = 'Templates'
     } else if (wizardCategory) {
@@ -511,10 +554,13 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           image_style: imageStyle,
           created_with_search: useSearch,
           search_context: searchContext ? searchContext.substring(0, 500) : null,
-          // DTF Print Settings
-          product_type: productType,
+          // DTF Print Settings — Step Flow metal (design doc §14) stamps its
+          // own product_type/print_placement instead of the garment builder's
+          // request-body defaults ('tshirt'/'front-center'), since a metal
+          // panel is neither.
+          product_type: stepProductKind === 'metal' ? 'metal-art' : productType,
           shirt_color: shirtColor,
-          print_placement: printPlacement,
+          print_placement: stepProductKind === 'metal' ? 'not-applicable' : printPlacement,
           print_style: printStyle,
           // Physical print width (inches) — drives explicit scale language in
           // the mockup prompts and the QA coverage gate. Garments only.
@@ -668,8 +714,16 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
         status: 'running', // pre-claimed so production worker won't race
         input: {
           prompt: normalized.image_prompt,
-          width: 1024,
-          height: 1024,
+          // Metal (design doc §14) generates portrait 2:3 — gpt-image-2's
+          // native aspect_ratio sizes are 1024x1024 / 1536x1024 / 1024x1536
+          // (see services/image-flow/models.ts); 1024x1536 is the 2:3
+          // portrait size. `extra.aspect_ratio` below is what actually
+          // drives the OpenAI-direct provider's real request size
+          // (services/image-flow/worker-helpers.ts's houseOpenAISize) — these
+          // width/height fields are informational (they also seed the saved
+          // product_assets row's width/height in processImageJobInline).
+          width: stepProductKind === 'metal' ? 1024 : 1024,
+          height: stepProductKind === 'metal' ? 1536 : 1024,
           background: normalized.background,
           productType,
           shirtColor,
@@ -690,6 +744,10 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
           // Step Flow: verbatim brief + solid-background clause (see
           // runImageFlowMultiGenerate.rawPrompt for why the DTF wrap is skipped).
           ...(stepBriefPrompt ? { rawPrompt: true, backgroundClause: stepBackgroundClause } : {}),
+          // Metal portrait generation — forwarded to runImageFlowMultiGenerate's
+          // opts.extra by processImageJobInline below, which resolves to
+          // gpt-image-2's 1024x1536 real request size.
+          ...(stepProductKind === 'metal' ? { extra: { aspect_ratio: '2:3' } } : {}),
         },
       },
     ]

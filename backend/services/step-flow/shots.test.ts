@@ -114,7 +114,11 @@ const shootOneModelShot = vi.fn()
 vi.mock('../etsy-model-shots.js', () => ({ shootOneModelShot: (...args: any[]) => shootOneModelShot(...args) }))
 
 const renderDetailsCard = vi.fn()
-vi.mock('./details-card.js', () => ({ renderDetailsCard: (...args: any[]) => renderDetailsCard(...args) }))
+const renderMetalDetailsCard = vi.fn()
+vi.mock('./details-card.js', () => ({
+  renderDetailsCard: (...args: any[]) => renderDetailsCard(...args),
+  renderMetalDetailsCard: (...args: any[]) => renderMetalDetailsCard(...args),
+}))
 
 // Track B (2026-09-02): shots.ts now calls the worker's mockup renderer
 // directly/inline instead of leaving the job 'queued' for the worker's poll
@@ -131,6 +135,7 @@ const {
   approveShotsBatch,
   resolveStepFlow,
   defaultShotKeys,
+  defaultMetalShotKeys,
   roleForShotKey,
   buildApprovedGallery,
   getStepFlow,
@@ -167,8 +172,31 @@ function seedProduct(over: Partial<Row> = {}): Row {
   return product
 }
 
+/** Same shape as seedProduct but for the metal wall-art lane (design doc §14) — no garment/colors, brief.productKind:'metal', metalSizes from step/sizes. */
+function seedMetalProduct(over: Partial<Row> = {}): Row {
+  const product = {
+    id: 'p1',
+    category: 'metal-art',
+    metadata: {
+      step_flow: {
+        version: 1,
+        idea: 'aurora wolf',
+        brief: { title: 'Aurora Wolf', productKind: 'metal' },
+        metalSizes: ['4x6', '8x10'],
+        shots: {},
+        approvals: {},
+      },
+      ...over.metadata,
+    },
+    ...over,
+  }
+  db.products.push(product)
+  return product
+}
+
 beforeEach(() => {
   resetDb()
+  renderMetalDetailsCard.mockReset()
   shootOneModelShot.mockReset()
   renderDetailsCard.mockReset()
   processMockupJob.mockReset()
@@ -823,7 +851,232 @@ describe('resolveStepFlow', () => {
     db.products.push(product)
 
     const sf = await resolveStepFlow(product as any, [], [])
-    expect(sf.shots.details).toMatchObject({ status: 'failed', error: 'product shot failed — nothing to render' })
+    expect(sf.shots.details).toMatchObject({ status: 'failed', error: 'source shot failed — nothing to render' })
     expect(renderDetailsCard).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Metal prints lane (design doc §14, David 2026-09-02) — a completely
+// different shot set from garments: scene:<size> per SELECTED panel size
+// (no product/hanger/model/color:* keys) plus a metal-variant details card,
+// composed from the largest selected size's scene.
+// ---------------------------------------------------------------------------
+
+describe('defaultMetalShotKeys', () => {
+  it('is one scene:<size> per selected size, smallest first, plus details', () => {
+    expect(defaultMetalShotKeys(['8x10', '4x6'])).toEqual(['scene:4x6', 'scene:8x10', 'details'])
+  })
+
+  it('is just the one selected size plus details', () => {
+    expect(defaultMetalShotKeys(['4x6'])).toEqual(['scene:4x6', 'details'])
+  })
+
+  it('is just details when no sizes are selected', () => {
+    expect(defaultMetalShotKeys([])).toEqual(['details'])
+  })
+})
+
+describe('roleForShotKey — metal', () => {
+  it('maps scene:<size> to mockup_metal_<size>, with no garment needed', () => {
+    expect(roleForShotKey('scene:4x6')).toBe('mockup_metal_4x6')
+    expect(roleForShotKey('scene:8x10')).toBe('mockup_metal_8x10')
+    expect(roleForShotKey('details')).toBe('mockup_details')
+  })
+
+  it('still throws for a "product" key with no garment', () => {
+    expect(() => roleForShotKey('product')).toThrow(/garment is required/)
+  })
+})
+
+describe('queueStepShots — metal', () => {
+  it('queues one scene job per selected size with mockupRole pinning, and defers details', async () => {
+    seedMetalProduct()
+
+    const { jobs } = await queueStepShots('p1', 'user-1')
+    const keys = jobs.map((j) => j.key)
+    expect(keys).toEqual(['scene:4x6', 'scene:8x10', 'details'])
+
+    const details = jobs.find((j) => j.key === 'details')!
+    expect(details.jobId).toBeNull()
+
+    const smallJob = db.ai_jobs.find((j) => j.input?.stepKey === 'scene:4x6')
+    expect(smallJob?.type).toBe('replicate_mockup_v2')
+    expect(smallJob?.input?.template).toBe('metal_shelf')
+    expect(smallJob?.input?.metalSize).toBe('4x6')
+    expect(smallJob?.input?.mockupRole).toBe('mockup_metal_4x6')
+    expect(smallJob?.input?.printPlacement).toBe('not-applicable')
+
+    const largeJob = db.ai_jobs.find((j) => j.input?.stepKey === 'scene:8x10')
+    expect(largeJob?.input?.template).toBe('metal_wall')
+    expect(largeJob?.input?.metalSize).toBe('8x10')
+    expect(largeJob?.input?.mockupRole).toBe('mockup_metal_8x10')
+
+    // Never a garment-flow key.
+    expect(keys).not.toContain('product')
+    expect(keys).not.toContain('hanger')
+    expect(keys).not.toContain('model')
+    expect(keys.some((k) => k.startsWith('color:'))).toBe(false)
+
+    const savedProduct = db.products.find((p) => p.id === 'p1')!
+    const sf = getStepFlow(savedProduct)
+    expect(sf.shots['scene:4x6' as any]?.status).toBe('running')
+    expect(sf.shots.details).toEqual({ status: 'queued', error: undefined, approved: false })
+
+    await waitUntil(() => processMockupJob.mock.calls.length === 2)
+    const calledIds = processMockupJob.mock.calls.map((args: any[]) => args[0]?.id)
+    expect(calledIds.sort()).toEqual([smallJob!.id, largeJob!.id].sort())
+  })
+
+  it('queues only the one selected size when just one is picked', async () => {
+    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6'], shots: {}, approvals: {} } } })
+    const { jobs } = await queueStepShots('p1', 'user-1')
+    expect(jobs.map((j) => j.key)).toEqual(['scene:4x6', 'details'])
+  })
+
+  it('throws a StepFlowValidationError when no sizes have been selected yet', async () => {
+    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, shots: {}, approvals: {} } } })
+    await expect(queueStepShots('p1', 'user-1')).rejects.toThrow(StepFlowValidationError)
+  })
+})
+
+describe('redoShot — metal', () => {
+  it('re-queues a single scene job, keeping the old asset in place until the redo lands', async () => {
+    seedMetalProduct({
+      metadata: {
+        step_flow: {
+          version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6', '8x10'],
+          shots: { 'scene:4x6': { approved: true, status: 'done', assetId: 'old-1', url: 'https://cdn/old-4x6.png' } },
+          approvals: {},
+        },
+      },
+    })
+
+    const { job } = await redoShot('p1', 'user-1', 'scene:4x6' as any)
+    expect(job.status).toBe('running')
+
+    const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
+    // Old asset/url survive until the (mocked, async) render lands.
+    expect(sf.shots['scene:4x6' as any]?.assetId).toBe('old-1')
+    expect(sf.shots['scene:4x6' as any]?.approved).toBe(false)
+  })
+
+  it('rejects an unknown key for the currently selected sizes', async () => {
+    seedMetalProduct({ metadata: { step_flow: { version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6'], shots: {}, approvals: {} } } })
+    await expect(redoShot('p1', 'user-1', 'scene:8x10' as any)).rejects.toThrow(/Unknown shot key/)
+  })
+})
+
+describe('resolveStepFlow — metal details card', () => {
+  it('renders the metal details card from the LARGEST selected size once it is done', async () => {
+    const product = {
+      id: 'p1',
+      category: 'metal-art',
+      metadata: {
+        step_flow: {
+          version: 1, idea: 'x', brief: { title: 'Aurora Wolf', productKind: 'metal' }, metalSizes: ['4x6', '8x10'],
+          shots: {
+            'scene:4x6': { approved: true, status: 'done', assetId: 's46', url: 'https://cdn/4x6.png' },
+            'scene:8x10': { approved: true, status: 'done', assetId: 's810', url: 'https://cdn/8x10.png' },
+            details: { approved: false, status: 'queued' },
+          },
+          approvals: {},
+        },
+      },
+    }
+    db.products.push(product)
+    renderMetalDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details.png', path: 'x', assetId: 'd1' })
+
+    const sf = await resolveStepFlow(product as any, [], [])
+
+    expect(renderMetalDetailsCard).toHaveBeenCalledWith(
+      expect.objectContaining({ mockupUrl: 'https://cdn/8x10.png', sizes: ['4x6', '8x10'], title: 'Aurora Wolf' })
+    )
+    expect(sf.shots.details).toMatchObject({ status: 'done', assetId: 'd1', url: 'https://cdn/details.png', sourceAssetId: 's810' })
+  })
+
+  it('falls back to the smaller size when only it is done', async () => {
+    const product = {
+      id: 'p1',
+      category: 'metal-art',
+      metadata: {
+        step_flow: {
+          version: 1, idea: 'x', brief: { title: 'Aurora Wolf', productKind: 'metal' }, metalSizes: ['4x6', '8x10'],
+          shots: {
+            'scene:4x6': { approved: true, status: 'done', assetId: 's46', url: 'https://cdn/4x6.png' },
+            'scene:8x10': { approved: false, status: 'running' },
+            details: { approved: false, status: 'queued' },
+          },
+          approvals: {},
+        },
+      },
+    }
+    db.products.push(product)
+    renderMetalDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details.png', path: 'x', assetId: 'd1' })
+
+    await resolveStepFlow(product as any, [], [])
+    expect(renderMetalDetailsCard).toHaveBeenCalledWith(expect.objectContaining({ mockupUrl: 'https://cdn/4x6.png' }))
+  })
+
+  it('never touches renderDetailsCard (the garment card) for a metal product', async () => {
+    const product = {
+      id: 'p1',
+      category: 'metal-art',
+      metadata: {
+        step_flow: {
+          version: 1, idea: 'x', brief: { title: 'x', productKind: 'metal' }, metalSizes: ['4x6'],
+          shots: {
+            'scene:4x6': { approved: true, status: 'done', assetId: 's46', url: 'https://cdn/4x6.png' },
+            details: { approved: false, status: 'queued' },
+          },
+          approvals: {},
+        },
+      },
+    }
+    db.products.push(product)
+    renderMetalDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details.png', path: 'x', assetId: 'd1' })
+
+    await resolveStepFlow(product as any, [], [])
+    expect(renderDetailsCard).not.toHaveBeenCalled()
+  })
+})
+
+describe('buildApprovedGallery — metal ordering', () => {
+  const metalFlowWith = (shots: Record<string, any>): any => ({
+    version: 1,
+    idea: '',
+    brief: { title: 'x', productKind: 'metal' },
+    metalSizes: ['4x6', '8x10'],
+    shots,
+    approvals: {},
+  })
+
+  it('orders 8x10 before 4x6 before details, per the shared ROLE_ORDER', () => {
+    const sf = metalFlowWith({
+      'scene:4x6': { approved: true, status: 'done', assetId: 'a1', url: 'small.png' },
+      'scene:8x10': { approved: true, status: 'done', assetId: 'a2', url: 'large.png' },
+      details: { approved: true, status: 'done', assetId: 'a3', url: 'details.png' },
+    })
+    const assets = [
+      { id: 'a3', asset_role: 'mockup_details', url: 'details.png', created_at: '2026-01-01' },
+      { id: 'a1', asset_role: 'mockup_metal_4x6', url: 'small.png', created_at: '2026-01-01' },
+      { id: 'a2', asset_role: 'mockup_metal_8x10', url: 'large.png', created_at: '2026-01-01' },
+    ]
+    const { images, approvedFlowCount } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['large.png', 'small.png', 'details.png'])
+    expect(approvedFlowCount).toBe(3)
+  })
+
+  it('excludes an unapproved metal scene the same way a garment shot is excluded', () => {
+    const sf = metalFlowWith({
+      'scene:4x6': { approved: false, status: 'done', assetId: 'a1', url: 'small.png' },
+      'scene:8x10': { approved: true, status: 'done', assetId: 'a2', url: 'large.png' },
+    })
+    const assets = [
+      { id: 'a1', asset_role: 'mockup_metal_4x6', url: 'small.png', created_at: '2026-01-01' },
+      { id: 'a2', asset_role: 'mockup_metal_8x10', url: 'large.png', created_at: '2026-01-01' },
+    ]
+    const { images } = buildApprovedGallery(sf, assets)
+    expect(images).toEqual(['large.png'])
   })
 })

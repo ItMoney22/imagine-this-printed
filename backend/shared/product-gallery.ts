@@ -61,6 +61,13 @@ export const ROLE_ORDER = [
   'mockup_back',
   'mockup_model_1',
   'mockup_model_2',
+  // Metal print size scenes (Step Flow §14) — largest first, right before
+  // the details card, same "biggest photo leads" convention as the rest of
+  // this list. A garment product never has these roles; a metal product
+  // never has mockup_ghost_mannequin/flat_lay/hanger/model above — the two
+  // product kinds' roles simply don't overlap.
+  'mockup_metal_8x10',
+  'mockup_metal_4x6',
   'mockup_details',
   COLOR_ROLE_WILDCARD,
   // Mr. Imagine, then pocket, then the watermark — after the Step Flow's own

@@ -182,5 +182,21 @@ export async function adviseColors(pngUrl: string, garment: GarmentId): Promise<
   return { advice, artwork }
 }
 
+/**
+ * Metal art (design doc §14) has no garment/shirt color to advise against —
+ * a metal panel is not printed onto a colored blank the way DTF art is. This
+ * still measures the artwork (useful stats for the panel display) but always
+ * returns an empty `advice` list rather than scoring against garment colors
+ * the product doesn't have.
+ */
+export async function adviseColorsForMetal(pngUrl: string): Promise<{ advice: ColorAdvice[]; artwork: ArtworkStats }> {
+  if (!pngUrl) throw new Error('pngUrl is required')
+  const res = await fetch(pngUrl)
+  if (!res.ok) throw new Error(`Failed to fetch artwork for color advice: ${res.status} ${res.statusText}`)
+  const buffer = Buffer.from(await res.arrayBuffer())
+  const artwork = await measureArtworkStats(buffer)
+  return { advice: [], artwork }
+}
+
 // Re-exported for callers that already have COLORS loaded and want the raw map.
 export { COLORS }

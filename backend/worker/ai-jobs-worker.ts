@@ -652,8 +652,15 @@ export async function processMockupJob(job: any): Promise<void> {
       characterImageUrl,
       printPlacement: printPlacement as any,
       printSizeInches,
-      // Metal templates: physical panel size for the scale anchors.
-      metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
+      // Metal templates: physical panel size for the scale anchors. Job-first
+      // (2026-09-02, Track B metal prints lane) — mirrors the shirtColor
+      // resolution above: the Step Flow Sizes step can queue MULTIPLE
+      // scene:<size> shots for the SAME product (a 4x6 desk scene + an 8x10
+      // wall scene in the same batch), so THIS job's requested size must win
+      // over the product's canonical metadata.metal_size (which the sizes
+      // route sets to the LARGEST selected size) — otherwise every scene
+      // would render at the same (largest) scale.
+      metalSize: (job.input?.metalSize || productMeta.metal_size) as any,
     })
 
     mockupImageUrl = mockupResult.url
@@ -700,7 +707,8 @@ export async function processMockupJob(job: any): Promise<void> {
             characterImageUrl,
             printPlacement: printPlacement as any,
             printSizeInches,
-            metalSize: (productMeta.metal_size || job.input?.metalSize) as any,
+            // Job-first — see the comment on the primary call above.
+            metalSize: (job.input?.metalSize || productMeta.metal_size) as any,
             // Tell the model what to fix rather than re-rolling blind.
             retryNote: reason,
           } as any)

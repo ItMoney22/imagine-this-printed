@@ -15,8 +15,9 @@ import { assertOffered, COLORS, type ColorId, type GarmentId } from '../../share
 import { writeStepBrief } from '../../services/step-flow/brief.js'
 import { pitchPhrases } from '../../services/step-flow/phrases.js'
 import { analyzeInspirationImage, InspirationValidationError } from '../../services/step-flow/inspiration.js'
-import { adviseColors } from '../../services/step-flow/color-advice.js'
+import { adviseColors, adviseColorsForMetal } from '../../services/step-flow/color-advice.js'
 import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
+import { STUDIO_SIZE_KEYS, METAL_ART_PRICES, type MetalArtSizeKey } from '../../shared/metal-art.js'
 import {
   queueStepShots,
   redoShot,
@@ -27,6 +28,7 @@ import {
   saveStepFlow,
   loadProductRow,
   buildApprovedGallery,
+  isMetalStepFlow,
   StepFlowValidationError,
   type ShotKey,
 } from '../../services/step-flow/shots.js'
@@ -120,11 +122,11 @@ const router = Router()
 // validation needed, brief.ts sanitizes it.
 router.post('/step/brief', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
   try {
-    const { idea, phrase, inspiration } = req.body || {}
+    const { idea, phrase, inspiration, productKind } = req.body || {}
     if (typeof idea !== 'string' || !idea.trim()) {
       return res.status(400).json({ error: 'idea is required' })
     }
-    const brief = await writeStepBrief(idea, { phrase, inspiration })
+    const brief = await writeStepBrief(idea, { phrase, inspiration, productKind })
     res.json({ brief })
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] brief error')
@@ -200,7 +202,13 @@ router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request,
     // shot has landed.
     const step_flow = await resolveStepFlow(product, assets || [], jobs || [])
 
-    res.json({ product, step_flow, assets: assets || [], jobs: jobs || [] })
+    // Derived from category (not step_flow.brief.productKind) so the
+    // frontend can branch correctly even if the brief is missing/stale —
+    // category is the durable signal, stamped at /create and never changed
+    // afterward for a given product.
+    const productKind: 'garment' | 'metal' = product.category === 'metal-art' ? 'metal' : 'garment'
+
+    res.json({ product, step_flow, assets: assets || [], jobs: jobs || [], productKind })
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] GET /:id/step error')
     res.status(500).json({ error: err?.message || 'Failed to load step flow' })
@@ -210,7 +218,10 @@ router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request,
 // POST /:id/step/select-design — { assetId } -> { ok, asset, rembgJob }.
 // Marks the picked take primary and queues rembg ONLY — unlike /select-image,
 // this never queues mockups (David: mockups come later, after garments/colors
-// are chosen against the transparent art).
+// are chosen against the transparent art). Metal prints (design doc §14)
+// have no transparency to extract — a metal panel is the flat art itself,
+// full-bleed — so a metal product NEVER gets a rembg job here; `rembgJob` in
+// the response is `null` for a metal product.
 router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
@@ -247,6 +258,19 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
       .single()
     if (updateError) return res.status(500).json({ error: updateError.message })
 
+    // Picking a take IS the step's one approval — there's no separate
+    // "approve design" route in the contract, so this stamp is what gates
+    // the next step (Garments for a shirt, Sizes for metal) reachability on
+    // the frontend.
+    const product = await loadProductRow(id)
+    const stepFlow = getStepFlow(product)
+    stepFlow.approvals = { ...stepFlow.approvals, design: new Date().toISOString() }
+    await saveStepFlow(id, product.metadata, stepFlow)
+
+    if (isMetalStepFlow(stepFlow)) {
+      return res.json({ ok: true, asset: updatedAsset, rembgJob: null })
+    }
+
     // Pre-claimed as 'running' at insert (2026-09-02) — same pattern as the
     // mockup jobs in services/step-flow/shots.ts: the production Render
     // worker only ever picks up 'queued' rows, so this keeps it from seeing
@@ -280,14 +304,6 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
         .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
         .eq('id', rembgJob.id)
     })
-
-    // Picking a take IS the step's one approval — there's no separate
-    // "approve design" route in the contract, so this stamp is what gates
-    // Step 3 (Garments) reachability on the frontend.
-    const product = await loadProductRow(id)
-    const stepFlow = getStepFlow(product)
-    stepFlow.approvals = { ...stepFlow.approvals, design: new Date().toISOString() }
-    await saveStepFlow(id, product.metadata, stepFlow)
 
     res.json({ ok: true, asset: updatedAsset, rembgJob })
   } catch (err: any) {
@@ -367,11 +383,24 @@ router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimi
 
 // POST /:id/step/color-advice — {} -> { advice, artwork }. Measures the nobg
 // asset (falls back to the primary source design when rembg hasn't run yet).
+// Metal prints (design doc §14) have no garment/shirt color to advise
+// against — this branch still measures the artwork but always returns an
+// empty advice list (adviseColorsForMetal).
 router.post('/:id/step/color-advice', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const product = await loadProductRow(id)
     const stepFlow = getStepFlow(product)
+
+    if (isMetalStepFlow(stepFlow)) {
+      const pngUrl = await resolveDesignArtworkUrl(id)
+      if (!pngUrl) return res.status(400).json({ error: 'No design artwork found yet — select a design first' })
+      const { advice, artwork } = await adviseColorsForMetal(pngUrl)
+      stepFlow.advice = advice
+      await saveStepFlow(id, product.metadata, stepFlow)
+      return res.json({ advice, artwork })
+    }
+
     const garment: GarmentId = stepFlow.garment || (stepFlow.brief?.garmentHint as GarmentId | undefined) || 'tshirt'
 
     const { data: nobgAsset } = await supabase
@@ -462,6 +491,67 @@ router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] garments error')
     res.status(500).json({ error: err?.message || 'Failed to save garments/colors' })
+  }
+})
+
+// POST /:id/step/sizes — { sizes: MetalArtSizeKey[] } -> { ok, step_flow }.
+// Metal prints' analog of /step/garments above (design doc §14): picks which
+// physical panel sizes this listing offers. Must be a non-empty subset of
+// STUDIO_SIZE_KEYS (currently ['4x6','8x10']). Mirrors onto the product row
+// the same way /step/garments does: products.price becomes the price of the
+// SMALLEST selected size (the listing's entry price), metadata.metal_size
+// becomes the LARGEST selected size (drives the mockup scale anchors and
+// every other metal_size reader), and metadata.metal_prices carries every
+// selected size's price for the storefront's size picker.
+// `approvals.garments` is stamped (not a separate 'sizes' key) — same
+// approval slot the garment flow uses, so every downstream gate that checks
+// `approvals.garments` (e.g. reaching the Mockups step) keeps working
+// unmodified for a metal product.
+router.post('/:id/step/sizes', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { sizes } = req.body || {}
+    if (!Array.isArray(sizes) || sizes.length === 0) {
+      return res.status(400).json({ error: 'sizes[] is required and must be non-empty' })
+    }
+    const cleanSizes = Array.from(
+      new Set(sizes.filter((s: unknown): s is MetalArtSizeKey => s === '4x6' || s === '8x10'))
+    )
+    if (cleanSizes.length === 0) {
+      return res.status(400).json({ error: `sizes must be a subset of ${STUDIO_SIZE_KEYS.join(', ')}` })
+    }
+    // Canonical smallest-to-largest order regardless of the order sent.
+    const ordered = STUDIO_SIZE_KEYS.filter((s) => cleanSizes.includes(s))
+    const smallest = ordered[0]
+    const largest = ordered[ordered.length - 1]
+
+    const product = await loadProductRow(id)
+    const stepFlow = getStepFlow(product)
+    stepFlow.metalSizes = ordered
+    stepFlow.approvals = { ...stepFlow.approvals, garments: new Date().toISOString() }
+
+    const metalPrices: Record<string, number> = {}
+    for (const s of ordered) metalPrices[s] = METAL_ART_PRICES[s]
+
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({
+        price: METAL_ART_PRICES[smallest],
+        metadata: {
+          ...product.metadata,
+          step_flow: stepFlow,
+          metal_sizes: ordered,
+          metal_size: largest,
+          metal_prices: metalPrices,
+        },
+      })
+      .eq('id', id)
+    if (updateError) return res.status(500).json({ error: updateError.message })
+
+    res.json({ ok: true, step_flow: stepFlow })
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] sizes error')
+    res.status(500).json({ error: err?.message || 'Failed to save sizes' })
   }
 })
 

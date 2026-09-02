@@ -44,6 +44,8 @@ function makeQuery(table: string) {
   let mode: 'select' | 'insert' | 'update' | 'delete' | null = null
   let payload: any = null
   const filters: [string, any][] = []
+  let orderBy: { col: string; asc: boolean } | null = null
+  let limitN: number | null = null
 
   const exec = (): { data: any; error: any } => {
     const rows = db[table] || (db[table] = [])
@@ -61,7 +63,12 @@ function makeQuery(table: string) {
       db[table] = rows.filter((r) => !matches(r, filters))
       return { data: null, error: null }
     }
-    const matched = rows.filter((r) => matches(r, filters))
+    let matched = rows.filter((r) => matches(r, filters))
+    if (orderBy) {
+      const { col, asc } = orderBy
+      matched = [...matched].sort((a, b) => (asc ? 1 : -1) * String(a[col] ?? '').localeCompare(String(b[col] ?? '')))
+    }
+    if (limitN != null) matched = matched.slice(0, limitN)
     return { data: matched, error: null }
   }
 
@@ -86,6 +93,14 @@ function makeQuery(table: string) {
     },
     eq: (k: string, v: any) => {
       filters.push([k, v])
+      return chain
+    },
+    order: (col: string, opts?: { ascending?: boolean }) => {
+      orderBy = { col, asc: opts?.ascending !== false }
+      return chain
+    },
+    limit: (n: number) => {
+      limitN = n
       return chain
     },
     single: async () => {
@@ -123,9 +138,13 @@ vi.mock('../../services/etsy-model-shots.js', () => ({
   shootOneModelShot: vi.fn(),
   startModelShots: vi.fn(),
 }))
-vi.mock('../../services/step-flow/details-card.js', () => ({ renderDetailsCard: vi.fn() }))
+vi.mock('../../services/step-flow/details-card.js', () => ({ renderDetailsCard: vi.fn(), renderMetalDetailsCard: vi.fn() }))
 vi.mock('../../services/step-flow/brief.js', () => ({ writeStepBrief: vi.fn() }))
-vi.mock('../../services/step-flow/color-advice.js', () => ({ adviseColors: vi.fn() }))
+const adviseColorsForMetal = vi.fn()
+vi.mock('../../services/step-flow/color-advice.js', () => ({
+  adviseColors: vi.fn(),
+  adviseColorsForMetal: (...args: any[]) => adviseColorsForMetal(...args),
+}))
 
 const processRemoveBgJob = vi.fn()
 const processMockupJob = vi.fn()
@@ -177,10 +196,23 @@ function seedProduct(): void {
   })
 }
 
+/** Same shape as seedProduct but for the metal wall-art lane (design doc §14). */
+function seedMetalProduct(over: Record<string, any> = {}): void {
+  db.products.push({
+    id: 'p1',
+    category: 'metal-art',
+    metadata: {
+      step_flow: { version: 1, idea: 'aurora wolf', brief: { title: 'Aurora Wolf', productKind: 'metal' }, shots: {}, approvals: {} },
+      ...over,
+    },
+  })
+}
+
 beforeEach(() => {
   resetDb()
   processRemoveBgJob.mockReset()
   processMockupJob.mockReset()
+  adviseColorsForMetal.mockReset()
 })
 
 describe('POST /:id/step/select-design — background removal renders inline (2026-09-02)', () => {
@@ -238,5 +270,133 @@ describe('POST /:id/step/select-design — background removal renders inline (20
     await waitUntil(() => db.ai_jobs.find((j) => j.id === rembgJobId)?.status === 'failed')
     const failedJob = db.ai_jobs.find((j) => j.id === rembgJobId)
     expect(failedJob?.error).toBe('851-labs refused')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Metal prints lane (design doc §14, David 2026-09-02).
+// ---------------------------------------------------------------------------
+
+describe('POST /:id/step/select-design — metal skips rembg entirely', () => {
+  it('marks the design primary, stamps approvals.design, and never queues a rembg job', async () => {
+    seedMetalProduct()
+    db.product_assets.push({
+      id: 'asset-1',
+      product_id: 'p1',
+      kind: 'source',
+      url: 'https://cdn/design.png',
+      metadata: {},
+    })
+
+    const handler = getRouteHandler('post', '/:id/step/select-design')
+    const req = { params: { id: 'p1' }, body: { assetId: 'asset-1' }, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.ok).toBe(true)
+    expect(res.body?.rembgJob).toBeNull()
+    expect(db.ai_jobs.filter((j) => j.type === 'replicate_rembg')).toHaveLength(0)
+    expect(processRemoveBgJob).not.toHaveBeenCalled()
+
+    const savedProduct = db.products.find((p) => p.id === 'p1')!
+    expect(savedProduct.metadata.step_flow.approvals.design).toBeTruthy()
+  })
+})
+
+describe('POST /:id/step/color-advice — metal returns empty advice', () => {
+  it('calls adviseColorsForMetal (not adviseColors) and returns an empty advice list', async () => {
+    seedMetalProduct()
+    db.product_assets.push({
+      id: 'asset-1',
+      product_id: 'p1',
+      kind: 'source',
+      is_primary: true,
+      url: 'https://cdn/design.png',
+      metadata: {},
+    })
+    adviseColorsForMetal.mockResolvedValueOnce({ advice: [], artwork: { meanLuma: 0.2, darkShare: 0.8, lightShare: 0, coverage: 0.9, dominantHue: null } })
+
+    const handler = getRouteHandler('post', '/:id/step/color-advice')
+    const req = { params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.advice).toEqual([])
+    expect(res.body?.artwork).toBeTruthy()
+    expect(adviseColorsForMetal).toHaveBeenCalledWith('https://cdn/design.png')
+  })
+})
+
+describe('POST /:id/step/sizes', () => {
+  it('rejects an empty or missing sizes array', async () => {
+    seedMetalProduct()
+    const handler = getRouteHandler('post', '/:id/step/sizes')
+
+    const res1 = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res1)
+    expect(res1.statusCode).toBe(400)
+
+    const res2 = makeRes()
+    await handler({ params: { id: 'p1' }, body: { sizes: [] }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res2)
+    expect(res2.statusCode).toBe(400)
+  })
+
+  it('rejects a sizes array with no valid entries', async () => {
+    seedMetalProduct()
+    const handler = getRouteHandler('post', '/:id/step/sizes')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { sizes: ['8x11', 'poster'] }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(400)
+    expect(res.body?.error).toMatch(/4x6/)
+  })
+
+  it('accepts both sizes, prices at the SMALLEST, and stamps metal_size at the LARGEST', async () => {
+    seedMetalProduct()
+    const handler = getRouteHandler('post', '/:id/step/sizes')
+    const req = { params: { id: 'p1' }, body: { sizes: ['8x10', '4x6'] }, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.ok).toBe(true)
+    expect(res.body?.step_flow?.metalSizes).toEqual(['4x6', '8x10'])
+    expect(res.body?.step_flow?.approvals?.garments).toBeTruthy()
+
+    const savedProduct = db.products.find((p) => p.id === 'p1')!
+    expect(savedProduct.price).toBe(8.95) // smallest selected size's price
+    expect(savedProduct.metadata.metal_size).toBe('8x10') // largest selected size
+    expect(savedProduct.metadata.metal_sizes).toEqual(['4x6', '8x10'])
+    expect(savedProduct.metadata.metal_prices).toEqual({ '4x6': 8.95, '8x10': 16.95 })
+  })
+
+  it('prices at the single selected size when only one is picked', async () => {
+    seedMetalProduct()
+    const handler = getRouteHandler('post', '/:id/step/sizes')
+    const req = { params: { id: 'p1' }, body: { sizes: ['8x10'] }, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    const savedProduct = db.products.find((p) => p.id === 'p1')!
+    expect(savedProduct.price).toBe(16.95)
+    expect(savedProduct.metadata.metal_size).toBe('8x10')
+    expect(savedProduct.metadata.metal_sizes).toEqual(['8x10'])
+  })
+
+  it('de-dupes a repeated size and ignores an unknown one alongside a valid one', async () => {
+    seedMetalProduct()
+    const handler = getRouteHandler('post', '/:id/step/sizes')
+    const req = { params: { id: 'p1' }, body: { sizes: ['4x6', '4x6', 'poster'] }, user: { id: 'u1', sub: 'u1' }, log: undefined }
+    const res = makeRes()
+
+    await handler(req, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body?.step_flow?.metalSizes).toEqual(['4x6'])
   })
 })

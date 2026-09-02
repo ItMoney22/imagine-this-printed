@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import sharp from 'sharp'
-import { measureArtworkStats, scoreColor, scoreColorsForGarment } from './color-advice.js'
+import { measureArtworkStats, scoreColor, scoreColorsForGarment, adviseColorsForMetal } from './color-advice.js'
 import { COLORS } from '../../shared/catalog-capability.js'
 
 // ---------------------------------------------------------------------------
@@ -125,5 +125,41 @@ describe('scoreColor / scoreColorsForGarment', () => {
     const stats = await measureArtworkStats(await solidPng(128, 128, 128))
     const advice = scoreColorsForGarment(stats, 'hoodie')
     expect(advice.find((a) => a.id === 'royal-blue')).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Metal art (design doc §14) has no garment/shirt color to advise against —
+// adviseColorsForMetal always returns an empty advice list, but still
+// measures the artwork.
+// ---------------------------------------------------------------------------
+describe('adviseColorsForMetal', () => {
+  it('returns an empty advice list alongside the measured artwork stats', async () => {
+    const png = await solidPng(0, 0, 0)
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { advice, artwork } = await adviseColorsForMetal('https://cdn.example/panel.png')
+
+    expect(fetchMock).toHaveBeenCalledWith('https://cdn.example/panel.png')
+    expect(advice).toEqual([])
+    expect(artwork.meanLuma).toBeLessThan(0.05)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects a blank pngUrl', async () => {
+    await expect(adviseColorsForMetal('')).rejects.toThrow(/pngUrl is required/)
+  })
+
+  it('throws a clear error when the fetch fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, statusText: 'Not Found' })))
+    await expect(adviseColorsForMetal('https://cdn.example/missing.png')).rejects.toThrow(/Failed to fetch artwork/)
+    vi.unstubAllGlobals()
   })
 })
