@@ -162,10 +162,10 @@ describe('measurePrintAdviceStats / decidePrintAdvice', () => {
     expect(cleanConfident.confidence).toBeGreaterThan(cleanBorderline.confidence)
   })
 
-  it('invertDark follows the approved primary color luma (dark shirt -> true, light shirt -> false, unset -> false)', () => {
+  it('invertDark follows the approved primary color luma (light shirt -> true keeps dark ink solid, dark shirt -> false knocks darks out, unset -> false)', () => {
     const stats = { smoothShare: 0.5, colorCount: 10, softEdgeShare: 0 }
-    expect(decidePrintAdvice(stats, { primaryLuma: 0.02 }).suggested.invertDark).toBe(true) // black
-    expect(decidePrintAdvice(stats, { primaryLuma: 0.98 }).suggested.invertDark).toBe(false) // white
+    expect(decidePrintAdvice(stats, { primaryLuma: 0.02 }).suggested.invertDark).toBe(false) // black
+    expect(decidePrintAdvice(stats, { primaryLuma: 0.98 }).suggested.invertDark).toBe(true) // white
     expect(decidePrintAdvice(stats, {}).suggested.invertDark).toBe(false) // default
   })
 
@@ -198,7 +198,7 @@ describe('computePrintAdvice (fetch stubbed)', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('https://cdn.example/nobg.png')
     expect(advice.recommend).toBe('halftone')
-    expect(advice.suggested.invertDark).toBe(true)
+    expect(advice.suggested.invertDark).toBe(false) // black primary → knock the darks out
     expect(advice.stats.smoothShare).toBeGreaterThan(0)
 
     vi.unstubAllGlobals()

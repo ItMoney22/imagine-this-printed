@@ -179,7 +179,13 @@ export function decidePrintAdvice(stats: PrintAdviceStats, opts: { primaryLuma?:
       ? `${pct}% of the artwork is smooth shading — DTF flattens that without a screen.`
       : `Flat colors with hard edges (${pct}% smooth shading, ${colorCount} colors) print cleanly without a screen.`
 
-  const invertDark = typeof opts.primaryLuma === 'number' ? opts.primaryLuma < 0.5 : false
+  // Verified on a real render (David's gorilla, 2026-09-02): applyHalftone with
+  // invertDark=true keeps the DARK ink solid and screens the light areas — the
+  // right treatment for a white/light shirt (the shirt fills the light areas);
+  // invertDark=false knocks the dark areas out to dots so a black shirt shows
+  // through. So: light primary → true, dark primary → false. Unset → false
+  // (ITP's default blank is black).
+  const invertDark = typeof opts.primaryLuma === 'number' ? opts.primaryLuma >= 0.5 : false
   const lowColorCount = colorCount > 0 && colorCount < LOW_COLOR_COUNT_THRESHOLD
 
   const suggested: PrintAdviceSuggested = {
