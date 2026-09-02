@@ -241,7 +241,8 @@ export interface RunMockupOpts {
   template: MockupTemplate
   designImageUrl: string
   productType: 'tshirt' | 'hoodie' | 'tank' | 'polo'
-  shirtColor: 'black' | 'white' | 'gray' | 'grey'
+  /** Legacy wizard colors or a catalog-capability ColorId (see COLOR_DESC). */
+  shirtColor: 'black' | 'white' | 'gray' | 'grey' | 'heather-grey' | 'navy' | 'red' | 'forest-green' | 'royal-blue'
   /** For mr_imagine — URL of the Mr. Imagine character base. */
   characterImageUrl?: string
   printPlacement?: 'front-center' | 'left-pocket' | 'back-only' | 'front-back' | 'pocket-front-back-full'
@@ -304,11 +305,21 @@ const PRODUCT_NAMES: Record<string, string> = {
   tank: 'tank top',
   polo: 'polo shirt',
 }
+// Keyed by the legacy wizard colors AND the catalog-capability ColorIds the
+// Step Flow sends (backend/shared/catalog-capability.ts). An unknown key used
+// to fall through to 'black' — that is how David's "Heather Grey" extra-color
+// run came back as a black tee on 2026-09-02. Every offered color is named
+// here so the prompt always says the real fabric colour.
 const COLOR_DESC: Record<string, string> = {
   black: 'black',
   white: 'white',
   gray: 'heather gray',
   grey: 'heather grey',
+  'heather-grey': 'light heather grey (marled light grey)',
+  navy: 'navy blue',
+  red: 'bright red',
+  'forest-green': 'forest green',
+  'royal-blue': 'royal blue',
 }
 const PLACEMENT_DESC: Record<string, string> = {
   'front-center': 'centered on the chest area',
