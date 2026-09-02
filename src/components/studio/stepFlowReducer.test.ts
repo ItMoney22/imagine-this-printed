@@ -323,6 +323,29 @@ describe('stepFlowReducer', () => {
     expect(next.stepFlow?.printFile).toEqual(printFile)
   })
 
+  it('SET_PHRASE sets state.phrase to the chosen chip/typed phrase', () => {
+    const next = stepFlowReducer(initialStepFlowState, {
+      type: 'SET_PHRASE',
+      phrase: { text: 'STREET ROYALTY', placement: 'below' },
+    })
+    expect(next.phrase).toEqual({ text: 'STREET ROYALTY', placement: 'below' })
+  })
+
+  it('SET_PHRASE with null clears a previously chosen phrase (the chip\'s remove button)', () => {
+    const withPhrase = stateWith({ phrase: { text: 'STREET ROYALTY', placement: 'below' } })
+    const next = stepFlowReducer(withPhrase, { type: 'SET_PHRASE', phrase: null })
+    expect(next.phrase).toBeNull()
+  })
+
+  it('HYDRATE carries brief.phrase through onto stepFlow — the phrase baked into the design survives a resume/poll', () => {
+    const res = response({
+      productId: 'p1',
+      stepFlow: { brief: { ...brief, phrase: { text: 'STREET ROYALTY', placement: 'below' } } },
+    })
+    const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
+    expect(next.stepFlow?.brief?.phrase).toEqual({ text: 'STREET ROYALTY', placement: 'below' })
+  })
+
   it('SET_ERROR clears loading and records the message', () => {
     const next = stepFlowReducer(stateWith({ loading: true }), { type: 'SET_ERROR', error: 'boom' })
     expect(next.error).toBe('boom')

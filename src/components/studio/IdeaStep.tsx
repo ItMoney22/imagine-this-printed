@@ -1,10 +1,11 @@
-// Step 1 — Idea: type or speak it, the writing brain turns it into the best
-// prompt for gpt-image-2, then the design job fires.
+// Step 1 — Idea: type or speak it, optionally have Mrs. Imagine pitch a
+// phrase to render into the artwork, then the writing brain turns it all
+// into the best prompt for gpt-image-2 and the design job fires.
 import React, { useRef, useState } from 'react'
-import { Mic, Square, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
+import { Mic, Square, Sparkles, ChevronDown, ChevronUp, RefreshCw, X } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
-import type { StepBrief } from './types'
+import type { Phrase, StepBrief } from './types'
 import { createStepFlowProduct } from './createStepFlowProduct'
 import { useVoiceDictation } from './useVoiceDictation'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
@@ -13,6 +14,50 @@ import ProgressBar from './ProgressBar'
 // The writing brain's brief call is fast — a few seconds of GPT chat, not an
 // image render — so a short expected time is enough to keep the bar honest.
 const BRIEF_EXPECTED_MS = 4000
+// Mrs. Imagine's phrase pitch — design doc §11: "~3-6s".
+const PHRASE_EXPECTED_MS = 5000
+
+// David's exact wording (2026-09-02) for the line above the chips once
+// phrases land — the backend's own `intro` (if it sends one) wins over this.
+const PHRASE_RESULTS_INTRO = 'Based on this prompt, you can add these phrases that will make this shirt POP.'
+const PHRASE_ASK_INTRO = "Want words on it? I'll pitch a few."
+
+/** One phrase chip — text + vibe tag, with a tap-to-reveal reason. Exported
+ *  standalone (same pattern as PrintPrepPanel's RecommendationBadge) so it
+ *  can be render-tested without the panel's network effects. */
+export const PhraseChips: React.FC<{ phrases: Phrase[]; onSelect: (phrase: Phrase) => void }> = ({
+  phrases,
+  onSelect,
+}) => {
+  const [openReason, setOpenReason] = useState<number | null>(null)
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {phrases.map((p, i) => (
+        <div
+          key={`${p.text}-${i}`}
+          className="rounded-lg border border-border-subtle p-2.5 bg-card hover:border-primary/50 transition-colors"
+        >
+          <button type="button" onClick={() => onSelect(p)} title={p.reason} className="w-full text-left">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-text">{p.text}</span>
+              <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+                {p.vibe}
+              </span>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpenReason((v) => (v === i ? null : i))}
+            className="text-[10px] text-muted underline mt-1"
+          >
+            why?
+          </button>
+          {openReason === i && <p className="text-[11px] text-muted mt-1">{p.reason}</p>}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 interface IdeaStepProps {
   state: StepFlowState
@@ -28,6 +73,15 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const [briefOpen, setBriefOpen] = useState(true)
   const writingStartedAtRef = useRef<number | null>(null)
 
+  // Add a phrase? — Mrs. Imagine's pitch, fronting Step 1 (design doc §11).
+  const [askingPhrase, setAskingPhrase] = useState(false)
+  const [phraseCandidates, setPhraseCandidates] = useState<Phrase[] | null>(null)
+  const [phraseIntro, setPhraseIntro] = useState<string | null>(null)
+  const [customPhraseText, setCustomPhraseText] = useState('')
+  const [phraseError, setPhraseError] = useState<string | null>(null)
+  const [phraseSkipped, setPhraseSkipped] = useState(false)
+  const phraseStartedAtRef = useRef<number | null>(null)
+
   const {
     supported: voiceSupported,
     listening,
@@ -37,6 +91,41 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   } = useVoiceDictation((text) => dispatch({ type: 'SET_IDEA', idea: text }))
 
   const idea = state.idea
+  const phrase = state.phrase
+
+  const handleAskMrsImagine = async () => {
+    if (!idea.trim() || askingPhrase) return
+    setPhraseError(null)
+    setPhraseSkipped(false)
+    phraseStartedAtRef.current = Date.now()
+    setAskingPhrase(true)
+    try {
+      const res = await stepFlow.phrases(idea.trim(), undefined, 6)
+      setPhraseCandidates(res.phrases)
+      setPhraseIntro(res.intro ?? null)
+    } catch (err: any) {
+      setPhraseError(err?.message || "Mrs. Imagine couldn't come up with phrases — try again or write your own.")
+    } finally {
+      setAskingPhrase(false)
+    }
+  }
+
+  const handleSelectPhrase = (p: Phrase) => {
+    dispatch({ type: 'SET_PHRASE', phrase: { text: p.text, placement: p.placement } })
+    setPhraseSkipped(false)
+  }
+
+  const handleAddCustomPhrase = () => {
+    const text = customPhraseText.trim()
+    if (!text) return
+    dispatch({ type: 'SET_PHRASE', phrase: { text, placement: 'below' } })
+    setCustomPhraseText('')
+    setPhraseSkipped(false)
+  }
+
+  const handleRemovePhrase = () => {
+    dispatch({ type: 'SET_PHRASE', phrase: null })
+  }
 
   const handleWriteBrief = async () => {
     if (!idea.trim()) return
@@ -44,7 +133,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     writingStartedAtRef.current = Date.now()
     setWritingBrief(true)
     try {
-      const { brief: newBrief } = await stepFlow.brief(idea.trim())
+      const { brief: newBrief } = await stepFlow.brief(idea.trim(), phrase ?? undefined)
       setBrief(newBrief)
       setBriefOpen(true)
     } catch (err: any) {
@@ -108,6 +197,103 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
       )}
       {voiceError && <p className="text-xs text-red-400 mt-1.5">{voiceError}</p>}
 
+      {/* Add a phrase? — Mrs. Imagine pitches words for the design before GPT
+          paints it (design doc §11). Collapses to a removable chip once a
+          phrase is chosen; disabled until there's an idea to pitch against. */}
+      <div className="mt-4">
+        {phrase ? (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs text-text">
+            <span className="font-semibold">Text on design:</span> “{phrase.text}”
+            <button
+              type="button"
+              onClick={handleRemovePhrase}
+              aria-label="Remove phrase"
+              className="text-muted hover:text-red-400"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ) : phraseSkipped ? (
+          <button type="button" onClick={() => setPhraseSkipped(false)} className="text-xs text-muted underline">
+            No phrase added — add one?
+          </button>
+        ) : (
+          <div
+            className={`rounded-2xl border border-border-subtle bg-card/50 p-4 ${
+              !idea.trim() ? 'opacity-50' : ''
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <img
+                src="/mrs-imagine/mrs-imagine-head.png"
+                alt="Mrs. Imagine"
+                className="w-10 h-10 rounded-full object-cover shrink-0 border border-border-subtle"
+              />
+              <div className="flex-1 min-w-0">
+                <span className="text-[10px] uppercase tracking-wide text-primary font-bold">Mrs. Imagine</span>
+                <p className="text-sm text-text font-medium mt-0.5">
+                  {phraseCandidates ? phraseIntro ?? PHRASE_RESULTS_INTRO : PHRASE_ASK_INTRO}
+                </p>
+
+                {!askingPhrase && !phraseCandidates && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <SecondaryButton onClick={handleAskMrsImagine} disabled={!idea.trim()}>
+                      <Sparkles className="w-3.5 h-3.5" /> Ask Mrs. Imagine
+                    </SecondaryButton>
+                    <SecondaryButton onClick={() => setPhraseSkipped(true)} disabled={!idea.trim()}>
+                      No phrase
+                    </SecondaryButton>
+                  </div>
+                )}
+
+                {askingPhrase && (
+                  <div className="mt-3">
+                    <ProgressBar
+                      label="Mrs. Imagine is thinking"
+                      startedAt={phraseStartedAtRef.current ?? Date.now()}
+                      expectedMs={PHRASE_EXPECTED_MS}
+                    />
+                  </div>
+                )}
+
+                {phraseCandidates && !askingPhrase && (
+                  <div className="mt-3">
+                    <PhraseChips phrases={phraseCandidates} onSelect={handleSelectPhrase} />
+                    <div className="mt-2">
+                      <SecondaryButton onClick={handleAskMrsImagine}>
+                        <RefreshCw className="w-3.5 h-3.5" /> More
+                      </SecondaryButton>
+                    </div>
+                  </div>
+                )}
+
+                <InlineError message={phraseError} />
+
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={customPhraseText}
+                    onChange={(e) => setCustomPhraseText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddCustomPhrase()
+                      }
+                    }}
+                    placeholder="or write your own…"
+                    disabled={!idea.trim()}
+                    className="flex-1 text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text placeholder:text-muted disabled:opacity-50"
+                  />
+                  <SecondaryButton onClick={handleAddCustomPhrase} disabled={!idea.trim() || !customPhraseText.trim()}>
+                    Add
+                  </SecondaryButton>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="mt-4">
         <ApproveButton onClick={handleWriteBrief} disabled={!idea.trim() || writingBrief} busy={writingBrief}>
           {writingBrief ? 'Writing the prompt…' : 'Write my prompt'}
@@ -140,6 +326,11 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
 
           {briefOpen && (
             <div className="space-y-3">
+              {brief.phrase && (
+                <p className="text-xs text-text">
+                  <span className="font-semibold">Text in the design:</span> “{brief.phrase.text}”
+                </p>
+              )}
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-muted">Design prompt</label>
                 <textarea

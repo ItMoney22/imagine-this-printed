@@ -101,13 +101,19 @@ const AdvancedOptions: React.FC<{
         onChange={(e) => onChange({ ...options, angle: Number(e.target.value) })}
       />
     </label>
-    <label className="inline-flex items-center gap-2 sm:col-span-2 text-text">
+    <label className="flex items-start gap-2 sm:col-span-2 text-text">
       <input
         type="checkbox"
         checked={options.invertDark}
         onChange={(e) => onChange({ ...options, invertDark: e.target.checked })}
+        className="mt-0.5"
       />
-      Invert for dark shirts
+      <span>
+        Keep dark ink solid (light shirt)
+        <span className="block text-[11px] text-muted font-normal">
+          Off = screen the dark areas so a dark shirt shows through
+        </span>
+      </span>
     </label>
   </div>
 )

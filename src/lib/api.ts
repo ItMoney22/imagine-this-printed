@@ -486,6 +486,13 @@ export type StepFlowColorId =
   | 'forest-green'
   | 'royal-blue'
 
+/** A phrase pitched by Mrs. Imagine (or typed by hand) attached to a brief —
+ *  mirrors the `phrase` body field `POST /step/brief` accepts. */
+export interface SelectedPhrase {
+  text: string
+  placement: 'below' | 'above' | 'integrated'
+}
+
 export interface StepBrief {
   designPrompt: string
   background: 'white' | 'black'
@@ -493,6 +500,18 @@ export interface StepBrief {
   styleTags: string[]
   garmentHint: StepFlowGarmentId
   rationale: string
+  /** Text to render into the artwork, set on the Idea step before the brief
+   *  is written (a chip picked from Mrs. Imagine's pitches, or typed by
+   *  hand). Absent when no phrase was added. */
+  phrase?: SelectedPhrase
+}
+
+/** One phrase Mrs. Imagine pitches for an idea — `POST /step/phrases`. */
+export interface Phrase {
+  text: string
+  vibe: string
+  placement: 'below' | 'above' | 'integrated'
+  reason: string
 }
 
 export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}`
@@ -661,11 +680,26 @@ async function stepFlowRequest(path: string, init: RequestInit = {}) {
 }
 
 export const stepFlow = {
-  /** POST /api/admin/products/ai/step/brief — idea → best-prompt brief. Runs before a product exists. */
-  brief: (idea: string): Promise<{ brief: StepBrief }> =>
+  /** POST /api/admin/products/ai/step/brief — idea (+ optional phrase) → best-prompt brief. Runs before a product exists. */
+  brief: (idea: string, phrase?: SelectedPhrase): Promise<{ brief: StepBrief }> =>
     stepFlowRequest('/api/admin/products/ai/step/brief', {
       method: 'POST',
-      body: JSON.stringify({ idea }),
+      body: JSON.stringify(phrase ? { idea, phrase } : { idea }),
+    }),
+
+  /** POST /api/admin/products/ai/step/phrases — Mrs. Imagine pitches catchy,
+   *  print-friendly phrases for the idea (server-side copyright-gate
+   *  filtered). Runs before a product exists, same as `brief`. `intro`, when
+   *  present, is her own line to show above the chips — the caller falls
+   *  back to a hardcoded line client-side when it's absent. */
+  phrases: (
+    idea: string,
+    brief?: StepBrief,
+    count?: number
+  ): Promise<{ persona: 'mrs-imagine'; phrases: Phrase[]; intro?: string }> =>
+    stepFlowRequest('/api/admin/products/ai/step/phrases', {
+      method: 'POST',
+      body: JSON.stringify({ idea, ...(brief ? { brief } : {}), ...(count ? { count } : {}) }),
     }),
 
   /** GET /api/admin/products/ai/:id/step — resume: product + step_flow + assets + jobs, merged. */

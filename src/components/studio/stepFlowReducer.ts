@@ -31,6 +31,7 @@ import type {
   PrintAdvice,
   PrintFile,
   PrintFileOptions,
+  SelectedPhrase,
   ShotKey,
   ShotState,
   StepFlowAsset,
@@ -51,6 +52,7 @@ export type {
   PrintAdvice,
   PrintFile,
   PrintFileOptions,
+  SelectedPhrase,
   ShotKey,
   ShotState,
   StepFlowAsset,
@@ -71,6 +73,13 @@ export interface StepFlowState {
   stepFlow: StepFlowMeta | null
   /** Idea textarea draft, before a brief/product exists. */
   idea: string
+  /** The phrase chosen on the Idea step (a Mrs. Imagine chip, or typed by
+   *  hand) — carried into `stepFlow.brief(idea, phrase)`. Null means no
+   *  phrase was added. This is the pre-brief selection only; once a brief
+   *  comes back, the phrase that was actually baked into the design lives on
+   *  `stepFlow.brief.phrase` instead (see DesignStep's Tweak, which reads it
+   *  off the existing brief so a re-brief carries the same phrase forward). */
+  phrase: SelectedPhrase | null
   loading: boolean
   error: string | null
 }
@@ -83,6 +92,7 @@ export const initialStepFlowState: StepFlowState = {
   jobs: [],
   stepFlow: null,
   idea: '',
+  phrase: null,
   loading: false,
   error: null,
 }
@@ -90,6 +100,7 @@ export const initialStepFlowState: StepFlowState = {
 export type StepFlowAction =
   | { type: 'RESET' }
   | { type: 'SET_IDEA'; idea: string }
+  | { type: 'SET_PHRASE'; phrase: SelectedPhrase | null }
   | { type: 'PRODUCT_CREATED'; productId: string }
   /** advance:true jumps the visible step to the furthest one now reachable
    *  (an initial resume load, or right after the admin's own write/approve).
@@ -280,6 +291,9 @@ export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): S
 
     case 'SET_IDEA':
       return { ...state, idea: action.idea }
+
+    case 'SET_PHRASE':
+      return { ...state, phrase: action.phrase }
 
     case 'PRODUCT_CREATED': {
       const next = { ...state, productId: action.productId, loading: false, error: null }
