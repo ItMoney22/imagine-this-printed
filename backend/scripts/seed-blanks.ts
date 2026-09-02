@@ -24,9 +24,24 @@
 import dotenv from 'dotenv'
 dotenv.config({ override: true })
 
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { BLANK_LINE, BLANK_MARKUP_PCT, BLANK_LABEL_NOTE, compareToLabel, type BlankTierSpec } from '../shared/blank-line.js'
+import { BLANK_LINE, BLANK_MARKUP_PCT, BLANK_LABEL_NOTE, compareToLabel, colorSlug, type BlankTierSpec, type BlankColor } from '../shared/blank-line.js'
 import { buildBlankPricing, blankFromPriceDollars } from '../shared/blank-pricing.js'
+
+// Per-colour renders written by scripts/render-blank-colors.ts. A colour whose
+// file exists gets `image` on its metadata entry so the product page can swap
+// the hero to the picked colour; the catalog gallery leads with the hero plus
+// a few staple colours.
+const PUBLIC_BLANKS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/blanks')
+const GALLERY_STAPLES = ['Black', 'White', 'Navy']
+
+function colorImagePath(t: BlankTierSpec, c: BlankColor): string | null {
+  const rel = `${t.slug}/${colorSlug(c.name)}.webp`
+  return fs.existsSync(path.join(PUBLIC_BLANKS, rel)) ? `/blanks/${rel}` : null
+}
 
 const args = process.argv.slice(2)
 const flag = (name: string) => args.includes(`--${name}`)
@@ -57,13 +72,25 @@ function buildRow(t: BlankTierSpec, knownColumns: Set<string> | null) {
   // cost_price (when the column exists) = the default-colour S/M cost.
   const baseCost = cost.default.M ?? cost.default.S ?? Object.values(cost.default)[0]
 
+  const colorsWithImages = t.colors.map(c => {
+    const image = colorImagePath(t, c)
+    return image ? { ...c, image } : { ...c }
+  })
+  const renderedCount = colorsWithImages.filter(c => 'image' in c).length
+  // Gallery: the generated hero first, then staple colour renders (deduped).
+  const images = [t.image]
+  for (const name of GALLERY_STAPLES) {
+    const img = colorsWithImages.find(c => c.name === name && 'image' in c) as (BlankColor & { image?: string }) | undefined
+    if (img?.image && !images.includes(img.image)) images.push(img.image)
+  }
+
   const row: Record<string, unknown> = {
     name: `${t.name} — Blank`,
     slug: t.slug,
     description: `${t.description} ${BLANK_LABEL_NOTE}`,
     price: fromPrice,
     cost_price: baseCost,
-    images: [t.image],
+    images,
     category: 'shirts',
     status: STATUS,
     is_active: true,
@@ -92,7 +119,8 @@ function buildRow(t: BlankTierSpec, knownColumns: Set<string> | null) {
         compare_to: compareToLabel(t),
         supplier: t.supplier,
         specs: t.specs,
-        colors: t.colors,
+        colors: colorsWithImages,
+        color_renders: renderedCount,
         white_colors: t.whiteColors,
         markup_pct: MARKUP,
         cost_basis: BASIS,
@@ -115,7 +143,7 @@ function buildRow(t: BlankTierSpec, knownColumns: Set<string> | null) {
       if (!knownColumns.has(k)) delete row[k]
     }
   }
-  return { row, pricing, fromPrice }
+  return { row, pricing, fromPrice, renderedCount }
 }
 
 async function liveColumns(): Promise<Set<string> | null> {

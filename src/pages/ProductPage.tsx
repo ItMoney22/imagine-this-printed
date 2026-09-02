@@ -337,11 +337,14 @@ const ProductPage: React.FC = () => {
   const blankUnit = blankPricing ? blankUnitPriceDollars(blankPricing, selectedSize, selectedColor) : null
   const blankFrom = blankPricing ? blankFromPriceDollars(blankPricing) : null
   const blankTier = isBlank ? blankTierById(product.metadata?.garment?.tier) : null
-  // Colour NAME → swatch hex for blanks (products.colors holds Jiffy names).
+  // Colour NAME → swatch hex (and, when rendered, the colour's own product
+  // shot) for blanks (products.colors holds Jiffy names).
   const blankSwatches: Record<string, string> = {}
+  const blankColorImages: Record<string, string> = {}
   if (isBlank && Array.isArray(product.metadata?.garment?.colors)) {
     for (const c of product.metadata.garment.colors) {
       if (c?.name && c?.hex) blankSwatches[String(c.name)] = String(c.hex)
+      if (c?.name && typeof c?.image === 'string' && c.image) blankColorImages[String(c.name)] = String(c.image)
     }
   }
 
@@ -364,9 +367,16 @@ const ProductPage: React.FC = () => {
   // gallery contract, and older published rows predate it), so surface it here
   // rather than silently having nothing to switch to.
   const pocketShotUrl = placementShots.pocket
-  const galleryImages = pocketShotUrl && !baseGallery.includes(pocketShotUrl)
-    ? [...baseGallery, pocketShotUrl]
+  // Blank garments: the picked colour's render takes the hero slot so the main
+  // image follows the swatch (scripts/render-blank-colors.ts writes one per
+  // colour; seed-blanks.ts records it on metadata.garment.colors[].image).
+  const blankColorShot = isBlank && selectedColor ? blankColorImages[selectedColor] : undefined
+  const galleryWithColor = blankColorShot
+    ? [blankColorShot, ...baseGallery.filter(u => u !== blankColorShot)]
     : baseGallery
+  const galleryImages = pocketShotUrl && !galleryWithColor.includes(pocketShotUrl)
+    ? [...galleryWithColor, pocketShotUrl]
+    : galleryWithColor
   const heroVideoUrl = typeof (product?.metadata as Record<string, unknown> | undefined)?.hero_video_url === 'string'
     ? String((product?.metadata as Record<string, unknown>).hero_video_url)
     : undefined
@@ -821,7 +831,12 @@ const ProductPage: React.FC = () => {
                     return (
                       <button
                         key={color}
-                        onClick={() => setSelectedColor(color)}
+                        onClick={() => {
+                          setSelectedColor(color)
+                          // A blank with a render for this colour puts it in
+                          // the hero slot — make sure the hero is what's showing.
+                          if (isBlank && blankColorImages[color]) { setSelectedImage(0); setVideoActive(false) }
+                        }}
                         title={label}
                         aria-label={`Select ${label}`}
                         className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all ${

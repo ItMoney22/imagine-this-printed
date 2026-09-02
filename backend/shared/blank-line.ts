@@ -443,3 +443,9 @@ export function blankTierById(id: string | null | undefined): BlankTierSpec | nu
 export function compareToLabel(tier: Pick<BlankTierSpec, 'compareTo'>): string {
   return `Compared to ${tier.compareTo.brand} ${tier.compareTo.style}`
 }
+
+/** URL-safe slug for a colour name: "Sport Gray" -> "sport-gray". Used for
+ *  public/blanks/<tier-slug>/<colour-slug>.webp (render-blank-colors.ts + seed). */
+export function colorSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+}
