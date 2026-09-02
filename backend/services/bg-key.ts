@@ -94,3 +94,126 @@ export async function keyOutSolidBackground(
     .png()
     .toBuffer()
 }
+
+/** Distance-from-background for one pixel: 0 == exactly the background colour. */
+function bgKey(r: number, g: number, b: number, bg: SolidBg): number {
+  return bg === 'black' ? Math.max(r, g, b) : 255 - Math.min(r, g, b)
+}
+
+/**
+ * Knock out a solid background using CONNECTIVITY, not just colour.
+ *
+ * `keyOutSolidBackground` above keys on colour alone, which cannot tell a black
+ * BACKGROUND from black ARTWORK. On the Stoic Samurai design (generated on solid
+ * black) it ghosted 71% of the dark artwork — the samurai's hair came out white
+ * and his navy armour washed out — because those pixels are as close to black as
+ * the background is.
+ *
+ * The background is not "everything dark", it is "the dark region CONNECTED TO
+ * THE BORDER". So:
+ *   1. Flood-fill inward from the image border through near-background pixels.
+ *      Dark artwork enclosed by lighter artwork (hair inside a head) is never
+ *      reached, so it keeps full alpha.
+ *   2. Enclosed pockets are background too when their mean ink matches the
+ *      measured border background — a hole inside a branch is the same ink as
+ *      the field around it (0.61 vs a 0.44 border mean on the samurai), while
+ *      hair pockets sit well above it (4.4-9.0). `purityMargin` is that
+ *      tolerance; at +3 the samurai loses 8px of hair and every branch hole.
+ *   3. Only pixels judged background get the soft alpha ramp, so edges stay
+ *      anti-aliased.
+ *
+ * Crucially this is per-pixel, not per-subject: disconnected decorative art (the
+ * cherry-blossom branch, the falling petals) survives, which is exactly what AI
+ * subject segmentation destroys.
+ *
+ * `candidate` is the "could be background" cutoff used for the fill. Keep it
+ * tight — at the old hi of 56 the fill leaked through the dark navy robe.
+ */
+export async function keyOutConnectedBackground(
+  input: Buffer,
+  bg: SolidBg,
+  opts: { lo?: number; hi?: number; candidate?: number; purityMargin?: number } = {}
+): Promise<Buffer> {
+  const lo = opts.lo ?? 2
+  const hi = opts.hi ?? 16
+  const candidate = opts.candidate ?? Math.max(hi, 16)
+  const purityMargin = opts.purityMargin ?? 3
+  const span = Math.max(1, hi - lo)
+
+  const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const { width: W, height: H } = info
+  const ch = info.channels
+  const n = W * H
+
+  const isCandidate = new Uint8Array(n)
+  for (let p = 0; p < n; p++) {
+    const i = p * ch
+    if (bgKey(data[i], data[i + 1], data[i + 2], bg) <= candidate) isCandidate[p] = 1
+  }
+
+  // 1. Flood-fill from every border pixel that could be background.
+  const isBg = new Uint8Array(n)
+  const stack = new Int32Array(n)
+  let sp = 0
+  const push = (p: number) => { if (!isBg[p] && isCandidate[p]) { isBg[p] = 1; stack[sp++] = p } }
+  for (let x = 0; x < W; x++) { push(x); push((H - 1) * W + x) }
+  for (let y = 0; y < H; y++) { push(y * W); push(y * W + W - 1) }
+  while (sp > 0) {
+    const p = stack[--sp]
+    const x = p % W, y = (p / W) | 0
+    if (x > 0) push(p - 1)
+    if (x < W - 1) push(p + 1)
+    if (y > 0) push(p - W)
+    if (y < H - 1) push(p + W)
+  }
+
+  // The border background's own mean ink — the reference every pocket is judged against.
+  let borderSum = 0, borderCount = 0
+  for (let p = 0; p < n; p++) {
+    if (!isBg[p]) continue
+    const i = p * ch
+    borderSum += bgKey(data[i], data[i + 1], data[i + 2], bg)
+    borderCount++
+  }
+  // Nothing reachable => the border isn't background after all; leave the image alone
+  // rather than punch holes in it. (detectSolidBg normally prevents this.)
+  if (!borderCount) return sharp(data, { raw: { width: W, height: H, channels: ch } }).png().toBuffer()
+  const purityCutoff = borderSum / borderCount + purityMargin
+
+  // 2. Enclosed pockets made of the same ink as the background are background.
+  const compId = new Int32Array(n).fill(-1)
+  const compIsBg: boolean[] = []
+  for (let seed = 0; seed < n; seed++) {
+    if (!isCandidate[seed] || isBg[seed] || compId[seed] !== -1) continue
+    const id = compIsBg.length
+    let size = 0, sum = 0
+    sp = 0
+    compId[seed] = id
+    stack[sp++] = seed
+    while (sp > 0) {
+      const p = stack[--sp]
+      const i = p * ch
+      size++
+      sum += bgKey(data[i], data[i + 1], data[i + 2], bg)
+      const x = p % W, y = (p / W) | 0
+      const neighbours = [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, y > 0 ? p - W : -1, y < H - 1 ? p + W : -1]
+      for (const q of neighbours) {
+        if (q >= 0 && isCandidate[q] && !isBg[q] && compId[q] === -1) { compId[q] = id; stack[sp++] = q }
+      }
+    }
+    compIsBg.push(sum / size <= purityCutoff)
+  }
+
+  // 3. Ramp alpha on background pixels only; artwork keeps the alpha it had.
+  for (let p = 0; p < n; p++) {
+    const id = compId[p]
+    const background = isBg[p] === 1 || (id !== -1 && compIsBg[id])
+    if (!background) continue
+    const i = p * ch
+    const k = bgKey(data[i], data[i + 1], data[i + 2], bg)
+    const aMul = k <= lo ? 0 : k >= hi ? 1 : (k - lo) / span
+    data[i + 3] = Math.round(data[i + 3] * aMul)
+  }
+
+  return sharp(data, { raw: { width: W, height: H, channels: ch } }).png().toBuffer()
+}

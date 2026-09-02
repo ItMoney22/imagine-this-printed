@@ -3,6 +3,7 @@ import { generateMockup, removeBackgroundSync, upscaleImage, getPrediction, GHOS
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
 import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { detectSolidBg, keyOutConnectedBackground } from '../services/bg-key.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, COLOR4_CLAUSE, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
@@ -900,11 +901,19 @@ export async function processRemoveBgJob(job: any): Promise<void> {
   }
 
   try {
-    // Remove background via Replicate 851-labs (returns a URL). Switched off
-    // Remove.bg — that account has 0 credits so every call 402'd. Replicate is
-    // already in the bill (~$0.001/call) and gives full-res RGBA output.
-    await updateJobProgress(job.id, '✂️ Removing background with AI...', 2, 3)
-    const rembgUrl = await removeBackgroundSync(sourceAsset.url)
+    // Two ways to strip a background, and picking the wrong one destroys art.
+    //
+    // Our designs are generated on a SOLID shirt-colour field, so the correct
+    // tool is a colour key: it judges every pixel on its own and keeps all of
+    // them. AI subject segmentation instead keeps THE most salient subject and
+    // discards the rest, which is why the Stoic Samurai design lost its
+    // cherry-blossom branch - the branch was a separate island of artwork, so
+    // the model read it as background (blossom quadrant: 7.4% kept by the AI
+    // vs 37.6% by the key). No setting on that model changes this.
+    //
+    // So: colour-key a solid background, and fall back to AI segmentation only
+    // for the complex/photographic sources it is actually right for.
+    await updateJobProgress(job.id, '✂️ Removing background...', 2, 3)
 
     // Generate organized path for GCS
     const productSlug = await getProductSlug(job.product_id)
@@ -912,11 +921,29 @@ export async function processRemoveBgJob(job: any): Promise<void> {
     const filename = `${productSlug}-transparent-${timestamp}.png`
     const gcsPath = `graphics/${productSlug}/transparent/${filename}`
 
-    console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
-    await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
+    let sourceBuffer: Buffer | null = null
+    try {
+      const res = await fetch(sourceAsset.url)
+      if (res.ok) sourceBuffer = Buffer.from(await res.arrayBuffer())
+    } catch (e: any) {
+      console.warn('[worker] ⚠️ Could not fetch source for colour-key test:', e?.message)
+    }
+    const solidBg = sourceBuffer ? await detectSolidBg(sourceBuffer) : null
 
-    // Persist the Replicate output to Google Cloud Storage
-    const { publicUrl, path } = await uploadImageFromUrl(rembgUrl, gcsPath)
+    let publicUrl: string
+    let path: string
+    if (sourceBuffer && solidBg) {
+      console.log(`[worker] 🎨 Solid ${solidBg} background - colour-key knockout (keeps disconnected art)`)
+      const keyed = await keyOutConnectedBackground(sourceBuffer, solidBg)
+      await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
+      ;({ publicUrl, path } = await uploadImageFromBuffer(keyed, gcsPath, 'image/png'))
+    } else {
+      console.log('[worker] 🎨 Non-solid background - falling back to AI subject segmentation')
+      const rembgUrl = await removeBackgroundSync(sourceAsset.url)
+      console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
+      await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
+      ;({ publicUrl, path } = await uploadImageFromUrl(rembgUrl, gcsPath))
+    }
 
     console.log('[worker] ✅ No-background image uploaded to GCS:', publicUrl)
 

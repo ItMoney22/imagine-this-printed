@@ -1,4 +1,52 @@
 # TASK_NOTES
+
+## Current request (2026-09-02) — background removal is eating disconnected art
+
+David: "i did a design i really liked but when it did the background removal it
+took out the best thing i liked which was the cherry blossms ... when we remove
+bg it takes the blossms out and i want them in ofc."
+
+Product: **Stoic Samurai Cherry Blossom Tee** (385df0ea-b6de-4d45-88b7-e33feb7ed821).
+
+### Root cause (verified on the live assets, 2026-09-02)
+The admin/Mrs. Imagine/Step-Flow rembg path calls `removeBackgroundSync()` →
+Replicate `851-labs/background-remover`, which is a **salient-subject
+segmenter**, not a background keyer. It keeps THE subject (the samurai) and
+discards everything else, so the cherry-blossom branch — spatially disconnected
+from him — was classified as background and deleted. Measured on the live nobg
+asset: the blossom quadrant is 7.4% opaque vs 37.6% after the fix. The model
+exposes no setting that changes this (only `threshold`, which controls mask
+hardness, confirmed against the live Replicate schema).
+
+`bg-key.ts` already solved this for Imagination Station (colour-key knockout),
+but the product-builder worker never got it.
+
+### Why the existing colour key was not enough on its own
+The source is generated on SOLID BLACK. A pure luma key cannot tell black
+background from black hair: `keyOutSolidBackground` defaults (lo 12 / hi 56)
+ghosted 71% of the dark artwork — his hair came out white and the navy armour
+washed out. Fix is connectivity + purity:
+- background = near-black **reachable from the image border** (protects interior
+  darks like hair, which are enclosed by artwork), and
+- enclosed pockets whose mean ink matches the measured border background
+  (border mean 0.44; the branch hole 0.61 → background; hair pockets 4.4-9.0 →
+  artwork). Clearing at borderMean+3 costs 8px of hair.
+Result: dark ghosting 71% → 18.7%, blossom quadrant 7.4% → 37.6%.
+
+### File shortlist (approved scope — 2026-09-02 bg removal)
+- `backend/services/bg-key.ts` (add connected/purity keyer)
+- `backend/services/bg-key.test.ts` (new)
+- `backend/worker/ai-jobs-worker.ts` (`processRemoveBgJob` → try colour key
+  first, AI segmentation only as the fallback for photo backgrounds)
+- `TASK_NOTES.md`
+- One-off recovery of the product above (re-key its `source` asset, replace the
+  `nobg` asset) — live data, David approved.
+
+### Known follow-up (NOT in this scope)
+`imagination-ai.ts` still calls the old `keyOutSolidBackground`, so the
+Imagination Station path has the same hair-ghosting weakness. Flagged, not
+changed.
+
 ## Current request (2026-09-01) — photo → printable product pipeline (design only)
 
 David: "a customer sent me a photo and asked me to make this ... how do we make
