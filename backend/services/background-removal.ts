@@ -19,12 +19,20 @@
 // complex/photographic sources it is genuinely good at - a user-uploaded photo
 // has no flat field to key.
 //
+// The two are not purely alternatives, though. A key cannot keep line work drawn
+// in the FIELD'S OWN COLOUR - black outlines on a black field are the same
+// pixels as the background and drain out with it - and that is precisely what
+// segmentation, which reasons about the subject's shape, gets right. So on a
+// solid field the key does the cut and the mask is then allowed to fill ink back
+// in strictly INSIDE it (see restoreEnclosedInk). Each tool contributes only
+// what it is good at; neither can undo the other.
+//
 // Every caller goes through here so the behaviour cannot drift apart again.
 
-import { detectSolidBg, keyOutConnectedBackground, type SolidBg } from './bg-key.js'
+import { detectSolidBg, keyOutConnectedBackground, restoreEnclosedInk, type SolidBg } from './bg-key.js'
 import { removeBackgroundSync } from './replicate.js'
 
-export type BgRemovalMethod = 'color-key' | 'ai-segmentation'
+export type BgRemovalMethod = 'color-key' | 'color-key+ai-ink' | 'ai-segmentation'
 
 export interface BgRemovalResult {
   /** The transparent PNG. Callers upload this wherever it belongs. */
@@ -65,7 +73,27 @@ export async function removeBackgroundToBuffer(imageUrl: string, label = 'bg'): 
   const background = source ? await detectSolidBg(source) : null
   if (source && background) {
     console.log(`[${label}] solid ${background} background -> colour key (keeps disconnected art)`)
-    return { buffer: await keyOutConnectedBackground(source, background), method: 'color-key', background }
+    const keyed = await keyOutConnectedBackground(source, background)
+
+    // Second opinion, for the ink the key is blind to by construction. Failing
+    // here is not fatal - the keyed cut is already a correct cut, just a thinner
+    // one on line art - so log and ship it rather than losing the whole job.
+    try {
+      const maskUrl = await removeBackgroundSync(imageUrl)
+      const res = await fetch(maskUrl)
+      if (!res.ok) throw new Error(`mask fetch failed (${res.status})`)
+      const merged = await restoreEnclosedInk(keyed, Buffer.from(await res.arrayBuffer()))
+      if (merged.restored > 0) {
+        console.log(`[${label}] segmentation restored ${(merged.restored * 100).toFixed(2)}% ` +
+          `of the image as field-coloured ink inside the artwork`)
+        return { buffer: merged.buffer, method: 'color-key+ai-ink', background }
+      }
+    } catch (e: any) {
+      console.error(`[${label}] ink pass skipped: ${e?.message} - shipping the colour key alone, ` +
+        `which can look thin wherever the art is drawn in the field's own colour`)
+    }
+
+    return { buffer: keyed, method: 'color-key', background }
   }
 
   console.log(`[${label}] no solid background -> AI subject segmentation`)

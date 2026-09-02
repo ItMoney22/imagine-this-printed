@@ -34,7 +34,8 @@ washed out. Fix is connectivity + purity:
 Result: dark ghosting 71% → 18.7%, blossom quadrant 7.4% → 37.6%.
 
 ### File shortlist (approved scope — 2026-09-02 bg removal)
-- `backend/services/bg-key.ts` (add connected/purity keyer)
+- `backend/services/bg-key.ts` (connected/purity keyer; robust `detectSolidBg`;
+  `restoreEnclosedInk`)
 - `backend/services/bg-key.test.ts` (new)
 - `backend/worker/ai-jobs-worker.ts` (`processRemoveBgJob` → try colour key
   first, AI segmentation only as the fallback for photo backgrounds)
@@ -118,6 +119,72 @@ gray background by defult since black is a key in this design".
    "halftone" at 0.38. It halftoned crisp comic line art and all but erased it.
    Print advice now judges the source. Deleted the ghosted nobg and the
    halftone print file built from it.
+
+### Gnome Abduction (2026-09-02) - the GATE was wrong, not the keyer
+David: "we really need to fix this background removal it keeps taking our key
+things in our flow". The transparent print file for **Gnome Abduction:
+Intergalactic Garden Tour** (5f60fbd0-8b3b-4be7-a5d8-52d96f724ee3) had lost the
+whole left speech bubble - "WHAT ARE YOU DOING WITH THE GARDEN DECORATIONS?" -
+plus several sparkles.
+
+**Root cause: `detectSolidBg` rejected a dead-flat black field.** The cut really
+was AI segmentation (the nobg row's metadata was `{}`, i.e. written by the
+pre-f6f8bfe insert, so that build was still live ~2h after the commit). But the
+fix already deployed would not have helped, because the gate itself says no on
+this design: measured on the live source, the border median is **0.4** while the
+mean is **19.0** and the deviation **48.9**, just past the old `std > 45`
+rejection - dragged there by the lime tractor beam and its sparkles crossing the
+bottom edge (11.7% of the ring at luma ~172). The field is as flat as a field
+gets; only the bleed-through art is not. This is the SAME failure the keyer's
+thresholds were already fixed for on 2026-09-01 (mean -> median); the gate that
+decides which tool runs never got the same treatment.
+
+`detectSolidBg` now measures the field the same robust way: median for the level,
+then the field must own at least half the ring and be FLAT (spread <= 12).
+Calibrated on the live catalogue, not invented: real fields spread 0.1-9.6,
+photographic borders 14.6-24.9, nothing in between.
+
+**Replayed against every design that has a real cut on file (71): 3 rescued
+(Gnome Abduction, Witty Brain Tee, Daily Shitstorm Survivor Club), 0 sent the
+other way.** Strictly additive.
+
+### ...and the second half: a key cannot keep black ink on a black field
+Fixing the gate alone would have traded one visible defect for another. Keyed,
+this design loses **39,759 px of line work** - the saucer's shadow bands, the
+gnome's outlines, the streaks inside the beam - because that ink IS the
+background colour and drains out through the same connected black. On white it
+reads as washed-out grey outlines. Segmentation kept every one of those pixels
+and threw away the bubble instead. Measured both ways on the real asset:
+
+| | speech bubble | black line work |
+|---|---|---|
+| AI segmentation | deleted (1.4% of its box) | kept |
+| colour key | kept (25.4%) | 39,759 px drained |
+| both, merged | kept | kept |
+
+So on a solid field the key now does the cut and the segmentation mask is allowed
+to fill ink back in **strictly inside it** (`restoreEnclosedInk`): a mask pixel
+counts only where the cut already has artwork above, below, left AND right of it.
+That enclosure rule is the whole safety argument - a halo pixel has open field on
+at least one side, so a segmenter's smeared boundary can never come back, and the
+mask can only ever ADD alpha, never remove any. Method is recorded as
+`color-key+ai-ink`.
+
+Stress-tested against the designs most at risk of a segmenter filling in holes
+that should print as garment: Stoic Samurai (the branch), Neon Koi Galaxy (29%
+enclosed black), Golf Dad Polo (white field). All three restored 0.23-0.26% and
+nothing filled; the gnome restored 4.62%. The samurai came out BETTER - it keeps
+its branch and gets its hair ink back.
+
+Cost: one Replicate call per solid-field cut, which is what every cut did before
+2026-09-02 anyway. If it fails the keyed cut still ships (logged, method stays
+`color-key`).
+
+- Re-cut the live asset: new nobg written with `bg_removal_method:
+  color-key+ai-ink`, stale one deleted. Verified on white/grey/black - both
+  bubbles, full line work, no halo.
+- Not fixed, pre-existing: the Golf Dad Polo source carries a PAINTED
+  checkerboard that no cut removes. See [[itp-design-qa-transparency-gap]].
 
 ### Known follow-up (NOT in this scope)
 - The 69 products above still carry AI-stripped print files (see Backfill).

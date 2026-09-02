@@ -34,8 +34,40 @@ export async function transparentFraction(input: Buffer): Promise<number> {
  * Detect a near-solid black or white background by sampling the image border.
  * Returns null when the border isn't a uniform black/white field (e.g. a photo
  * or a busy edge) — caller should fall back to AI segmentation then.
+ *
+ * This gate decides WHICH TOOL RUNS, so getting it wrong is expensive: a null
+ * here sends the design to AI subject segmentation, which deletes any artwork
+ * detached from the main subject.
+ *
+ * It cannot be judged on the border's mean and standard deviation, which is how
+ * the Gnome Abduction design lost its left speech bubble. Artwork routinely runs
+ * off the edge of the frame — there, a lime tractor beam and the sparkles around
+ * it cross the bottom edge. That is 11.7% of the border ring at luma ~172 on a
+ * field whose median is 0.4, which drags the mean to 19 and the deviation to
+ * 48.9, just past the old std > 45 rejection. The field is as flat as a field
+ * gets; only the bleed-through art is not. So the measurement has to be robust
+ * to that art the same way `keyOutConnectedBackground` already is:
+ *
+ *   1. The MEDIAN is the field's level (bleed-through art is the distribution's
+ *      tail, and a median ignores tails).
+ *   2. The field must OWN the border — at least half of the ring sits within
+ *      `FIELD_TOL` of that level. Art may bleed, it just cannot be most of the
+ *      edge.
+ *   3. Those field pixels must be FLAT. This is what separates a real field
+ *      from a photograph: measured across the live catalogue, genuine solid
+ *      fields spread 0.1-9.6 while photographic borders (a misty lake, a desert
+ *      sunset, a forest silhouette) spread 14.6-24.9. Nothing lands in between,
+ *      so the cutoff sits in that gap.
  */
 export async function detectSolidBg(input: Buffer): Promise<SolidBg | null> {
+  /** How far off the field's own level a pixel can sit and still be field. */
+  const FIELD_TOL = 40
+  /** The field has to be most of the border, not a flat corner of it. */
+  const MIN_FIELD_SHARE = 0.5
+  /** Flatness of the field itself. 12 is the empty gap between our designs
+   *  (<= 9.6) and photographic borders (>= 14.6) across the live catalogue. */
+  const MAX_FIELD_SPREAD = 12
+
   try {
     const { data, info } = await sharp(input)
       .ensureAlpha()
@@ -52,12 +84,20 @@ export async function detectSolidBg(input: Buffer): Promise<SolidBg | null> {
     for (let x = 0; x < width; x++) { push(x, 0); push(x, height - 1) }
     for (let y = 0; y < height; y++) { push(0, y); push(width - 1, y) }
     if (lumas.length < 24) return null
-    const avg = lumas.reduce((a, b) => a + b, 0) / lumas.length
-    const std = Math.sqrt(lumas.reduce((a, b) => a + (b - avg) ** 2, 0) / lumas.length)
-    if (std > 45) return null // border isn't uniform → not a solid bg
-    if (avg < 50) return 'black'
-    if (avg > 205) return 'white'
-    return null
+
+    const sorted = [...lumas].sort((a, b) => a - b)
+    const level = sorted[sorted.length >> 1]
+    const field: SolidBg | null = level < 50 ? 'black' : level > 205 ? 'white' : null
+    if (!field) return null
+
+    const onField = lumas.filter((l) => Math.abs(l - level) <= FIELD_TOL)
+    if (onField.length / lumas.length < MIN_FIELD_SHARE) return null
+
+    const avg = onField.reduce((a, b) => a + b, 0) / onField.length
+    const spread = Math.sqrt(onField.reduce((a, b) => a + (b - avg) ** 2, 0) / onField.length)
+    if (spread > MAX_FIELD_SPREAD) return null
+
+    return field
   } catch {
     return null
   }
@@ -253,4 +293,78 @@ export async function keyOutConnectedBackground(
   }
 
   return sharp(data, { raw: { width: W, height: H, channels: ch } }).png().toBuffer()
+}
+
+/**
+ * Put the line work an AI segmentation mask is confident about back INSIDE a
+ * colour-keyed cut, without letting it touch the cut's outline.
+ *
+ * The two tools fail in opposite directions. A colour key judges every pixel on
+ * its own, so it keeps artwork that floats free of the subject — but it cannot
+ * keep black line work drawn on a black field, because that ink IS the
+ * background colour and it drains out through the same connected black:
+ * outlines, hatching, shadow bands. On the Gnome Abduction design that cost
+ * 39,759 px — the saucer's shadow bands, the gnome's outlines, the streaks
+ * inside the tractor beam — while segmentation kept every one of them and threw
+ * away the speech bubble instead. No local signal separates that ink from the
+ * field (it is the same colour); only the shape of the whole subject does, which
+ * is the one thing segmentation is genuinely good at.
+ *
+ * So take each tool's strength and nothing else:
+ *   - the KEY owns the silhouette and the alpha ramp on it,
+ *   - the MASK may only fill in ink ENCLOSED by that silhouette — artwork above,
+ *     below, left and right of the pixel.
+ *
+ * That enclosure rule is what makes this safe. A segmenter's soft boundary
+ * smears background into the subject, and a plain union of the two alphas would
+ * take that at face value and print it as the dark halo this module was written
+ * to get rid of. A halo pixel sits OUTSIDE the artwork — open field on at least
+ * one side — so it can never satisfy the test, while ink inside the drawing
+ * always does. `minMaskAlpha` drops the mask's soft edge for the same reason.
+ *
+ * Returns the fraction of the image the mask restored, which is worth logging:
+ * it is zero on the flat-colour designs the key already handles alone.
+ */
+export async function restoreEnclosedInk(
+  keyed: Buffer,
+  mask: Buffer,
+  minMaskAlpha = 200
+): Promise<{ buffer: Buffer; restored: number }> {
+  const cut = await sharp(keyed).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const { width: W, height: H } = cut.info
+  const n = W * H
+  const m = await sharp(mask).ensureAlpha().resize(W, H, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true })
+
+  const isArt = new Uint8Array(n)
+  for (let p = 0; p < n; p++) if (cut.data[p * 4 + 3] > 200) isArt[p] = 1
+
+  // Is there artwork somewhere to the left / right / above / below this pixel?
+  const left = new Uint8Array(n), right = new Uint8Array(n), up = new Uint8Array(n), down = new Uint8Array(n)
+  for (let y = 0; y < H; y++) {
+    let seen = 0
+    for (let x = 0; x < W; x++) { const p = y * W + x; left[p] = seen; if (isArt[p]) seen = 1 }
+    seen = 0
+    for (let x = W - 1; x >= 0; x--) { const p = y * W + x; right[p] = seen; if (isArt[p]) seen = 1 }
+  }
+  for (let x = 0; x < W; x++) {
+    let seen = 0
+    for (let y = 0; y < H; y++) { const p = y * W + x; up[p] = seen; if (isArt[p]) seen = 1 }
+    seen = 0
+    for (let y = H - 1; y >= 0; y--) { const p = y * W + x; down[p] = seen; if (isArt[p]) seen = 1 }
+  }
+
+  let restored = 0
+  for (let p = 0; p < n; p++) {
+    const i = p * 4
+    const ma = m.data[i + 3]
+    if (ma < minMaskAlpha || ma <= cut.data[i + 3]) continue
+    if (!(left[p] && right[p] && up[p] && down[p])) continue
+    cut.data[i + 3] = ma
+    restored++
+  }
+
+  return {
+    buffer: await sharp(cut.data, { raw: { width: W, height: H, channels: 4 } }).png().toBuffer(),
+    restored: restored / n,
+  }
 }
