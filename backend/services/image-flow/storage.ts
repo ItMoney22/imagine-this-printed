@@ -1,7 +1,7 @@
 // Storage adapter — wraps existing GCS helpers for the image-flow module.
 // Replaces Watchtower's R2 with ITP's GCS bucket.
 
-import { uploadImageFromUrl } from '../google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBuffer } from '../google-cloud-storage.js'
 import type { Purpose } from './models.js'
 
 export interface ImageFlowKeyParts {
@@ -36,4 +36,14 @@ export async function getReadUrl(_path: string, _ttlSeconds = 3600): Promise<str
   // stored on product_assets.url. For now, callers should use that stored URL.
   // Hook left in for parity with Watchtower's getPresignedReadUrl.
   throw new Error('getReadUrl not implemented — use the URL returned at upload time')
+}
+
+/** Upload an image already in memory. Used by the background-removal path,
+ *  which resolves to a buffer so colour-key and AI results upload identically. */
+export async function uploadFromBuffer(opts: {
+  key: string
+  buffer: Buffer
+  contentType?: string
+}): Promise<{ publicUrl: string; path: string }> {
+  return uploadImageFromBuffer(opts.buffer, opts.key, opts.contentType ?? 'image/png')
 }

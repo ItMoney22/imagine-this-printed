@@ -126,24 +126,61 @@ function bgKey(r: number, g: number, b: number, bg: SolidBg): number {
  * cherry-blossom branch, the falling petals) survives, which is exactly what AI
  * subject segmentation destroys.
  *
- * `candidate` is the "could be background" cutoff used for the fill. Keep it
+ * All three thresholds are measured RELATIVE to the background's own ink level,
+ * which is sampled from the border ring first. They cannot be absolute: the
+ * Aqua Sprinter Cheetah design sits on a black field that is actually ~12/255,
+ * and against a fixed ramp of 2..16 those pixels scored 71% opaque, so the
+ * "removed" background came out dark grey. Offsetting from the measured level
+ * keys that field to zero while leaving a near-pure-black field (the samurai's,
+ * at 0.4) behaving exactly as before.
+ *
+ * `candidate` is the "could be background" offset used for the fill. Keep it
  * tight — at the old hi of 56 the fill leaked through the dark navy robe.
  */
 export async function keyOutConnectedBackground(
   input: Buffer,
   bg: SolidBg,
+  /** All offsets ABOVE the background's measured ink level, not absolute values. */
   opts: { lo?: number; hi?: number; candidate?: number; purityMargin?: number } = {}
 ): Promise<Buffer> {
-  const lo = opts.lo ?? 2
-  const hi = opts.hi ?? 16
-  const candidate = opts.candidate ?? Math.max(hi, 16)
   const purityMargin = opts.purityMargin ?? 3
-  const span = Math.max(1, hi - lo)
 
   const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const { width: W, height: H } = info
   const ch = info.channels
   const n = W * H
+
+  // How far off the pure background colour this image's field actually sits.
+  // Every threshold below is an offset from here, not an absolute value.
+  //
+  // MEDIAN, not mean: artwork frequently runs off the edge of the frame (the
+  // samurai's blossom branch does), and those bright border pixels drag a mean
+  // far above the real field - his border averages 8.3 while its 5th through
+  // 75th percentiles are all 0. Keying off that inflated number erased his
+  // hair. The median ignores the tail and reads 0 for him and 12 for the Aqua
+  // Sprinter Cheetah, which is exactly what each one needs.
+  const ringKeys: number[] = []
+  const sampleRing = (x: number, y: number) => {
+    const i = (y * W + x) * ch
+    if (data[i + 3] < 16) return
+    ringKeys.push(bgKey(data[i], data[i + 1], data[i + 2], bg))
+  }
+  for (let x = 0; x < W; x++) { sampleRing(x, 0); sampleRing(x, H - 1) }
+  for (let y = 0; y < H; y++) { sampleRing(0, y); sampleRing(W - 1, y) }
+  ringKeys.sort((a, b) => a - b)
+  const median = ringKeys.length ? ringKeys[ringKeys.length >> 1] : 0
+  // Bounded on purpose. Adapting to ANY border colour would let a full-bleed
+  // image (uniform border, but the border IS artwork) drag the thresholds up to
+  // its own ink level and erase the whole picture. 60 is the same tolerance
+  // detectSolidBg uses to call a field black or white in the first place, so
+  // anything past it is not a background this keyer should be touching.
+  const MAX_BASE = 60
+  const base = Math.min(median, MAX_BASE)
+
+  const lo = base + (opts.lo ?? 2)
+  const hi = base + (opts.hi ?? 16)
+  const candidate = base + (opts.candidate ?? 16)
+  const span = Math.max(1, hi - lo)
 
   const isCandidate = new Uint8Array(n)
   for (let p = 0; p < n; p++) {

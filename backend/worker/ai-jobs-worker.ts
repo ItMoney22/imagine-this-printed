@@ -1,9 +1,9 @@
 import { supabase } from '../lib/supabase.js'
-import { generateMockup, removeBackgroundSync, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { generateMockup, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
 import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
-import { detectSolidBg, keyOutConnectedBackground } from '../services/bg-key.js'
+import { removeBackgroundToBuffer } from '../services/background-removal.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, COLOR4_CLAUSE, type Style3D } from '../services/nano-banana-3d.js'
 import { generate3DModel } from '../services/trellis-client.js'
@@ -15,6 +15,7 @@ import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
 import { claimOnce } from '../lib/webhook-helpers.js'
+import sharp from 'sharp'
 import Replicate from 'replicate'
 
 // Initialize Replicate client for NanoBanana
@@ -901,18 +902,10 @@ export async function processRemoveBgJob(job: any): Promise<void> {
   }
 
   try {
-    // Two ways to strip a background, and picking the wrong one destroys art.
-    //
-    // Our designs are generated on a SOLID shirt-colour field, so the correct
-    // tool is a colour key: it judges every pixel on its own and keeps all of
-    // them. AI subject segmentation instead keeps THE most salient subject and
-    // discards the rest, which is why the Stoic Samurai design lost its
-    // cherry-blossom branch - the branch was a separate island of artwork, so
-    // the model read it as background (blossom quadrant: 7.4% kept by the AI
-    // vs 37.6% by the key). No setting on that model changes this.
-    //
-    // So: colour-key a solid background, and fall back to AI segmentation only
-    // for the complex/photographic sources it is actually right for.
+    // Which tool strips the background is decided in one place for the whole
+    // site (services/background-removal.ts): a colour key for our solid
+    // shirt-colour fields, AI segmentation only for photographic sources.
+    // Getting this wrong is what deleted the cherry-blossom branch.
     await updateJobProgress(job.id, '✂️ Removing background...', 2, 3)
 
     // Generate organized path for GCS
@@ -921,29 +914,10 @@ export async function processRemoveBgJob(job: any): Promise<void> {
     const filename = `${productSlug}-transparent-${timestamp}.png`
     const gcsPath = `graphics/${productSlug}/transparent/${filename}`
 
-    let sourceBuffer: Buffer | null = null
-    try {
-      const res = await fetch(sourceAsset.url)
-      if (res.ok) sourceBuffer = Buffer.from(await res.arrayBuffer())
-    } catch (e: any) {
-      console.warn('[worker] ⚠️ Could not fetch source for colour-key test:', e?.message)
-    }
-    const solidBg = sourceBuffer ? await detectSolidBg(sourceBuffer) : null
-
-    let publicUrl: string
-    let path: string
-    if (sourceBuffer && solidBg) {
-      console.log(`[worker] 🎨 Solid ${solidBg} background - colour-key knockout (keeps disconnected art)`)
-      const keyed = await keyOutConnectedBackground(sourceBuffer, solidBg)
-      await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
-      ;({ publicUrl, path } = await uploadImageFromBuffer(keyed, gcsPath, 'image/png'))
-    } else {
-      console.log('[worker] 🎨 Non-solid background - falling back to AI subject segmentation')
-      const rembgUrl = await removeBackgroundSync(sourceAsset.url)
-      console.log('[worker] 📤 Uploading no-background image to GCS:', gcsPath)
-      await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
-      ;({ publicUrl, path } = await uploadImageFromUrl(rembgUrl, gcsPath))
-    }
+    const removal = await removeBackgroundToBuffer(sourceAsset.url, 'worker/rembg')
+    const dims = await sharp(removal.buffer).metadata()
+    await updateJobProgress(job.id, '📤 Uploading transparent PNG to cloud storage...', 3, 3)
+    const { publicUrl, path } = await uploadImageFromBuffer(removal.buffer, gcsPath, 'image/png')
 
     console.log('[worker] ✅ No-background image uploaded to GCS:', publicUrl)
 
@@ -955,8 +929,8 @@ export async function processRemoveBgJob(job: any): Promise<void> {
         kind: 'nobg',
         path: path,
         url: publicUrl,
-        width: 1024,
-        height: 1024,
+        width: dims.width ?? 1024,
+        height: dims.height ?? 1024,
         asset_role: 'auxiliary',
         is_primary: false,
         display_order: 99,

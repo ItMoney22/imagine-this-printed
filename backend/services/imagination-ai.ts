@@ -1,7 +1,8 @@
 // backend/services/imagination-ai.ts
 
 import Replicate from 'replicate';
-import { transparentFraction, detectSolidBg, keyOutSolidBackground } from './bg-key.js';
+import { transparentFraction } from './bg-key.js';
+import { removeBackgroundToBuffer } from './background-removal.js';
 import { createClient } from '@supabase/supabase-js';
 import { pricingService } from './imagination-pricing.js';
 import { AI_STYLES } from '../config/imagination-presets.js';
@@ -323,8 +324,9 @@ export class ImaginationAIService {
     const { userId, sheetId, layerId, imageUrl, itcBalance } = params;
     const isStandalone = layerId === 'standalone';
 
-    // Fetch the source once — reused for the transparency check, solid-bg
-    // detection, and the local color-key knockout.
+    // Fetched here for the already-transparent check below. The removal itself
+    // re-reads the source inside background-removal.ts, which owns the
+    // colour-key vs AI-segmentation decision for every path on the site.
     let sourceBuffer: Buffer | null = null;
     try {
       const resp = await fetch(imageUrl);
@@ -357,33 +359,15 @@ export class ImaginationAIService {
 
       let processedUrl: string | undefined;
 
-      // Solid black/white background → COLOR-KEY knockout. Removes ALL of the
-      // black (or white) field with a soft anti-aliased edge — which is what
-      // these DTF designs want. AI segmentation (below) leaves a dark halo and
-      // misses the inner field, so we only use it for complex/photo backgrounds.
-      const solidBg = sourceBuffer ? await detectSolidBg(sourceBuffer) : null;
-      if (sourceBuffer && solidBg) {
-        console.log(`[imagination-ai] removeBackground via color-key (${solidBg} background)`);
-        const keyed = await keyOutSolidBackground(sourceBuffer, solidBg);
-        const filename = `bg-removed-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
-        const up = await uploadImageFromBuffer(keyed, `users/${userId}/bg-removed/${filename}`, 'image/png');
-        processedUrl = up.publicUrl;
-      } else {
-        // Complex / photographic background → AI subject segmentation.
-        console.log('[imagination-ai] removeBackground via Replicate 851-labs/background-remover');
-        const replicateOutput = await replicate.run(
-          // Pinned version — version-less form 404s for this community model.
-          '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc' as `${string}/${string}:${string}`,
-          {
-            input: { image: imageUrl, format: 'png', background_type: 'rgba' },
-          }
-        );
-        const url = extractUrlString(replicateOutput);
-        if (!url) {
-          throw new Error('Background remover returned no image URL');
-        }
-        processedUrl = await persistToGCS(url, userId, 'bg-removed');
-      }
+      // Colour key vs AI segmentation is decided in one place for the whole
+      // site (background-removal.ts). The key keeps every pixel of artwork;
+      // AI segmentation keeps only the most salient subject, which silently
+      // deletes anything floating free of it.
+      const removal = await removeBackgroundToBuffer(imageUrl, 'imagination-ai/bg');
+      console.log(`[imagination-ai] removeBackground via ${removal.method}`);
+      const filename = `bg-removed-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+      const up = await uploadImageFromBuffer(removal.buffer, `users/${userId}/bg-removed/${filename}`, 'image/png');
+      processedUrl = up.publicUrl;
 
       if (!processedUrl) {
         throw new Error('Image processing completed but no output URL was produced. You were not charged.');

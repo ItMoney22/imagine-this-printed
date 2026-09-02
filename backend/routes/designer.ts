@@ -2,9 +2,9 @@ import { Router, Request, Response } from 'express'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import Replicate from 'replicate'
-import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { uploadFile } from '../services/gcs-storage.js'
-import { removeBackgroundSync } from '../services/replicate.js'
+import { removeBackgroundToBuffer } from '../services/background-removal.js'
 import { logItcTransaction } from '../utils/wallet-logger.js'
 
 const router = Router()
@@ -359,17 +359,19 @@ router.post('/remove-background', requireAuth, async (req: Request, res: Respons
       })
     }
 
-    // Step 3: Remove background via Replicate 851-labs/background-remover (sync, fractions of a cent)
-    // Replaces the Remove.bg path — Remove.bg account has ZERO credits (every `size:auto` call 402s).
-    console.log('[designer/remove-background] 🎨 Removing background via Replicate 851-labs...')
+    // Step 3: Remove the background. Which tool runs is decided centrally in
+    // services/background-removal.ts - a colour key for a solid field (keeps
+    // every piece of artwork, even parts detached from the main subject), AI
+    // subject segmentation only for photographic sources.
+    console.log('[designer/remove-background] 🎨 Removing background...')
 
-    let processedImageUrl: string
+    let removal
     try {
-      processedImageUrl = await removeBackgroundSync(originalImageGcsUrl)
+      removal = await removeBackgroundToBuffer(originalImageGcsUrl, 'designer/remove-background')
     } catch (removebgError: any) {
       console.error('[designer/remove-background] ❌ Background removal error:', removebgError)
       return res.status(500).json({
-        error: 'Failed to remove background with AI',
+        error: 'Failed to remove background',
         detail: removebgError.message
       })
     }
@@ -383,9 +385,9 @@ router.post('/remove-background', requireAuth, async (req: Request, res: Respons
 
     let finalImageUrl: string
     try {
-      console.log('[designer/remove-background] 📦 Processed image URL:', processedImageUrl.substring(0, 100))
+      console.log('[designer/remove-background] 📦 Removed via:', removal.method)
 
-      const uploadResult = await uploadImageFromUrl(processedImageUrl, destinationPath)
+      const uploadResult = await uploadImageFromBuffer(removal.buffer, destinationPath, 'image/png')
       finalImageUrl = uploadResult.publicUrl
       console.log('[designer/remove-background] ✅ Uploaded to GCS:', finalImageUrl)
     } catch (uploadError: any) {

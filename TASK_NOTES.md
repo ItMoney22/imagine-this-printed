@@ -42,10 +42,45 @@ Result: dark ghosting 71% → 18.7%, blossom quadrant 7.4% → 37.6%.
 - One-off recovery of the product above (re-key its `source` asset, replace the
   `nobg` asset) — live data, David approved.
 
+### Site-wide pass (2026-09-02, David: "fix it site wide bro")
+Four paths stripped backgrounds, three of them wrongly:
+- `worker/ai-jobs-worker.ts` (admin/Mrs. Imagine/Step Flow) - AI segmentation
+- `services/imagination-ai.ts` - colour key, but the hair-ghosting version
+- `routes/designer.ts` - AI segmentation only
+- `services/image-flow/api/bg-remove.ts` - AI segmentation only
+All four now go through `services/background-removal.ts`, which owns the one
+decision (solid field -> colour key; photographic -> AI segmentation) so they
+cannot drift apart again. `image-flow/storage.ts` gained `uploadFromBuffer`
+since the removal now resolves to a buffer either way, and bg_removal_method is
+recorded on image-flow assets so a bad cutout is traceable.
+
+### Two real bugs found by testing the fix against the whole catalogue
+1. **Absolute thresholds** - the Aqua Sprinter Cheetah sits on a field that is
+   ~12/255, not 0. Against a fixed 2..16 ramp its background scored 71% opaque
+   and came out DARK GREY. Thresholds are now offsets from the field's measured
+   level. AI segmentation had been *correct* on that design.
+2. **Mean vs median** - basing that measurement on the border MEAN regressed the
+   samurai badly (hair alpha 88.9 -> 62.9, 72.6% of dark ink erased): his branch
+   runs off the frame, so bright border pixels dragged the mean to 8.3 while the
+   field is truly 0 (p05-p75 all 0). Switched to the MEDIAN, which reads 0 for
+   him and 12 for the cheetah. Both now correct - samurai hair alpha back to
+   88.9, cheetah background fully cleared. Clamped at 60 so a full-bleed image
+   cannot adapt to its own ink and erase itself. All three are pinned by tests.
+
+### Backfill: NOT run, deliberately
+90 nobg assets across 69 products, all pre-fix. A crude "colour key keeps more
+pixels" metric flagged 82 as damaged, but spot-checking showed that metric is
+untrustworthy in both directions: on the cheetah the AI was right and the key
+was broken, and several sources carry a PAINTED checkerboard (opaque fake
+transparency) that neither tool removes. A blanket re-key would have wrecked
+good products. Needs per-design review - see [[itp-design-qa-transparency-gap]].
+
 ### Known follow-up (NOT in this scope)
-`imagination-ai.ts` still calls the old `keyOutSolidBackground`, so the
-Imagination Station path has the same hair-ghosting weakness. Flagged, not
-changed.
+- The 69 products above still carry AI-stripped print files (see Backfill).
+- The four flat mockups on the samurai product were rendered from the stripped
+  file and still show no blossoms; they need a re-run.
+- `keyOutSolidBackground` is now used only by its own regression test. Left in
+  place as the documented contrast case rather than deleted.
 
 ## Current request (2026-09-01) — photo → printable product pipeline (design only)
 

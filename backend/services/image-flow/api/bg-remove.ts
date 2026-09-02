@@ -9,9 +9,9 @@
 // instead of hard-failing deep inside a fetch to fal's queue API.
 
 import { supabase } from '../../../lib/supabase.js'
-import { removeBackgroundSync } from '../../replicate.js'
+import { removeBackgroundToBuffer } from '../../background-removal.js'
 import { getModel, DEFAULT_BG_REMOVE_MODEL } from '../models.js'
-import { generateKey, uploadFromUrl } from '../storage.js'
+import { generateKey, uploadFromBuffer } from '../storage.js'
 import { resolveSource } from '../source-resolver.js'
 
 export interface BgRemoveRequest {
@@ -49,15 +49,17 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
     imageUrl: req.imageUrl,
   })
 
-  const imageUrl = await removeBackgroundSync(src.url)
+  // Colour key for a solid field, AI segmentation only for photographic
+  // sources - decided centrally so this path cannot drift from the others.
+  // AI segmentation keeps only the most salient subject and deletes artwork
+  // detached from it, which is how a design loses a floating element.
+  const removal = await removeBackgroundToBuffer(src.url, 'image-flow/bg-remove')
   const provider = 'replicate' as const
 
-  const ext = imageUrl.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'
-  const safeExt = ['png', 'webp'].includes(ext) ? ext : 'png'
   const productId = req.productId ?? src.parentProductId ?? undefined
-  const key = generateKey({ productId, purpose: 'product-edit', ext: safeExt })
+  const key = generateKey({ productId, purpose: 'product-edit', ext: 'png' })
 
-  const { publicUrl, path } = await uploadFromUrl({ key, url: imageUrl })
+  const { publicUrl, path } = await uploadFromBuffer({ key, buffer: removal.buffer })
 
   let assetId: string | null = null
   if (productId) {
@@ -77,6 +79,7 @@ export async function bgRemove(req: BgRemoveRequest): Promise<BgRemoveResponse> 
         metadata: {
           model_id: model.id,
           provider,
+          bg_removal_method: removal.method,
           parent_asset_id: src.parentAssetId,
           cost_usd: model.costPerImageUsd,
           processed_at: new Date().toISOString(),

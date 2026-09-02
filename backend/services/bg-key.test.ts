@@ -74,11 +74,48 @@ describe('keyOutConnectedBackground', () => {
     expect(await alphaAt(out, 5, 5)).toBe(0)
   })
 
-  it('leaves the image untouched when no border pixel is background', async () => {
-    const img = await make(() => [200, 120, 60]) // full-bleed art, nothing to key
+  // Guard against the thresholds chasing the border colour: a full-bleed image
+  // has a uniform border that IS artwork, and adapting to it would erase
+  // everything. (detectSolidBg also refuses this image, so in the pipeline it
+  // never gets here - this pins the function's own behaviour.)
+  it('leaves a full-bleed image untouched instead of adapting to its own ink', async () => {
+    const img = await make(() => [200, 120, 60])
+    expect(await detectSolidBg(img)).toBeNull()
     const out = await keyOutConnectedBackground(img, 'black')
     expect(await alphaAt(out, 5, 5)).toBe(255)
     expect(await alphaAt(out, 50, 50)).toBe(255)
+  })
+
+  // Artwork running off the edge must not drag the thresholds up. The samurai's
+  // branch does exactly this: his border averages 8.3 but is truly 0, and a
+  // mean-based estimate erased his hair.
+  it('ignores artwork touching the border when measuring the field', async () => {
+    const img = await make((x, y) => {
+      if (y >= 30 && y <= 40) return [230, 190, 200]   // a branch running off both edges
+      if (inBox(x, y, 45, 50, 70, 70)) return [9, 9, 9]  // near-black art, enclosed
+      return [0, 0, 0]
+    })
+    const out = await keyOutConnectedBackground(img, 'black')
+    expect(await alphaAt(out, 2, 2)).toBe(0)     // field still keyed out
+    expect(await alphaAt(out, 5, 35)).toBe(255)  // the branch survives at the edge
+    // Near-black ink sitting in the field survives on the ramp. This is the
+    // assertion that matters: the mean of this border is ~8 because of the
+    // branch, and thresholds built on that erase everything under key 10 -
+    // which is what stripped the samurai's hair. The median reads 0, so this
+    // keeps real alpha.
+    expect(await alphaAt(out, 55, 60)).toBeGreaterThan(100)
+  })
+
+  // The Aqua Sprinter Cheetah regression: a 'black' field that actually sits at
+  // ~12/255. Absolute thresholds scored it 71% opaque and the background came
+  // out dark grey instead of transparent.
+  it('fully clears a black field that is dark grey rather than pure black', async () => {
+    const img = await make((x, y) =>
+      inBox(x, y, 20, 20, 60, 60) ? [240, 180, 60] : [12, 12, 12])
+    expect(await detectSolidBg(img)).toBe('black')
+    const out = await keyOutConnectedBackground(img, 'black')
+    expect(await alphaAt(out, 3, 3)).toBe(0)
+    expect(await alphaAt(out, 40, 40)).toBe(255)
   })
 
   it('does not let the fill leak through mid-dark artwork touching the edge', async () => {
