@@ -87,6 +87,25 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
   copyright gate; the brief embeds the exact text for GPT Image 2). **Mrs.
   Imagine's daily autonomous batch is now OFF by default** (`MRS_IMAGINE_DAILY`
   opt-in) — David: "i dont want her creating designs on her own anymore."
+- 2026-09-02 (later) — Second wave on David's live feedback. Details card
+  rebuilt (1500² canvas, nothing under 28px; it is sharp+SVG, zero AI cost).
+  **Inspiration upload**: `POST /step/inspiration` (data URL or https, ≤8MB,
+  sharp-validated, GCS `inspiration/`), gemini-2.5-flash vision first, OpenAI
+  vision fallback; Mrs. Imagine's breakdown + keep/change questions + an
+  ORIGINAL suggested idea; every text candidate through the copyright gate;
+  brief adds an "inspired by, not a reproduction" clause. Verified live on the
+  koi design in 4.8 s. **Promotions**: Listing step gets a bundle toggle
+  (`metadata.isThreeForTwentyFive` — the flag the cart actually reads) and a
+  sale-price control on the existing `promo/bulk` mechanism. **Pricing**: the
+  bundle is now **2 for $25** from ONE rule (`backend/shared/promos.ts`) used by
+  Cart, ProductCard, Admin and — new — the server (`order-pricing.ts` had no
+  bundle logic at all; `routes/stripe.ts` now passes the flag) — closes board
+  54405e88. **Metal art**: 4x6 $8.95 / 8x10 $16.95 single-sourced in
+  `backend/shared/metal-art.ts` (server map was keyed `8x11` with NO `8x10`
+  entry); add-ons `magnet_mount` $4.95 and `printed_stand` $6.95 are
+  PLACEHOLDER prices. Specced, not built: metal prints in the Step Flow (§14)
+  and customer personalization + Etsy personalization (§15, three questions
+  for David). Not done: the 32 live catalog metal rows still carry $48–$75.
 
 ## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
 
