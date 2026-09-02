@@ -537,6 +537,9 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
                   version: 1,
                   idea: typeof stepFlow.idea === 'string' ? stepFlow.idea : '',
                   brief: stepFlow.brief ?? null,
+                  // Inspiration (David 2026-09-02): the reference breakdown + keep/change
+                  // choices ride along so the flow can resume and the listing can cite it.
+                  inspiration: stepFlow.inspiration && typeof stepFlow.inspiration === 'object' ? stepFlow.inspiration : null,
                   shots: {},
                   approvals: {},
                 },
