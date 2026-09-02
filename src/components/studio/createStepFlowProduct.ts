@@ -5,7 +5,7 @@
 // backend's POST /create route reads by name.
 import { aiProducts } from '../../lib/api'
 import type { AIProductCreationRequest, AIProductCreationResponse } from '../../types'
-import type { StepBrief } from './types'
+import type { SelectedInspiration, StepBrief } from './types'
 
 // The create route's typed request doesn't know about takes/stepFlow yet, and
 // its `background`/`category` unions predate this flow's 'white'|'black'
@@ -16,10 +16,14 @@ export type StepFlowCreateRequest = Omit<AIProductCreationRequest, 'background' 
   background?: 'white' | 'black'
   category?: AIProductCreationRequest['category'] | 't-shirts'
   takes?: 1 | 2 | 3
-  stepFlow?: { idea: string; brief: StepBrief }
+  stepFlow?: { idea: string; brief: StepBrief; inspiration?: SelectedInspiration }
 }
 
-export function buildStepFlowCreateRequest(idea: string, brief: StepBrief): StepFlowCreateRequest {
+export function buildStepFlowCreateRequest(
+  idea: string,
+  brief: StepBrief,
+  inspiration?: SelectedInspiration
+): StepFlowCreateRequest {
   return {
     prompt: brief.designPrompt,
     modelId: 'openai/gpt-image-2',
@@ -29,13 +33,17 @@ export function buildStepFlowCreateRequest(idea: string, brief: StepBrief): Step
     productType: brief.garmentHint,
     shirtColor: brief.background === 'white' ? 'black' : 'white',
     category: brief.garmentHint === 'hoodie' ? 'hoodies' : 't-shirts',
-    stepFlow: { idea, brief },
+    stepFlow: { idea, brief, ...(inspiration ? { inspiration } : {}) },
   }
 }
 
 /** Fires `POST /api/admin/products/ai/create` with a step-flow brief. */
-export async function createStepFlowProduct(idea: string, brief: StepBrief): Promise<AIProductCreationResponse> {
-  const request = buildStepFlowCreateRequest(idea, brief)
+export async function createStepFlowProduct(
+  idea: string,
+  brief: StepBrief,
+  inspiration?: SelectedInspiration
+): Promise<AIProductCreationResponse> {
+  const request = buildStepFlowCreateRequest(idea, brief, inspiration)
   // `request` intentionally carries a couple of fields whose types the
   // shared AIProductCreationRequest doesn't know about yet (see the type
   // note above) — the backend `/create` route reads them by name.

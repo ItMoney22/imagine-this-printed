@@ -493,6 +493,55 @@ export interface SelectedPhrase {
   placement: 'below' | 'above' | 'integrated'
 }
 
+/** Mrs. Imagine's read on an uploaded/pasted reference image —
+ *  `POST /step/inspiration`'s `inspiration.breakdown`. */
+export interface InspirationBreakdown {
+  subject: string
+  style: string
+  palette: string[]
+  text: string | null
+  composition: string
+  mood: string
+  techniques: string[]
+  whatWorks: string[]
+  /** Things she can't copy as-is (a logo, a trademarked character, …) — she
+   *  swaps these for something original rather than reproducing them. */
+  flags: string[]
+}
+
+/** One "what do you want to keep vs. change" question Mrs. Imagine asks
+ *  about a reference image, rendered as a chip group. */
+export interface InspirationQuestion {
+  key: 'subject' | 'words' | 'style' | 'palette' | 'composition'
+  prompt: string
+  options: string[]
+}
+
+/** `POST /step/inspiration`'s full analysis of one reference image. */
+export interface InspirationAnalysis {
+  imageUrl: string
+  breakdown: InspirationBreakdown
+  questions: InspirationQuestion[]
+  suggestedIdea: string
+}
+
+/** The admin's answers to Mrs. Imagine's keep/change questions — `keep`
+ *  lists question keys left as-is, `change` maps a question key to the
+ *  chosen (or typed) replacement direction. */
+export interface InspirationChoices {
+  keep: string[]
+  change: Record<string, string>
+}
+
+/** What gets pinned on the Idea step and sent into `stepFlow.brief` —
+ *  mirrors the `inspiration` body field `POST /step/brief` accepts, and what
+ *  `StepBrief.inspiration` echoes back once baked into a brief. */
+export interface SelectedInspiration {
+  imageUrl: string
+  breakdown: InspirationBreakdown
+  choices: InspirationChoices
+}
+
 export interface StepBrief {
   designPrompt: string
   background: 'white' | 'black'
@@ -504,6 +553,10 @@ export interface StepBrief {
    *  is written (a chip picked from Mrs. Imagine's pitches, or typed by
    *  hand). Absent when no phrase was added. */
   phrase?: SelectedPhrase
+  /** The reference image (+ Mrs. Imagine's breakdown and the admin's
+   *  keep/change choices) this brief was written from, when the Idea step
+   *  started from an inspiration upload. Absent otherwise. */
+  inspiration?: SelectedInspiration
 }
 
 /** One phrase Mrs. Imagine pitches for an idea — `POST /step/phrases`. */
@@ -680,11 +733,27 @@ async function stepFlowRequest(path: string, init: RequestInit = {}) {
 }
 
 export const stepFlow = {
-  /** POST /api/admin/products/ai/step/brief — idea (+ optional phrase) → best-prompt brief. Runs before a product exists. */
-  brief: (idea: string, phrase?: SelectedPhrase): Promise<{ brief: StepBrief }> =>
+  /** POST /api/admin/products/ai/step/brief — idea (+ optional phrase, +
+   *  optional pinned inspiration) → best-prompt brief. Runs before a product
+   *  exists. */
+  brief: (idea: string, phrase?: SelectedPhrase, inspiration?: SelectedInspiration): Promise<{ brief: StepBrief }> =>
     stepFlowRequest('/api/admin/products/ai/step/brief', {
       method: 'POST',
-      body: JSON.stringify(phrase ? { idea, phrase } : { idea }),
+      body: JSON.stringify({
+        idea,
+        ...(phrase ? { phrase } : {}),
+        ...(inspiration ? { inspiration } : {}),
+      }),
+    }),
+
+  /** POST /api/admin/products/ai/step/inspiration — upload/paste a reference
+   *  image; Mrs. Imagine breaks it down (subject/style/palette/…) and pitches
+   *  keep-vs-change questions plus a suggested idea. Runs before a product
+   *  exists, same as `brief`/`phrases`. ~6-12s. */
+  inspiration: (image: string): Promise<{ persona: 'mrs-imagine'; intro: string; inspiration: InspirationAnalysis }> =>
+    stepFlowRequest('/api/admin/products/ai/step/inspiration', {
+      method: 'POST',
+      body: JSON.stringify({ image }),
     }),
 
   /** POST /api/admin/products/ai/step/phrases — Mrs. Imagine pitches catchy,

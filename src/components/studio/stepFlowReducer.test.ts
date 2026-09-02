@@ -13,6 +13,7 @@ import {
   type StepFlowState,
 } from './stepFlowReducer'
 import type {
+  SelectedInspiration,
   ShotState,
   StepFlowAsset,
   StepFlowGetResponse,
@@ -31,6 +32,22 @@ const brief = {
   styleTags: ['streetwear', 'urban'],
   garmentHint: 'tshirt' as const,
   rationale: 'Dark, high-contrast ink reads best on a white render.',
+}
+
+const inspiration: SelectedInspiration = {
+  imageUrl: 'https://x/reference.png',
+  breakdown: {
+    subject: 'a fox in a bomber jacket',
+    style: 'flat vector illustration',
+    palette: ['#ff5a3c', '#1c1c1c'],
+    text: null,
+    composition: 'centered, three-quarter view',
+    mood: 'playful',
+    techniques: ['bold outlines', 'flat shading'],
+    whatWorks: ['strong silhouette', 'high contrast'],
+    flags: [],
+  },
+  choices: { keep: ['style', 'palette', 'composition'], change: { subject: 'a wolf in a bomber jacket' } },
 }
 
 function stepFlowMeta(over: Partial<StepFlowMeta> = {}): StepFlowMeta {
@@ -344,6 +361,33 @@ describe('stepFlowReducer', () => {
     })
     const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
     expect(next.stepFlow?.brief?.phrase).toEqual({ text: 'STREET ROYALTY', placement: 'below' })
+  })
+
+  it('SET_INSPIRATION pins the uploaded reference + the admin\'s keep/change choices', () => {
+    const next = stepFlowReducer(initialStepFlowState, { type: 'SET_INSPIRATION', inspiration })
+    expect(next.inspiration).toEqual(inspiration)
+  })
+
+  it('SET_INSPIRATION with null clears a previously pinned inspiration (the chip\'s remove button)', () => {
+    const withInspiration = stateWith({ inspiration })
+    const next = stepFlowReducer(withInspiration, { type: 'SET_INSPIRATION', inspiration: null })
+    expect(next.inspiration).toBeNull()
+  })
+
+  it('HYDRATE restores state.inspiration from stepFlow.brief.inspiration — the "Inspired by" chip survives a resume', () => {
+    const res = response({
+      productId: 'p1',
+      stepFlow: { brief: { ...brief, inspiration } },
+    })
+    const next = stepFlowReducer(initialStepFlowState, { type: 'HYDRATE', response: res, advance: true })
+    expect(next.inspiration).toEqual(inspiration)
+  })
+
+  it('HYDRATE leaves state.inspiration alone when the loaded brief has none (a plain draft, not from an image)', () => {
+    const state = stateWith({ productId: 'p1', inspiration })
+    const res = response({ productId: 'p1', stepFlow: { brief } })
+    const next = stepFlowReducer(state, { type: 'HYDRATE', response: res })
+    expect(next.inspiration).toEqual(inspiration)
   })
 
   it('SET_ERROR clears loading and records the message', () => {

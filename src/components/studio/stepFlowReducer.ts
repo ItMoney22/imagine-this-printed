@@ -28,9 +28,14 @@
 import type {
   ColorAdvice,
   DesignCandidate,
+  InspirationAnalysis,
+  InspirationBreakdown,
+  InspirationChoices,
+  InspirationQuestion,
   PrintAdvice,
   PrintFile,
   PrintFileOptions,
+  SelectedInspiration,
   SelectedPhrase,
   ShotKey,
   ShotState,
@@ -49,9 +54,14 @@ import { STEP_ORDER } from './types'
 export type {
   ColorAdvice,
   DesignCandidate,
+  InspirationAnalysis,
+  InspirationBreakdown,
+  InspirationChoices,
+  InspirationQuestion,
   PrintAdvice,
   PrintFile,
   PrintFileOptions,
+  SelectedInspiration,
   SelectedPhrase,
   ShotKey,
   ShotState,
@@ -80,6 +90,13 @@ export interface StepFlowState {
    *  `stepFlow.brief.phrase` instead (see DesignStep's Tweak, which reads it
    *  off the existing brief so a re-brief carries the same phrase forward). */
   phrase: SelectedPhrase | null
+  /** The inspiration reference pinned on the Idea step (an uploaded/pasted
+   *  image Mrs. Imagine broke down, plus the admin's keep/change choices) —
+   *  carried into `stepFlow.brief(idea, phrase, inspiration)` and
+   *  `createStepFlowProduct`. Null means the idea wasn't started from a
+   *  reference image. Restored on HYDRATE from `stepFlow.brief.inspiration`
+   *  so a resumed draft still shows its "Inspired by" chip. */
+  inspiration: SelectedInspiration | null
   loading: boolean
   error: string | null
 }
@@ -93,6 +110,7 @@ export const initialStepFlowState: StepFlowState = {
   stepFlow: null,
   idea: '',
   phrase: null,
+  inspiration: null,
   loading: false,
   error: null,
 }
@@ -101,6 +119,7 @@ export type StepFlowAction =
   | { type: 'RESET' }
   | { type: 'SET_IDEA'; idea: string }
   | { type: 'SET_PHRASE'; phrase: SelectedPhrase | null }
+  | { type: 'SET_INSPIRATION'; inspiration: SelectedInspiration | null }
   | { type: 'PRODUCT_CREATED'; productId: string }
   /** advance:true jumps the visible step to the furthest one now reachable
    *  (an initial resume load, or right after the admin's own write/approve).
@@ -295,6 +314,9 @@ export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): S
     case 'SET_PHRASE':
       return { ...state, phrase: action.phrase }
 
+    case 'SET_INSPIRATION':
+      return { ...state, inspiration: action.inspiration }
+
     case 'PRODUCT_CREATED': {
       const next = { ...state, productId: action.productId, loading: false, error: null }
       return { ...next, step: furthestReachableStep(next) }
@@ -308,6 +330,11 @@ export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): S
         assets: action.response.assets ?? [],
         jobs: action.response.jobs ?? [],
         stepFlow: action.response.step_flow,
+        // Resume-by-productId: a draft born from an inspiration upload has
+        // its reference pinned on the brief — restore it into UI state so
+        // the "Inspired by" chip reappears instead of the admin losing track
+        // of what the idea was started from.
+        inspiration: action.response.step_flow?.brief?.inspiration ?? state.inspiration,
         loading: false,
         error: null,
       }

@@ -10,6 +10,7 @@ import { createStepFlowProduct } from './createStepFlowProduct'
 import { useVoiceDictation } from './useVoiceDictation'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
+import InspirationPanel from './InspirationPanel'
 
 // The writing brain's brief call is fast — a few seconds of GPT chat, not an
 // image render — so a short expected time is enough to keep the bar honest.
@@ -92,6 +93,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
 
   const idea = state.idea
   const phrase = state.phrase
+  const inspiration = state.inspiration
 
   const handleAskMrsImagine = async () => {
     if (!idea.trim() || askingPhrase) return
@@ -133,7 +135,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     writingStartedAtRef.current = Date.now()
     setWritingBrief(true)
     try {
-      const { brief: newBrief } = await stepFlow.brief(idea.trim(), phrase ?? undefined)
+      const { brief: newBrief } = await stepFlow.brief(idea.trim(), phrase ?? undefined, inspiration ?? undefined)
       setBrief(newBrief)
       setBriefOpen(true)
     } catch (err: any) {
@@ -148,7 +150,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     setError(null)
     setCreating(true)
     try {
-      const { productId } = await createStepFlowProduct(idea.trim(), brief)
+      const { productId } = await createStepFlowProduct(idea.trim(), brief, inspiration ?? undefined)
       dispatch({ type: 'PRODUCT_CREATED', productId })
       await refresh({ productId, advance: true })
     } catch (err: any) {
@@ -166,6 +168,13 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     <StepCard>
       <h2 className="text-xl font-bold text-text mb-1">What do you want to make?</h2>
       <p className="text-sm text-muted mb-4">Type it, or speak it — one line is enough. Example: “hip-hop street monkey”.</p>
+
+      <InspirationPanel
+        idea={idea}
+        inspiration={inspiration}
+        onIdeaChange={(next) => dispatch({ type: 'SET_IDEA', idea: next })}
+        onSetInspiration={(next) => dispatch({ type: 'SET_INSPIRATION', inspiration: next })}
+      />
 
       <div className="relative">
         <textarea
