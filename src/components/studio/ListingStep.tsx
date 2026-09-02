@@ -7,6 +7,7 @@ import { getShots, type ShotKey, type StepFlowAction, type StepFlowState } from 
 import { listingDraftFromPack, type EtsyComposePack, type ListingDraft } from './types'
 import { ApproveButton, BusyDot, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
+import PromoPicker from './PromoPicker'
 
 // The composer is one LLM call over the approved shots — quick relative to
 // the image jobs earlier in the flow.
@@ -177,6 +178,8 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
                 className="w-28 text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text"
               />
             </div>
+
+            {state.product && <PromoPicker product={state.product} refresh={refresh} />}
           </div>
 
           <div>
