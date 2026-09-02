@@ -55,10 +55,23 @@ describe('removeBackgroundToBuffer', () => {
     expect(removeBackgroundSync).toHaveBeenCalledWith('https://example.test/photo.png')
   })
 
-  it('falls back to AI segmentation when the source cannot be fetched', async () => {
-    const aiOut = await png(() => [1, 2, 3])
+  // The source fetch is retried once before giving up, because falling back
+  // here downgrades the design to the tool that deletes detached artwork.
+  it('retries the source fetch once before falling back', async () => {
+    const good = await png((x, y) => box(x, y, 15, 15, 45, 45) ? [255, 255, 255] : [0, 0, 0])
     let call = 0
     global.fetch = vi.fn(async () => call++ === 0
+      ? { ok: false, status: 503, arrayBuffer: async () => new ArrayBuffer(0) }
+      : { ok: true, status: 200, arrayBuffer: async () => good.buffer.slice(good.byteOffset, good.byteOffset + good.byteLength) }) as any
+    const out = await removeBackgroundToBuffer('https://example.test/flaky.png')
+    expect(out.method).toBe('color-key')
+    expect(removeBackgroundSync).not.toHaveBeenCalled()
+  })
+
+  it('falls back to AI segmentation only when both source attempts fail', async () => {
+    const aiOut = await png(() => [1, 2, 3])
+    let call = 0
+    global.fetch = vi.fn(async () => call++ < 2
       ? { ok: false, status: 403, arrayBuffer: async () => new ArrayBuffer(0) }
       : { ok: true, status: 200, arrayBuffer: async () => aiOut.buffer.slice(aiOut.byteOffset, aiOut.byteOffset + aiOut.byteLength) }) as any
     removeBackgroundSync.mockResolvedValue('https://replicate.test/out.png')

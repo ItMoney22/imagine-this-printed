@@ -110,6 +110,21 @@ async function resolveDesignArtworkUrl(productId: string): Promise<string | unde
   return sourceAsset?.url as string | undefined
 }
 
+/** The design as GENERATED, before any background removal. Print advice has to
+ *  read this: a stripped file's opaque pixels are dominated by anti-aliased
+ *  edges, which skews every smoothness measurement taken on it. */
+async function resolveSourceArtworkUrl(productId: string): Promise<string | undefined> {
+  const { data } = await supabase
+    .from('product_assets')
+    .select('url')
+    .eq('product_id', productId)
+    .eq('kind', 'source')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data?.url as string | undefined
+}
+
 const router = Router()
 
 // POST /step/brief — { idea, phrase? } -> { brief }. Step 1: idea -> best
@@ -307,7 +322,14 @@ router.post('/:id/step/print-advice', requireAuth, requireAdminOrManager, rateLi
     const product = await loadProductRow(id)
     const stepFlow = getStepFlow(product)
 
-    const pngUrl = await resolveDesignArtworkUrl(id)
+    // Judge the SOURCE, not the stripped file. Print advice measures how much
+    // of the art is smooth shading, and on a transparent cut the surviving
+    // opaque pixels are mostly anti-aliased LINE EDGES - which read as smooth
+    // and push flat line art over the halftone threshold. Measured on the
+    // Beam Me Up design: source 28% smooth -> "clean" at 0.72 confidence, the
+    // same art after cutting 37.5% -> "halftone" at 0.38. Halftoning that
+    // comic line art all but erased it.
+    const pngUrl = (await resolveSourceArtworkUrl(id)) || (await resolveDesignArtworkUrl(id))
     if (!pngUrl) return res.status(400).json({ error: 'No design artwork found yet — select a design first' })
 
     const primaryColorId = stepFlow.colors?.primary

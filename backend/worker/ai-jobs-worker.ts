@@ -931,6 +931,17 @@ export async function processRemoveBgJob(job: any): Promise<void> {
         url: publicUrl,
         width: dims.width ?? 1024,
         height: dims.height ?? 1024,
+        // Which tool actually cut this file. The colour key is the right one
+        // for our solid fields; AI segmentation is a FALLBACK that silently
+        // deletes artwork detached from the main subject, and until this was
+        // recorded there was no way to tell after the fact which one ran on a
+        // given design - the Beam Me Up cut looked wrong and could not be
+        // traced. Anything that reads 'ai-segmentation' on a solid-field
+        // design is a bug worth chasing, not a normal result.
+        metadata: {
+          bg_removal_method: removal.method,
+          bg_removal_field: removal.background,
+        },
         asset_role: 'auxiliary',
         is_primary: false,
         display_order: 99,

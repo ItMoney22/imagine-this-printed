@@ -94,6 +94,31 @@ good products. Needs per-design review - see [[itp-design-qa-transparency-gap]].
   22 gain, 3 minor, 7 about the same, 2 where the current file is better, 3
   where AI segmentation was the right tool.
 
+### Beam Me Up (2026-09-02) - three separate faults behind one bad cut
+David: "i think this file didnt even need a background removal ... should we do a
+gray background by defult since black is a key in this design".
+
+1. The stored cut was AI-segmentation output (title-band white ink at alpha
+   54/255) even though the colour-key fix was already deployed. A fresh job
+   queued to the LIVE worker produced alpha 255 - identical to local - so the
+   fix IS live and this one cut came from the old path. Could NOT establish why
+   from the Render logs, so instead of guessing: `removeBackgroundToBuffer` now
+   retries the source fetch once and logs loudly when it downgrades (a failed
+   fetch silently fell back to the tool this module exists to avoid), and the
+   worker records `bg_removal_method` on the nobg asset so every cut is
+   traceable after the fact.
+2. FIELD vs GARMENT MISMATCH - the real answer to David's question. The brief
+   picked `background: black` while the product is `shirt_color: white`. The
+   key correctly removed the black, leaving white line art to print on a white
+   tee: invisible. The field that gets removed has to be the colour the GARMENT
+   supplies. Not a grey-by-default problem - see the reply for the three cases.
+3. Print advice was measured on the STRIPPED file, where surviving opaque
+   pixels are mostly anti-aliased line edges, so flat line art reads as smooth
+   shading: source 28% -> "clean" at 0.72, same art after cutting 37.5% ->
+   "halftone" at 0.38. It halftoned crisp comic line art and all but erased it.
+   Print advice now judges the source. Deleted the ghosted nobg and the
+   halftone print file built from it.
+
 ### Known follow-up (NOT in this scope)
 - The 69 products above still carry AI-stripped print files (see Backfill).
 - The four flat mockups on the samurai product were rendered from the stripped

@@ -42,13 +42,24 @@ export interface BgRemovalResult {
  * inspection, since that path takes the URL directly.
  */
 export async function removeBackgroundToBuffer(imageUrl: string, label = 'bg'): Promise<BgRemovalResult> {
+  // A failed fetch here is NOT harmless: it silently downgrades the design to
+  // AI segmentation, which is the exact behaviour this module exists to avoid.
+  // Retry once before giving up, and shout about it either way so a bad cut is
+  // traceable to its cause rather than looking like the keyer got it wrong.
   let source: Buffer | null = null
-  try {
-    const res = await fetch(imageUrl)
-    if (res.ok) source = Buffer.from(await res.arrayBuffer())
-    else console.warn(`[${label}] source fetch returned ${res.status}; using AI segmentation`)
-  } catch (e: any) {
-    console.warn(`[${label}] source fetch failed (${e?.message}); using AI segmentation`)
+  for (let attempt = 1; attempt <= 2 && !source; attempt++) {
+    try {
+      const res = await fetch(imageUrl)
+      if (res.ok) { source = Buffer.from(await res.arrayBuffer()); break }
+      console.error(`[${label}] source fetch returned ${res.status} (attempt ${attempt}/2)`)
+    } catch (e: any) {
+      console.error(`[${label}] source fetch failed: ${e?.message} (attempt ${attempt}/2)`)
+    }
+    if (!source && attempt === 1) await new Promise((r) => setTimeout(r, 750))
+  }
+  if (!source) {
+    console.error(`[${label}] COULD NOT READ THE SOURCE - falling back to AI segmentation, ` +
+      `which drops artwork detached from the main subject. This cut should be redone.`)
   }
 
   const background = source ? await detectSolidBg(source) : null
