@@ -66,6 +66,27 @@ editor (full-size images, blank-thumbnail bug, Imagination Station hand-off).
   `runImageFlowMockup` directly through the new code (both correct). Replicate
   flagged the literal "hip-hop street monkey" brief as sensitive (E005) on
   flux-2-pro; gpt-image-2 is untested until the wallet is funded.
+- 2026-09-02 — David tested on a second dev lane (branch vite on :5174 → branch
+  backend on :4100; his :5173/:4000 lane is the old shared checkout). Fixed from
+  what he saw: (1) step-flow mockups + background removal now render INLINE in
+  the API (jobs pre-claimed `running`, `processMockupJob`/`processRemoveBgJob`
+  extracted from the worker) — the prod worker's old code had been rendering
+  the hanger as a flat lay and every colour variant in the primary colour;
+  (2) mockup prompts name every offered colour (heather-grey/navy/red/forest-
+  green/royal-blue fell back to "black"); (3) FLOW_JOB_TYPES listed
+  `replicate_remove_bg` while the real job type is `replicate_rembg`, so the
+  Design step stalled on "Removing the background" after a 7-second job; (4)
+  every spinner replaced with a themed progress bar driven by ai_jobs
+  output.step/total_steps (David: "i dont like spinning loading things");
+  (5) GPT Image 2 verified on his exact idea after he funded the wallet —
+  solid black background, clean alpha, colour advice steered off black.
+  Shipped on request: **Print prep** (measured halftone recommendation +
+  team-only `print_halftone` asset outside the gallery whitelist; the engine's
+  invert flag verified by eye — true keeps dark ink solid for light shirts) and
+  the **phrase step** (Mrs. Imagine pitches 2–6-word phrases through the
+  copyright gate; the brief embeds the exact text for GPT Image 2). **Mrs.
+  Imagine's daily autonomous batch is now OFF by default** (`MRS_IMAGINE_DAILY`
+  opt-in) — David: "i dont want her creating designs on her own anymore."
 
 ## Current request (2026-08-20) — GPT Image 2 house overhaul + Mrs. Imagine
 
