@@ -2145,3 +2145,16 @@ Account price is 34-45% under public list. Both stored on every product
   quick-add shows per-size prices instead of the flat "+$2.50" badge. Added
   2XL White Premium Retail-Fit to the cart: $8.28, no upcharge stacked.
   Filed the pre-existing server bundle-eligibility trust hole on the board.
+- 2026-09-02 (later) — David: "so many colors dont have swatches ... use our
+  key to make the color shirts you need. i approve not a highend model tho."
+  The missing swatches were a stale pre-deploy bundle in his tab (production
+  already had every hex), but the ask for real colour shots stands. Built
+  `backend/scripts/render-blank-colors.ts`: one flux-schnell white tee per
+  tier, cut out once with the Replicate background remover into
+  `backend/scripts/assets/blank-bases/`, then MULTIPLIED by each colour's
+  swatch hex with sharp and set on a neutral ground with a soft shadow —
+  exact colour, real shading, identical framing, zero per-image AI cost
+  (whole run ~$0.02 of Replicate). 165 renders in `public/blanks/<tier>/`
+  (2.4 MB). `seed-blanks.ts` now writes `metadata.garment.colors[].image` and
+  leads `images` with the hero + Black/White/Navy; ProductPage swaps the hero
+  to the picked colour's render. Reseeded LIVE.
