@@ -38,6 +38,41 @@ const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || (USE_OPENROUTER ? 'google/g
 // handoff-joshua-knight-1785113728792.json).
 const isReasoningModel = /^(o[1-9]|gpt-5)/.test(COMPOSER_MODEL)
 export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
+/**
+ * A hoodie is not a tee and must not be listed like one (David, 2026-09-03:
+ * "hoodies are also $35 so make sure thats on the etsy side").
+ *
+ * This matters because the publisher prefers the PACK's price over the
+ * product's: services/etsy.ts resolves `pack?.price ?? product.price`, so a
+ * flat anchor here silently overrides a $35 hoodie and lists it at the tee
+ * price. Checked across the catalogue when this was found: 57 of 60 composed
+ * packs carried $25 regardless of what the product actually sells for. None
+ * were live yet, so nothing was mispriced ON Etsy — the next post would have
+ * been.
+ */
+export const ETSY_HOODIE_ANCHOR_PRICE = Number(process.env.ETSY_HOODIE_ANCHOR_PRICE || 35)
+
+/** Is this product a hoodie/sweatshirt, whichever way it was created? */
+export function isHoodieProduct(product: { category?: unknown; name?: unknown; metadata?: any }): boolean {
+  if (String(product.category ?? '') === 'hoodies') return true
+  const garment = product.metadata?.step_flow?.garment ?? product.metadata?.garment
+  if (typeof garment === 'string' && /hoodie|sweatshirt/i.test(garment)) return true
+  // Word-bounded on purpose: a TEE whose design mentions a hooded figure is
+  // still a tee, and must not silently pick up the hoodie anchor.
+  return /\bhoodie\b|\bsweatshirt\b/i.test(String(product.name ?? ''))
+}
+
+/**
+ * The Etsy anchor for a product. Deliberately an ANCHOR and not the storefront
+ * price: David runs a standing 40% shop sale in Shop Manager (Etsy has no API
+ * for sale events), so the listing reads ~~$25~~ $15. Metal art keeps the base
+ * anchor on purpose — its size variations carry the real ladder, and its
+ * storefront 4x6 price is far below what the Etsy listing should open at.
+ */
+export function etsyAnchorPriceFor(product: { category?: unknown; name?: unknown; metadata?: any }): number {
+  if (String(product.category ?? '') === 'metal-art') return ETSY_ANCHOR_PRICE
+  return isHoodieProduct(product) ? ETSY_HOODIE_ANCHOR_PRICE : ETSY_ANCHOR_PRICE
+}
 
 const openai = USE_OPENROUTER
   ? new OpenAI({
@@ -203,7 +238,9 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
     ...fields,
     // Metal art: base price is the 4x6 anchor; the 8x10 price rides on the
     // Size variation (services/etsy.ts METAL_SIZES). No color axis.
-    price: ETSY_ANCHOR_PRICE,
+    // Garments anchor by what they are — a hoodie at the tee price is margin
+    // handed away on every sale.
+    price: etsyAnchorPriceFor(product as any),
     colors: isMetal ? [] : (existingColors?.length ? existingColors : defaultColorsFor(product)),
     composed_at: new Date().toISOString(),
     model: openai ? COMPOSER_MODEL : 'mechanical'
