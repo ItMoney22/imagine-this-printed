@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest'
 // design-qa-gate.test.ts / product-files.test.ts.
 vi.mock('../lib/supabase.js', () => ({ supabase: { from: () => ({}), rpc: async () => ({ data: 1 }) } }))
 
-import { parseBriefsResponse, type DesignBrief } from './mrs-imagine.js'
+import { parseBriefsResponse, dtfPrompt, metalPrompt, type DesignBrief } from './mrs-imagine.js'
 
 // Real prompt text is 60-120 words; the filter in parseBriefsResponse drops
 // anything under 40 characters, so test prompts stay comfortably above that.
@@ -84,5 +84,55 @@ describe('parseBriefsResponse — garment coercion (no polo, ever)', () => {
   it('never throws on a malformed/empty response — returns an empty array', () => {
     expect(parseBriefsResponse({}, { garments: 3, metal: 2 })).toEqual([])
     expect(parseBriefsResponse({ garments: 'not-an-array' }, { garments: 3, metal: 2 })).toEqual([])
+  })
+})
+
+// David 2026-09-03: "she needs to design this knowing its going to be done on a
+// shirt ... but i dont want to change she makes the metal art".
+describe('dtfPrompt', () => {
+  const brief = { ...garmentBrief(), priceUsd: 24, trendBasis: 'streetwear' } as unknown as DesignBrief
+
+  it('never tells her to fill the frame', () => {
+    // The line this replaced ended "The artwork fills the frame edge to edge",
+    // which contradicts GARMENT_BRIEF_RULES, prints as a rectangle of ink on a
+    // shirt, and runs art off the frame where the background keyer cannot see
+    // the field.
+    const p = dtfPrompt(brief).toLowerCase()
+    expect(p).not.toContain('edge to edge')
+    expect(p).not.toContain('fills the frame')
+    expect(p).toContain('contained subject')
+    expect(p).toContain('not a full-bleed scene')
+  })
+
+  it('tells her what the design is physically for', () => {
+    const p = dtfPrompt(brief).toLowerCase()
+    expect(p).toContain('dtf transfer')
+    expect(p).toContain('11 inches')
+    expect(p).toContain('black')          // the garment she is designing against
+    expect(p).toContain('t-shirt')        // ...and which garment it is
+  })
+
+  it('rules out the things that wreck a transfer', () => {
+    const p = dtfPrompt(brief).toLowerCase()
+    expect(p).toContain('transparent background')
+    expect(p).toContain('no mockup')
+    expect(p).toContain('drop shadows')   // print as a grey smear over the underbase
+    expect(p).toContain('checkerboard')   // the painted fake-transparency defect
+    expect(p).toContain('one-fiftieth')   // detail floor that survives the press
+  })
+
+  it('names the actual garment', () => {
+    const hoodie = { ...brief, garment: 'hoodie' } as DesignBrief
+    expect(dtfPrompt(hoodie).toLowerCase()).toContain('hoodie')
+  })
+
+  // Metal is a different product with the opposite rule, and David asked for it
+  // to be left exactly alone.
+  it('leaves metal art full-bleed', () => {
+    const metal = { ...brief, kind: 'metal' } as DesignBrief
+    const p = metalPrompt(metal).toLowerCase()
+    expect(p).toContain('full-bleed edge-to-edge')
+    expect(p).not.toContain('transparent background')
+    expect(p).not.toContain('contained subject')
   })
 })

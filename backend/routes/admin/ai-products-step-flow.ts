@@ -388,7 +388,7 @@ router.post('/:id/step/print-advice', requireAuth, requireAdminOrManager, rateLi
 router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
-    const { method, frequency, angle, shape, invertDark } = req.body || {}
+    const { method, frequency, angle, shape, invertDark, colors, detail, despeckle } = req.body || {}
     const product = await loadProductRow(id)
     const stepFlow = getStepFlow(product)
 
@@ -399,11 +399,21 @@ router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimi
       id,
       pngUrl,
       {
-        method: method === 'diffusion' ? 'diffusion' : method === 'halftone' ? 'halftone' : undefined,
+        // 'vector' traces the artwork into flat SVG shapes instead of
+        // screening it into dots - the same team-only print-file slot, the
+        // other answer to "this needs prepping for the press". Our designs are
+        // 1024px, which is ~85 DPI at a 12in press against the ~300 a film
+        // wants; an SVG has no resolution to be soft at. It flattens gradients
+        // and fine texture though, so it is an add-on the admin chooses, not a
+        // default.
+        method: method === 'diffusion' ? 'diffusion' : method === 'vector' ? 'vector' : method === 'halftone' ? 'halftone' : undefined,
         frequency: typeof frequency === 'number' ? frequency : undefined,
         angle: typeof angle === 'number' ? angle : undefined,
         shape: shape === 'line' ? 'line' : shape === 'round' ? 'round' : undefined,
         invertDark: typeof invertDark === 'boolean' ? invertDark : undefined,
+        colors: typeof colors === 'number' ? colors : undefined,
+        detail: typeof detail === 'number' ? detail : undefined,
+        despeckle: typeof despeckle === 'number' ? despeckle : undefined,
       },
       actorId(req)
     )

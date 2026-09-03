@@ -223,16 +223,40 @@ function clampPrice(n: number, [lo, hi]: [number, number]): number {
 
 // --- Stage helpers (mirrors of scripts/design-e2e.ts, service-shaped) --------
 
-function dtfPrompt(brief: DesignBrief): string {
-  return (
-    `${brief.prompt}\n\n` +
-    'Render as a standalone screen-print graphic on a fully transparent background, ' +
-    'centred with even margins, high contrast, crisp edges suitable for DTF transfer ' +
-    'printing at 300 DPI on a black garment. The artwork fills the frame edge to edge.'
-  )
+/**
+ * The render prompt for a garment design. Everything here is a PRESS
+ * constraint, not a taste preference - she is drawing a DTF transfer that gets
+ * heat-pressed about 11 inches wide across the chest of a black shirt (the
+ * product row this batch writes: shirt_color black, print_size_inches 11), and
+ * then worn and washed.
+ *
+ * The old version told her the opposite of what the shop needs. It ended with
+ * "The artwork fills the frame edge to edge", which flatly contradicts
+ * GARMENT_BRIEF_RULES above ("NEVER a full-bleed scene") and is the instruction
+ * that produces the cheap print-on-demand rectangle of ink on a shirt. It also
+ * pushed art off the frame, which is exactly what defeats the background
+ * detector in services/bg-key.ts.
+ *
+ * Deliberately garment-only: metalPrompt below is full-bleed and stays as it
+ * is, because on a metal print the panel IS the canvas.
+ */
+export function dtfPrompt(brief: DesignBrief): string {
+  const noun = GARMENT_NOUN[brief.garment ?? 'tshirt']
+  return [
+    brief.prompt,
+    '',
+    `This is artwork for a DTF transfer, heat-pressed about 11 inches wide across the chest of a BLACK ${noun}, then worn and washed. Design it for that, not for a screen.`,
+    'A CONTAINED SUBJECT with a clear silhouette and breathing room around it - an emblem, badge, or isolated character. NOT a full-bleed scene, NOT a background panel, and nothing running off the edge of the frame: a rectangle of ink on a shirt is the cheap print-on-demand look.',
+    'Isolated artwork on a fully transparent background. No shirt, no hoodie, no garment, no hanger, no model, no mockup, no frame, no border.',
+    'Because the garment is BLACK: keep every shape readable against black. No near-black fills or outlines that would vanish into the shirt.',
+    'No drop shadows, outer glows, or vignettes anywhere - the press lays a white underbase down first, so a soft glow prints as a grey smear around the art. No gradient fading out into transparency at the edges either: every edge has to be a real edge.',
+    'Bold shapes and a limited palette that still read from across a room. Nothing thinner than about one-fiftieth of the image width, and no scattered specks or floating dust - detail that fine does not survive the transfer.',
+    'Never paint a checkerboard, a grey-and-white grid, or any other fake-transparency pattern into the image.',
+    'Crisp, clean, high-contrast edges, printable at 300 DPI.',
+  ].join(' ')
 }
 
-function metalPrompt(brief: DesignBrief): string {
+export function metalPrompt(brief: DesignBrief): string {
   return (
     `${brief.prompt}\n\n` +
     'Render as premium metal wall-art: full-bleed edge-to-edge composition, rich ' +

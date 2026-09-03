@@ -658,7 +658,11 @@ export type StepFlowApprovals = Partial<Record<'design' | 'garments' | 'mockups'
 
 // Print prep — a separate, team-only screened file for the press (never a
 // design/nobg asset, never customer-facing). See design doc §10.
-export type PrintMethod = 'halftone' | 'diffusion'
+// 'vector' traces the artwork into flat SVG shapes rather than screening it
+// into dots - same team-only print-file slot, different answer to "prep this
+// for the press". Print advice only ever SUGGESTS halftone or diffusion; vector
+// is a deliberate pick.
+export type PrintMethod = 'halftone' | 'diffusion' | 'vector'
 export type PrintShape = 'round' | 'line'
 
 export interface PrintAdviceStats {
@@ -693,6 +697,10 @@ export interface PrintFileOptions {
   angle?: number
   shape?: PrintShape
   invertDark?: boolean
+  /** method: 'vector' only. */
+  colors?: number
+  detail?: number
+  despeckle?: number
 }
 
 export interface PrintFile {

@@ -37,6 +37,7 @@ import sharp from 'sharp'
 import { supabase } from '../../lib/supabase.js'
 import { uploadFile } from '../gcs-storage.js'
 import { applyHalftone, type HalftoneOptions } from '../halftone.js'
+import { vectorize } from '../vectorize.js'
 
 const ADVICE_SAMPLE_MAX_DIM = 512
 // A pixel counts as "opaque" (art, not background) above this alpha.
@@ -248,11 +249,78 @@ async function maskToOriginalAlpha(
 }
 
 export interface BuildPrintFileOptions {
-  method?: 'halftone' | 'diffusion'
+  method?: 'halftone' | 'diffusion' | 'vector'
   frequency?: number
   angle?: number
   shape?: 'round' | 'line'
   invertDark?: boolean
+  /** 'vector' only — palette size, curve tolerance, speckle floor. */
+  colors?: number
+  detail?: number
+  despeckle?: number
+}
+
+/** One print file per product, whichever way it was made. */
+const PRINT_ROLES = ['print_halftone', 'print_vector'] as const
+
+/**
+ * The vector arm of buildPrintFile: trace the artwork into flat SVG shapes
+ * instead of screening it into dots.
+ *
+ * A garment design is generated at 1024px. Pressed at 12 inches that is ~85
+ * DPI against the ~300 a DTF film wants, so the raster print file is soft at
+ * any real size — and unlike the halftone screen, that softness is not a style
+ * choice. An SVG has no resolution to be soft at.
+ *
+ * The trade runs the other way from halftoning: tracing flattens gradients and
+ * fine texture into solid regions, so it flatters bold graphic art and wrecks
+ * anything painterly. `regions` in the metadata is the honest tell — a design
+ * that needed thousands of paths was not a good candidate.
+ */
+async function buildVectorPrintFile(
+  productId: string,
+  original: Buffer,
+  opts: BuildPrintFileOptions,
+  actorId: string
+): Promise<PrintFileResult> {
+  const result = await vectorize(original, {
+    colors: opts.colors,
+    detail: opts.detail,
+    despeckle: opts.despeckle,
+  })
+
+  const filename = `${productId}-print-vector-${Date.now()}.svg`
+  const { publicUrl, gcsPath } = await uploadFile(Buffer.from(result.svg, 'utf8'), {
+    userId: actorId,
+    folder: 'mockups',
+    filename,
+    contentType: 'image/svg+xml',
+  })
+
+  for (const role of PRINT_ROLES) {
+    await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', role)
+  }
+
+  const options: Record<string, unknown> = { ...result.metadata, method: 'vector', format: 'svg' }
+  const { data: inserted, error } = await supabase
+    .from('product_assets')
+    .insert({
+      product_id: productId,
+      kind: 'print',
+      path: gcsPath,
+      url: publicUrl,
+      width: result.width,
+      height: result.height,
+      asset_role: 'print_vector',
+      is_primary: false,
+      display_order: 99,
+      metadata: options,
+    })
+    .select()
+    .single()
+  if (error) throw new Error(`Failed to save vector print file asset: ${error.message}`)
+
+  return { assetId: inserted.id, url: publicUrl, options, createdAt: new Date().toISOString() }
 }
 
 /**
@@ -273,8 +341,10 @@ export async function buildPrintFile(
   if (!res.ok) throw new Error(`Failed to fetch artwork for print file: ${res.status} ${res.statusText}`)
   const original = Buffer.from(await res.arrayBuffer())
 
+  if (opts.method === 'vector') return buildVectorPrintFile(productId, original, opts, actorId)
+
   const halftoneOpts: HalftoneOptions = {
-    method: opts.method,
+    method: opts.method === 'diffusion' ? 'diffusion' : 'halftone',
     frequency: opts.frequency,
     angle: opts.angle,
     shape: opts.shape,
@@ -298,7 +368,9 @@ export async function buildPrintFile(
   // One print file per product, ever — replace any prior one. The bucket
   // object is left alone (nothing deletes from GCS here); only the DB
   // pointer moves.
-  await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', 'print_halftone')
+  for (const role of PRINT_ROLES) {
+    await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', role)
+  }
 
   const options: Record<string, unknown> = { ...result.metadata }
   const { data: inserted, error } = await supabase
