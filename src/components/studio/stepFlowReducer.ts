@@ -26,6 +26,7 @@
 // the transparent print file. mockups→listing keeps its approvals.mockups
 // fallback, in case the backend ends up stamping it after all.
 import type {
+  CastingDecision,
   ColorAdvice,
   DesignCandidate,
   InspirationAnalysis,
@@ -54,6 +55,7 @@ import { STEP_ORDER } from './types'
 // Re-exported so step components can pull everything they need (reducer
 // state/actions AND the wire types they render) from this one module.
 export type {
+  CastingDecision,
   ColorAdvice,
   DesignCandidate,
   InspirationAnalysis,

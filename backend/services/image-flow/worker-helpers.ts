@@ -258,7 +258,7 @@ export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'hanger' | 'mr_ima
 export interface RunMockupOpts {
   template: MockupTemplate
   designImageUrl: string
-  productType: 'tshirt' | 'hoodie' | 'tank' | 'polo'
+  productType: 'tshirt' | 'hoodie' | 'tank' | 'polo' | 'youth-tshirt'
   /** Legacy wizard colors or a catalog-capability ColorId (see COLOR_DESC). */
   shirtColor: 'black' | 'white' | 'gray' | 'grey' | 'heather-grey' | 'navy' | 'red' | 'forest-green' | 'royal-blue'
   /** For mr_imagine — URL of the Mr. Imagine character base. */
@@ -322,6 +322,10 @@ const PRODUCT_NAMES: Record<string, string> = {
   hoodie: 'hoodie',
   tank: 'tank top',
   polo: 'polo shirt',
+  // David 2026-09-03: without its own entry the youth tee fell through to
+  // 't-shirt' and every flat-lay/ghost shot on a kids' listing rendered an
+  // adult-looking shirt — no scale cue anywhere except the size chart.
+  'youth-tshirt': 'youth t-shirt',
 }
 // Keyed by the legacy wizard colors AND the catalog-capability ColorIds the
 // Step Flow sends (backend/shared/catalog-capability.ts). An unknown key used

@@ -2,12 +2,13 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Check, RefreshCw, UserRound, X } from 'lucide-react'
 import { stepFlow } from '../../lib/api'
 import { COLORS } from '../../../backend/shared/catalog-capability'
 import {
   areMockupsResolved,
   getShots,
+  type CastingDecision,
   type ShotKey,
   type ShotState,
   type StepFlowAction,
@@ -94,6 +95,51 @@ const STATUS_STYLE: Record<string, string> = {
   // not an error the admin still needs to look at.
   skipped: 'bg-amber-500/20 text-amber-400',
   blocked: 'bg-red-500/20 text-red-400',
+}
+
+/**
+ * Who Mrs. Imagine cast for the on-person shot, and why (David 2026-09-03:
+ * a cute kids' ghost tee came back modelled by a bearded man). Two jobs:
+ *  1. Make the casting decision VISIBLE — before this, the model was a silent
+ *     random draw, so a wrong-looking person had no explanation and no lever.
+ *  2. Surface the mismatch nudge. When the artwork reads as a kids' design but
+ *     the garment is an adult size, the photo has to show an adult — the fix
+ *     is to go back a step and switch to the Youth T-Shirt, which also puts
+ *     youth sizes on the listing. That is the admin's call, so it is stated
+ *     plainly instead of being silently applied.
+ */
+export const CastingNote: React.FC<{
+  casting?: CastingDecision
+  productKind: 'garment' | 'metal'
+}> = ({ casting, productKind }) => {
+  if (!casting || productKind === 'metal') return null
+  return (
+    <div className="mb-4 rounded-xl border border-border-subtle bg-card-elevated p-3">
+      <div className="flex items-start gap-2">
+        <UserRound className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-xs text-text">
+            <span className="font-semibold">Cast: {casting.label}</span>
+            {casting.audience === 'youth' && <span className="text-muted"> (kids)</span>}
+            <span className="text-muted"> — {casting.reason}</span>
+          </p>
+          {casting.source !== 'mrs-imagine' && (
+            <p className="text-[10px] text-muted mt-0.5">
+              {casting.source === 'keywords'
+                ? "Matched on the listing wording — Mrs. Imagine couldn't read the artwork this time."
+                : 'No strong signal in the design, so this is the everyday default.'}
+            </p>
+          )}
+        </div>
+      </div>
+      {casting.mismatch && (
+        <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-500/10 p-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-amber-300">{casting.mismatch}</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => {
@@ -260,6 +306,8 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
           : 'Product shot, hanger, on-person, details card — and one per extra color.'}
       </p>
 
+      <CastingNote casting={state.stepFlow?.casting} productKind={state.productKind} />
+
       {firing && entries.length === 0 && (
         <div className="py-8 px-2 sm:px-8">
           <ProgressBar
@@ -313,6 +361,9 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                     </span>
                   </div>
                   {shot.status === 'failed' && shot.error && <p className="text-[10px] text-red-400 truncate" title={shot.error}>{shot.error}</p>}
+                  {shot.note && shot.status !== 'failed' && (
+                    <p className="text-[10px] text-amber-400 line-clamp-2" title={shot.note}>{shot.note}</p>
+                  )}
                   {orphaned && (
                     <p className="text-[10px] text-red-400 truncate" title="The product shot failed, so the details card can't be rendered.">
                       Blocked — the product shot failed

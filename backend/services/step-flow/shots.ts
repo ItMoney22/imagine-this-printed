@@ -20,7 +20,8 @@ import {
 } from '../../shared/catalog-capability.js'
 import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.js'
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
-import { shootOneModelShot } from '../etsy-model-shots.js'
+import { shootOneModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
+import { castForDesign, type CastingDecision } from './casting.js'
 import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
 import { buildProductGallery, METAL_ROLE_ORDER, ROLE_ORDER, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief, StepFlowInspiration } from './brief.js'
@@ -53,6 +54,14 @@ export interface ShotState {
    * `status:'failed'` for "the admin looked at this and moved on".
    */
   skipped?: boolean
+  /**
+   * A plain-English note about a shot that SUCCEEDED but not as cast — shown
+   * next to the thumbnail. Today's only producer is the youth no-model
+   * fallback (both image engines declined a child subject, so the shirt was
+   * photographed empty; see etsy-model-shots.ts's generateOneShot). Distinct
+   * from `error`, which means the shot did not land at all.
+   */
+  note?: string
   /**
    * 'details' only: the `product` shot's assetId this card was rendered
    * from. Lets a redo of the product shot be detected (assetId changed) so
@@ -118,12 +127,20 @@ export interface StepFlowMeta {
    * creation time (see routes/admin/ai-products.ts).
    */
   inspiration?: StepFlowInspiration
+  /**
+   * Who Mrs. Imagine cast for the on-person shot and why (David 2026-09-03).
+   * Written by `runModelShot` before the render so the panel can show the
+   * decision while the photo is still being taken — and so a cast that looks
+   * wrong is explainable instead of an anonymous dice roll. Garments only;
+   * metal art has no human subject.
+   */
+  casting?: CastingDecision
 }
 
 /** Thrown for expected, user-facing validation failures — routers map this to 400. */
 export class StepFlowValidationError extends Error {}
 
-type ProductRow = { id: string; category: string | null; metadata: any }
+type ProductRow = { id: string; name?: string | null; category: string | null; metadata: any }
 
 // ---------------------------------------------------------------------------
 // step_flow read/write helpers
@@ -149,6 +166,7 @@ export function getStepFlow(product: { metadata?: any } | null | undefined): Ste
       shots: raw.shots && typeof raw.shots === 'object' ? raw.shots : {},
       approvals: raw.approvals && typeof raw.approvals === 'object' ? raw.approvals : {},
       printAdvice: raw.printAdvice && typeof raw.printAdvice === 'object' ? raw.printAdvice : undefined,
+      casting: raw.casting && typeof raw.casting === 'object' ? raw.casting : undefined,
       printFile: raw.printFile && typeof raw.printFile === 'object' ? raw.printFile : undefined,
       inspiration: raw.inspiration && typeof raw.inspiration === 'object' ? raw.inspiration : undefined,
     }
@@ -159,7 +177,7 @@ export function getStepFlow(product: { metadata?: any } | null | undefined): Ste
 export async function loadProductRow(productId: string): Promise<ProductRow> {
   const { data, error } = await supabase
     .from('products')
-    .select('id, category, metadata')
+    .select('id, name, category, metadata')
     .eq('id', productId)
     .single()
   if (error || !data) throw new StepFlowValidationError('Product not found')
@@ -533,10 +551,35 @@ async function runModelShot(
   shirtColor: ColorId,
   nonce: string,
   /** Set on a redo — the PRIOR shot's URL to replace in-place rather than append. */
-  replaceUrl?: string
+  replaceUrl?: string,
+  /** Listing wording the casting pass reads alongside the artwork. */
+  castContext: { productName?: string; idea?: string } = {}
 ): Promise<void> {
   try {
-    const { url, check } = await shootOneModelShot(productId, userId, { shirtColor, garment, nonce, replaceUrl })
+    // Cast FIRST, from the artwork itself (David 2026-09-03). Passing no cast
+    // is what made this shot a uniform random draw over every adult
+    // archetype, which is how a kids' ghost tee got a bearded man. The
+    // decision is persisted before the (slow, paid) render so the panel can
+    // show who is being shot while it happens — and so a bad cast is
+    // explainable afterwards instead of being an anonymous dice roll.
+    const decision = await castForDesign({
+      designUrl: await designReferenceForProduct(productId),
+      garment,
+      productName: castContext.productName,
+      idea: castContext.idea,
+    })
+    console.log(
+      `[step-flow/shots] ${productId} cast ${decision.label} (${decision.source}) for the model shot: ${decision.reason}`
+    )
+    await mergeStepFlow(productId, (stepFlow) => ({ ...stepFlow, casting: decision }))
+
+    const { url, check } = await shootOneModelShot(productId, userId, {
+      shirtColor,
+      garment,
+      nonce,
+      replaceUrl,
+      cast: { subjects: [decision.subjectId] },
+    })
 
     if (check?.ok === false) {
       // Design-fidelity QA rejected this take (see etsy-model-shots.ts's
@@ -556,7 +599,13 @@ async function runModelShot(
       generated_with: 'etsy-model-shots',
     })
     await supabase.from('ai_jobs').update({ status: 'succeeded', output: { url }, updated_at: new Date().toISOString() }).eq('id', jobId)
-    await patchShotState(productId, 'model', { status: 'done', assetId: asset.id, url: asset.url, error: undefined })
+    // `check.degraded` means the shot came back as something other than what
+    // was cast (today: both engines declined a child subject, so the youth
+    // shirt was photographed empty). It is a usable photo, so this is a note
+    // on a DONE shot rather than a failure — but it is never silent.
+    await patchShotState(productId, 'model', {
+      status: 'done', assetId: asset.id, url: asset.url, error: undefined, note: check.degraded,
+    })
   } catch (err: any) {
     const message = err?.message || 'Model shot failed'
     console.error('[step-flow/shots] model shot failed:', message)
@@ -593,7 +642,10 @@ async function queueModelShot(
   // caller save it later" — makes the ordering correct regardless of timing.
   await patchShotState(product.id, 'model', { status: 'running', jobId: job.id, approved: false, error: undefined })
 
-  void runModelShot(product.id, userId, job.id, garment, primaryColor, nonce, previousUrl)
+  void runModelShot(product.id, userId, job.id, garment, primaryColor, nonce, previousUrl, {
+    productName: product.name ?? undefined,
+    idea: getStepFlow(product).idea || undefined,
+  })
 
   return { jobId: job.id, status: 'running' }
 }

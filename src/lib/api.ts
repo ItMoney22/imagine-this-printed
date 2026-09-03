@@ -477,7 +477,10 @@ export const etsy = {
 // reducer gates on (see components/studio/stepFlowReducer.ts).
 // ---------------------------------------------------------------------------
 
-export type StepFlowGarmentId = 'tshirt' | 'hoodie'
+// Mirrors GarmentId in backend/shared/catalog-capability.ts — the youth tee
+// (David 2026-09-03) is what lets a kids' design be photographed on a kid and
+// still be a listing we can fulfil.
+export type StepFlowGarmentId = 'tshirt' | 'hoodie' | 'youth-tshirt'
 export type StepFlowColorId =
   | 'black'
   | 'white'
@@ -635,6 +638,33 @@ export interface ShotState {
    *  from, so a later redo of `product` can tell a stale details render
    *  apart from a fresh one. */
   sourceAssetId?: string
+  /** A shot that SUCCEEDED but not as cast, in plain English — today only the
+   *  youth no-model fallback (both image engines declined a child subject, so
+   *  the shirt was photographed empty). Shown next to the thumbnail; distinct
+   *  from `error`, which means no shot landed at all. */
+  note?: string
+}
+
+/** How the design read to Mrs. Imagine when she cast the on-person shot. */
+export interface CastingRead {
+  audience: 'kids' | 'teen' | 'adult' | 'any'
+  subjectMatter: string
+  vibe: string
+}
+
+/** Who Mrs. Imagine put in the on-person shot, and why (David 2026-09-03).
+ *  The GARMENT fixes `audience` (adult tee -> an adult, youth tee -> a kid);
+ *  the DESIGN picks which kind of person within that band. */
+export interface CastingDecision {
+  subjectId: string
+  label: string
+  audience: 'adult' | 'youth'
+  reason: string
+  source: 'mrs-imagine' | 'keywords' | 'default'
+  read?: CastingRead
+  /** Set when the artwork reads as a kids' design but the garment is an adult
+   *  size — the shot still shows an adult; this is the nudge to switch. */
+  mismatch?: string
 }
 
 export interface ColorAdvice {
@@ -659,7 +689,7 @@ export type StepFlowApprovals = Partial<Record<'design' | 'garments' | 'mockups'
 // Print prep — a separate, team-only screened file for the press (never a
 // design/nobg asset, never customer-facing). See design doc §10.
 // 'vector' traces the artwork into flat SVG shapes rather than screening it
-// into dots - same team-only print-file slot, different answer to "prep this
+// into dots — same team-only print-file slot, different answer to "prep this
 // for the press". Print advice only ever SUGGESTS halftone or diffusion; vector
 // is a deliberate pick.
 export type PrintMethod = 'halftone' | 'diffusion' | 'vector'
@@ -734,6 +764,10 @@ export interface StepFlowMeta {
   /** Team-only print prep — never gates any approval, purely informational/optional. */
   printAdvice?: PrintAdvice
   printFile?: PrintFile
+  /** Who was cast for the on-person shot and why. Written server-side just
+   *  before the render, so the panel can show it while the photo is still
+   *  being taken. Garments only — metal art has no human subject. */
+  casting?: CastingDecision
 }
 
 // product_assets row (the columns the flow actually reads).

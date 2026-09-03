@@ -378,7 +378,8 @@ router.post('/:id/step/print-advice', requireAuth, requireAdminOrManager, rateLi
 })
 
 // POST /:id/step/print-file — { method?, frequency?, angle?, shape?,
-// invertDark? } -> { printFile }. Runs the existing DTF halftone engine on
+// invertDark?, colors?, detail?, despeckle? } -> { printFile }. Runs the DTF
+// halftone engine, or the vectorizer when method is 'vector', on
 // the nobg PNG and uploads a TEAM-ONLY print file — asset_role
 // 'print_halftone' is excluded from shared/product-gallery.ts's ROLE_ORDER,
 // so it can never land in products.images/the storefront no matter what
@@ -400,7 +401,7 @@ router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimi
       pngUrl,
       {
         // 'vector' traces the artwork into flat SVG shapes instead of
-        // screening it into dots - the same team-only print-file slot, the
+        // screening it into dots — the same team-only print-file slot, the
         // other answer to "this needs prepping for the press". Our designs are
         // 1024px, which is ~85 DPI at a 12in press against the ~300 a film
         // wants; an SVG has no resolution to be soft at. It flattens gradients
@@ -485,6 +486,12 @@ router.post('/:id/step/color-advice', requireAuth, requireAdminOrManager, async 
   }
 })
 
+/** Keep an explicitly chosen print width, but never let it exceed what this garment can physically take. */
+function clampPrintSize(current: unknown, garmentMax: number): number {
+  const n = Number(current)
+  return Number.isFinite(n) && n > 0 ? Math.min(n, garmentMax) : garmentMax
+}
+
 // POST /:id/step/garments — { garment, primaryColor, extraColors } -> { ok, step_flow }.
 // Validated against the ITP capability boundary — anything not offered (polo,
 // tank, embroidery, ...) is rejected here before it can ever reach a mockup.
@@ -522,6 +529,11 @@ router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req
       .from('products')
       .update({
         category: capabilityGarment.category,
+        // The garment's OWN size range (David 2026-09-03). The youth tee files
+        // under 't-shirts' like the adult one, so without this the storefront
+        // would fall back to adult sizes on a kids' listing — a photo of a
+        // child advertising a size we don't stock.
+        sizes: capabilityGarment.sizes,
         metadata: {
           ...product.metadata,
           step_flow: stepFlow,
@@ -529,6 +541,11 @@ router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req
           shirt_color: primaryColor,
           colors: [primaryColor, ...stepFlow.colors.extras],
           print_placement: 'front-center',
+          // Mockup prompts scale the print off this. CLAMPED, not overwritten:
+          // an admin's deliberately smaller pick survives, but an 11-inch
+          // adult print can't stay on a youth tee whose whole body is 18
+          // inches wide.
+          print_size_inches: clampPrintSize(product.metadata?.print_size_inches, capabilityGarment.printWidthInches),
         },
       })
       .eq('id', id)

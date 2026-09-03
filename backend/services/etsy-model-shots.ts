@@ -28,7 +28,15 @@ import { ETSY_SIZE_KEYS, metalScaleAnchor, type MetalArtSizeKey } from '../share
 // David 2026-09-01: hoodies were being shot on-model as a "crew neck
 // t-shirt" — the wording was hardcoded. Garment-aware wording (and the
 // Step Flow's shootOneModelShot) reads from the one capability boundary.
-import { COLORS, normalizeGarment, getGarment, type GarmentId, type ColorId } from '../shared/catalog-capability.js'
+import {
+  COLORS,
+  normalizeGarment,
+  getGarment,
+  audienceForGarment,
+  type GarmentAudience,
+  type GarmentId,
+  type ColorId,
+} from '../shared/catalog-capability.js'
 
 // Unpinned on purpose: the old `google/nano-banana:858e567…` pin froze this
 // service on a single v1 build and made model upgrades invisible here. Track
@@ -104,6 +112,14 @@ export interface ShotCheck {
   reason?: string
   /** True when the shot needed a second render to pass. */
   retried?: boolean
+  /**
+   * Set when the shot came back as something OTHER than what was cast, with
+   * the reason in plain English. Today that is only the youth no-model
+   * fallback (both engines declined a child subject, so the garment was shot
+   * empty). The shot is still usable — this is a note for the panel, not a
+   * failure — but it must never be silent.
+   */
+  degraded?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +146,19 @@ export interface ShotCheck {
 // and the composed Etsy tags so an obvious audience is pre-selected instead of
 // left to chance.
 //
-// All archetypes are adult on purpose: image-model and marketplace policies are
-// strict about generating minors, and the aesthetics (goth, skater, etc.) read
-// fine on a twenty-something. A youth listing gets a student/teacher/parent
-// subject — never an actual child.
+// David 2026-09-03 — the youth lane. Every archetype used to be adult on
+// purpose, and a kids' design could only be photographed on a student or a
+// parent. That produced the bug David caught: a cute "Too Cute To Spook"
+// ghost tee modelled by a bearded man. Two things changed together, and
+// NEITHER works without the other:
+//   1. The catalogue now sells a youth tee (Gildan 5000B, YXS-YXL) — see
+//      shared/catalog-capability.ts. Without it, a child in the photo would
+//      advertise a size we cannot ship.
+//   2. The archetypes below carry an `audience`, and the youth ones are only
+//      reachable when the GARMENT is a youth cut (enforced in resolveCast and
+//      again in shootOneModelShot).
+// The adult archetypes stay exactly as they were; an adult garment can still
+// never be cast with a child, which is what the old blanket ban really bought.
 // ---------------------------------------------------------------------------
 
 // Age bands are phrased as adjectives ("a late-twenties Black woman") so no
@@ -186,6 +211,50 @@ const POSES = [
   'thumbs hooked in their belt loops', 'one hand up adjusting their hair'
 ] as const
 
+// ---------------------------------------------------------------------------
+// Youth trait pools. Separate from the adult pools on purpose — half the adult
+// details are nonsense or worse on a child (a farmer tan, a stick-and-poke
+// tattoo, acne scarring, "no makeup and no apology for it"). These pools
+// describe an ordinary kid the way a children's-clothing catalog would: what
+// they are doing, not what they look like.
+// ---------------------------------------------------------------------------
+const YOUTH_AGES = ['six-year-old', 'seven-year-old', 'eight-year-old', 'nine-year-old', 'ten-year-old', 'eleven-year-old'] as const
+
+// Nouns, not descriptors — same reason the adult ages are adjectives: no
+// pronoun ever has to agree with the drawn presentation.
+const YOUTH_PRESENTATIONS = ['boy', 'girl', 'child'] as const
+
+const YOUTH_BUILDS = ['small-framed', 'average-build', 'tall-for-their-age', 'sturdy', 'wiry'] as const
+
+const YOUTH_FEATURES = [
+  'freckles across the nose', 'a missing front tooth', 'a cowlick that will not lie flat',
+  'hair pushed back behind the ears', 'a grass stain on one sleeve', 'a bandaid on one elbow',
+  'slightly crooked new front teeth', 'flyaway hair the brush missed', 'a birthmark on one cheek',
+] as const
+
+const YOUTH_EXPRESSIONS = [
+  'a big unguarded grin', 'a shy closed-mouth smile', 'mid-laugh with the eyes squeezed shut',
+  'a calm friendly look straight down the lens', 'glancing off-camera, half-smiling',
+  'eyebrows up like they just thought of something',
+] as const
+
+const YOUTH_POSES = [
+  'standing squarely with hands at their sides', 'hands in their pockets',
+  'one hand tugging the shirt hem straight', 'arms crossed loosely',
+  'weight on one foot, relaxed', 'both thumbs hooked in their jeans pockets',
+] as const
+
+// Scenes for the youth lane — everyday, public, wholesome, nothing that reads
+// as private or intimate. Never a bedroom, never a bathroom, never a beach.
+const YOUTH_SCENES = [
+  'in a clean bright studio with soft even daylight, front-facing, relaxed natural stance',
+  'in a sunny back yard with the fence softly out of focus behind them',
+  'on a school playground in the morning, play structure blurred behind them',
+  'in a leafy park in autumn, golden leaves softly out of focus behind them',
+  'in front of a plain painted wall in soft window light, simple and clean',
+  'on a suburban sidewalk on a bright breezy day, houses softly blurred behind',
+] as const
+
 // Photography treatment is drawn per shot too, so even a repeat scene never
 // renders with the same light twice.
 const TREATMENTS = [
@@ -212,6 +281,12 @@ interface ShotArchetype {
   /** Overrides the PRESENTATIONS draw where the archetype is inherently gendered. */
   presentations?: readonly string[]
   keywords: readonly string[]
+  /**
+   * Who this archetype is. Absent means 'adult'. A 'youth' archetype is only
+   * castable on a youth garment — see castableFor() — so the catalogue, not
+   * the prompt, is what decides whether a child can appear in a photo.
+   */
+  audience?: GarmentAudience
 }
 
 const ARCHETYPES: readonly ShotArchetype[] = [
@@ -297,6 +372,28 @@ const ARCHETYPES: readonly ShotArchetype[] = [
     id: 'country', label: 'country', role: 'with an easygoing country style', ages: AGES_ADULT,
     details: ['a well-shaped trucker cap', 'a sunburned neck', 'a big belt buckle just in frame', 'work-callused hands', 'a braid over one shoulder', 'a straw hat pushed back'],
     keywords: ['country', 'farm', 'ranch', 'truck', 'cowboy', 'hunting', 'southern', 'rodeo', 'horse']
+  },
+  // --- Youth lane (youth garments only) -------------------------------------
+  // Deliberately few and deliberately plain. These describe an ordinary kid in
+  // a t-shirt for a children's-clothing catalog — the styling pools above
+  // (goth, tattooed, gym) are not available here and never will be.
+  {
+    id: 'kid', label: 'kid', role: 'with easy everyday kid energy', ages: YOUTH_AGES, audience: 'youth',
+    presentations: YOUTH_PRESENTATIONS,
+    details: ['a simple everyday haircut', 'hair in a ponytail', 'light-up sneakers just in frame', 'a small backpack over one shoulder', 'two braids', 'a bucket hat pushed back'],
+    keywords: ['kid', 'kids', 'child', 'children', 'youth', 'boy', 'girl', 'toddler', 'cute', 'birthday', 'school', 'first grade', 'kindergarten']
+  },
+  {
+    id: 'kid-playful', label: 'playful kid', role: 'with bright, playful energy', ages: YOUTH_AGES, audience: 'youth',
+    presentations: YOUTH_PRESENTATIONS,
+    details: ['a gap-toothed grin', 'a soccer ball under one arm', 'chalk dust on the fingers', 'a scooter helmet held at their side', 'hair still messy from playing', 'a friendship bracelet'],
+    keywords: ['play', 'playful', 'fun', 'silly', 'funny', 'dino', 'dinosaur', 'unicorn', 'space', 'rainbow', 'monster', 'ghost', 'halloween', 'trick or treat', 'spooky cute']
+  },
+  {
+    id: 'kid-sporty', label: 'sporty kid', role: 'with sporty, active energy', ages: YOUTH_AGES, audience: 'youth',
+    presentations: YOUTH_PRESENTATIONS,
+    details: ['a team ball cap', 'a high ponytail through the cap', 'grass-stained knees just in frame', 'a water bottle in one hand', 'shin guards just in frame', 'a fresh short haircut'],
+    keywords: ['sport', 'sports', 'soccer', 'baseball', 'basketball', 'football', 'team', 'coach', 'little league', 'dance', 'gymnastics', 'karate']
   }
 ] as const
 
@@ -306,17 +403,30 @@ export interface ShotSubject {
   label: string
   persona: string
   keywords: readonly string[]
+  /** 'youth' subjects are only offered on a youth garment. */
+  audience: GarmentAudience
 }
 
-/** Catalog for the admin picker — the blurb doubles as the chip tooltip. */
-export function listShotSubjects(): ShotSubject[] {
-  return ARCHETYPES.map(a => ({
-    id: a.id,
-    label: a.label,
-    persona: `Someone ${a.role} — a different person every shoot`,
-    keywords: [...a.keywords]
-  }))
+/**
+ * Catalog for the admin picker — the blurb doubles as the chip tooltip.
+ * Pass the garment's audience to get only the subjects castable on it; with
+ * no argument you get everything (the Etsy panel's full catalog).
+ */
+export function listShotSubjects(audience?: GarmentAudience): ShotSubject[] {
+  return ARCHETYPES
+    .filter(a => !audience || (a.audience ?? 'adult') === audience)
+    .map(a => ({
+      id: a.id,
+      label: a.label,
+      persona: `Someone ${a.role} — a different person every shoot`,
+      keywords: [...a.keywords],
+      audience: a.audience ?? 'adult',
+    }))
 }
+
+/** The archetypes castable on a garment of this audience. Never mixes the two. */
+const castableFor = (audience: GarmentAudience): ShotArchetype[] =>
+  ARCHETYPES.filter(a => (a.audience ?? 'adult') === audience)
 
 const pick = <T,>(pool: readonly T[]): T => pool[Math.floor(Math.random() * pool.length)]
 
@@ -351,11 +461,15 @@ export class ShotCastError extends Error {}
  * human detail around them.
  */
 export function composeSubject(member: CastMember): { persona: string; signature: string } {
-  const feature = pick(EVERYDAY_FEATURES)
-  const expression = pick(EXPRESSIONS)
-  const pose = pick(POSES)
+  const isYouth = (member.archetype?.audience ?? 'adult') === 'youth'
+  const feature = pick(isYouth ? YOUTH_FEATURES : EVERYDAY_FEATURES)
+  const expression = pick(isYouth ? YOUTH_EXPRESSIONS : EXPRESSIONS)
+  const pose = pick(isYouth ? YOUTH_POSES : POSES)
 
   if (member.custom || !member.archetype) {
+    // A custom subject is always adult: sanitizeCustomSubject rejects free
+    // text describing a minor, so the youth lane is reachable only through
+    // the curated archetypes above.
     const base = member.custom || 'an everyday adult'
     return {
       persona: `${base}, with ${feature}, ${expression}, ${pose}`,
@@ -365,7 +479,7 @@ export function composeSubject(member: CastMember): { persona: string; signature
 
   const a = member.archetype
   const age = pick(a.ages)
-  const build = pick(BUILDS)
+  const build = pick(isYouth ? YOUTH_BUILDS : BUILDS)
   const heritage = pick(HERITAGE)
   const presentation = pick(a.presentations ?? PRESENTATIONS)
   const [d1, d2] = a.details.length > 1 ? pickTwo(a.details) : [a.details[0], null]
@@ -380,23 +494,51 @@ export function composeSubject(member: CastMember): { persona: string; signature
   }
 }
 
-/** Resolve the admin's picks into at most two cast slots. Throws on a bad custom subject. */
-export function resolveCast(cast?: ShotCast): CastMember[] {
+/**
+ * Resolve the admin's picks into at most two cast slots. Throws on a bad
+ * custom subject.
+ *
+ * `audience` is the GARMENT's audience (see shared/catalog-capability.ts) and
+ * is the hard boundary on who can be cast: a youth archetype on an adult
+ * garment, or an adult archetype on the youth tee, is rejected here rather
+ * than quietly producing a photo that misrepresents what the buyer receives.
+ * Omitting it means 'adult' — the safe default, and what every existing
+ * caller got before the youth lane existed.
+ */
+export function resolveCast(cast?: ShotCast, audience: GarmentAudience = 'adult'): CastMember[] {
   const members: CastMember[] = []
   for (const id of cast?.subjects ?? []) {
     const match = ARCHETYPES.find(a => a.id === id)
     if (!match) throw new ShotCastError(`Unknown model subject "${id}"`)
+    const subjectAudience = match.audience ?? 'adult'
+    if (subjectAudience !== audience) {
+      throw new ShotCastError(
+        subjectAudience === 'youth'
+          ? `"${match.label}" is a youth subject and this listing is an adult garment — a child model would advertise a size this product isn't sold in. Switch the garment to the Youth T-Shirt, or pick an adult subject.`
+          : `"${match.label}" is an adult subject and this listing is a youth garment. Pick one of: ${castableFor('youth').map(a => a.label).join(', ')}.`
+      )
+    }
     members.push({ label: match.label, archetype: match, custom: null })
   }
   const custom = sanitizeCustomSubject(cast?.custom)
-  if (custom) members.push({ label: 'custom', archetype: null, custom })
+  if (custom) {
+    if (audience === 'youth') {
+      throw new ShotCastError(
+        'A youth listing can only be cast from the built-in kid subjects — free-text subjects are adults only. ' +
+        `Pick one of: ${castableFor('youth').map(a => a.label).join(', ')}.`
+      )
+    }
+    members.push({ label: 'custom', archetype: null, custom })
+  }
   return members.slice(0, 2)
 }
 
-// Image models and Etsy both prohibit depicting minors, and PROMPT_TAIL already
-// pins "the model is clearly an adult" — so a custom subject that asks for a
-// child is rejected loudly at kickoff instead of quietly producing an adult and
-// confusing the admin about why.
+// Free text describing a child is rejected, always — even on a youth garment.
+// The youth lane is reachable ONLY through the curated archetypes above, whose
+// wording is fixed, wholesome and reviewed; an admin's own sentence about a
+// child is not something this service will hand to an image model. On an adult
+// garment the rejection also stops the old failure mode where the request
+// quietly produced an adult and left the admin wondering why.
 const MINOR_TERMS =
   /\b(child|children|kid|kids|toddler|baby|babies|infant|newborn|pre-?teen|tween|minor|underage|schoolboy|schoolgirl|elementary|kindergarten|preschool|middle school|junior high|boy|boys|girl|girls|son|daughter|grandchild|youngster|juvenile|little one)\b/i
 const MINOR_AGE = /\b(?:[1-9]|1[0-7])\s*(?:-|–|\s)?\s*(?:year|yr)s?[\s-]*old\b/i
@@ -406,8 +548,9 @@ function sanitizeCustomSubject(raw?: string): string | null {
   if (!text) return null
   if (MINOR_TERMS.test(text) || MINOR_AGE.test(text)) {
     throw new ShotCastError(
-      'Model shots can only depict adults — image-model and Etsy policy both forbid generating minors. ' +
-      'Describe an adult subject instead (e.g. "a college student in her early twenties with a backpack").'
+      'A custom subject has to be an adult. To photograph this design on a kid, switch the garment to the ' +
+      'Youth T-Shirt and pick one of the built-in kid subjects — that way the listing sells youth sizes too. ' +
+      'Otherwise describe an adult (e.g. "a college student in her early twenties with a backpack").'
     )
   }
   return text
@@ -459,6 +602,19 @@ export interface ShotPlan {
   metalSize?: MetalArtSizeKey
   /** Set on the second attempt: what the QA pass said went wrong the first time. */
   retryNote?: string
+  /**
+   * Whose body wears this garment — taken from the garment, never guessed.
+   * Drives the "clearly an adult" / children's-catalog wording in the prompt
+   * tail and the print-scale wording. Absent means 'adult'.
+   */
+  audience?: GarmentAudience
+  /**
+   * Set on the last-ditch attempt after both engines declined the subject:
+   * render the garment with NO person in it. Only ever used for youth shots
+   * (see generateOneShot) — the alternative would be silently shipping an
+   * adult in a kids' listing, which is the bug this whole lane exists to fix.
+   */
+  noModel?: boolean
 }
 
 /** Short random slate id, e.g. "K7QM2A" — burned into the prompt as a casting slate. */
@@ -468,14 +624,19 @@ const slateId = (): string =>
 /** Dress one cast slot into a full shot. Fresh traits every call, by design. */
 function castShot(key: string, member: CastMember, scene: string): ShotPlan {
   const { persona, signature } = composeSubject(member)
-  return { key, label: member.label, persona, scene, treatment: pick(TREATMENTS), signature, variant: slateId() }
+  const audience = member.archetype?.audience ?? 'adult'
+  return { key, label: member.label, persona, scene, treatment: pick(TREATMENTS), signature, variant: slateId(), audience }
 }
+
+/** Scene pool for a cast slot — youth shots stay in the wholesome, public YOUTH_SCENES. */
+const scenesFor = (audience: GarmentAudience): readonly string[] =>
+  audience === 'youth' ? YOUTH_SCENES : SCENES
 
 // Build the two-shot plan: the admin's chosen cast (or a random pair of distinct
 // archetypes) in two distinct scenes for apparel, and room scenes for metal art
 // (one shot per buyable size, scale-anchored — metal art has no human subject,
 // so the panel never offers a cast picker for it).
-function buildShotPlan(category: string, cast: CastMember[] = []): ShotPlan[] {
+function buildShotPlan(category: string, cast: CastMember[] = [], audience: GarmentAudience = 'adult'): ShotPlan[] {
   if (category === 'metal-art') {
     const small = pick(METAL_SCENES_SMALL)
     const medium = pick(METAL_SCENES_MEDIUM)
@@ -489,11 +650,13 @@ function buildShotPlan(category: string, cast: CastMember[] = []): ShotPlan[] {
   // pick means the admin wants that archetype — it fills both slots, but each
   // slot is dressed separately, so it's the same TYPE of person, not the same
   // person twice (different scene, different traits, different slate).
-  const [r1, r2] = pickTwo(ARCHETYPES)
+  // Random fill draws only from the garment's own audience — an unpicked slot
+  // on a youth tee is a kid, never a random adult.
+  const [r1, r2] = pickTwo(castableFor(audience))
   const toMember = (a: ShotArchetype): CastMember => ({ label: a.label, archetype: a, custom: null })
   const m1 = cast[0] ?? toMember(r1)
   const m2 = cast[1] ?? cast[0] ?? toMember(r2)
-  const [s1, s2] = pickTwo(SCENES)
+  const [s1, s2] = pickTwo(scenesFor(audience))
   return [castShot('shot1', m1, s1), castShot('shot2', m2, s2)]
 }
 
@@ -509,8 +672,9 @@ function buildShotPlan(category: string, cast: CastMember[] = []): ShotPlan[] {
 // placement and size — it was a hardcoded "11-inch front print" for every
 // garment, which mis-briefed pocket and back products and ignored the size
 // the admin picked (David 2026-08-09).
-const shotPlacementRule = (placement: string, sizeInches: number): string => {
+const shotPlacementRule = (placement: string, sizeInches: number, audience: GarmentAudience = 'adult'): string => {
   const inches = Math.min(16, Math.max(3, Math.round(Number(sizeInches) || 11)))
+  const body = audience === 'youth' ? 'youth' : 'adult'
   switch (placement) {
     case 'left-pocket':
       return 'Placement: a small pocket-scale print about 4 inches wide, high on the LEFT chest like a pocket ' +
@@ -523,11 +687,11 @@ const shotPlacementRule = (placement: string, sizeInches: number): string => {
         'large back print, but only the front is visible in this photo).'
     default: // front-center, front-back (front side shown)
       return `Placement: centered on the chest, top edge about two inches below the collar, sized like a standard ` +
-        `${inches}-inch adult front print — never enlarged into an all-over print.`
+        `${inches}-inch ${body} front print — never enlarged into an all-over print.`
   }
 }
 
-const designFidelityRules = (placement: string, sizeInches: number): string =>
+const designFidelityRules = (placement: string, sizeInches: number, audience: GarmentAudience = 'adult'): string =>
   'DESIGN FIDELITY — this outranks every aesthetic choice in this brief:\n' +
   '1. Reproduce the INPUT artwork EXACTLY. Every letter, word, number and punctuation mark keeps its spelling, ' +
   'its typeface, its weight, its letter spacing and its line breaks.\n' +
@@ -539,7 +703,7 @@ const designFidelityRules = (placement: string, sizeInches: number): string =>
   '5. The whole graphic stays visible: nothing covers it — not hands, hair, arms, bag straps, jackets or shadow.\n' +
   '6. The ONLY permitted deformation is real fabric behavior — the print follows the shirt\'s folds and the ' +
   'curve of the body like a genuine DTF transfer, slightly matte, ink sitting on the weave.\n' +
-  `7. ${shotPlacementRule(placement, sizeInches)}\n` +
+  `7. ${shotPlacementRule(placement, sizeInches, audience)}\n` +
   'If any part of the artwork is ambiguous, reproduce it as-is. Never invent a cleaner version.'
 
 const METAL_FIDELITY_RULES =
@@ -561,12 +725,30 @@ const EVERYDAY_REALISM =
   'jawline. The PHOTOGRAPH, by contrast, is professional: correctly exposed, sharp focus on the model, clean ' +
   'color, no motion blur and no noise. Everyday person, expert photography.'
 
-const promptTail = (placement: string, sizeInches: number): string =>
+// The youth counterpart to EVERYDAY_REALISM. Every clause here is doing a job:
+// this is a children's-apparel catalog photograph, the child is fully clothed
+// in ordinary play clothes, the framing is the same shoulders-to-waist product
+// crop the adult shots use, and nothing about the pose, styling or wardrobe is
+// adult. Stated positively AND as explicit exclusions, because the exclusions
+// are what keep a generic "fashion photograph" instruction from drifting.
+const YOUTH_REALISM =
+  'THE MODEL: an ordinary school-age child in everyday play clothes, photographed for a children\'s clothing ' +
+  'catalog. Fully and modestly dressed: the t-shirt plus ordinary jeans, shorts or leggings. Natural, ' +
+  'unretouched, age-appropriate — a real kid, not a stylized or idealized one. No makeup, no jewelry beyond a ' +
+  'simple friendship bracelet, no adult styling, no adult posing, no swimwear or underwear, no bare torso, no ' +
+  'suggestive pose or expression, nothing revealing. Standing upright and squarely facing the camera in a plain, ' +
+  'neutral stance, exactly like a catalog product photo. The PHOTOGRAPH is professional: correctly exposed, ' +
+  'sharp focus, clean color, no motion blur. Wholesome, ordinary, and entirely about the shirt.'
+
+const promptTail = (placement: string, sizeInches: number, audience: GarmentAudience = 'adult'): string =>
   'Show the full torso from shoulders to waist with realistic fabric texture, natural drape and true-to-life ' +
-  'lighting. The model is clearly an adult. High-resolution product photography suitable for an online ' +
-  'marketplace listing.\n' +
-  EVERYDAY_REALISM + '\n' +
-  designFidelityRules(placement, sizeInches)
+  'lighting. ' +
+  (audience === 'youth'
+    ? 'The model is a school-age child and the garment is a youth-size t-shirt. '
+    : 'The model is clearly an adult. ') +
+  'High-resolution product photography suitable for an online marketplace listing.\n' +
+  (audience === 'youth' ? YOUTH_REALISM : EVERYDAY_REALISM) + '\n' +
+  designFidelityRules(placement, sizeInches, audience)
 
 // How the "wearing a shirt with the graphic printed …" clause reads per
 // placement — a back-only product is shot FROM BEHIND, which the old
@@ -618,6 +800,7 @@ export function buildGptPrompt(
   sizeInches: number,
   garmentNoun: string = 'crew neck t-shirt'
 ): string {
+  if (plan.noModel) return buildNoModelPrompt(plan, shirtColor, placement, sizeInches, garmentNoun)
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -633,7 +816,30 @@ export function buildGptPrompt(
     `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} ${garmentNoun} ` +
     `with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
     `${castingSlate(plan)}\n` +
-    promptTail(placement, sizeInches)
+    promptTail(placement, sizeInches, plan.audience)
+  )
+}
+
+// Last-ditch youth staging: the garment itself, no person in it. Used only
+// when both engines refused to render a child (see generateOneShot). It is a
+// real, honest listing photo of a youth tee — it just has nobody wearing it —
+// and it is flagged back to the panel so the admin knows why.
+function buildNoModelPrompt(
+  plan: ShotPlan,
+  shirtColor: string,
+  placement: string,
+  sizeInches: number,
+  garmentNoun: string
+): string {
+  return (
+    `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
+    `Task: a professional ecommerce product photograph of a ${shirtColor} ${garmentNoun} — EMPTY, with nobody ` +
+    `wearing it and no person anywhere in the frame — laid flat and neatly styled on a clean light surface, ` +
+    `with the graphic from the INPUT ${wearingClause(placement)}. ${plan.treatment}.\n` +
+    `The shirt is the only subject. No model, no mannequin, no hands, no body parts.\n` +
+    `Show the shirt front filling the frame with realistic cotton texture and natural fabric relief. ` +
+    `High-resolution product photography suitable for an online marketplace listing.\n` +
+    designFidelityRules(placement, sizeInches, plan.audience)
   )
 }
 
@@ -650,6 +856,7 @@ export function buildNanoPrompt(
   sizeInches: number,
   garmentNoun: string = 'crew neck t-shirt'
 ): string {
+  if (plan.noModel) return buildNoModelPrompt(plan, shirtColor, placement, sizeInches, garmentNoun)
   if (!plan.persona) {
     return (
       retryPreamble(plan) +
@@ -657,6 +864,19 @@ export function buildNanoPrompt(
       `reproduced as a thin, frameless, glossy aluminum metal print panel with clean edges, ${plan.scene}. ` +
       `${metalScaleAnchor(plan.metalSize ?? '4x6')} ${plan.treatment}.\n` +
       METAL_PROMPT_TAIL
+    )
+  }
+  // A youth shot gets NO stock anchor (see generateOneShot) — the two stock
+  // photos are adults, and anchoring a child render on an adult body is both
+  // a bad reference and an obviously bad idea. Its prompt is design-only.
+  if (plan.audience === 'youth') {
+    return (
+      retryPreamble(plan) +
+      `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
+      `Task: a professional children's-apparel catalog photograph of ${plan.persona} wearing a ${shirtColor} ` +
+      `${garmentNoun} with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
+      `${castingSlate(plan)}\n` +
+      promptTail(placement, sizeInches, plan.audience)
     )
   }
   return (
@@ -667,7 +887,7 @@ export function buildNanoPrompt(
     `Use INPUT 1 ONLY for camera distance, crop and body angle. DISCARD the person in INPUT 1 entirely — their ` +
     `face, hair, skin tone, age and build must NOT carry over. The subject is the person described above.\n` +
     `${castingSlate(plan)}\n` +
-    promptTail(placement, sizeInches)
+    promptTail(placement, sizeInches, plan.audience)
   )
 }
 
@@ -682,7 +902,7 @@ async function generateOneShot(
   placement: string = 'front-center',
   sizeInches: number = 11,
   garmentNoun: string = 'crew neck t-shirt'
-): Promise<string> {
+): Promise<{ url: string; degraded?: string }> {
   const viaGptImage = async (): Promise<string> => {
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
@@ -698,9 +918,12 @@ async function generateOneShot(
 
   const viaNanoBanana = async (): Promise<string> => {
     if (!replicate) throw new Error('REPLICATE_API_TOKEN is not configured')
-    const inputImages = plan.persona
+    // No anchor for metal art (no human at all) and none for a youth shot —
+    // both stock models are adults, and buildNanoPrompt's youth branch is
+    // written for a design-only input.
+    const inputImages = plan.persona && plan.audience !== 'youth' && !plan.noModel
       ? [await stockModelUrl(plan.key === 'shot1' ? 'female-caucasian-athletic' : 'male-caucasian-athletic'), designUrl]
-      : [designUrl] // metal art: no human anchor, just the artwork
+      : [designUrl]
     const output = await replicate.run(NANO_BANANA as any, {
       input: {
         prompt: buildNanoPrompt(plan, shirtColor, placement, sizeInches, garmentNoun),
@@ -724,10 +947,33 @@ async function generateOneShot(
 
   const [primary, fallback] = SHOTS_ENGINE === 'gpt-image' ? [viaGptImage, viaNanoBanana] : [viaNanoBanana, viaGptImage]
   try {
-    return await primary()
-  } catch (err: any) {
-    console.warn(`[etsy-shots] ${productId} ${plan.key} primary engine failed (${err?.message}) — trying fallback`)
-    return await fallback()
+    return { url: await primary() }
+  } catch (primaryErr: any) {
+    console.warn(`[etsy-shots] ${productId} ${plan.key} primary engine failed (${primaryErr?.message}) — trying fallback`)
+    try {
+      return { url: await fallback() }
+    } catch (fallbackErr: any) {
+      // A youth shot that BOTH engines refused. Image providers apply extra
+      // safety scrutiny to child subjects and either may decline; when that
+      // happens the shot must not silently become an adult (the original
+      // bug) and it should not just fail the step either. Render the garment
+      // with nobody in it and tell the caller that is what happened.
+      if (plan.audience !== 'youth' || plan.noModel) throw fallbackErr
+      console.warn(
+        `[etsy-shots] ${productId} ${plan.key} both engines declined the youth subject ` +
+        `(${fallbackErr?.message}) — falling back to an empty-garment shot`
+      )
+      const noModelPlan: ShotPlan = { ...plan, noModel: true, variant: slateId(), retryNote: undefined }
+      const url = await generateOneShot(
+        noModelPlan, designUrl, shirtColor, productId, userId, placement, sizeInches, garmentNoun
+      ).then(r => r.url)
+      return {
+        url,
+        degraded:
+          'The image engine declined to render a child model, so this is the youth shirt photographed on its ' +
+          'own. Redo the shot to try again, or keep it as a flat-lay listing photo.',
+      }
+    }
   }
 }
 
@@ -817,9 +1063,9 @@ interface ShotContext {
  * it didn't. Returns whichever render we're keeping plus its verdict.
  */
 async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck }> {
-  const url = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
+  const { url, degraded } = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const verdict = await verifyDesignFidelity(ctx.designUrl, url)
-  if (!verdict || verdict.ok) return { url, check: { ok: true } }
+  if (!verdict || verdict.ok) return { url, check: { ok: true, degraded } }
 
   console.warn(`[etsy-shots] ${ctx.productId} ${plan.key} failed fidelity QA: ${verdict.reason} — one retry`)
   await ctx.onStage(`Design came back wrong (${verdict.reason}) — reshooting…`)
@@ -827,12 +1073,12 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
   // Fresh slate id so the retry is a genuinely different roll, plus the note
   // telling the model what to fix.
   const retryPlan: ShotPlan = { ...plan, variant: slateId(), retryNote: verdict.reason }
-  const retryUrl = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
+  const { url: retryUrl, degraded: retryDegraded } = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const retryVerdict = await verifyDesignFidelity(ctx.designUrl, retryUrl)
-  if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true } }
+  if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true, degraded: retryDegraded } }
 
   console.warn(`[etsy-shots] ${ctx.productId} ${plan.key} still failing after retry: ${retryVerdict.reason}`)
-  return { url: retryUrl, check: { ok: false, reason: retryVerdict.reason, retried: true } }
+  return { url: retryUrl, check: { ok: false, reason: retryVerdict.reason, retried: true, degraded: retryDegraded } }
 }
 
 // Normalize Replicate output (string | array | async iterator, URL or raw
@@ -942,6 +1188,21 @@ async function designReferenceUrl(product: any): Promise<string | null> {
   return Array.isArray(product.images) ? product.images[0] ?? null : null
 }
 
+/**
+ * The design art a shot composites, resolved from a product id — the same
+ * source-asset-then-hero-image chain a shoot uses. Exported so the casting
+ * pass (services/step-flow/casting.ts) looks at exactly the image the shot
+ * will print, not a different one.
+ */
+export async function designReferenceForProduct(productId: string): Promise<string | null> {
+  const { data: product } = await supabase
+    .from('products')
+    .select('id, images')
+    .eq('id', productId)
+    .maybeSingle()
+  return product ? designReferenceUrl(product) : null
+}
+
 async function saveShotsState(productId: string, patch: Partial<EtsyShots>): Promise<void> {
   // Re-read metadata at write time so a compose that finished mid-generation
   // isn't clobbered (single-admin flow; last-write-wins is acceptable here).
@@ -985,6 +1246,9 @@ async function loadShotContext(productId: string, userId: string, override?: { g
 
   return {
     category: String((product as any).category || ''),
+    // The garment decides who may be photographed in it — never the design,
+    // never the prompt, never a random draw (David 2026-09-03).
+    audience: audienceForGarment(garment),
     colorFor: (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase(),
     ctx: {
       designUrl,
@@ -1005,9 +1269,9 @@ const stageFor = (shot: ShotPlan, color: string, i: number, total: number) =>
 
 async function generateShots(productId: string, userId: string, cast: CastMember[] = []): Promise<void> {
   try {
-    const { category, colorFor, ctx } = await loadShotContext(productId, userId)
+    const { category, audience, colorFor, ctx } = await loadShotContext(productId, userId)
 
-    const plan = buildShotPlan(category, cast)
+    const plan = buildShotPlan(category, cast, audience)
     // Record the cast up front so the panel can show who is being shot even
     // while the first image is still rendering.
     await saveShotsState(productId, { cast: plan.map(p => p.label) })
@@ -1108,7 +1372,7 @@ async function mirrorShotsToProductAssets(productId: string, images: string[], c
 // one render, not a whole new shoot.
 async function reshootOne(productId: string, userId: string, index: number, cast: CastMember[]): Promise<void> {
   try {
-    const { category, colorFor, ctx } = await loadShotContext(productId, userId)
+    const { category, audience, colorFor, ctx } = await loadShotContext(productId, userId)
 
     let plan: ShotPlan
     if (category === 'metal-art') {
@@ -1121,12 +1385,13 @@ async function reshootOne(productId: string, userId: string, index: number, cast
         .filter((_, i) => i !== index)
       // No pick = "just give me someone else", so avoid the archetype that's
       // still sitting in the other slot rather than rolling a possible twin.
+      const castable = castableFor(audience)
       const member = cast[0] ?? (() => {
-        const pool = ARCHETYPES.filter(a => !keptLabels.includes(a.label))
-        const a = pick(pool.length ? pool : ARCHETYPES)
+        const pool = castable.filter(a => !keptLabels.includes(a.label))
+        const a = pick(pool.length ? pool : castable)
         return { label: a.label, archetype: a, custom: null } as CastMember
       })()
-      plan = castShot(`shot${index + 1}`, member, pick(SCENES))
+      plan = castShot(`shot${index + 1}`, member, pick(scenesFor(audience)))
     }
 
     console.log(`[etsy-shots] ${productId} reshoot #${index + 1} cast: ${plan.signature} [slate ${plan.variant}]`)
@@ -1176,8 +1441,6 @@ export async function reshootModelShot(
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
   }
-  const resolved = resolveCast(cast)
-
   const { data: product, error } = await supabase
     .from('products')
     .select('id, metadata')
@@ -1185,6 +1448,10 @@ export async function reshootModelShot(
     .maybeSingle()
   if (error) throw new Error(`Product lookup failed: ${error.message}`)
   if (!product) throw new Error(`Product ${productId} not found`)
+
+  // Resolved against the GARMENT's audience, so an adult subject on a youth
+  // listing (or the reverse) is a 400 here rather than a bad photo later.
+  const resolved = resolveCast(cast, audienceOf((product as any).metadata))
 
   const existing: EtsyShots | undefined = (product as any).metadata?.etsy_shots
   if (!existing?.images?.length) throw new ShotCastError('There are no shots to reshoot yet — run a shoot first')
@@ -1250,14 +1517,18 @@ export async function shootOneModelShot(
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
   }
-  const resolved = resolveCast(opts.cast)
-  const { colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
+  const { audience, colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
+  // Resolved against THIS garment's audience (the context is loaded first for
+  // exactly that reason). Before 2026-09-03 the Step Flow passed no cast at
+  // all and this fell through to a uniform random draw over every adult
+  // archetype — which is how a kids' ghost tee got a bearded man.
+  const resolved = resolveCast(opts.cast, audience)
 
   const member: CastMember = resolved[0] ?? (() => {
-    const a = pick(ARCHETYPES)
+    const a = pick(castableFor(audience))
     return { label: a.label, archetype: a, custom: null }
   })()
-  const plan = castShot(`step-model${opts.nonce ? `-${opts.nonce}` : ''}`, member, pick(SCENES))
+  const plan = castShot(`step-model${opts.nonce ? `-${opts.nonce}` : ''}`, member, pick(scenesFor(audience)))
   const shirtColor = opts.shirtColor ? (COLORS[opts.shirtColor]?.label.toLowerCase() ?? opts.shirtColor) : colorFor(0)
 
   console.log(`[etsy-shots] ${productId} ${plan.key} (step-flow single shot) cast: ${plan.signature} [slate ${plan.variant}]`)
@@ -1327,16 +1598,16 @@ export async function shootOneModelShot(
   return { url, check }
 }
 
+/** The garment audience recorded on a product row — the boundary on who may be cast in its photos. */
+const audienceOf = (metadata: any): GarmentAudience =>
+  audienceForGarment(normalizeGarment(metadata?.product_type) ?? 'tshirt')
+
 // Kick off generation in the background. Returns immediately; the panel polls
 // candidates until metadata.etsy_shots.status is done/failed.
 export async function startModelShots(productId: string, userId: string, cast?: ShotCast): Promise<EtsyShots> {
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
   }
-
-  // Resolve BEFORE the 202 so a bad subject id or a disallowed custom subject
-  // surfaces as an immediate error instead of a silent async failure.
-  const resolved = resolveCast(cast)
 
   const { data: product, error } = await supabase
     .from('products')
@@ -1345,6 +1616,11 @@ export async function startModelShots(productId: string, userId: string, cast?: 
     .maybeSingle()
   if (error) throw new Error(`Product lookup failed: ${error.message}`)
   if (!product) throw new Error(`Product ${productId} not found`)
+
+  // Resolve BEFORE the 202 so a bad subject id, a disallowed custom subject or
+  // a cast that doesn't match the garment's audience surfaces as an immediate
+  // error instead of a silent async failure.
+  const resolved = resolveCast(cast, audienceOf((product as any).metadata))
 
   const existing: EtsyShots | undefined = (product as any).metadata?.etsy_shots
   if (existing?.status === 'generating') {
