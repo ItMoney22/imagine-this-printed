@@ -29,10 +29,10 @@
 //
 // Every caller goes through here so the behaviour cannot drift apart again.
 
-import { detectSolidBg, keyOutConnectedBackground, restoreEnclosedInk, type SolidBg } from './bg-key.js'
+import { alreadyTransparent, detectSolidBg, keyOutConnectedBackground, restoreEnclosedInk, type SolidBg } from './bg-key.js'
 import { removeBackgroundSync } from './replicate.js'
 
-export type BgRemovalMethod = 'color-key' | 'color-key+ai-ink' | 'ai-segmentation'
+export type BgRemovalMethod = 'already-transparent' | 'color-key' | 'color-key+ai-ink' | 'ai-segmentation'
 
 export interface BgRemovalResult {
   /** The transparent PNG. Callers upload this wherever it belongs. */
@@ -68,6 +68,14 @@ export async function removeBackgroundToBuffer(imageUrl: string, label = 'bg'): 
   if (!source) {
     console.error(`[${label}] COULD NOT READ THE SOURCE - falling back to AI segmentation, ` +
       `which drops artwork detached from the main subject. This cut should be redone.`)
+  }
+
+  // Best case, and now the normal one for new designs: the generator already
+  // handed us a real cutout. Every tool below is an attempt to RECOVER what was
+  // never lost here, so touching it can only make it worse.
+  if (source && await alreadyTransparent(source)) {
+    console.log(`[${label}] source already has a transparent background -> nothing to remove`)
+    return { buffer: source, method: 'already-transparent', background: null }
   }
 
   const background = source ? await detectSolidBg(source) : null

@@ -57,7 +57,7 @@ function houseOpenAISize(extra?: Record<string, unknown>): OpenAISize {
  */
 async function runRegisteredModel(
   model: ImageModel,
-  req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number }
+  req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number; transparent?: boolean }
 ): Promise<{ url: string }> {
   if (model.provider === 'openai') {
     const quality = houseOpenAIQuality(req.extra)
@@ -67,7 +67,12 @@ async function runRegisteredModel(
       const r = await editOpenAIImage({ sourceUrl, refUrls, prompt: req.prompt, quality, size, moderation: 'low' })
       return { url: r.url }
     }
-    const r = await runOpenAIImage({ prompt: req.prompt, quality, size, moderation: 'low' })
+    const r = await runOpenAIImage({
+      prompt: req.prompt, quality, size, moderation: 'low',
+      // A garment design is printed as a cutout, so ask for one. See the note
+      // at the isGarment branch below.
+      background: req.transparent ? 'transparent' : undefined,
+    })
     return { url: r.url }
   }
   const input = buildInput(model, { prompt: req.prompt, inputImages: req.inputImages, extra: req.extra })
@@ -219,7 +224,20 @@ export async function runImageFlowMultiGenerate(opts: {
     ids.map(async (id, i) => {
       const model = getModel(id)
       if (!model) throw new Error(`unknown image-flow model: ${id}`)
-      const r = await runRegisteredModel(model, { prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000 })
+      // TRANSPARENCY AT THE SOURCE. A garment design is printed as a cutout, and
+      // gpt-image-2 will render one directly - `background:'transparent'` returns
+      // real alpha (verified live 2026-09-03, at production quality on a dense
+      // etched design, and it wins even when the prompt text still asks for a
+      // solid black field). Everything in services/bg-key.ts exists to RECOVER a
+      // cutout from a design painted onto an opaque field, and no amount of
+      // cleverness there can undo the ambiguity of black ink on a black field.
+      // Not asking for the background in the first place is the fix; the keyer
+      // stays for the models that cannot do this and for older designs.
+      // Deliberately garment-only: a metal print is a full-bleed panel and wants
+      // its background.
+      const r = await runRegisteredModel(model, {
+        prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000, transparent: Boolean(isGarment),
+      })
       return { id: model.id, label: model.label, url: r.url }
     })
   )

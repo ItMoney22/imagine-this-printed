@@ -520,9 +520,12 @@ async function buildOneDesign(brief: DesignBrief, batchId: string, note: (m: str
       objectPath,
       quality: (process.env.HOUSE_GPT_IMAGE_QUALITY as any) || 'high',
       size: isMetal ? '1024x1536' : '1024x1024',
-      // background:'transparent' is rejected by gpt-image-2 outright; the rembg
-      // stage below is what guarantees garment transparency.
-      background: 'auto',
+      // gpt-image-2 DOES accept background:'transparent' and returns real alpha
+      // (verified live against the API 2026-09-03; the old comment here claiming
+      // it was rejected was wrong, and it cost every garment design a lossy
+      // background-removal pass). A metal print is a full-bleed panel, so it
+      // keeps its background.
+      background: isMetal ? 'auto' : 'transparent',
       // Standard filter false-positives on benign stylized design work.
       moderation: 'low',
     })
