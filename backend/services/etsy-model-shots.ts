@@ -53,6 +53,49 @@ function sniffImageType(buffer: Buffer): { contentType: string; ext: string } {
   return { contentType, ext: extForImageContentType(contentType) }
 }
 
+/**
+ * Shortest edge a listing photo must have. presentation-qa.ts BLOCKS a listing
+ * whose shortest edge is under 1000px (MIN_SHORT_EDGE_PX), and nano-banana has
+ * no resolution knob — its 3:4 output is 896x1200 (schema checked 2026-09-03:
+ * only `prompt`, `image_input`, `aspect_ratio`, `output_format`). So every shot
+ * that came from the fallback engine hard-failed the design review, which is
+ * what dead-ended the Step Flow's Etsy step. 1024 matches what the gpt-image
+ * path already emits (1024x1536), so both engines now clear the same bar.
+ */
+const SHOT_MIN_SHORT_EDGE = Number(process.env.ETSY_SHOT_MIN_SHORT_EDGE || 1024)
+
+/**
+ * Bring a render up to SHOT_MIN_SHORT_EDGE if it came back smaller, preserving
+ * aspect ratio and encoding. A 896 -> 1024 lanczos resample is a 14% bump — it
+ * costs essentially nothing in perceived sharpness (the QA sharpness check
+ * measures at a 512px short edge either way) and it is the only lever the
+ * engine gives us. Best-effort: a resize failure returns the original rather
+ * than losing a shot that took 30s to render.
+ *
+ * Exported for etsy-model-shots.test.ts — everything else here calls it
+ * through generateOneShot.
+ */
+export async function ensureListingResolution(buffer: Buffer, label: string): Promise<Buffer> {
+  try {
+    const meta = await sharp(buffer).metadata()
+    const width = meta.width ?? 0
+    const height = meta.height ?? 0
+    if (!width || !height) return buffer
+    const shortEdge = Math.min(width, height)
+    if (shortEdge >= SHOT_MIN_SHORT_EDGE) return buffer
+
+    const scale = SHOT_MIN_SHORT_EDGE / shortEdge
+    const target = { width: Math.round(width * scale), height: Math.round(height * scale) }
+    const pipeline = sharp(buffer).resize({ ...target, kernel: 'lanczos3', fit: 'fill' })
+    const out = meta.format === 'jpeg' ? await pipeline.jpeg({ quality: 95 }).toBuffer() : await pipeline.png().toBuffer()
+    console.log(`[etsy-shots] ${label} upscaled ${width}x${height} → ${target.width}x${target.height} (listing floor ${SHOT_MIN_SHORT_EDGE}px)`)
+    return out
+  } catch (err: any) {
+    console.warn(`[etsy-shots] ${label} resolution normalise failed (${err?.message}) — uploading as rendered`)
+    return buffer
+  }
+}
+
 // Engine: gpt-image (OpenAI-direct, the codebase's premium compositor — best
 // design/text fidelity, and its known empty-garment wearer-drift bug doesn't
 // apply here because a wearer is exactly what we want) with nano-banana as the
@@ -709,7 +752,9 @@ async function generateOneShot(
         aspect_ratio: '3:4'
       }
     })
-    const buffer = await outputToBuffer(output)
+    const rendered = await outputToBuffer(output)
+    // Upscale BEFORE sniffing so the content-type still describes the bytes.
+    const buffer = await ensureListingResolution(rendered, `${productId} ${plan.key}`)
     const { contentType, ext } = sniffImageType(buffer)
     const upload = await gcsStorage.uploadFile(buffer, {
       userId,

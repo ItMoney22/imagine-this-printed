@@ -70,7 +70,21 @@ const PromoPicker: React.FC<PromoPickerProps> = ({ product, refresh }) => {
     setError(null)
     setBundleBusy(true)
     try {
-      const nextMetadata = { ...(product.metadata || {}), isThreeForTwentyFive: !bundleOn }
+      // Re-read metadata at write time. `product.metadata` is the snapshot the
+      // flow took when the Listing step MOUNTED, and that step's own composer
+      // writes `metadata.etsy_pack` server-side AFTER it — so spreading the
+      // stale copy silently deleted the Etsy pack. Measured 2026-09-03: every
+      // step-flow product carrying this bundle flag had lost its pack, which
+      // then failed the Etsy review on over-long fallback tags. Same
+      // read-at-write-time pattern the backend uses in etsy-model-shots.ts.
+      const { data: fresh, error: readError } = await supabase
+        .from('products')
+        .select('metadata')
+        .eq('id', product.id)
+        .maybeSingle()
+      if (readError) throw readError
+      const baseMetadata = (fresh?.metadata as Record<string, any> | null) || product.metadata || {}
+      const nextMetadata = { ...baseMetadata, isThreeForTwentyFive: !bundleOn }
       const { error: updateError } = await supabase
         .from('products')
         .update({ metadata: nextMetadata })

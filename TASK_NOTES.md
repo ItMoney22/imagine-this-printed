@@ -2331,3 +2331,79 @@ Account price is 34-45% under public list. Both stored on every product
   (2.4 MB). `seed-blanks.ts` now writes `metadata.garment.colors[].image` and
   leads `images` with the hero + Black/White/Navy; ProductPage swaps the hero
   to the picked colour's render. Reseeded LIVE.
+
+---
+
+## Current request (2026-09-03) — the Step Flow's Etsy step could never be completed
+
+David: "in the step flow it doesnt let me complete the etsy side it give me a
+error all the time  check it out".
+
+### Root cause (verified against the live prod DB, 2026-09-03)
+`POST /api/admin/etsy/queue/:productId` runs `checkGate(productId, 'etsy')`
+before it does anything else, and refuses with **422** until the design carries
+a passing (or overridden) design-QA stamp at `products.metadata.qa_gate.etsy`.
+**Nothing in the Step Flow ever submitted one.** Measured on the eight most
+recent step-flow products: `qa_gate` is `null` on every single one and
+`design_qa_reviews` holds zero rows for them, so `checkGate` returned
+`never_reviewed` 100% of the time. The Etsy step's only response was to print
+the refusal next to a "Back to mockups" button that changes nothing — there was
+no path from that step to a queued draft, for any product, ever.
+
+Two more defects sat behind it, both of which would have kept the step failing
+even once a review was being run:
+
+1. **`PromoPicker` deleted the Etsy pack.** Its bundle-deal toggle wrote
+   `{ ...product.metadata, isThreeForTwentyFive }` from the client snapshot
+   taken when the Listing step MOUNTED — but that step's composer writes
+   `metadata.etsy_pack` server-side *after* that. Proof in the data: of the
+   four newest step-flow products, the three carrying `isThreeForTwentyFive`
+   had no `etsy_pack`; the one without the flag kept its pack. Losing the pack
+   drops the listing back to `search_keywords`, whose tags run past Etsy's
+   20-character limit — a blocking SEO failure. (Measured: 8 of 10 tags over.)
+2. **Every fallback-engine shot was too small to pass.** `presentation-qa.ts`
+   blocks a listing whose shortest edge is under 1000px;
+   `google/nano-banana-2-lite` renders 3:4 at **896x1200** and its Replicate
+   schema exposes no resolution input (checked live). The gpt-image path
+   already emits 1024x1536, so only the fallback was affected — but that is
+   what David's shots came from.
+
+### Verified live, not inferred
+Ran the real `submitForQa({ channel: 'etsy' })` against the hoodie
+(56d895e7): gate went `never_reviewed` -> a recorded submission #1, score 73,
+and reported its actual blockers. The submit -> gate chain the rebuilt step now
+drives works exactly as designed.
+
+### Left for David (a pricing call, not a bug I should guess at)
+`ETSY_ANCHOR_PRICE` is a flat **$25** for every garment, but the QA price band
+for `hoodies` is **$28-$95** — so every hoodie Etsy listing hard-fails the
+pricing criterion no matter what else is fixed. Live active hoodies are priced
+$15 / $35 / $44.99, so there is no single existing answer to copy. Once David
+names a hoodie anchor it is a one-line change in `etsy-seo-composer.ts`.
+(Separately: `PRICE_BANDS` is keyed `shirts`, but the catalogue category is
+`t-shirts`, so tees fall through to the default $5-$250 band. That makes the
+gate looser, not blocking, so it is noted rather than changed here.)
+
+### File shortlist (approved scope — 2026-09-03 Etsy step gate)
+- `src/lib/api.ts` (new `designQa` client — submit/override, keeps the 422 body)
+- `src/components/studio/EtsyStep.tsx` (runs the review, shows the rework,
+  admin override)
+- `src/components/studio/EtsyStep.test.tsx` (new — regression cover)
+- `src/components/studio/PromoPicker.tsx` (read metadata at write time)
+- `backend/services/etsy-model-shots.ts` (`ensureListingResolution`)
+- `backend/services/etsy-model-shots.test.ts` (resolution floor)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-03 — Rebuilt the Etsy step around the gate instead of reporting it.
+  On a `never_reviewed`/`stale` refusal it now submits the etsy-channel review
+  itself and retries the queue; on a failure it lists the blocking items in the
+  reviewer's own words with the fix for each, and offers the `/override`
+  endpoint the gate was always designed to have (reason required, recorded on a
+  new review row). A recorded `failed` is deliberately NOT auto-re-reviewed —
+  that spends two vision calls to reprint the same list — so it waits for an
+  explicit "Review it again". The endpoint hint the API returns is stripped
+  from everything David reads. Fixed the PromoPicker clobber by re-reading
+  metadata at write time, and lifted sub-1000px renders to a 1024px short edge
+  before upload. Frontend tsc clean, lint 0 errors, full suite 82 files /
+  1234 tests pass (15 of them new).

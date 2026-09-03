@@ -465,6 +465,83 @@ export const etsy = {
 }
 
 // ---------------------------------------------------------------------------
+// Design QA gate — the review every go-live path is gated on
+// (backend/services/design-qa-gate.ts). The Etsy step drives it directly:
+// POST /api/admin/etsy/queue/:id refuses with 422 until the design carries a
+// passing (or overridden) stamp for the `etsy` channel, and NOTHING else in
+// the Step Flow ever submitted one, so the last step could never be finished.
+//
+// `submit` deliberately does NOT throw on 422 — a FAILED review is a normal,
+// actionable result (the rework list is the point), not a transport error.
+// Only a genuine failure (401/500/network) throws. `api.post` can't be reused
+// for this: it collapses every non-2xx into `new Error(body.error)` and drops
+// the rework payload on the floor.
+// ---------------------------------------------------------------------------
+
+export type QaChannel = 'storefront' | 'etsy'
+export type QaSeverity = 'block' | 'warn'
+
+export interface QaReworkItem {
+  criterion: string
+  severity: QaSeverity
+  issue: string
+  fix?: string
+}
+
+export interface QaReview {
+  status: 'passed' | 'failed' | 'overridden'
+  score: number
+  blocking: number
+  warnings: number
+  submission_no: number
+  rework: QaReworkItem[]
+}
+
+const qaAuthHeaders = async (): Promise<Record<string, string>> => {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+}
+
+export const designQa = {
+  /** Run (or re-run) the review. 200 = passed, 422 = failed WITH the rework list. */
+  submit: async (productId: string, channel: QaChannel = 'etsy'): Promise<QaReview> => {
+    const response = await fetch(`${API_BASE}/api/admin/design-qa/submit/${productId}`, {
+      method: 'POST',
+      headers: await qaAuthHeaders(),
+      body: JSON.stringify({ channel }),
+    })
+    const body = await response.json().catch(() => ({}))
+    // 422 carries the verdict, so it is a result. Anything else is an error.
+    if (!response.ok && response.status !== 422) {
+      throw new Error(body?.error || `HTTP ${response.status}`)
+    }
+    return {
+      status: body?.status ?? 'failed',
+      score: Number(body?.score ?? 0),
+      blocking: Number(body?.blocking ?? 0),
+      warnings: Number(body?.warnings ?? 0),
+      submission_no: Number(body?.submission_no ?? 0),
+      rework: Array.isArray(body?.rework) ? body.rework : [],
+    }
+  },
+
+  /** A human admin knowingly ships a design that failed. Reason is recorded on
+   *  a new review row (server enforces >= 10 characters). */
+  override: async (productId: string, reason: string, channel: QaChannel = 'etsy'): Promise<void> => {
+    const response = await fetch(`${API_BASE}/api/admin/design-qa/override/${productId}`, {
+      method: 'POST',
+      headers: await qaAuthHeaders(),
+      body: JSON.stringify({ reason, channel }),
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      throw new Error(body?.error || `HTTP ${response.status}`)
+    }
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Step Flow — Imagine Studio's step-by-step builder (Idea → Design →
 // Garments → Mockups → Listing → Etsy). Routes are mounted under
 // /api/admin/products/ai/(step/brief | :id/step/*), all requireAuth +
