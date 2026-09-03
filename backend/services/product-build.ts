@@ -73,6 +73,13 @@ export interface ApplyImageSelectionOpts {
   pickedIds: string[]
   /** Who triggered the build — passed to the model shoot pipeline. */
   actorId: string
+  /**
+   * Run the real-person model shoot after the mockups. Defaults to true, which
+   * is what the admin and creator lanes have always done. The customer studio
+   * passes false: that shoot is the Etsy listing pipeline, and a customer
+   * building a shirt for themselves is not listing it on Etsy.
+   */
+  modelShots?: boolean
   log?: { info?: (o: any, m: string) => void; error?: (o: any, m: string) => void }
 }
 
@@ -81,7 +88,7 @@ export type ApplyImageSelectionResult =
   | { ok: false; status: number; error: string }
 
 export async function applyImageSelection(opts: ApplyImageSelectionOpts): Promise<ApplyImageSelectionResult> {
-  const { productId: id, actorId, log } = opts
+  const { productId: id, actorId, log, modelShots = true } = opts
   const pickedIds = Array.from(new Set(opts.pickedIds.filter((v) => typeof v === 'string' && v.length > 0)))
   if (pickedIds.length === 0) return { ok: false, status: 400, error: 'selectedAssetId (or selectedAssetIds) is required' }
 
@@ -326,7 +333,7 @@ export async function applyImageSelection(opts: ApplyImageSelectionOpts): Promis
   // Two real-person model shots, mirrored into product_assets when they pass
   // QA (services/etsy-model-shots.ts). Fire-and-forget: the shoot outlives
   // this request and a shoot failure must not fail mockup creation.
-  if (productCategory !== 'metal-art') {
+  if (modelShots && productCategory !== 'metal-art') {
     startModelShots(id, actorId || 'system')
       .then(() => console.log('[product-build] 📸 model shots kicked off for', id))
       .catch((e: any) => console.warn('[product-build] model shots did not start:', e?.message))
@@ -423,7 +430,7 @@ export async function applyImageSelection(opts: ApplyImageSelectionOpts): Promis
           console.warn('[product-build] ⚠️ sibling mockup jobs failed for', clone.id, cloneJobErr.message)
         }
 
-        if (productCategory !== 'metal-art') {
+        if (modelShots && productCategory !== 'metal-art') {
           startModelShots(clone.id, actorId || 'system')
             .then(() => console.log('[product-build] 📸 model shots kicked off for sibling', clone.id))
             .catch((e: any) => console.warn('[product-build] sibling model shots did not start:', e?.message))

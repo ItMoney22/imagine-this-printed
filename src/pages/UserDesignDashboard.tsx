@@ -32,6 +32,7 @@ import {
   Landmark
 } from 'lucide-react'
 import { CreateDesignModal } from '../components/CreateDesignModal'
+import CustomerStudio from '../components/studio/CustomerStudio'
 import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
 import type { User3DModel } from '../types'
 import api, { imaginationApi } from '../lib/api'
@@ -77,7 +78,7 @@ interface CreatorStats {
   }
 }
 
-type Tab = 'designs' | 'drafts' | '3d-models' | 'tools' | 'earnings'
+type Tab = 'create' | 'designs' | 'drafts' | '3d-models' | 'tools' | 'earnings'
 
 // ITC costs for tools
 const UPSCALE_COST = 15
@@ -437,10 +438,7 @@ export default function UserDesignDashboard() {
                     </span>
                   </div>
                   <button
-                    onClick={() => {
-                      setActiveTab('designs')
-                      setIsCreateModalOpen(true)
-                    }}
+                    onClick={() => setActiveTab('create')}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/80 hover:bg-primary backdrop-blur-sm text-white font-semibold rounded-xl transition-colors text-sm"
                   >
                     <Sparkles className="w-4 h-4" />
@@ -585,6 +583,7 @@ export default function UserDesignDashboard() {
           {/* Tab Navigation */}
           <div className="flex gap-1 sm:gap-2 border-b border-white/10 mb-8 overflow-x-auto pb-px">
             {[
+              { key: 'create', label: 'Make Something', icon: Sparkles, tooltip: null },
               { key: 'designs', label: 'My Designs', icon: Palette, tooltip: null },
               { key: 'drafts', label: 'Drafts', icon: FileText, tooltip: 'Drafts expire after 2 weeks' },
               { key: '3d-models', label: '3D Models', icon: Box, tooltip: null },
@@ -611,6 +610,10 @@ export default function UserDesignDashboard() {
           </div>
 
           {/* Tab Content */}
+          {activeTab === 'create' && (
+            <CustomerStudio onChanged={fetchData} />
+          )}
+
           {activeTab === 'designs' && (
             <div className="space-y-6">
               {designs.length === 0 ? (

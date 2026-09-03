@@ -2331,3 +2331,75 @@ Account price is 34-45% under public list. Both stored on every product
   (2.4 MB). `seed-blanks.ts` now writes `metadata.garment.colors[].image` and
   leads `images` with the hero + Black/White/Navy; ProductPage swaps the hero
   to the picked colour's render. Reseeded LIVE.
+
+---
+
+## 2026-09-03 — the step flow, handed to customers (and made portable)
+
+David: "please copy our step flow for AI Product builder its really good and i
+want to pass that on to our customers in the My Design tab" and, mid-build,
+"minus the etsy flow at the end then i want you to copy this whole flow so we
+can use it in other of our clients sites".
+
+Decisions he made when asked: **full voice, ungated** for customers, and the
+reusable copy lives in a **standalone kit on E:**, not inside this repo.
+
+### What shipped
+- **One rail, two lanes.** `backend/routes/creator-studio.ts` was a 704-line
+  creator-only file. It is now `backend/routes/studio/studio-router.ts`, a
+  `createStudioRouter(cfg)` factory, plus two thin config files. Copying it
+  would have left two long rails to drift apart; every difference turned out to
+  be data. The creator lane's behaviour is unchanged — same gate, same model
+  shoot, same ITC ledger reasons, same prompt.
+- **`/api/studio/*` — the customer lane.** requireAuth only, `modelShots:
+  false`, its own ITC ledger prefix and rate-limit bucket.
+- **"Minus the etsy flow"** = `applyImageSelection({ modelShots })` in
+  `services/product-build.ts`. The real-person shoot
+  (`services/etsy-model-shots.ts`) is the Etsy listing pipeline: the slowest,
+  priciest part of a build, aimed at a marketplace listing. A customer making a
+  shirt for themselves gets the product shots and stops there.
+- **`src/studio-kit/`** — the flow as a dependency-free React component. Brand,
+  lanes and adapter come in as props; nothing in the folder imports anything
+  outside it.
+- **`src/components/studio/CustomerStudio.tsx`** — the ~100-line ITP adapter.
+- **My Designs → "Make Something" tab**, and the Apparel card's "Create a
+  design" button now opens it instead of the old modal.
+
+### Three real defects found by testing it, not by reading it
+1. **He never set the product type.** "make me a t shirt" locked a brief with
+   no lane, so `generate_designs` silently refused while he announced a build
+   that never started. Fixed twice over: a server-side fallback to
+   `cfg.defaultLane` whenever a brief lands with no lane, and a blunter
+   instruction in the customer prompt.
+2. **Tool turns came back mute.** On any turn where he called a tool the model
+   returns `content: null`, so the canned "Got it!" fallback was most of what
+   anyone heard at the start of a build. The loop was missing its second pass —
+   it now feeds the tool results back and lets him actually react. Both lanes
+   get this; measured before/after on the live model.
+3. **An ungated submit would have stamped a royalty nobody agreed to.**
+   `creator_royalty_percent` is now written only when the caller really is a
+   creator.
+
+### Verified
+Backend and frontend typecheck clean, eslint clean, `vite build` passes. Booted
+the backend locally on 4099 against the real database: both lanes 401 without a
+token; with a real minted session token `/api/studio/pricing` returns the live
+60/75 numbers and a foreign product id 404s. Ran real `/turn` calls through the
+customer lane — he replies in character, sets the lane, and returns audio.
+
+### NOT verified — needs David
+A full paid build (generate → pick → shots → submit) was not run. It spends real
+ITC and real Replicate money and would leave a draft product in production. The
+pipeline behind it is the shared code the creator lane already runs live; what
+is unproven is only that path end-to-end on the new mount.
+
+### File shortlist (approved scope — 2026-09-03 customer step flow)
+- `backend/routes/studio/studio-router.ts` (new — the factory)
+- `backend/routes/creator-studio.ts` (now the creator lane config)
+- `backend/routes/customer-studio.ts` (new — the customer lane config)
+- `backend/services/product-build.ts` (`modelShots` opt-out)
+- `backend/index.ts` (mount `/api/studio`)
+- `src/studio-kit/*` (new — the portable flow)
+- `src/components/studio/CustomerStudio.tsx` (new — the ITP adapter)
+- `src/pages/UserDesignDashboard.tsx` (the new tab)
+- `E:\Projects for MetaSphere\metasphere-studio-kit` (canonical kit + README)
