@@ -2494,3 +2494,80 @@ when that flag remains true.
   product is a kids' tee, so picking "Kids T-Shirt" changes the garment, the
   sizes and the model — but not yet the ART brief. Design-follows-garment is
   the reverse direction from what was asked for and is its own change.
+
+---
+
+## Current request (2026-09-06) — a new 3D product had no main-image choice and fake sizes
+
+David, on the just-added **Gothic Ghost Face Candle Holder**
+(`43d607e5-e8e1-4b57-a52f-110a5cd6a1c3`, category `3d-models`, 3 images, `sizes: []`):
+> "i cannot select what image i want to be the main cust facing image and 2 it
+> says small med or large but i only have one size for this which is included in
+> the product image"
+
+### Root causes (both verified against the live row)
+
+**1. No way to pick the main image.** `products.images[0]` IS the customer-facing
+image everywhere, but neither admin surface let you choose which URL sits there:
+- The **Create Product** form (`AdminDashboard.tsx`, the only way in — the pencil
+  in the products table opens the *enhanced* modal, so `openEditProductModal` is
+  now dead code) painted a "Main" badge on upload #0 and offered no reorder. The
+  first file that finished uploading was the hero, permanently. For this product
+  that was the **dimension diagram**, not the candle holder.
+- The **enhanced edit modal** builds its gallery from `product_assets` +
+  `metadata.etsy_shots.images` only. A hand-added product has **zero
+  `product_assets` rows** (confirmed: `select … from product_assets where
+  product_id = …` → 0), so the Images tab said "No images yet for this product"
+  and set-as-main — which only ever lived two clicks deep inside the lightbox —
+  was unreachable.
+
+**2. Invented sizes.** `defaultSizesFor('3d')` returned
+`['mini','small','medium','large']` whenever `products.sizes` was empty, and
+ProductPage duplicated that literal inline. The admin form's
+`SIZE_OPTIONS['3d-models']` was `[]`, so **no 3D product can even be given
+sizes** — all four live 3D rows carry `sizes: []`, so every one of them was
+advertising four variants that don't exist and demanding a pick before checkout.
+3D pricing is the flat `products.price` (`lineBasePrice`/`order-pricing.ts`), so
+the tier had no effect on anything except blocking the sale.
+
+### File shortlist (approved scope — 2026-09-06 3D product fixes)
+- `src/lib/product-kind.ts` (`defaultSizesFor('3d')` → `[]`; new `sizeChoicesFor`)
+- `src/lib/product-kind.test.ts`
+- `src/pages/ProductPage.tsx` (`requiresSize` gate; picker hidden when empty)
+- `src/components/ProductCard.tsx` (quick-add: no picker, no gate, adds in one click)
+- `src/components/admin/AdminProductEditModal.tsx` ('listing' group + inline set-as-main)
+- `src/pages/AdminDashboard.tsx` (`makeUploadedImageMain`; 3D tiers as opt-in)
+- `src/components/mr-imagine/MrImagineCartNotification.tsx` (dangling "Size: •")
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- **3D listings are one size unless they say otherwise.** `defaultSizesFor('3d')`
+  now returns `[]`, and the new `sizeChoicesFor(product)` is the ONE answer both
+  ProductPage and ProductCard read (metal → panel list, explicit column → itself,
+  else the type default). Empty ⇒ no picker rendered and no "please select a
+  size" gate on Add to Cart / Buy Now / Quick Add. `sizeChoicesFor` also fixes a
+  latent bug in the old `product.sizes || metadata.sizes` chain: an empty array
+  is truthy, so the legacy metadata list was never reachable — it now falls
+  through on length.
+- **3D tiers became opt-in instead of imaginary.** `SIZE_OPTIONS['3d-models']`
+  went from `[]` to the four tiers, so a 3D listing that really is sold in sizes
+  can be given them in the admin form; leaving them unticked (the default, and
+  the state of all four live 3D rows) is what now means "one size".
+- **The main image is pickable in both admin surfaces.** The create form got
+  `makeUploadedImageMain(idx)` (a move-to-front, mirroring the server-side
+  `handleSetMainImage` reorder) on a hover button, plus a line saying what "Main"
+  means. The enhanced modal's `buildGallery` now appends anything on
+  `products.images` that no pipeline claimed as a **Listing Images** group, and
+  set-as-main moved out of the lightbox onto every thumbnail and under the big
+  viewer.
+- **Verified live in a browser** (dev server against prod Supabase): the product
+  page renders with no size picker and Add to Cart succeeds; Quick Add on the
+  catalog card adds in one click; the edit modal listed all 3 images and "Set as
+  main" promoted the clean product shot — confirmed persisted in the DB
+  (`images[0]` is now `products/5FSWetHam_.png`, the dimension diagram moved to
+  `[1]`). Fixed one thing found only by looking: the Mr. Imagine add-to-cart
+  popup printed a dangling `Size: • $20.00` for a size-less line.
+- Checks: `tsc -b` clean, `vitest --dir src` 292/292 (4 new `sizeChoicesFor`
+  cases), eslint 0 errors on every touched file. The 4 failing files in the full
+  `vitest run` all live under `.claude/worktrees/` — other sessions' checkouts,
+  untouched by this change.

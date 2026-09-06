@@ -108,7 +108,10 @@ export const MrImagineCartNotification: React.FC = () => {
                   {lastAddedItem.product.name}
                 </p>
                 <p className="text-xs text-purple-200">
-                  Size: {lastAddedItem.size} &bull; ${unitBasePrice(lastAddedItem.product, lastAddedItem.size).toFixed(2)}
+                  {/* One-size products (a 3D print with no tiers) carry no size
+                      â€” don't print a dangling "Size: â€¢ $20.00". */}
+                  {lastAddedItem.size && <>Size: {lastAddedItem.size} &bull; </>}
+                  ${unitBasePrice(lastAddedItem.product, lastAddedItem.size).toFixed(2)}
                 </p>
               </div>
             </div>

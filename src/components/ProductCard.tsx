@@ -9,7 +9,7 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, defaultSizesFor, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, metalSizeOptions } from '../lib/product-kind'
+import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
@@ -70,15 +70,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const kind = productKindOf(product)
   const isApparel = kind === 'apparel'
 
-  // Get sizes from product metadata
-  const sizes = product.sizes || product.metadata?.sizes || []
-  const hasSizes = sizes.length > 0
-
-  // Fallback sizes are type-aware: metal â†’ print sizes, 3D â†’ tiers, else apparel.
-  const defaultSizes = defaultSizesFor(kind)
-  // Metal always goes through metalSizeOptions so a legacy '8x11' row shows
-  // the real 8x10 panel and an empty column still offers both sizes.
-  const displaySizes = kind === 'metal' ? metalSizeOptions(product) : hasSizes ? sizes : defaultSizes
+  // The sizes this listing offers â€” one shared answer with ProductPage, so the
+  // card and the page can never disagree. Metal always goes through the
+  // canonical panel list (a legacy '8x11' row shows the real 8x10 panel, an
+  // empty column still offers both); apparel falls back to shirt sizes; a 3D
+  // print with no explicit tiers comes back EMPTY, meaning one size.
+  const displaySizes = sizeChoicesFor(product)
+  const hasSizes = displaySizes.length > 0
 
   // Card price: a metal print shows the price of the size picked (or "from"
   // its smallest size); everything else shows products.price.
@@ -89,12 +87,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const colors: string[] = product.colors || product.metadata?.colors || []
   const hasColors = colors.length > 0
 
-  // Quick Add is satisfied when every visible picker has been answered.
-  // Size picker always shows during Quick Add (uses default sizes when the
-  // product has none explicit), so size always needs to be picked. Color
-  // picker only shows when the product has colors, so color is conditional.
+  // Quick Add is satisfied when every visible picker has been answered. The
+  // size picker only shows when the listing actually has sizes â€” a one-size
+  // 3D print has nothing to pick, so it must not block the add.
   const colorSatisfied = !hasColors || !!selectedColor
-  const sizeSatisfied = !!selectedSize
+  const sizeSatisfied = !hasSizes || !!selectedSize
   // Multi-location products (front/back/pocket) need an explicit choice —
   // mirrors ProductPage.tsx's requiresPrintLocation. Without this, quick-add
   // silently shipped every product on the default (front) location even when
@@ -103,6 +100,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const requiresPrintLocation = printLocations.length > 1
   const printLocationSatisfied = !requiresPrintLocation || !!selectedPrintLocation
   const readyToAdd = colorSatisfied && sizeSatisfied && printLocationSatisfied
+  // Nothing to choose at all (one-size, one-colour, single placement) â€” Quick
+  // Add adds straight to the cart instead of opening an empty picker panel.
+  const needsAnySelection = hasSizes || hasColors || requiresPrintLocation
 
   // Missing-selection labels for the button text below — extends the
   // existing "Pick Size & Color" messaging to cover print placement too.
@@ -342,9 +342,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           )}
         </div>
 
-        {/* Quick Size Picker â€” always shown during Quick Add (uses default
-            sizes if the product has none explicitly set, matching prior UX). */}
-        {showSizePicker && (
+        {/* Quick Size Picker â€” shown during Quick Add for any listing that
+            actually has sizes. A one-size product (a 3D print with no explicit
+            tiers) skips it entirely rather than inventing a size ladder. */}
+        {showSizePicker && hasSizes && (
           <div className="mb-3 p-3 bg-bg/50 rounded-lg border border-primary/20 animate-in fade-in slide-in-from-bottom-2 duration-200">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-muted font-medium">Select Size:</p>
@@ -470,7 +471,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           {/* Add to Cart Button */}
           <button
             onClick={() => {
-              if (!showSizePicker) {
+              if (!showSizePicker && needsAnySelection) {
                 setShowSizePicker(true)
                 return
               }

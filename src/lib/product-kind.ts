@@ -230,11 +230,40 @@ export function categoryValuesFor(canonicalId: string): string[] {
 }
 
 // Default size options when a product has none set on its column. Type-aware so
-// metal shows print sizes and 3D shows tiers instead of shirt sizes.
+// metal shows print sizes instead of shirt sizes.
+//
+// 3D returns NOTHING on purpose (David 2026-09-06): a printed object ships at
+// the one size shown in its own product photo, so inventing a mini/small/
+// medium/large ladder promised four variants that don't exist and forced the
+// customer to pick one before checking out. A 3D listing that really is sold
+// in tiers carries them explicitly on products.sizes (the admin size picker
+// offers TIER_3D), and those still render. Empty here means "one size" —
+// callers must hide the size picker and not require a selection.
 export function defaultSizesFor(kind: ProductKind): string[] {
   if (kind === 'metal') return STUDIO_SIZE_KEYS
-  if (kind === '3d') return ['mini', 'small', 'medium', 'large']
+  if (kind === '3d') return []
   return ['S', 'M', 'L', 'XL', '2XL']
+}
+
+/**
+ * The sizes a product page/card should actually offer, and therefore whether a
+ * size must be picked before add-to-cart. ONE answer shared by ProductPage and
+ * ProductCard so the catalog card and the product page can never disagree
+ * about whether a listing has sizes at all.
+ */
+export function sizeChoicesFor(
+  product: Pick<Product, 'category' | 'metadata' | 'sizes'>
+): string[] {
+  const kind = productKindOf(product)
+  if (kind === 'metal') return metalSizeOptions(product)
+  // An EMPTY sizes column is truthy, so the legacy metadata fallback has to be
+  // tried on length, not on `||` — otherwise a row that was migrated to the
+  // column but left empty hides the metadata list it still carries.
+  const column = product?.sizes
+  if (Array.isArray(column) && column.length > 0) return column
+  const legacy = (product as any)?.metadata?.sizes
+  if (Array.isArray(legacy) && legacy.length > 0) return legacy
+  return defaultSizesFor(kind)
 }
 
 // Role-tagged design assets stored on products.metadata.assets. This lets the
