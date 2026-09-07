@@ -1,4 +1,4 @@
-// David 2026-09-03: "hoodies are also $35 so make sure thats on the etsy side".
+// David 2026-09-07: "shirts are 25, hoodies 40" (opened at $35 on 09-03).
 //
 // The publisher prefers the composed pack's price over the product's
 // (services/etsy.ts: `pack?.price ?? product.price`), so a flat anchor in the
@@ -15,8 +15,8 @@ const { etsyAnchorPriceFor, isHoodieProduct, ETSY_ANCHOR_PRICE, ETSY_HOODIE_ANCH
 
 describe('etsyAnchorPriceFor', () => {
   it('anchors a hoodie above a tee', () => {
-    expect(ETSY_HOODIE_ANCHOR_PRICE).toBe(35)
-    expect(etsyAnchorPriceFor({ category: 'hoodies', name: 'Unleashed Power Athlete Hoodie' })).toBe(35)
+    expect(ETSY_HOODIE_ANCHOR_PRICE).toBe(40)
+    expect(etsyAnchorPriceFor({ category: 'hoodies', name: 'Unleashed Power Athlete Hoodie' })).toBe(40)
     expect(etsyAnchorPriceFor({ category: 't-shirts', name: 'Too Cute To Spook Tee' })).toBe(ETSY_ANCHOR_PRICE)
   })
 

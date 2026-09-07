@@ -9,10 +9,11 @@
 // description — and stores the pack on products.metadata.etsy_pack, where the
 // publisher (services/etsy.ts) prefers it over the mechanical field mapping.
 //
-// Pricing is not the model's job: every pack carries the $25 anchor price
-// (ETSY_ANCHOR_PRICE). The $15 shoppers actually pay comes from a 40% shop
-// sale David runs in Shop Manager (Etsy has no API for sales events), so the
-// listing shows ~~$25~~ $15.
+// Pricing is not the model's job: every pack carries an anchor price by garment
+// — $25 for tees (ETSY_ANCHOR_PRICE), $40 for hoodies
+// (ETSY_HOODIE_ANCHOR_PRICE). What shoppers actually pay comes off a 40% shop
+// sale David runs in Shop Manager (Etsy has no API for sales events), so a tee
+// listing shows ~~$25~~ $15 and a hoodie ~~$40~~ $24.
 //
 // Model: ETSY_SEO_MODEL, default gpt-5.6-terra (gpt-4o is retired — hard
 // shutdown 2026-10-23 for the gpt-4 family). This deliberately steps above
@@ -39,8 +40,10 @@ const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || (USE_OPENROUTER ? 'google/g
 const isReasoningModel = /^(o[1-9]|gpt-5)/.test(COMPOSER_MODEL)
 export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
 /**
- * A hoodie is not a tee and must not be listed like one (David, 2026-09-03:
- * "hoodies are also $35 so make sure thats on the etsy side").
+ * A hoodie is not a tee and must not be listed like one. David set the anchors
+ * on 2026-09-07: "shirts are 25, hoodies 40" (this opened at $35 on 09-03).
+ * Both sit inside `PRICE_BANDS` in presentation-qa.ts ($28-$95 for hoodies), so
+ * this is a pricing call, not a gate fix.
  *
  * This matters because the publisher prefers the PACK's price over the
  * product's: services/etsy.ts resolves `pack?.price ?? product.price`, so a
@@ -50,7 +53,7 @@ export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
  * were live yet, so nothing was mispriced ON Etsy — the next post would have
  * been.
  */
-export const ETSY_HOODIE_ANCHOR_PRICE = Number(process.env.ETSY_HOODIE_ANCHOR_PRICE || 35)
+export const ETSY_HOODIE_ANCHOR_PRICE = Number(process.env.ETSY_HOODIE_ANCHOR_PRICE || 40)
 
 /** Is this product a hoodie/sweatshirt, whichever way it was created? */
 export function isHoodieProduct(product: { category?: unknown; name?: unknown; metadata?: any }): boolean {
