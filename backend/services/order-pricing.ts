@@ -77,7 +77,7 @@ import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
 import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normalizeMetalSizeKey } from '../shared/metal-art.js'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
-import { isYouthSize, YOUTH_SIZE_DISCOUNT_CENTS } from '../shared/catalog-capability.js'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -121,31 +121,11 @@ const GARMENT_TIER_UPCHARGE_CENTS: Record<string, number> = {
   heavyweight: 700
 }
 
-// Mirrors src/pages/Checkout.tsx PLUS_SIZES / PLUS_SIZE_UPCHARGE.
-const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-const PLUS_SIZE_UPCHARGE_CENTS = 250
-
-// The YOUTH discount is the mirror image of the plus-size upcharge (David
-// 2026-09-07) and comes from shared/catalog-capability.ts rather than a fourth
-// local copy — see YOUTH_SIZE_DISCOUNT_CENTS there.
-
-// Plus-size is an APPAREL upcharge. The substring match used to false-positive
-// a metal-art "4x6" print as a plus size ("4x6".toUpperCase() = "4X6", which
-// .includes("4X")) and overcharge it $2.50 — FIXED 2026-09-02 together with
-// the client's copies (src/context/CartContext.tsx, src/pages/Checkout.tsx)
-// so the 1-cent client/server tolerance still holds: a metal panel size is
-// never a plus size.
-function isPlusSize(size?: string | null): boolean {
-  if (!size) return false
-  if (normalizeMetalSizeKey(size)) return false
-  // A youth size is never a plus size. No youth label matches the list today,
-  // but this is the exact shape of the '4x6' → '4X' bug above: the substring
-  // match is one added label ('Youth 2XL') away from charging a parent the
-  // plus-size upcharge on a child's shirt.
-  if (isYouthSize(size)) return false
-  const upper = size.toUpperCase()
-  return PLUS_SIZES.some(ps => upper.includes(ps))
-}
+// The plus-size upcharge and the youth discount are BOTH declared in
+// shared/catalog-capability.ts now (David 2026-09-07), so the storefront, the
+// cart, this engine and the Etsy variation axis cannot drift apart. The local
+// PLUS_SIZES copy that used to live here (with a "mirrors Checkout.tsx"
+// comment) is gone — see that module for why the metal-panel guard matters.
 
 // Mirrors backend/routes/3d-models.ts PRINT_PRICING + the color4/paint-kit
 // formula in its POST /:id/order handler. Duplicated rather than imported —

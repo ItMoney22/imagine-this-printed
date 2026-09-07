@@ -13,6 +13,8 @@
  * (Gildan 5000 is the standard tee; Gildan 18500 the standard hoodie).
  */
 
+import { normalizeMetalSizeKey } from './metal-art.js'
+
 export type GarmentId = 'tshirt' | 'hoodie' | 'youth-tshirt'
 
 /**
@@ -111,6 +113,41 @@ export type YouthSize = (typeof YOUTH_SIZES)[number]
  */
 export const YOUTH_SIZE_DISCOUNT_CENTS = 300
 export const YOUTH_SIZE_DISCOUNT_DOLLARS = YOUTH_SIZE_DISCOUNT_CENTS / 100
+
+/**
+ * The PLUS-SIZE rail — the other half of the same idea, and now declared here
+ * once instead of in four places.
+ *
+ * It used to be copy-pasted into backend/services/order-pricing.ts,
+ * src/context/CartContext.tsx and src/pages/Checkout.tsx, each carrying a
+ * "mirrors <the other file>" comment. That is not a mirror, it is three
+ * chances to drift, and it has already cost us once: the substring match below
+ * treats '4x6' as a plus size (it contains the '4X' token), so a metal art
+ * panel was silently charged +$2.50 until it had to be fixed in all three
+ * copies on 2026-09-02. Etsy is the fourth consumer (David 2026-09-07), so the
+ * rule moved here rather than being pasted a fourth time.
+ */
+export const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
+export const PLUS_SIZE_UPCHARGE_CENTS = 250
+export const PLUS_SIZE_UPCHARGE_DOLLARS = PLUS_SIZE_UPCHARGE_CENTS / 100
+
+/**
+ * True for an apparel size that carries the plus-size upcharge.
+ *
+ * Two guards, both load-bearing:
+ *   - a metal-art PANEL size is not apparel ('4x6' → '4X6', which contains the
+ *     '4X' token) — the bug fixed 2026-09-02;
+ *   - a YOUTH size is never a plus size, so a parent is never charged the
+ *     upcharge on a child's shirt.
+ * The substring match itself is preserved exactly as it was, so consolidating
+ * these copies cannot change what any existing cart or order prices.
+ */
+export function isPlusSize(size?: string | null): boolean {
+  if (!size) return false
+  if (normalizeMetalSizeKey(size)) return false
+  if (isYouthSize(size)) return false
+  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
+}
 
 export const COLORS: Record<ColorId, CapabilityColor> = {
   black: { id: 'black', label: 'Black', hex: '#000000', luma: 0.02 },

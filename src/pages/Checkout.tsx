@@ -8,10 +8,9 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
-import { normalizeMetalSizeKey } from '../../backend/shared/metal-art'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
-import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
@@ -19,20 +18,9 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
 // Sizes that incur an additional $2.50 upcharge (must match CartContext).
 // Module scope so they aren't rebuilt on every Checkout render.
-const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-const PLUS_SIZE_UPCHARGE = 2.50
-
-// Youth sizes are $3 off (David 2026-09-07) — the mirror of the plus-size
-// upcharge. Imported, not re-declared, so the number has ONE definition
-// across the server pricing engine, the cart and this page.
-// Plus-size is an apparel upcharge — a metal panel size ("4x6" contains the
-// "4X" token) is never one. Mirrors CartContext + order-pricing.ts.
-const isPlusSize = (size?: string): boolean => {
-  if (!size) return false
-  if (normalizeMetalSizeKey(size)) return false
-  if (isYouthSize(size)) return false
-  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
-}
+// The plus-size upcharge and the youth discount both come from
+// backend/shared/catalog-capability.ts — ONE definition, shared with the cart,
+// the server pricing engine and the Etsy variation axis.
 
 // Server-calculated order totals, returned by POST /checkout-payment-intent.
 // Tax in particular is authoritative here — the client no longer invents a

@@ -25,6 +25,8 @@ import {
   blankForSize,
   printWidthForSize,
   YOUTH_SIZE_DISCOUNT_CENTS,
+  isPlusSize,
+  PLUS_SIZE_UPCHARGE_CENTS,
   audienceForGarment,
   isYouthGarment,
 } from './catalog-capability.js'
@@ -278,5 +280,44 @@ describe('isYouthSize / youthDiscountCents — the youth price rail', () => {
       if (g.audience === 'youth') continue
       for (const sz of adultSizesForGarment(g.id)) expect(isYouthSize(sz)).toBe(false)
     }
+  })
+})
+
+describe('isPlusSize — one definition, formerly copy-pasted into four files', () => {
+  it('charges 2XL and up', () => {
+    for (const sz of ['2XL', 'XXL', '3XL', '4XL', '5XL']) expect(isPlusSize(sz)).toBe(true)
+  })
+
+  it('leaves S-XL alone', () => {
+    for (const sz of ['S', 'M', 'L', 'XL']) expect(isPlusSize(sz)).toBe(false)
+  })
+
+  it('never treats a metal-art panel size as a plus size', () => {
+    // '4x6'.toUpperCase() contains the '4X' token. This false positive
+    // overcharged metal prints $2.50 until it was fixed in three separate
+    // copies on 2026-09-02 — the reason the rule now lives in one place.
+    expect(isPlusSize('4x6')).toBe(false)
+    expect(isPlusSize('8x10')).toBe(false)
+  })
+
+  it('never charges a parent the plus-size upcharge on a youth shirt', () => {
+    for (const sz of ['YXL', 'Youth XL', 'YM']) expect(isPlusSize(sz)).toBe(false)
+  })
+
+  it('handles empty input', () => {
+    for (const sz of ['', null, undefined]) expect(isPlusSize(sz as any)).toBe(false)
+  })
+
+  it('the two rails cannot both fire on the same size', () => {
+    for (const g of GARMENTS) {
+      for (const sz of sizesForGarment(g.id)) {
+        expect(isPlusSize(sz) && isYouthSize(sz), `${sz} matched both rails`).toBe(false)
+      }
+    }
+  })
+
+  it('keeps the upcharge and the discount at the values the storefront shows', () => {
+    expect(PLUS_SIZE_UPCHARGE_CENTS).toBe(250)
+    expect(YOUTH_SIZE_DISCOUNT_CENTS).toBe(300)
   })
 })

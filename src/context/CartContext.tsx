@@ -2,11 +2,10 @@ import React, { createContext, useContext, useReducer, useState, useCallback, us
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
 import { addonsUnitTotal, addonsSignature, lineBasePrice } from '../lib/product-kind'
-import { normalizeMetalSizeKey } from '../../backend/shared/metal-art'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
-import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
 
 interface CartState {
   items: CartItem[]
@@ -141,19 +140,9 @@ type CartAction =
   | { type: 'CLEAR_CART' }
   | { type: 'RESTORE_FROM_ORDER'; payload: CartItem[] }
 
-// Sizes that incur an additional $2.50 upcharge
-const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-const PLUS_SIZE_UPCHARGE = 2.50
-
-// Check if a size is a plus size (2XL and above)
-// Plus-size is an apparel upcharge — a metal panel size ("4x6" contains the
-// "4X" token) is never one. Mirrors backend/services/order-pricing.ts.
-const isPlusSize = (size?: string): boolean => {
-  if (!size) return false
-  if (normalizeMetalSizeKey(size)) return false
-  if (isYouthSize(size)) return false
-  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
-}
+// The plus-size upcharge and the youth discount both come from
+// backend/shared/catalog-capability.ts — ONE definition read by this cart, the
+// checkout page, the server pricing engine and the Etsy variation axis.
 
 // Blank garments (metadata.garment.blank) price per size + colour off their
 // own table — backend/shared/blank-pricing.ts — which already carries Jiffy's

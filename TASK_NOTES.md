@@ -2737,6 +2737,33 @@ youth sizes as well."
    tee's band — so a `youth-tshirt` row with an empty column would have put
    S-3XL on a listing photographed on a child. Caught by its own test.
 
+### Follow-up 2026-09-07 — David: "change the etsy to include plus size upcharge"
+Etsy adult sizes had always sold at ONE flat price, so a 3XL was cheaper on
+Etsy than on our own site and we ate the blank's real upcharge. Now every Etsy
+apparel variation is priced off the same two rails the storefront uses:
+S-XL at the listing price, 2XL+ at +$2.50, youth at -$3.00.
+
+Rather than paste the plus-size rule into `etsy.ts` as a FOURTH copy, it moved
+into `catalog-capability.ts` next to the youth rail. It had been duplicated in
+`order-pricing.ts`, `CartContext.tsx` and `Checkout.tsx`, each with a "mirrors
+<the other file>" comment — and that duplication has already cost us once: the
+substring match reads '4x6' as a plus size ('4X'), which overcharged metal
+prints $2.50 until it had to be fixed in all three copies on 2026-09-02. One
+definition now, with both the metal-panel and youth guards in it. Matching
+semantics are byte-for-byte what they were, so no existing cart or order
+reprices — the 148 order-pricing tests pass unchanged.
+
+`etsy.ts` had NO test file at all, which is how a whole channel ended up
+mispricing every plus size unnoticed. Added `etsy-variations.test.ts` (11
+cases) covering both rails, the no-double-charge rule for youth, cent
+rounding, and the non-positive-price floor Etsy rejects.
+
+**Blast radius:** variations are written only on PUBLISH, so the new prices
+reach a listing the next time it's published. Live today: **2 active primary
+listings** (which keep their old flat pricing until republished) and 45 primary
+drafts (which will publish with the new prices). Republishing those 2 is the
+only manual step, and it raises their 2XL/3XL by $2.50.
+
 ### Two judgement calls, flagged for David
 - **The youth discount does NOT stack on the 2-for-$25 bundle.** That price is
   already flat and ignores the product's own price, so a second markdown would
