@@ -2668,3 +2668,82 @@ gate looser, not blocking, so it is noted rather than changed here.)
   be read from here; (2) any `etsy_pack` composed before this deploy still
   carries its old price, since `services/etsy.ts` resolves `pack?.price ??
   product.price` — re-running the Listing step recomposes it.
+
+---
+
+## Current request (2026-09-07) — youth sizes on every shirt and hoodie
+
+David: "we need to make sure all of our shirts and hoodies are available in
+youth sizes as well."
+
+### Decisions (David, 2026-09-07)
+1. **Same listing, youth size band** — NOT a second youth listing per design.
+   One product page shows an ADULT row (S-3XL) and a YOUTH row (YXS-YXL);
+   picking YM tells fulfilment to pull the youth blank (5000B / 18500B).
+2. **Youth sizes are discounted** — a flat $3.00 off, the mirror image of the
+   existing +$2.50 plus-size rail, kept as ONE shared constant so it is one
+   number to retune.
+
+### What was actually true before this change (measured on live prod)
+- 84 shirt/hoodie rows (59 tee, 21 hoodie; 59 active). **Every single one has
+  an EMPTY `sizes` column**, so the storefront fell through to the hardcoded
+  `['S','M','L','XL','2XL']` in `src/lib/product-kind.ts` — it wasn't even
+  offering the 3XL the capability table says we stock, let alone youth.
+- Youth existed only as a SEPARATE `youth-tshirt` garment (added 9/3 for
+  casting). **Zero youth products have ever been created**, and there was no
+  youth hoodie in the capability list at all.
+
+### File shortlist (approved scope — 2026-09-07 youth sizes)
+- `backend/shared/catalog-capability.ts` (+ `.test.ts`) — youth band per
+  garment, `isYouthSize`, the discount constant, `blankForSize`
+- `backend/services/order-pricing.ts` (+ `.test.ts`) — server-side discount
+- `src/context/CartContext.tsx`, `src/pages/Checkout.tsx` — client mirrors
+- `src/lib/product-kind.ts` (+ `.test.ts`) — garment-aware `sizeChoicesFor`
+- `src/pages/ProductPage.tsx` — banded size picker
+- `backend/services/etsy.ts` — youth variations priced $3 lower
+- `backend/services/step-flow/details-card.ts` (+ `.test.ts`) — youth rows in
+  the size chart + a real overflow guard
+- `backend/services/step-flow/casting.ts` — mismatch nudge wording
+- `TASK_NOTES.md`, `CLAUDE_TASK.md`
+
+### Work log 2026-09-07 (youth sizes on every shirt and hoodie)
+- `catalog-capability.ts` gained a `youth` cut per garment (tee → Gildan 5000B,
+  hoodie → Gildan 18500B, 8" print on both) and is now the ONE place the youth
+  band, the $3 discount, `isYouthSize`, `blankForSize` and `printWidthForSize`
+  are declared. `sizesForGarment` returns adult + youth; `adultSizesForGarment`
+  is the old behaviour for callers that need the bands apart.
+- Storefront: `sizeChoicesFor` APPENDS the youth band to whatever a row stores
+  rather than replacing it, so a sizes column frozen before youth existed still
+  can't leave a shirt without it. Verified against live prod: **all 59 active
+  shirt/hoodie listings now offer YXS-YXL**, tees and hoodies both.
+- Product page splits the picker into labelled ADULT / YOUTH rows. "YM" next to
+  "M" in one undifferentiated strip is how a parent buys the wrong shirt.
+- Pricing: -$3 per youth unit in `order-pricing.ts` with the client mirrors in
+  CartContext + Checkout, and a "Youth Size Discount" line in the summary.
+- Etsy youth variations carry the discounted price, so the two channels agree.
+
+### Three real defects found while building this, each now pinned by a test
+1. **The stale storefront fallback.** Every live shirt/hoodie has an EMPTY
+   `sizes` column, so all 84 fell through to a hardcoded `['S','M','L','XL',
+   '2XL']` — the 3XL we stock was never orderable on any of them. The fallback
+   now reads the capability table.
+2. **The details card overflowed.** Adding five youth rows pushed the adult
+   cards' last baseline to y=1508 on a 1500px card — the care line rendered
+   off the bottom edge. Row height now adapts to the row count (floor 44px),
+   with a throw if content ever passes the bottom again. Verified by reverting
+   the fix: the new test fails with "tshirt card ran 49px past the bottom".
+3. **A youth listing would have shown ADULT sizes.** The first cut of the
+   garment-aware fallback used the generic apparel default, which is the adult
+   tee's band — so a `youth-tshirt` row with an empty column would have put
+   S-3XL on a listing photographed on a child. Caught by its own test.
+
+### Two judgement calls, flagged for David
+- **The youth discount does NOT stack on the 2-for-$25 bundle.** That price is
+  already flat and ignores the product's own price, so a second markdown would
+  sell a bundled youth tee at $9.50. The plus-size UPCHARGE still applies
+  inside a bundle (a 3XL genuinely costs more to make). Say the word if you
+  want youth discounted there too.
+- **$3.00 is my number, not yours** — you said "e.g. -$3" and I took it
+  literally. It is one constant (`YOUTH_SIZE_DISCOUNT_CENTS`) in
+  `catalog-capability.ts`; changing it there moves the storefront, the cart,
+  checkout, the server re-price and the Etsy variations together.

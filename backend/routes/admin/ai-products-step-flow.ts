@@ -11,7 +11,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
-import { assertOffered, COLORS, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+import { assertOffered, COLORS, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
 import { pitchPhrases } from '../../services/step-flow/phrases.js'
 import { analyzeInspirationImage, InspirationValidationError } from '../../services/step-flow/inspiration.js'
@@ -529,11 +529,14 @@ router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req
       .from('products')
       .update({
         category: capabilityGarment.category,
-        // The garment's OWN size range (David 2026-09-03). The youth tee files
-        // under 't-shirts' like the adult one, so without this the storefront
-        // would fall back to adult sizes on a kids' listing — a photo of a
-        // child advertising a size we don't stock.
-        sizes: capabilityGarment.sizes,
+        // Every size this garment's listing sells (David 2026-09-03 for the
+        // youth tee, 2026-09-07 for the youth band on adult listings): the
+        // adult range PLUS the youth cut. Written whole rather than as
+        // `capabilityGarment.sizes`, which is the adult band only — the column
+        // is what fulfilment and any direct reader see, so an adult-only value
+        // here would make the DB disagree with the storefront about what a
+        // buyer was allowed to order.
+        sizes: sizesForGarment(garment),
         metadata: {
           ...product.metadata,
           step_flow: stepFlow,

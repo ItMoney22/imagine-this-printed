@@ -77,6 +77,7 @@ import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
 import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normalizeMetalSizeKey } from '../shared/metal-art.js'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
+import { isYouthSize, YOUTH_SIZE_DISCOUNT_CENTS } from '../shared/catalog-capability.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -124,6 +125,10 @@ const GARMENT_TIER_UPCHARGE_CENTS: Record<string, number> = {
 const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
 const PLUS_SIZE_UPCHARGE_CENTS = 250
 
+// The YOUTH discount is the mirror image of the plus-size upcharge (David
+// 2026-09-07) and comes from shared/catalog-capability.ts rather than a fourth
+// local copy — see YOUTH_SIZE_DISCOUNT_CENTS there.
+
 // Plus-size is an APPAREL upcharge. The substring match used to false-positive
 // a metal-art "4x6" print as a plus size ("4x6".toUpperCase() = "4X6", which
 // .includes("4X")) and overcharge it $2.50 — FIXED 2026-09-02 together with
@@ -133,6 +138,11 @@ const PLUS_SIZE_UPCHARGE_CENTS = 250
 function isPlusSize(size?: string | null): boolean {
   if (!size) return false
   if (normalizeMetalSizeKey(size)) return false
+  // A youth size is never a plus size. No youth label matches the list today,
+  // but this is the exact shape of the '4x6' → '4X' bug above: the substring
+  // match is one added label ('Youth 2XL') away from charging a parent the
+  // plus-size upcharge on a child's shirt.
+  if (isYouthSize(size)) return false
   const upper = size.toUpperCase()
   return PLUS_SIZES.some(ps => upper.includes(ps))
 }
@@ -390,7 +400,7 @@ function computeExtrasCentsPerUnit(
   item: PricingCartItem,
   id: string,
   errors: string[],
-  opts: { blank?: boolean } = {}
+  opts: { blank?: boolean; bundle?: boolean } = {}
 ): number {
   let extraCents = 0
 
@@ -400,6 +410,19 @@ function computeExtrasCentsPerUnit(
   // upcharge applies. Mirrors src/context/CartContext.tsx calculateTotal.
   if (!opts.blank && isPlusSize(item.selectedSize)) {
     extraCents += PLUS_SIZE_UPCHARGE_CENTS
+  }
+
+  // Youth sizes come off the LISTING price. Two carve-outs, both deliberate:
+  //   - blanks, for the same reason the plus-size upcharge skips them: a
+  //     blank's DB size × colour table is already its whole price;
+  //   - bundle lines, because the 2-for-$25 deal is a flat promotional price
+  //     that already ignores the product's own price entirely. Stacking $3 off
+  //     on top of it would sell a bundled youth tee at $9.50 — discounting a
+  //     discount. The plus-size UPCHARGE still applies inside a bundle (a 3XL
+  //     genuinely costs more to make); a youth size just doesn't earn a second
+  //     markdown. Mirrors src/context/CartContext.tsx.
+  if (!opts.blank && !opts.bundle && isYouthSize(item.selectedSize)) {
+    extraCents -= YOUTH_SIZE_DISCOUNT_CENTS
   }
 
   if (!opts.blank && item.selectedTier) {
@@ -516,7 +539,10 @@ export function computeLineItemCents(
     return { cents: 0, errors, warnings }
   }
 
-  const perUnitCents = unitCents + computeExtrasCentsPerUnit(item, id, errors, { blank: isBlank })
+  // Floored at zero: the youth discount is the first NEGATIVE extra this
+  // function can return, so a listing priced under $3 could otherwise produce
+  // a negative line and credit the customer.
+  const perUnitCents = Math.max(0, unitCents + computeExtrasCentsPerUnit(item, id, errors, { blank: isBlank }))
 
   return { cents: perUnitCents * quantity, errors, warnings }
 }
@@ -580,7 +606,7 @@ export function computeSubtotalCents(
     }
 
     totalEligibleQty += quantity
-    subtotalCents += computeExtrasCentsPerUnit(item, id, errors) * quantity
+    subtotalCents += computeExtrasCentsPerUnit(item, id, errors, { bundle: true }) * quantity
   }
 
   subtotalCents += bundleTotalCents(totalEligibleQty, BUNDLE_DEAL.priceCents)
