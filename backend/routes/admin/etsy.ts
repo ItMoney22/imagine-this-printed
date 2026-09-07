@@ -13,7 +13,9 @@ import {
   isEtsyConfigured,
   listEtsyListings,
   publishProductToEtsy,
-  taxonomyIdFor
+  taxonomyIdFor,
+  updateEtsyListing,
+  updateAllEtsyListings
 } from '../../services/etsy.js'
 import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-composer.js'
 import { startModelShots, reshootModelShot, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
@@ -399,6 +401,92 @@ router.post('/publish/:productId', async (req: Request, res: Response) => {
     return res.status(result.ok ? 200 : 422).json(result)
   } catch (error: any) {
     console.error('[etsy] publish failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Update an ALREADY-PUBLISHED listing in place. This is the path the publish
+// route's own error message has always pointed at ("use update instead of
+// re-posting") and which, until 2026-09-07, did not exist — repricing the two
+// live listings for the youth/plus-size change had to be done by hand from a
+// local script.
+//
+// Body (all optional): { tier, variations=true, copy=false, priceOverride,
+//                        quantity, dryRun=false }
+//
+// NO design-QA gate on the default (variations-only) path, deliberately. The
+// gate exists to decide whether a design may ENTER the channel; this listing
+// is already in it, in front of buyers. Refusing to correct a live listing's
+// price because a QA stamp is missing would leave the WRONG price up, which is
+// strictly worse than the thing the gate protects against. Changing the COPY
+// is a different matter — that is republishing content, so it runs the gate.
+router.post('/update/:productId', async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params
+    const { tier, variations, copy, priceOverride, quantity, dryRun } = req.body || {}
+    if (tier !== undefined && !isEtsyTier(tier)) {
+      return res.status(400).json({ error: `Unknown tier "${tier}"` })
+    }
+
+    if (copy === true) {
+      const qa = await checkGate(productId, 'etsy')
+      if (!qa.allowed) {
+        return res.status(422).json({
+          ok: false,
+          error: `Presentation QA gate: ${qa.reason}`,
+          qa_gate: { code: qa.code, stamp: qa.stamp },
+          note: 'The gate only guards a COPY rewrite. Re-run without "copy" to push pricing/variations to this live listing.',
+          next_step: `POST /api/admin/design-qa/submit/${productId} with { "channel": "etsy" }`
+        })
+      }
+    }
+
+    const result = await updateEtsyListing(productId, {
+      tier: tier as EtsyTier | undefined,
+      variations: variations !== false,
+      copy: copy === true,
+      priceOverride: priceOverride !== undefined ? Number(priceOverride) : undefined,
+      quantity: quantity !== undefined ? Number(quantity) : undefined,
+      dryRun: dryRun === true
+    })
+    return res.status(result.ok ? 200 : 422).json(result)
+  } catch (error: any) {
+    console.error('[etsy] update failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// Bulk update — what a PRICING RULE change actually needs, since one rule
+// change invalidates every live listing at once.
+//
+// DRY RUN BY DEFAULT: pass { "dryRun": false } to actually write. Rewriting
+// every live listing in the shop should not be reachable by forgetting a flag,
+// so the safe direction is the default and the destructive one is explicit.
+router.post('/update-all', async (req: Request, res: Response) => {
+  try {
+    const { states, tiers, limit, variations, copy, quantity, dryRun } = req.body || {}
+    if (copy === true) {
+      // Bulk copy rewrites would need a per-product QA gate decision; that is a
+      // different feature with a different blast radius. Refuse rather than
+      // quietly skip the gate for a whole catalogue.
+      return res.status(400).json({
+        error: 'Bulk copy rewrites are not supported — each one needs its own QA gate decision. Use POST /update/:productId with { "copy": true } per product.'
+      })
+    }
+    if (tiers !== undefined && (!Array.isArray(tiers) || !tiers.every(isEtsyTier))) {
+      return res.status(400).json({ error: 'tiers must be an array of valid Etsy tiers' })
+    }
+    const result = await updateAllEtsyListings({
+      states: Array.isArray(states) ? states.map(String) : undefined,
+      tiers: tiers as EtsyTier[] | undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+      variations: variations !== false,
+      quantity: quantity !== undefined ? Number(quantity) : undefined,
+      dryRun: dryRun !== false
+    })
+    return res.json(result)
+  } catch (error: any) {
+    console.error('[etsy] bulk update failed:', error)
     return res.status(500).json({ error: error.message })
   }
 })

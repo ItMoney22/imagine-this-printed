@@ -524,6 +524,55 @@ export async function applyListingVariations(
   return products.length
 }
 
+/**
+ * The listing COPY for a product + tier — title, description and tags, derived
+ * from the composed Etsy pack (etsy-seo-composer.ts) with the website's own
+ * fields as the fallback, reframed per tier and re-sanitized to Etsy's limits
+ * (a hand-edited pack still can't exceed them).
+ *
+ * Extracted so publishProductToEtsy and updateEtsyListing derive copy the SAME
+ * way. Duplicating it was not an option: the plus-size rule was copy-pasted
+ * across four files and drifted into a real mispricing bug, and a listing
+ * whose update path composes a different title than its publish path is that
+ * same failure with a slower fuse.
+ */
+export function resolveListingCopy(
+  product: {
+    name?: string | null
+    description?: string | null
+    meta_title?: string | null
+    meta_description?: string | null
+    search_keywords?: any
+    metadata?: any
+  },
+  tier: EtsyTier
+): { title: string; description: string; tags: string[]; pack: any } {
+  const pack: any = product?.metadata?.etsy_pack ?? null
+  const packTags: string[] = []
+  if (Array.isArray(pack?.tags)) {
+    const seen = new Set<string>()
+    for (const raw of pack.tags) {
+      const tag = toEtsyTag(String(raw))
+      if (!tag || seen.has(tag.toLowerCase())) continue
+      seen.add(tag.toLowerCase())
+      packTags.push(tag)
+      if (packTags.length >= MAX_TAGS) break
+    }
+  }
+  const basePack = {
+    title: pack?.title
+      ? String(pack.title).replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
+      : toEtsyTitle(product.meta_title || product.name || '', product.search_keywords),
+    description: String(
+      (pack?.description && String(pack.description).trim())
+      || product.description || product.meta_description || product.name || ''
+    ),
+    tags: packTags.length ? packTags : toEtsyTags(product.search_keywords)
+  }
+  const copy = tierCopy(tier, basePack, { maxTitleLen: MAX_TITLE_LEN, maxTags: MAX_TAGS })
+  return { ...copy, pack }
+}
+
 // Publish one ITP product to Etsy: draft listing + image uploads (+ optional
 // activate). Sync state and errors land in etsy_listings either way.
 export async function publishProductToEtsy(productId: string, opts: EtsyPublishOptions = {}): Promise<EtsyPublishResult> {
@@ -538,20 +587,10 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
   if (!product) throw new Error(`Product ${productId} not found`)
 
   // Composed Etsy pack (etsy-seo-composer.ts) beats the mechanical field
-  // mapping: it was written FOR Etsy, the fields below were written for the
-  // website. Re-sanitized here so a hand-edited pack still can't exceed limits.
+  // mapping: it was written FOR Etsy, the website's own fields were not.
+  // Copy derivation lives in resolveListingCopy() so the UPDATE path composes
+  // it identically — see that function.
   const pack: any = (product as any).metadata?.etsy_pack ?? null
-  const packTags: string[] = []
-  if (Array.isArray(pack?.tags)) {
-    const seen = new Set<string>()
-    for (const raw of pack.tags) {
-      const tag = toEtsyTag(String(raw))
-      if (!tag || seen.has(tag.toLowerCase())) continue
-      seen.add(tag.toLowerCase())
-      packTags.push(tag)
-      if (packTags.length >= MAX_TAGS) break
-    }
-  }
 
   // One listing per product — refuse a duplicate rather than double-list.
   // The decision is made against ETSY's state, not the ledger's, further down
@@ -616,17 +655,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     // ships. tierCopy() is a deterministic transform of that one pack rather
     // than three separate model calls — same voice across all three listings,
     // no extra spend. The primary tier is returned untouched.
-    const basePack = {
-      title: pack?.title
-        ? String(pack.title).replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
-        : toEtsyTitle(product.meta_title || product.name || '', product.search_keywords),
-      description: String(
-        (pack?.description && String(pack.description).trim())
-        || product.description || product.meta_description || product.name || ''
-      ),
-      tags: packTags.length ? packTags : toEtsyTags(product.search_keywords)
-    }
-    const copy = tierCopy(tier, basePack, { maxTitleLen: MAX_TITLE_LEN, maxTags: MAX_TAGS })
+    const copy = resolveListingCopy(product, tier)
     const title = copy.title
     const description = opts.descriptionSuffix ? `${copy.description}\n\n${opts.descriptionSuffix}` : copy.description
     const tags = copy.tags
@@ -808,6 +837,260 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     result.error = err.message
     await upsertSync({ state: result.listingId ? 'draft' : 'error', last_error: err.message })
     return result
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UPDATE an already-published listing.
+//
+// publishProductToEtsy deliberately refuses a product that already has a live
+// listing ("use update instead of re-posting") — but until 2026-09-07 no
+// update existed, so that error pointed at a path nobody had built. Repricing
+// the two live listings for the youth/plus-size change had to be done from a
+// hand-run script against an exported internal. This is that path.
+//
+// WHAT IT PUSHES, and why the default is narrow:
+//   - variations (default ON) — the size/colour axis and its per-size prices.
+//     This is the reprice, and it is safe on a live listing: the inventory PUT
+//     is a full replace, so the whole axis is re-derived from the capability
+//     table every time.
+//   - copy (default OFF) — title/description/tags. Opt-in because rewriting a
+//     live listing's text is an SEO event, not a correction, and should be a
+//     deliberate act rather than a side effect of fixing a price.
+//
+// PRICE IS NOT PATCHED ONTO THE LISTING when the listing carries a variation
+// axis. Etsy derives such a listing's price from its inventory, so the price a
+// buyer pays lives on the OFFERINGS — pushing it through the listing PATCH is
+// at best ignored and at worst a 400. Downloads (no variation axis) are the
+// one tier where the listing price IS the real price.
+// ---------------------------------------------------------------------------
+
+export interface EtsyUpdateOptions {
+  tier?: EtsyTier
+  /** Re-derive and PUT the size/colour axis + per-size prices. Default true. */
+  variations?: boolean
+  /** Also PATCH title/description/tags. Default false — see the note above. */
+  copy?: boolean
+  /** Per-variation stock. Defaults to ETSY_VARIATION_QUANTITY. */
+  quantity?: number
+  /** Dollars. Overrides the pack/tier/product price for this update only. */
+  priceOverride?: number
+  /** Compute everything and report it WITHOUT writing to Etsy. */
+  dryRun?: boolean
+}
+
+export interface EtsyUpdateResult {
+  ok: boolean
+  productId: string
+  tier: EtsyTier
+  listingId?: number
+  etsyUrl?: string
+  /** The listing's state on Etsy, as found. */
+  state?: string
+  /** What this call actually changed (both false on a dry run). */
+  updated: { copy: boolean; variations: boolean }
+  /** Offerings written, or that WOULD be written on a dry run. */
+  offerings?: number
+  /** The per-size prices this update resolves to, for the caller to eyeball. */
+  prices?: Record<string, number>
+  basePrice?: number
+  dryRun?: boolean
+  error?: string
+}
+
+/**
+ * Re-push the current pricing/variation rules onto a listing that is already
+ * on Etsy. Never creates one: a product with no live listing is an error
+ * telling the caller to publish instead.
+ */
+export async function updateEtsyListing(
+  productId: string,
+  opts: EtsyUpdateOptions = {}
+): Promise<EtsyUpdateResult> {
+  const tier: EtsyTier = opts.tier ?? 'primary'
+  const wantVariations = opts.variations !== false
+  const wantCopy = opts.copy === true
+  const result: EtsyUpdateResult = {
+    ok: false,
+    productId,
+    tier,
+    updated: { copy: false, variations: false },
+    dryRun: opts.dryRun === true
+  }
+
+  try {
+    const { data: product, error: prodErr } = await supabase
+      .from('products')
+      .select('id, name, description, price, images, category, meta_title, meta_description, search_keywords, status, is_active, metadata')
+      .eq('id', productId)
+      .maybeSingle()
+    if (prodErr) throw new Error(`Product lookup failed: ${prodErr.message}`)
+    if (!product) throw new Error(`Product ${productId} not found`)
+
+    const { data: ledger } = await supabase
+      .from('etsy_listings')
+      .select('listing_id, state')
+      .eq('product_id', productId)
+      .eq('tier', tier)
+      .maybeSingle()
+    if (!ledger?.listing_id) {
+      throw new Error(`Product ${productId} has no ${tier} Etsy listing to update — publish it first`)
+    }
+
+    const { token } = await getAccessToken()
+
+    // Read the CURRENT listing before touching it. A ledger row is not proof
+    // the listing still exists — Shop-Manager deletes leave stale rows behind,
+    // the same trap publishProductToEtsy guards against.
+    let listing: any
+    try {
+      listing = await etsyFetch(`/application/listings/${ledger.listing_id}`, { token })
+    } catch (e: any) {
+      if (/\(404\)/.test(String(e?.message))) {
+        await supabase.from('etsy_listings')
+          .update({ state: 'removed', last_error: 'listing not found on Etsy', updated_at: new Date().toISOString() })
+          .eq('product_id', productId).eq('tier', tier)
+        throw new Error(`Etsy listing ${ledger.listing_id} no longer exists (ledger marked removed) — publish a fresh one`)
+      }
+      throw e
+    }
+    const stateOnEtsy = String(listing?.state ?? 'unknown')
+    result.listingId = ledger.listing_id
+    result.etsyUrl = `https://www.etsy.com/listing/${ledger.listing_id}`
+    result.state = stateOnEtsy
+    if (stateOnEtsy === 'removed') {
+      throw new Error(`Etsy listing ${ledger.listing_id} is removed — nothing to update; publish a fresh one`)
+    }
+
+    const tierCfg = etsyTierConfig(tier)
+    const isDigital = tierCfg.listingType === 'download'
+    // The listing's OWN taxonomy, not the category map: changing taxonomy on a
+    // listing that already has variations invalidates its property ids and
+    // wipes the axis. An update never re-categorises.
+    const taxonomyId = Number(listing.taxonomy_id)
+    const basePrice = Math.max(
+      Number(opts.priceOverride ?? tierCfg.price ?? (product as any).metadata?.etsy_pack?.price ?? product.price) || 0,
+      MIN_PRICE_USD
+    )
+    result.basePrice = basePrice
+
+    // --- variations -------------------------------------------------------
+    if (wantVariations && !isDigital) {
+      const inv = await getListingInventory(ledger.listing_id)
+      const invProducts: any[] = inv?.products ?? []
+      const readinessStateId: number | undefined = invProducts[0]?.offerings?.[0]?.readiness_state_id
+        ?? (Number(process.env.ETSY_READINESS_STATE_ID) || undefined)
+
+      const category = String(product.category)
+      const isMetal = tier === 'primary' && METAL_CATEGORIES.has(category)
+      const isTransfer = tier === 'transfer'
+      const sizes: VariationSize[] = isTransfer
+        ? TRANSFER_SHEET_SIZES.map(s => ({ label: s.label, price: s.price }))
+        : isMetal ? METAL_SIZES : apparelVariationSizes(product.metadata, basePrice)
+
+      // Colour axis: the composed pack is the source of truth for what we
+      // sell, but a pack that has since lost its colours must not silently
+      // strip a live listing's axis — fall back to what is on Etsy now.
+      const packColors: string[] = Array.isArray((product as any).metadata?.etsy_pack?.colors)
+        ? (product as any).metadata.etsy_pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
+        : []
+      const liveColors: string[] = [...new Set(invProducts.flatMap((p: any) =>
+        (p.property_values ?? [])
+          .filter((pv: any) => !/size/i.test(String(pv.property_name)))
+          .map((pv: any) => (pv.values ?? [])[0])
+      ))].filter(Boolean) as string[]
+      const colors: string[] = (isMetal || isTransfer) ? [] : (packColors.length ? packColors : liveColors)
+
+      result.offerings = Math.max(1, colors.length) * Math.max(1, sizes.length)
+      result.prices = Object.fromEntries(sizes.map(s => [s.label, s.price ?? basePrice]))
+
+      if (!opts.dryRun) {
+        const written = await applyListingVariations(token, ledger.listing_id, taxonomyId, {
+          colors,
+          sizes,
+          basePrice,
+          readinessStateId
+        })
+        result.offerings = written
+        result.updated.variations = true
+        console.log(`[etsy] ${productId} [${tier}] updated ${written} offerings on listing ${ledger.listing_id} (${stateOnEtsy})`)
+      }
+    }
+
+    // --- copy -------------------------------------------------------------
+    if (wantCopy) {
+      const copy = resolveListingCopy(product, tier)
+      const form: Record<string, string | number | boolean | undefined> = {
+        title: copy.title,
+        description: copy.description,
+        tags: copy.tags.length ? copy.tags.join(',') : undefined
+      }
+      // Only a listing with NO variation axis takes its price from the listing
+      // itself; otherwise the offerings carry it (see the header note).
+      if (isDigital || !wantVariations) form.price = basePrice
+      if (!opts.dryRun) {
+        await etsyFetch(`/application/listings/${ledger.listing_id}`, { method: 'PATCH', token, form })
+        result.updated.copy = true
+        console.log(`[etsy] ${productId} [${tier}] updated copy on listing ${ledger.listing_id}`)
+      }
+    }
+
+    if (!opts.dryRun) {
+      await supabase.from('etsy_listings').update({
+        state: stateOnEtsy,
+        last_synced_at: new Date().toISOString(),
+        last_error: null,
+        updated_at: new Date().toISOString()
+      }).eq('product_id', productId).eq('tier', tier)
+    }
+
+    result.ok = true
+    return result
+  } catch (err: any) {
+    result.error = err.message
+    if (!opts.dryRun && result.listingId) {
+      await supabase.from('etsy_listings')
+        .update({ last_error: err.message, updated_at: new Date().toISOString() })
+        .eq('product_id', productId).eq('tier', tier)
+    }
+    return result
+  }
+}
+
+/**
+ * Bulk update — the case that actually matters when a PRICING RULE changes,
+ * because one rule change invalidates every live listing at once, and doing
+ * them an id at a time is how half a catalogue ends up on stale prices.
+ *
+ * Defaults to a DRY RUN. Rewriting every live listing in the shop is not
+ * something a caller should be able to trigger by forgetting a flag.
+ */
+export async function updateAllEtsyListings(
+  opts: EtsyUpdateOptions & { states?: string[]; tiers?: EtsyTier[]; limit?: number } = {}
+): Promise<{ dryRun: boolean; total: number; ok: number; failed: number; results: EtsyUpdateResult[] }> {
+  const dryRun = opts.dryRun !== false
+  const states = opts.states?.length ? opts.states : ['active']
+  const tiers = opts.tiers?.length ? opts.tiers : (['primary'] as EtsyTier[])
+
+  const { data: rows, error } = await supabase
+    .from('etsy_listings')
+    .select('product_id, tier, listing_id, state')
+    .in('state', states)
+    .in('tier', tiers)
+    .not('listing_id', 'is', null)
+    .limit(opts.limit ?? 200)
+  if (error) throw new Error(`etsy_listings lookup failed: ${error.message}`)
+
+  const results: EtsyUpdateResult[] = []
+  for (const row of rows ?? []) {
+    results.push(await updateEtsyListing(row.product_id, { ...opts, tier: row.tier as EtsyTier, dryRun }))
+  }
+  return {
+    dryRun,
+    total: results.length,
+    ok: results.filter(r => r.ok).length,
+    failed: results.filter(r => !r.ok).length,
+    results
   }
 }
 

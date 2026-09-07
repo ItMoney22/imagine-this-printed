@@ -2872,3 +2872,62 @@ pre-fix `buildPresentationInput` before being kept.
 - 2026-09-07 — Made the gate grade what the publisher sends, and made the Step
   Flow compose Etsy-native copy before anything grades it. David's blocker was
   a false one; the weak-copy complaint underneath it was real.
+
+---
+
+## Current request (2026-09-07b) — build the missing Etsy update route
+
+Board row 30dd8074, filed earlier today when repricing the live listings had to
+be done from a hand-run script.
+
+### What shipped
+- `POST /api/admin/etsy/update/:productId` — re-push pricing/variations onto a
+  listing that is ALREADY on Etsy. Body: `{ tier, variations=true, copy=false,
+  priceOverride, quantity, dryRun=false }`.
+- `POST /api/admin/etsy/update-all` — the case that actually matters when a
+  PRICING RULE changes, since one rule change invalidates every live listing at
+  once. **Dry run by default**; `{ "dryRun": false }` to write.
+- Both behind the existing admin/manager gate (router.use at lines 47-48).
+
+### Design calls worth stating
+- **Copy rewrites are opt-in (`copy: true`), variations are the default.**
+  Rewriting a live listing's title/description is an SEO event, not a
+  correction; it should not be a side effect of fixing a price.
+- **No design-QA gate on the variations-only path.** The gate decides whether a
+  design may ENTER the channel — this listing is already in it, in front of
+  buyers. Refusing to correct a live price because a QA stamp is missing leaves
+  the WRONG price up, which is worse than what the gate protects against. A
+  `copy: true` call DOES run the gate, because that is republishing content.
+- **Price is never PATCHed onto a listing that has a variation axis.** Etsy
+  derives such a listing's price from its inventory, so the price a buyer pays
+  lives on the offerings; pushing it through the listing PATCH is ignored at
+  best and a 400 at worst. Downloads (no axis) are the one tier where the
+  listing price IS the price.
+- **An update never re-categorises.** It reuses the listing's own
+  `taxonomy_id`; changing it on a listing that already has variations
+  invalidates its property ids and wipes the axis.
+- **Colour axis:** the composed pack wins, but a pack that has since lost its
+  colours falls back to what is live on Etsy rather than silently stripping it.
+- **Bulk copy rewrites are refused** (400), not silently gate-skipped — each
+  needs its own QA decision.
+
+### Drift guard
+Extracted `resolveListingCopy()` so publish and update derive title/description/
+tags through the SAME function. Copy-pasting it was not an option — the
+plus-size rule was duplicated across four files and drifted into a real
+mispricing bug this morning; a listing whose update path composes a different
+title than its publish path is that same failure with a slower fuse.
+
+### Verified
+- 19 new unit tests (`etsy-update.test.ts`), Supabase stubbed + global fetch
+  standing in for Etsy: full axis + per-size prices, `price_on_property` on,
+  copy untouched unless asked, price never PATCHed on a variation listing,
+  colour axis preserved, readiness state carried, dry run writes NOTHING,
+  refuses an unpublished product, refuses a removed listing, marks the ledger
+  removed on a 404 without re-listing, updates drafts too, price override,
+  never re-categorises, ledger sync recorded.
+- Against REAL Etsy: bulk dry run read both live listings and computed the
+  right prices while writing nothing; then a real write through the new path on
+  4544388862 returned 11 offerings, and both live listings independently verify
+  as active with 11 enabled offerings at the correct prices.
+- Full suite 88 files / 1364 tests, both typechecks clean, eslint 0 errors.
