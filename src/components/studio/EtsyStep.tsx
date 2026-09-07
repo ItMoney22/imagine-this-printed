@@ -24,16 +24,30 @@ const QUEUE_EXPECTED_MS = 6000
 // The review is two vision calls over the listing photos plus the SEO/pricing
 // checks — measured at roughly 15-30s on a one-photo listing.
 const REVIEW_EXPECTED_MS = 25_000
+// One LLM call for the listing copy (etsy-seo-composer.ts), same call the
+// Listing step makes.
+const COMPOSE_EXPECTED_MS = 12_000
 
 interface EtsyStepProps {
   state: StepFlowState
   dispatch: React.Dispatch<StepFlowAction>
 }
 
+// The anchors the composer stamps on a pack (etsy-seo-composer.ts:
+// ETSY_ANCHOR_PRICE / ETSY_HOODIE_ANCHOR_PRICE, David 2026-09-07: "shirts are
+// 25, hoodies 40"). Mirrored here only to LABEL the tier, and only as the
+// server's defaults — the price that actually ships is composed server-side.
+// The struck-through number is what Etsy shows after the standing 40% shop
+// sale David runs in Shop Manager.
+const TEE_ANCHOR = 25
+const HOODIE_ANCHOR = 40
+const SHOP_SALE = 0.4
+const priceShown = (anchor: number) => `$${anchor} → $${Math.round(anchor * (1 - SHOP_SALE))}`
+
 // Mirrors AdminEtsyPanel.tsx's TIER_META — no shared frontend type module for
 // this yet, so it's a deliberate small second copy rather than new coupling.
 const GARMENT_TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
-  primary: { label: 'Shirt', blurb: 'The tee/hoodie itself, sizes S–3XL', shown: '$25 → $15' },
+  primary: { label: 'Shirt', blurb: 'The tee/hoodie itself, sizes S–3XL', shown: priceShown(TEE_ANCHOR) },
   transfer: { label: 'Transfer', blurb: 'Printed DTF film you mail — buyer presses it', shown: 'from $12 → $7.20' },
   download: { label: 'Download', blurb: 'The design file, delivered instantly by Etsy', shown: '$5 → $3' },
 }
@@ -69,17 +83,38 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
   const category: string | null = (state.product as { category?: string } | null)?.category ?? null
   const isMetal = category === 'metal-art'
   const tierOrder: EtsyTier[] = tiersForCategory(category)
-  const tierMeta = (t: EtsyTier) => (isMetal && t === 'primary' ? METAL_PRIMARY_META : GARMENT_TIER_META[t])
+  // A hoodie is not a tee and must not be priced like one on the label either
+  // — same rule isHoodieProduct() applies server-side.
+  const garment = String(
+    (state.product as { metadata?: { step_flow?: { garment?: string }; garment?: string } } | null)?.metadata?.step_flow
+      ?.garment ??
+      (state.product as { metadata?: { garment?: string } } | null)?.metadata?.garment ??
+      ''
+  )
+  const isHoodie =
+    category === 'hoodies' ||
+    /hoodie|sweatshirt/i.test(garment) ||
+    /\bhoodie\b|\bsweatshirt\b/i.test(String((state.product as { name?: string } | null)?.name ?? ''))
+  const tierMeta = (t: EtsyTier) =>
+    isMetal && t === 'primary'
+      ? METAL_PRIMARY_META
+      : t === 'primary' && isHoodie
+        ? { ...GARMENT_TIER_META.primary, label: 'Hoodie', shown: priceShown(HOODIE_ANCHOR) }
+        : GARMENT_TIER_META[t]
   const [tiers, setTiers] = useState<EtsyTier[]>(['primary'])
   const [skipped, setSkipped] = useState(false)
-  const [phase, setPhase] = useState<'idle' | 'reviewing' | 'queueing'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'composing' | 'reviewing' | 'queueing'>('idle')
   const [result, setResult] = useState<QueueResult | null>(null)
   const [gate, setGate] = useState<GateRefusal | null>(null)
   const [review, setReview] = useState<QaReview | null>(null)
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [overrideReason, setOverrideReason] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [composeNote, setComposeNote] = useState<string | null>(null)
   const startedAtRef = useRef<number | null>(null)
+  // `etsy.compose` is a paid LLM call, so it happens at most once per visit to
+  // this step — same discipline as ListingStep's composedRef.
+  const packEnsuredRef = useRef(false)
 
   const busy = phase !== 'idle'
 
@@ -117,10 +152,49 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
     }
   }
 
+  /** Make sure the product carries a composed Etsy pack before anything grades
+   *  or publishes it.
+   *
+   *  Without a pack, BOTH the gate and services/etsy.ts fall back to the
+   *  website's `search_keywords` — which is a listing, but a mechanical one:
+   *  10 tags of the 13 Etsy allows, none of them echoed in the title or
+   *  description. That is exactly the review David got on 2026-09-07, and his
+   *  read of it was the right one — the flow should hand Etsy a listing
+   *  written for Etsy, not the storefront's SEO fields reshaped.
+   *
+   *  Reaching this step without a pack means the Listing step was skipped or
+   *  its compose call failed, so this is a backstop, not the normal path. A
+   *  compose failure is deliberately NOT fatal: the fallback is legal copy
+   *  (etsy.ts and the gate both run it through toEtsyTags), just weaker. */
+  const ensurePack = async (productId: string): Promise<void> => {
+    if (packEnsuredRef.current) return
+    const existing = (state.product as { metadata?: { etsy_pack?: unknown } } | null)?.metadata?.etsy_pack
+    if (existing) {
+      packEnsuredRef.current = true
+      return
+    }
+    startedAtRef.current = Date.now()
+    setPhase('composing')
+    try {
+      await etsy.compose(productId)
+      packEnsuredRef.current = true
+      setComposeNote(null)
+    } catch (err: any) {
+      // Say so plainly rather than letting the weaker copy look intentional.
+      setComposeNote(
+        `Could not write Etsy-native listing copy (${err?.message || 'compose failed'}) — ` +
+        'reviewing the catalogue keywords instead. "Re-compose" on the Listing step is the retry.'
+      )
+    } finally {
+      setPhase('idle')
+    }
+  }
+
   /** Run the review and record the verdict. Returns null only when the review
    *  itself could not run (auth, network, the vision model being down) — a
    *  FAILED verdict is a result, not an error. */
   const runReview = async (productId: string): Promise<QaReview | null> => {
+    await ensurePack(productId)
     startedAtRef.current = Date.now()
     setPhase('reviewing')
     try {
@@ -216,6 +290,10 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
               Skipped: {result.skipped.map((s) => `${s.tier} (${s.reason})`).join(', ')}
             </p>
           )}
+          {/* Carried onto the success screen on purpose: a draft that went out
+              on the mechanical fallback copy still went out, and that is worth
+              knowing while it is still a free invisible draft. */}
+          {composeNote && <p className="text-xs text-muted mt-1">{composeNote}</p>}
           <a
             href="/admin"
             className="inline-flex items-center gap-1 text-xs text-primary mt-2 hover:underline"
@@ -329,6 +407,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
           )}
 
           <InlineError message={error} />
+          {composeNote && <p className="text-sm text-muted mb-3">{composeNote}</p>}
 
           <div className="flex flex-wrap items-center gap-3">
           <button
@@ -338,7 +417,13 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
             className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-base shadow-glow disabled:opacity-40 disabled:shadow-none hover:scale-[1.02] active:scale-[0.99] transition-all"
           >
             <Send className="w-5 h-5" />
-            {phase === 'reviewing' ? 'Reviewing…' : phase === 'queueing' ? 'Queueing…' : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
+            {phase === 'composing'
+              ? 'Writing copy…'
+              : phase === 'reviewing'
+                ? 'Reviewing…'
+                : phase === 'queueing'
+                  ? 'Queueing…'
+                  : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
           </button>
           <SecondaryButton onClick={() => setSkipped(true)} disabled={busy}>
             Skip Etsy — finish here
@@ -348,9 +433,21 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
           {busy && (
             <div className="mt-4">
               <ProgressBar
-                label={phase === 'reviewing' ? 'Running the design review…' : 'Queueing to Etsy…'}
+                label={
+                  phase === 'composing'
+                    ? 'Writing the Etsy listing copy…'
+                    : phase === 'reviewing'
+                      ? 'Running the design review…'
+                      : 'Queueing to Etsy…'
+                }
                 startedAt={startedAtRef.current ?? Date.now()}
-                expectedMs={phase === 'reviewing' ? REVIEW_EXPECTED_MS : QUEUE_EXPECTED_MS}
+                expectedMs={
+                  phase === 'composing'
+                    ? COMPOSE_EXPECTED_MS
+                    : phase === 'reviewing'
+                      ? REVIEW_EXPECTED_MS
+                      : QUEUE_EXPECTED_MS
+                }
               />
             </div>
           )}

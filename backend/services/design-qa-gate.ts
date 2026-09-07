@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 import { createHash } from 'node:crypto'
 import { supabase } from '../lib/supabase.js'
+import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import {
   runPresentationQa,
   looksLikeRender,
@@ -149,11 +150,47 @@ export async function buildPresentationInput(productId: string, channel: Channel
   if (!mockupUrls.length) mockupUrls = images.slice(1)
 
   const pack = channel === 'etsy' ? metadata.etsy_pack : null
-  const title = pack?.title ?? (product as any).meta_title ?? product.name ?? ''
-  const description = pack?.description ?? product.description ?? (product as any).meta_description ?? ''
-  const tags: string[] = Array.isArray(pack?.tags)
+
+  // Etsy is graded through the SAME field rules services/etsy.ts publishes
+  // through, because the gate's job is to judge the listing a shopper would
+  // actually meet — not an intermediate form of it.
+  //
+  // This is not theoretical tidiness. Read raw, `search_keywords` are website
+  // SEO phrases ("alien spaceship tractor beam shirt", 34 chars), and the gate
+  // blocked on 7 tags over Etsy's 20-char limit for a listing the publisher
+  // would have trimmed to legal tags on its way out (etsy.ts: `packTags.length
+  // ? packTags : toEtsyTags(product.search_keywords)`). David hit exactly that
+  // on 2026-09-07 and it read as the Step Flow being unable to format a
+  // listing. Both writers of a stored pack already sanitize
+  // (etsy-seo-composer.ts#sanitizePack), so a pack only re-sanitizes here for
+  // the same reason the publisher does it: a hand-edited row is not trusted.
+  const etsyTagsFrom = (raw: unknown[]): string[] => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const value of raw) {
+      const tag = toEtsyTag(String(value))
+      if (!tag || seen.has(tag.toLowerCase())) continue
+      seen.add(tag.toLowerCase())
+      out.push(tag)
+      if (out.length >= MAX_TAGS) break
+    }
+    return out
+  }
+
+  const keywords = (product as any).search_keywords
+  const rawTags: string[] = Array.isArray(pack?.tags)
     ? pack.tags.filter((t: unknown): t is string => typeof t === 'string')
-    : String((product as any).search_keywords ?? '').split(',').map(t => t.trim()).filter(Boolean)
+    : String(keywords ?? '').split(',').map((t: string) => t.trim()).filter(Boolean)
+
+  const title = channel === 'etsy'
+    ? (pack?.title
+        ? String(pack.title).replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE_LEN)
+        : toEtsyTitle((product as any).meta_title || product.name || '', keywords))
+    : (pack?.title ?? (product as any).meta_title ?? product.name ?? '')
+  const description = pack?.description ?? product.description ?? (product as any).meta_description ?? ''
+  const tags: string[] = channel === 'etsy'
+    ? (Array.isArray(pack?.tags) ? etsyTagsFrom(rawTags) : toEtsyTags(keywords))
+    : rawTags
   const price = Number(pack?.price ?? product.price ?? 0)
 
   return {

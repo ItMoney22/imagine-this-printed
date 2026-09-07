@@ -1,10 +1,27 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// The gate module builds a Supabase client at import time; the enforcement
-// logic under test here is pure, so the client is stubbed out entirely.
-vi.mock('../lib/supabase.js', () => ({ supabase: { from: () => ({}), rpc: async () => ({ data: 1 }) } }))
+// The gate module builds a Supabase client at import time. Most of the logic
+// under test is pure, but buildPresentationInput reads the product row, so the
+// stub is a chainable query object whose rows the tests below set.
+const rows: { products: any; product_assets: any[] } = { products: null, product_assets: [] }
+vi.mock('../lib/supabase.js', () => {
+  const chain = (result: any): any => {
+    const c: any = {}
+    for (const m of ['select', 'eq', 'in', 'order', 'limit']) c[m] = () => c
+    c.maybeSingle = async () => result
+    c.then = (res: any, rej: any) => Promise.resolve(result).then(res, rej)
+    return c
+  }
+  return {
+    supabase: {
+      from: (table: string) =>
+        chain(table === 'products' ? { data: rows.products, error: null } : { data: rows.product_assets, error: null }),
+      rpc: async () => ({ data: 1 })
+    }
+  }
+})
 
-const { evaluateGate, partitionByQa, fingerprintPresentation } = await import('./design-qa-gate.js')
+const { evaluateGate, partitionByQa, fingerprintPresentation, buildPresentationInput } = await import('./design-qa-gate.js')
 import type { PresentationInput } from './presentation-qa.js'
 
 // ---------------------------------------------------------------------------
@@ -129,5 +146,83 @@ describe('fingerprintPresentation', () => {
 
   it('does not change for fields the review never looked at', () => {
     expect(fingerprintPresentation({ ...base, name: 'Renamed internally' })).toBe(fingerprintPresentation(base))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// What the gate actually grades.
+//
+// David, 2026-09-07, on a gnome/alien tee the Step Flow had just built: the
+// review failed with "7 tags exceed Etsy's 20-character limit", listing
+// website-SEO phrases like "alien spaceship tractor beam shirt" (34 chars).
+// Nothing was wrong with the listing — services/etsy.ts publishes those same
+// keywords through toEtsyTags(), which trims each to <=20 chars on whole
+// words. Only the gate read them raw, so it blocked a listing that would have
+// gone out legal. A gate that fails a good listing is worse than no gate: it
+// teaches you to override it.
+// ---------------------------------------------------------------------------
+const productRow = (over: Record<string, unknown> = {}) => ({
+  id: 'p1',
+  name: 'Gnome Abduction Tee',
+  description: 'A gnome, abducted.',
+  price: 25,
+  images: [],
+  category: 't-shirts',
+  status: 'draft',
+  meta_title: 'Gnome Abduction Tee',
+  meta_description: 'A gnome, abducted.',
+  search_keywords:
+    'funny gnome abduction t-shirt, sci-fi gnome alien tee, unisex alien graphic shirt, ' +
+    'alien spaceship tractor beam shirt, quirky graphic tee unisex, comic style gnome shirt, ' +
+    'interstellar travel funny tee',
+  metadata: {},
+  ...over
+})
+
+describe('buildPresentationInput — Etsy is graded as it would be published', () => {
+  it('trims raw website keywords to legal tags instead of blocking on them', async () => {
+    rows.products = productRow()
+    rows.product_assets = []
+
+    const input = await buildPresentationInput('p1', 'etsy')
+
+    expect(input.tags.length).toBeGreaterThan(0)
+    for (const tag of input.tags) expect(tag.length).toBeLessThanOrEqual(20)
+    // Trimmed on whole words, not sliced mid-word.
+    expect(input.tags).toContain('sci-fi gnome alien')
+    expect(input.tags.some(t => t.endsWith(' '))).toBe(false)
+  })
+
+  it('re-sanitizes a hand-edited pack, exactly as the publisher does', async () => {
+    rows.products = productRow({
+      metadata: {
+        etsy_pack: {
+          title: 'Gnome Abduction Tee',
+          description: 'A gnome, abducted.',
+          price: 25,
+          // A pack edited straight in the DB, past the composer's sanitizer.
+          tags: ['alien spaceship tractor beam shirt', 'gnome tee', 'gnome tee']
+        }
+      }
+    })
+    rows.product_assets = []
+
+    const input = await buildPresentationInput('p1', 'etsy')
+
+    for (const tag of input.tags) expect(tag.length).toBeLessThanOrEqual(20)
+    // Deduped, like etsy.ts's packTags loop.
+    expect(input.tags.filter(t => t === 'gnome tee')).toHaveLength(1)
+  })
+
+  it('leaves the storefront channel on the catalogue fields, untrimmed', async () => {
+    rows.products = productRow()
+    rows.product_assets = []
+
+    const input = await buildPresentationInput('p1', 'storefront')
+
+    // The storefront has no 20-char rule; trimming there would be a lie about
+    // what the shopper sees. DESIGN_QA_GATE.md: "a 27-character storefront
+    // keyword is fine."
+    expect(input.tags).toContain('alien spaceship tractor beam shirt')
   })
 })

@@ -14,7 +14,7 @@ import { designQa, etsy } from '../../lib/api'
 import { initialStepFlowState, type StepFlowState } from './stepFlowReducer'
 
 vi.mock('../../lib/api', () => ({
-  etsy: { queue: vi.fn() },
+  etsy: { queue: vi.fn(), compose: vi.fn() },
   designQa: { submit: vi.fn(), override: vi.fn() },
 }))
 
@@ -149,5 +149,100 @@ describe('EtsyStep — the design QA gate', () => {
     await waitFor(() => expect(screen.getByText('Etsy is not connected')).toBeTruthy())
     expect(designQa.submit).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /Post it anyway/i })).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Composing the listing before it is graded.
+//
+// David, 2026-09-07: "the step flow should be able to format the listing for
+// etsy at the end". His review came back blocking on 7 over-length tags with
+// "10 tags used of 13" and "none of the tags appear in the title" — the
+// signature of NO composed pack, where both the gate and the publisher fall
+// back to the website's search_keywords. Reaching this step without a pack
+// means the Listing step was skipped or its compose failed, so the step
+// composes one itself rather than grading the storefront's SEO fields.
+// ---------------------------------------------------------------------------
+const withPack = {
+  ...state,
+  product: {
+    id: PRODUCT_ID,
+    category: 't-shirts',
+    metadata: { etsy_pack: { title: 'Gnome Abduction Tee', tags: ['gnome tee'], description: 'x', price: 25 } },
+  } as StepFlowState['product'],
+}
+
+describe('EtsyStep — the listing is composed before it is graded', () => {
+  const passingReview = {
+    status: 'passed' as const,
+    score: 88,
+    blocking: 0,
+    warnings: 0,
+    submission_no: 1,
+    rework: [],
+  }
+
+  it('composes the Etsy pack before submitting the review when the product has none', async () => {
+    vi.mocked(etsy.queue)
+      .mockRejectedValueOnce(gate422('never_reviewed', 'Presentation QA gate: never been through the gate.'))
+      .mockResolvedValueOnce({ queued: ['primary'], skipped: [] })
+    vi.mocked(etsy.compose).mockResolvedValue({ pack: { title: 't', tags: ['a'], description: 'd', price: 25 } } as any)
+    vi.mocked(designQa.submit).mockResolvedValue(passingReview)
+
+    renderStep()
+    clickQueue()
+
+    await waitFor(() => expect(screen.getByText(/Queued/)).toBeTruthy())
+    expect(etsy.compose).toHaveBeenCalledWith(PRODUCT_ID)
+    // Order matters: grading has to see the composed copy, not the fallback.
+    expect(vi.mocked(etsy.compose).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(designQa.submit).mock.invocationCallOrder[0])
+  })
+
+  it('does not spend a second compose call when the pack is already there', async () => {
+    vi.mocked(etsy.queue)
+      .mockRejectedValueOnce(gate422('never_reviewed', 'Presentation QA gate: never been through the gate.'))
+      .mockResolvedValueOnce({ queued: ['primary'], skipped: [] })
+    vi.mocked(designQa.submit).mockResolvedValue(passingReview)
+
+    render(<EtsyStep state={withPack} dispatch={vi.fn()} />)
+    clickQueue()
+
+    await waitFor(() => expect(screen.getByText(/Queued/)).toBeTruthy())
+    expect(etsy.compose).not.toHaveBeenCalled()
+  })
+
+  it('still reviews when composing fails, and says the copy is the weaker fallback', async () => {
+    vi.mocked(etsy.queue)
+      .mockRejectedValueOnce(gate422('never_reviewed', 'Presentation QA gate: never been through the gate.'))
+      .mockResolvedValueOnce({ queued: ['primary'], skipped: [] })
+    vi.mocked(etsy.compose).mockRejectedValue(new Error('OpenAI credits exhausted'))
+    vi.mocked(designQa.submit).mockResolvedValue(passingReview)
+
+    renderStep()
+    clickQueue()
+
+    await waitFor(() => expect(screen.getByText(/Queued/)).toBeTruthy())
+    // A compose failure must not dead-end the step all over again.
+    expect(designQa.submit).toHaveBeenCalledWith(PRODUCT_ID, 'etsy')
+    expect(screen.getByText(/Could not write Etsy-native listing copy/)).toBeTruthy()
+    expect(screen.getByText(/OpenAI credits exhausted/)).toBeTruthy()
+  })
+})
+
+describe('EtsyStep — the primary tier is labelled for the garment it is', () => {
+  it('shows the hoodie anchor on a hoodie, not the tee price', () => {
+    const hoodie = {
+      ...state,
+      product: { id: PRODUCT_ID, category: 'hoodies' } as StepFlowState['product'],
+    }
+    render(<EtsyStep state={hoodie} dispatch={vi.fn()} />)
+    // David 2026-09-07: "shirts are 25, hoodies 40", less the standing 40% sale.
+    expect(screen.getByText(/\$40 → \$24/)).toBeTruthy()
+  })
+
+  it('shows the tee anchor on a tee', () => {
+    renderStep()
+    expect(screen.getByText(/\$25 → \$15/)).toBeTruthy()
   })
 })

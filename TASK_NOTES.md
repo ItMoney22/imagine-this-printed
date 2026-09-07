@@ -2668,3 +2668,68 @@ gate looser, not blocking, so it is noted rather than changed here.)
   be read from here; (2) any `etsy_pack` composed before this deploy still
   carries its old price, since `services/etsy.ts` resolves `pack?.price ??
   product.price` — re-running the Listing step recomposes it.
+
+---
+
+## Current request (2026-09-07) — "the step flow should format the listing for etsy"
+
+David, on a gnome/alien tee the flow had just built: the design review came back
+**failed, score 77**, blocking on *"7 tags exceed Etsy's 20-character limit"* —
+listing phrases like `alien spaceship tractor beam shirt` (34 chars).
+
+### Two separate defects, one symptom
+
+**1. The gate graded a listing that would never have been published.**
+`design-qa-gate.ts#buildPresentationInput` read `search_keywords` RAW when a
+product had no composed pack:
+```
+: String(product.search_keywords ?? '').split(',').map(t => t.trim())
+```
+`services/etsy.ts` publishes that exact same fallback through `toEtsyTags()`
+(`packTags.length ? packTags : toEtsyTags(product.search_keywords)`), which trims
+each phrase to <=20 chars on whole-word boundaries. So the publisher would have
+sent legal tags and the gate blocked on illegal ones it invented itself. **A
+false blocker** — and the worst kind, because it teaches you to reach for the
+override. The gate's own doc comment already said Etsy is graded "because that
+is what services/etsy.ts actually publishes"; the fallback just didn't honour it.
+Fixed by running the Etsy channel through the publisher's own field rules
+(`toEtsyTitle`/`toEtsyTag`/`toEtsyTags`, deduped, capped at `MAX_TAGS`). The
+storefront channel is deliberately left untrimmed — `DESIGN_QA_GATE.md`: "a
+27-character storefront keyword is fine."
+
+Note both writers of a stored pack (`composeEtsyPack`, `saveEtsyPackEdits`)
+already sanitize through `sanitizePack`, so a stored pack was never the source
+of the over-length tags. The gate re-sanitizes a pack anyway, for the same
+reason the publisher does: a row hand-edited in the DB is not trusted.
+
+**2. There was no composed pack at all**, which is what David actually named.
+The tell is in his own paste: *"10 tags used of 13"* and *"None of the tags
+appear in the title or description"* — the signature of the mechanical
+website-SEO fallback, not Etsy-native copy. `EtsyStep` now calls
+`etsy.compose` before submitting the review when `metadata.etsy_pack` is
+missing, so the thing being graded (and published) is copy written FOR Etsy.
+Guarded by a ref so it is at most one paid call per visit, skipped entirely when
+a pack exists, and a compose failure is non-fatal — the fallback is legal copy
+now, just weaker, and the step says so instead of letting it pass as intended.
+
+### Also fixed while here
+The primary tier chip hardcoded `$25 -> $15` for every garment, so a hoodie
+advertised the tee price. It now follows the garment ($40 -> $24 on a hoodie),
+mirroring the server anchors David set the same day.
+
+### Checks
+`tsc -b` clean, eslint 0 errors on all 4 touched files, full suite **85 files /
+1296 tests pass** (8 new). The two gate tests were confirmed to FAIL against the
+pre-fix `buildPresentationInput` before being kept.
+
+### File shortlist (approved scope — 2026-09-07 Etsy listing formatting)
+- `backend/services/design-qa-gate.ts` (grade the published listing form)
+- `backend/services/design-qa-gate.test.ts` (regression cover)
+- `src/components/studio/EtsyStep.tsx` (compose before review, garment pricing)
+- `src/components/studio/EtsyStep.test.tsx` (regression cover)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-07 — Made the gate grade what the publisher sends, and made the Step
+  Flow compose Etsy-native copy before anything grades it. David's blocker was
+  a false one; the weak-copy complaint underneath it was real.
