@@ -16,7 +16,14 @@ import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES } from '../shared/metal-art.js'
-import { normalizeGarment, sizesForGarment } from '../shared/catalog-capability.js'
+import {
+  normalizeGarment,
+  sizesForGarment,
+  isYouthSize,
+  isPlusSize,
+  YOUTH_SIZE_DISCOUNT_DOLLARS,
+  PLUS_SIZE_UPCHARGE_DOLLARS
+} from '../shared/catalog-capability.js'
 import {
   type EtsyTier,
   TRANSFER_SHEET_SIZES,
@@ -376,6 +383,30 @@ const APPAREL_CATEGORIES = new Set(['shirts', 't-shirts', 'hoodies'])
 const apparelSizesFor = (metadata: any): string[] =>
   sizesForGarment(normalizeGarment(metadata?.product_type) ?? 'tshirt').map(etsySizeLabel)
 
+/**
+ * Apparel variation rows, priced per size off the SAME rails the storefront
+ * uses (backend/shared/catalog-capability.ts):
+ *   - S-XL      → the listing price,
+ *   - 2XL and up → +$2.50, because a plus-size blank genuinely costs more,
+ *   - youth      → -$3.00, matching the discount the website gives.
+ *
+ * Before 2026-09-07 every adult size on Etsy sold at one flat price, so a 3XL
+ * was cheaper on Etsy than on our own site and we ate the blank's real
+ * upcharge. David asked for the upcharge to be mirrored here, which means
+ * repricing 2XL+ variations UPWARD on existing live listings the next time
+ * each one is published.
+ *
+ * Floored at $1: Etsy rejects a non-positive price, which a cheap base price
+ * minus the youth discount could otherwise produce.
+ */
+export const apparelVariationSizes = (metadata: any, basePrice: number): VariationSize[] =>
+  apparelSizesFor(metadata).map(label => {
+    const delta = isYouthSize(label)
+      ? -YOUTH_SIZE_DISCOUNT_DOLLARS
+      : isPlusSize(label) ? PLUS_SIZE_UPCHARGE_DOLLARS : 0
+    return { label, price: Math.max(1, Number((basePrice + delta).toFixed(2))) }
+  })
+
 // "YM" in an Etsy size dropdown is ambiguous next to adult letter sizes;
 // spelled out, a buyer cannot mistake which one they are ordering. Adult
 // sizes are unchanged. (These labels don't match Etsy's letter-size scale, so
@@ -423,11 +454,17 @@ function propertyValue(prop: any, name: string, scaleId?: number) {
   return pv
 }
 
-// Set variations on a freshly created listing via the inventory endpoint.
-// Property ids are discovered from the taxonomy (never hardcoded — they're
-// Etsy's to define). Price can vary by size (per-size price on the spec);
-// otherwise uniform. Throws on failure; the caller treats it as best-effort.
-async function applyListingVariations(
+// Set variations on a listing via the inventory endpoint. Property ids are
+// discovered from the taxonomy (never hardcoded — they're Etsy's to define).
+// Price can vary by size (per-size price on the spec); otherwise uniform.
+// Throws on failure; the publish caller treats it as best-effort.
+//
+// Exported because it is also the ONLY way to reprice an ALREADY-PUBLISHED
+// listing: publishProductToEtsy refuses a product that already has a live
+// listing ("use update instead of re-posting"), and the inventory PUT is a
+// full replace, so re-deriving the whole axis here is exactly right. Used to
+// push the 2026-09-07 per-size pricing onto listings that were live before it.
+export async function applyListingVariations(
   token: string,
   listingId: number,
   taxonomyId: number,
@@ -716,8 +753,9 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
       }
     }
 
-    // Variations — buyers pick from dropdowns. Apparel: Size S-3XL × pack
-    // colors at uniform price. Metal art: Size 4x6/8x10 with per-size pricing.
+    // Variations — buyers pick from dropdowns. Apparel: Size S-3XL plus the
+    // youth band (YXS-YXL, listed as "Youth XS"…) × pack colors, priced per
+    // size: 2XL+ is +$2.50, youth is -$3.00. Metal art: 4x6/8x10 per-size.
     // Transfer tier: sheet size with per-size pricing, no color axis (the film
     // is the film — garment color is the buyer's own shirt). Downloads have no
     // axis at all: one file, one price.
@@ -735,7 +773,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
           : [])
         const sizes = isTransfer
           ? TRANSFER_SHEET_SIZES.map(s => ({ label: s.label, price: s.price }))
-          : isMetal ? METAL_SIZES : apparelSizesFor(product.metadata).map(s => ({ label: s }))
+          : isMetal ? METAL_SIZES : apparelVariationSizes(product.metadata, price)
         const combos = await applyListingVariations(token, listingId, taxonomyId, {
           colors,
           sizes,

@@ -8,9 +8,9 @@ import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElement
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
 import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
-import { normalizeMetalSizeKey } from '../../backend/shared/metal-art'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
@@ -18,15 +18,9 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
 // Sizes that incur an additional $2.50 upcharge (must match CartContext).
 // Module scope so they aren't rebuilt on every Checkout render.
-const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-const PLUS_SIZE_UPCHARGE = 2.50
-// Plus-size is an apparel upcharge — a metal panel size ("4x6" contains the
-// "4X" token) is never one. Mirrors CartContext + order-pricing.ts.
-const isPlusSize = (size?: string): boolean => {
-  if (!size) return false
-  if (normalizeMetalSizeKey(size)) return false
-  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
-}
+// The plus-size upcharge and the youth discount both come from
+// backend/shared/catalog-capability.ts — ONE definition, shared with the cart,
+// the server pricing engine and the Etsy variation axis.
 
 // Server-calculated order totals, returned by POST /checkout-payment-intent.
 // Tax in particular is authoritative here — the client no longer invents a
@@ -384,7 +378,7 @@ const Checkout: React.FC = () => {
   }
 
   // Calculate totals based on payment methods (including plus size upcharge)
-  const { usdItems, itcItems, usdTotal, itcTotal, requiresITCPayment, requiresUSDPayment, plusSizeUpcharge } = useMemo(() => {
+  const { usdItems, itcItems, usdTotal, itcTotal, requiresITCPayment, requiresUSDPayment, plusSizeUpcharge, youthDiscount } = useMemo(() => {
     const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
     const itcItems = state.items.filter(item => item.paymentMethod === 'itc')
 
@@ -410,8 +404,27 @@ const Checkout: React.FC = () => {
     // Garment quality tier upcharge (mirrors CartContext + order-pricing.ts).
     const usdTierTotal = usdItems.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
 
-    // USD total includes plus size upcharge + tier upcharge + add-ons
-    const usdTotal = usdBaseTotal + plusSizeUpcharge + usdTierTotal + usdAddonsTotal
+    // Youth-size discount, $3 off per unit (mirrors CartContext +
+    // order-pricing.ts). Never for blanks — their size price is already the
+    // whole answer — and capped per unit at everything else that unit costs,
+    // which is how the server's Math.max(0, ...) floor behaves. This is the
+    // only negative term in the total, so the cap is what keeps this page
+    // inside the 1-cent tolerance the server re-price gate enforces.
+    const youthDiscount = usdItems.reduce((sum, item) => {
+      if (isBlankGarmentMeta(item.product.metadata) || !isYouthSize(item.selectedSize)) return sum
+      const otherPerUnit =
+        lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
+        (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
+        garmentTierUpcharge(item.selectedTier) +
+        addonsUnitTotal(item.selectedAddons)
+      return sum + Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, otherPerUnit) * item.quantity
+    }, 0)
+
+    // USD total includes plus size upcharge + tier upcharge + add-ons, less
+    // the youth discount. Rounded to whole cents: this is the first
+    // subtraction in the total and float dust here fails the server's
+    // 1-cent match.
+    const usdTotal = Math.round((usdBaseTotal + plusSizeUpcharge + usdTierTotal + usdAddonsTotal - youthDiscount) * 100) / 100
 
     return {
       usdItems,
@@ -421,6 +434,7 @@ const Checkout: React.FC = () => {
       requiresITCPayment: itcItems.length > 0,
       requiresUSDPayment: usdItems.length > 0,
       plusSizeUpcharge,
+      youthDiscount,
     }
   }, [state.items])
 
@@ -1670,12 +1684,18 @@ const Checkout: React.FC = () => {
                 <>
                   <div className="flex justify-between">
                     <span>USD Subtotal</span>
-                    <span>${(usdTotal - plusSizeUpcharge).toFixed(2)}</span>
+                    <span>${(usdTotal - plusSizeUpcharge + youthDiscount).toFixed(2)}</span>
                   </div>
                   {plusSizeUpcharge > 0 && (
                     <div className="flex justify-between text-muted">
                       <span>Plus Size Upcharge (2XL+)</span>
                       <span>+${plusSizeUpcharge.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {youthDiscount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Youth Size Discount</span>
+                      <span>-${youthDiscount.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between">

@@ -18,6 +18,15 @@ import {
   normalizeGarment,
   normalizeColor,
   sizesForGarment,
+  adultSizesForGarment,
+  youthSizesForGarment,
+  isYouthSize,
+  youthDiscountCents,
+  blankForSize,
+  printWidthForSize,
+  YOUTH_SIZE_DISCOUNT_CENTS,
+  isPlusSize,
+  PLUS_SIZE_UPCHARGE_CENTS,
   audienceForGarment,
   isYouthGarment,
 } from './catalog-capability.js'
@@ -179,14 +188,43 @@ describe('audience — who physically wears a garment', () => {
 })
 
 describe('sizesForGarment — the one place sizes are declared', () => {
-  it('gives the youth tee its own range, not the adult one', () => {
-    expect(sizesForGarment('youth-tshirt')).toEqual(['YXS', 'YS', 'YM', 'YL', 'YXL'])
-    expect(sizesForGarment('tshirt')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+  it('sells the adult band AND the youth band on the same shirt listing', () => {
+    expect(sizesForGarment('tshirt')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
   })
 
-  it('falls back to the adult tee range for an unknown garment (the historical default)', () => {
-    expect(sizesForGarment('polo')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
-    expect(sizesForGarment(null)).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+  it('sells the youth band on hoodies too — David 2026-09-07, "shirts AND hoodies"', () => {
+    expect(sizesForGarment('hoodie')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('never lists a youth size twice on the garment that already IS a youth cut', () => {
+    expect(sizesForGarment('youth-tshirt')).toEqual(['YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('separates the adult band from the youth band', () => {
+    expect(adultSizesForGarment('tshirt')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+    expect(youthSizesForGarment('tshirt')).toEqual(['YXS', 'YS', 'YM', 'YL', 'YXL'])
+    expect(youthSizesForGarment('youth-tshirt')).toEqual([])
+  })
+
+  it('falls back to the adult tee range plus youth for an unknown garment', () => {
+    expect(sizesForGarment('polo')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+    expect(sizesForGarment(null)).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('pulls the YOUTH blank for a youth size and the adult blank otherwise', () => {
+    // A 'YM' line on a t-shirt listing is a Gildan 5000B, not a small 5000 —
+    // this is the fact fulfilment reads off the order.
+    expect(blankForSize('tshirt', 'YM')).toBe('Gildan 5000B Heavy Cotton Youth')
+    expect(blankForSize('tshirt', 'M')).toBe('Gildan 5000 Heavy Cotton')
+    expect(blankForSize('hoodie', 'YL')).toBe('Gildan 18500B Heavy Blend Youth')
+    expect(blankForSize('hoodie', 'L')).toBe('Gildan 18500 Heavy Blend')
+  })
+
+  it('narrows the print for a youth size on an adult listing', () => {
+    // An 11-inch adult print is wider than a youth medium's whole body.
+    expect(printWidthForSize('tshirt', 'YM')).toBe(8)
+    expect(printWidthForSize('tshirt', 'M')).toBe(11)
+    expect(printWidthForSize('hoodie', 'YM')).toBe(8)
   })
 
   it('returns a copy, so a caller cannot mutate the catalog', () => {
@@ -197,5 +235,89 @@ describe('sizesForGarment — the one place sizes are declared', () => {
 
   it('prints the youth tee smaller than the adult one', () => {
     expect(getGarment('youth-tshirt')!.printWidthInches).toBeLessThan(getGarment('tshirt')!.printWidthInches)
+  })
+})
+
+describe('isYouthSize / youthDiscountCents — the youth price rail', () => {
+  it('recognises the canonical codes', () => {
+    for (const sz of ['YXS', 'YS', 'YM', 'YL', 'YXL']) expect(isYouthSize(sz)).toBe(true)
+  })
+
+  it('recognises the spelled-out Etsy variation label', () => {
+    // The Etsy axis lists "Youth M", not "YM" — an order coming back from Etsy
+    // must still earn the discount, or the two channels disagree on price.
+    expect(isYouthSize('Youth M')).toBe(true)
+    expect(isYouthSize('youth xl')).toBe(true)
+    expect(isYouthSize(' Youth S ')).toBe(true)
+  })
+
+  it('never matches an adult size, a metal panel size, or junk', () => {
+    for (const sz of ['S', 'M', 'L', 'XL', '2XL', '3XL', '4x6', '8x10', '', null, undefined]) {
+      expect(isYouthSize(sz as any)).toBe(false)
+    }
+  })
+
+  it('does not match a bare Y or a size that merely starts with one', () => {
+    expect(isYouthSize('Y')).toBe(false)
+    expect(isYouthSize('YXXL')).toBe(false)
+  })
+
+  it('discounts youth sizes only', () => {
+    expect(youthDiscountCents('YM')).toBe(YOUTH_SIZE_DISCOUNT_CENTS)
+    expect(youthDiscountCents('M')).toBe(0)
+  })
+
+  it('every youth size in the catalog is recognised by the price rail', () => {
+    // The bug this guards: adding a size to a garment's youth band without
+    // teaching isYouthSize about it would sell it at the adult price.
+    for (const g of GARMENTS) {
+      for (const sz of youthSizesForGarment(g.id)) expect(isYouthSize(sz)).toBe(true)
+    }
+  })
+
+  it('no adult size anywhere in the catalog is mistaken for a youth size', () => {
+    for (const g of GARMENTS) {
+      if (g.audience === 'youth') continue
+      for (const sz of adultSizesForGarment(g.id)) expect(isYouthSize(sz)).toBe(false)
+    }
+  })
+})
+
+describe('isPlusSize — one definition, formerly copy-pasted into four files', () => {
+  it('charges 2XL and up', () => {
+    for (const sz of ['2XL', 'XXL', '3XL', '4XL', '5XL']) expect(isPlusSize(sz)).toBe(true)
+  })
+
+  it('leaves S-XL alone', () => {
+    for (const sz of ['S', 'M', 'L', 'XL']) expect(isPlusSize(sz)).toBe(false)
+  })
+
+  it('never treats a metal-art panel size as a plus size', () => {
+    // '4x6'.toUpperCase() contains the '4X' token. This false positive
+    // overcharged metal prints $2.50 until it was fixed in three separate
+    // copies on 2026-09-02 — the reason the rule now lives in one place.
+    expect(isPlusSize('4x6')).toBe(false)
+    expect(isPlusSize('8x10')).toBe(false)
+  })
+
+  it('never charges a parent the plus-size upcharge on a youth shirt', () => {
+    for (const sz of ['YXL', 'Youth XL', 'YM']) expect(isPlusSize(sz)).toBe(false)
+  })
+
+  it('handles empty input', () => {
+    for (const sz of ['', null, undefined]) expect(isPlusSize(sz as any)).toBe(false)
+  })
+
+  it('the two rails cannot both fire on the same size', () => {
+    for (const g of GARMENTS) {
+      for (const sz of sizesForGarment(g.id)) {
+        expect(isPlusSize(sz) && isYouthSize(sz), `${sz} matched both rails`).toBe(false)
+      }
+    }
+  })
+
+  it('keeps the upcharge and the discount at the values the storefront shows', () => {
+    expect(PLUS_SIZE_UPCHARGE_CENTS).toBe(250)
+    expect(YOUTH_SIZE_DISCOUNT_CENTS).toBe(300)
   })
 })

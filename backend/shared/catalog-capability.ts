@@ -13,6 +13,8 @@
  * (Gildan 5000 is the standard tee; Gildan 18500 the standard hoodie).
  */
 
+import { normalizeMetalSizeKey } from './metal-art.js'
+
 export type GarmentId = 'tshirt' | 'hoodie' | 'youth-tshirt'
 
 /**
@@ -64,8 +66,87 @@ export interface CapabilityGarment {
    * the Etsy variation axis, the details card's size table and
    * `products.sizes` can never drift into promising a size we don't stock
    * (they each used to carry their own hardcoded S-3XL list).
+   *
+   * This is the garment's OWN band only. The full set a listing offers is
+   * `sizesForGarment()` — this plus `youth` below.
    */
   sizes: string[]
+  /**
+   * The youth cut of this same garment, sold on the SAME listing (David
+   * 2026-09-07: "we need to make sure all of our shirts and hoodies are
+   * available in youth sizes as well").
+   *
+   * This is a different physical blank, not a smaller size of the same one —
+   * a youth tee is a Gildan 5000B, not a small 5000 — so the blank and the
+   * print width are declared alongside the sizes. Null on a garment that IS
+   * already a youth cut.
+   */
+  youth: YouthCut | null
+}
+
+/** The youth counterpart of an adult garment, sold on the same listing. */
+export interface YouthCut {
+  /** Youth sizes, smallest first. */
+  sizes: string[]
+  /** The youth blank actually pulled when one of those sizes is ordered. */
+  blank: string
+  /**
+   * Print width in inches for the youth body. An 11-inch adult print is wider
+   * than a youth MEDIUM's entire 18-inch body, so this is never inherited.
+   */
+  printWidthInches: number
+}
+
+/**
+ * The youth size band, smallest first. Gildan's published youth range, shared
+ * by the youth tee (5000B) and the youth hoodie (18500B).
+ */
+export const YOUTH_SIZES = ['YXS', 'YS', 'YM', 'YL', 'YXL'] as const
+export type YouthSize = (typeof YOUTH_SIZES)[number]
+
+/**
+ * What comes OFF the listing price when a youth size is ordered (David
+ * 2026-09-07). The exact mirror of the +$2.50 plus-size upcharge, and like it
+ * this is the ONE definition — order-pricing.ts, CartContext, Checkout, the
+ * product page and the Etsy variation axis all import it rather than keeping
+ * a fourth copy of the number that drifts.
+ */
+export const YOUTH_SIZE_DISCOUNT_CENTS = 300
+export const YOUTH_SIZE_DISCOUNT_DOLLARS = YOUTH_SIZE_DISCOUNT_CENTS / 100
+
+/**
+ * The PLUS-SIZE rail — the other half of the same idea, and now declared here
+ * once instead of in four places.
+ *
+ * It used to be copy-pasted into backend/services/order-pricing.ts,
+ * src/context/CartContext.tsx and src/pages/Checkout.tsx, each carrying a
+ * "mirrors <the other file>" comment. That is not a mirror, it is three
+ * chances to drift, and it has already cost us once: the substring match below
+ * treats '4x6' as a plus size (it contains the '4X' token), so a metal art
+ * panel was silently charged +$2.50 until it had to be fixed in all three
+ * copies on 2026-09-02. Etsy is the fourth consumer (David 2026-09-07), so the
+ * rule moved here rather than being pasted a fourth time.
+ */
+export const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
+export const PLUS_SIZE_UPCHARGE_CENTS = 250
+export const PLUS_SIZE_UPCHARGE_DOLLARS = PLUS_SIZE_UPCHARGE_CENTS / 100
+
+/**
+ * True for an apparel size that carries the plus-size upcharge.
+ *
+ * Two guards, both load-bearing:
+ *   - a metal-art PANEL size is not apparel ('4x6' → '4X6', which contains the
+ *     '4X' token) — the bug fixed 2026-09-02;
+ *   - a YOUTH size is never a plus size, so a parent is never charged the
+ *     upcharge on a child's shirt.
+ * The substring match itself is preserved exactly as it was, so consolidating
+ * these copies cannot change what any existing cart or order prices.
+ */
+export function isPlusSize(size?: string | null): boolean {
+  if (!size) return false
+  if (normalizeMetalSizeKey(size)) return false
+  if (isYouthSize(size)) return false
+  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
 export const COLORS: Record<ColorId, CapabilityColor> = {
@@ -90,6 +171,11 @@ export const GARMENTS: CapabilityGarment[] = [
     printWidthInches: 11,
     audience: 'adult',
     sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    youth: {
+      sizes: [...YOUTH_SIZES],
+      blank: 'Gildan 5000B Heavy Cotton Youth',
+      printWidthInches: 8,
+    },
   },
   {
     id: 'hoodie',
@@ -102,6 +188,11 @@ export const GARMENTS: CapabilityGarment[] = [
     printWidthInches: 10,
     audience: 'adult',
     sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    youth: {
+      sizes: [...YOUTH_SIZES],
+      blank: 'Gildan 18500B Heavy Blend Youth',
+      printWidthInches: 8,
+    },
   },
   // David 2026-09-03: added so a kids' design can be photographed on a kid
   // and still be a listing we can actually fulfil. Same DTF process, same
@@ -118,7 +209,9 @@ export const GARMENTS: CapabilityGarment[] = [
     colors: ['black', 'white', 'navy', 'heather-grey', 'red', 'forest-green', 'royal-blue'],
     printWidthInches: 8,
     audience: 'youth',
-    sizes: ['YXS', 'YS', 'YM', 'YL', 'YXL'],
+    sizes: [...YOUTH_SIZES],
+    // Already a youth cut — there is no youth-of-the-youth band.
+    youth: null,
   },
 ]
 
@@ -144,9 +237,71 @@ export function colorsForGarment(id: GarmentId): CapabilityColor[] {
   return g ? g.colors.map((c) => COLORS[c]) : []
 }
 
-/** The sizes a garment is sold in. Unknown garment → the adult tee range (the historical default). */
-export function sizesForGarment(id: string | null | undefined): string[] {
+/** A garment's own size band, WITHOUT the youth cut. Unknown garment → the adult tee range. */
+export function adultSizesForGarment(id: string | null | undefined): string[] {
   return [...(getGarment(id)?.sizes ?? ['S', 'M', 'L', 'XL', '2XL', '3XL'])]
+}
+
+/**
+ * The youth sizes this garment also sells, or [] when it has no youth cut
+ * (or already IS one). A garment we don't recognise gets the adult tee's
+ * answer, which is the youth band — an unknown legacy 't-shirts' row is far
+ * more likely a tee than something we've never heard of.
+ */
+export function youthSizesForGarment(id: string | null | undefined): string[] {
+  const g = getGarment(id)
+  if (!g) return [...YOUTH_SIZES]
+  return g.youth ? [...g.youth.sizes] : []
+}
+
+/**
+ * EVERY size a listing for this garment offers — the adult band followed by
+ * the youth band (David 2026-09-07: shirts and hoodies sell in youth sizes on
+ * the same listing). This is what `products.sizes`, the Etsy variation axis,
+ * the storefront size picker and the details-card size chart all read, so
+ * they cannot disagree about what a buyer may order.
+ *
+ * A garment that IS a youth cut returns its youth sizes once, not twice.
+ */
+export function sizesForGarment(id: string | null | undefined): string[] {
+  return [...adultSizesForGarment(id), ...youthSizesForGarment(id)]
+}
+
+/**
+ * True for a youth size, in any of the spellings that reach us: the canonical
+ * 'YM', the Etsy variation label 'Youth M', and either with stray case or
+ * whitespace. Deliberately anchored rather than a substring match — the
+ * plus-size rail was overcharging metal art because it matched '4x6' as '4X',
+ * and this is the same shaped bug waiting to happen.
+ */
+export function isYouthSize(size: string | null | undefined): boolean {
+  const v = String(size ?? '').trim().toUpperCase().replace(/^YOUTH\s+/, 'Y')
+  return (YOUTH_SIZES as readonly string[]).includes(v)
+}
+
+/** Dollars off this line for a youth size; 0 for every adult size. */
+export function youthDiscountCents(size: string | null | undefined): number {
+  return isYouthSize(size) ? YOUTH_SIZE_DISCOUNT_CENTS : 0
+}
+
+/**
+ * The blank actually pulled for a garment + size — the adult blank, or the
+ * youth blank when a youth size was ordered. Fulfilment reads this: a 'YM'
+ * line on a t-shirt listing is a Gildan 5000B, not a small 5000.
+ */
+export function blankForSize(id: string | null | undefined, size?: string | null): string | null {
+  const g = getGarment(id)
+  if (!g) return null
+  if (isYouthSize(size) && g.youth) return g.youth.blank
+  return g.blank
+}
+
+/** Print width for a garment + size — the youth body takes a narrower print. */
+export function printWidthForSize(id: string | null | undefined, size?: string | null): number | null {
+  const g = getGarment(id)
+  if (!g) return null
+  if (isYouthSize(size) && g.youth) return g.youth.printWidthInches
+  return g.printWidthInches
 }
 
 /**

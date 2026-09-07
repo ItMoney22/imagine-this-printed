@@ -2671,6 +2671,145 @@ gate looser, not blocking, so it is noted rather than changed here.)
 
 ---
 
+## Current request (2026-09-07) — youth sizes on every shirt and hoodie
+
+David: "we need to make sure all of our shirts and hoodies are available in
+youth sizes as well."
+
+### Decisions (David, 2026-09-07)
+1. **Same listing, youth size band** — NOT a second youth listing per design.
+   One product page shows an ADULT row (S-3XL) and a YOUTH row (YXS-YXL);
+   picking YM tells fulfilment to pull the youth blank (5000B / 18500B).
+2. **Youth sizes are discounted** — a flat $3.00 off, the mirror image of the
+   existing +$2.50 plus-size rail, kept as ONE shared constant so it is one
+   number to retune.
+
+### What was actually true before this change (measured on live prod)
+- 84 shirt/hoodie rows (59 tee, 21 hoodie; 59 active). **Every single one has
+  an EMPTY `sizes` column**, so the storefront fell through to the hardcoded
+  `['S','M','L','XL','2XL']` in `src/lib/product-kind.ts` — it wasn't even
+  offering the 3XL the capability table says we stock, let alone youth.
+- Youth existed only as a SEPARATE `youth-tshirt` garment (added 9/3 for
+  casting). **Zero youth products have ever been created**, and there was no
+  youth hoodie in the capability list at all.
+
+### File shortlist (approved scope — 2026-09-07 youth sizes)
+- `backend/shared/catalog-capability.ts` (+ `.test.ts`) — youth band per
+  garment, `isYouthSize`, the discount constant, `blankForSize`
+- `backend/services/order-pricing.ts` (+ `.test.ts`) — server-side discount
+- `src/context/CartContext.tsx`, `src/pages/Checkout.tsx` — client mirrors
+- `src/lib/product-kind.ts` (+ `.test.ts`) — garment-aware `sizeChoicesFor`
+- `src/pages/ProductPage.tsx` — banded size picker
+- `backend/services/etsy.ts` — youth variations priced $3 lower
+- `backend/services/step-flow/details-card.ts` (+ `.test.ts`) — youth rows in
+  the size chart + a real overflow guard
+- `backend/services/step-flow/casting.ts` — mismatch nudge wording
+- `TASK_NOTES.md`, `CLAUDE_TASK.md`
+
+### Work log 2026-09-07 (youth sizes on every shirt and hoodie)
+- `catalog-capability.ts` gained a `youth` cut per garment (tee → Gildan 5000B,
+  hoodie → Gildan 18500B, 8" print on both) and is now the ONE place the youth
+  band, the $3 discount, `isYouthSize`, `blankForSize` and `printWidthForSize`
+  are declared. `sizesForGarment` returns adult + youth; `adultSizesForGarment`
+  is the old behaviour for callers that need the bands apart.
+- Storefront: `sizeChoicesFor` APPENDS the youth band to whatever a row stores
+  rather than replacing it, so a sizes column frozen before youth existed still
+  can't leave a shirt without it. Verified against live prod: **all 59 active
+  shirt/hoodie listings now offer YXS-YXL**, tees and hoodies both.
+- Product page splits the picker into labelled ADULT / YOUTH rows. "YM" next to
+  "M" in one undifferentiated strip is how a parent buys the wrong shirt.
+- Pricing: -$3 per youth unit in `order-pricing.ts` with the client mirrors in
+  CartContext + Checkout, and a "Youth Size Discount" line in the summary.
+- Etsy youth variations carry the discounted price, so the two channels agree.
+
+### Three real defects found while building this, each now pinned by a test
+1. **The stale storefront fallback.** Every live shirt/hoodie has an EMPTY
+   `sizes` column, so all 84 fell through to a hardcoded `['S','M','L','XL',
+   '2XL']` — the 3XL we stock was never orderable on any of them. The fallback
+   now reads the capability table.
+2. **The details card overflowed.** Adding five youth rows pushed the adult
+   cards' last baseline to y=1508 on a 1500px card — the care line rendered
+   off the bottom edge. Row height now adapts to the row count (floor 44px),
+   with a throw if content ever passes the bottom again. Verified by reverting
+   the fix: the new test fails with "tshirt card ran 49px past the bottom".
+3. **A youth listing would have shown ADULT sizes.** The first cut of the
+   garment-aware fallback used the generic apparel default, which is the adult
+   tee's band — so a `youth-tshirt` row with an empty column would have put
+   S-3XL on a listing photographed on a child. Caught by its own test.
+
+### Follow-up 2026-09-07 — David: "change the etsy to include plus size upcharge"
+Etsy adult sizes had always sold at ONE flat price, so a 3XL was cheaper on
+Etsy than on our own site and we ate the blank's real upcharge. Now every Etsy
+apparel variation is priced off the same two rails the storefront uses:
+S-XL at the listing price, 2XL+ at +$2.50, youth at -$3.00.
+
+Rather than paste the plus-size rule into `etsy.ts` as a FOURTH copy, it moved
+into `catalog-capability.ts` next to the youth rail. It had been duplicated in
+`order-pricing.ts`, `CartContext.tsx` and `Checkout.tsx`, each with a "mirrors
+<the other file>" comment — and that duplication has already cost us once: the
+substring match reads '4x6' as a plus size ('4X'), which overcharged metal
+prints $2.50 until it had to be fixed in all three copies on 2026-09-02. One
+definition now, with both the metal-panel and youth guards in it. Matching
+semantics are byte-for-byte what they were, so no existing cart or order
+reprices — the 148 order-pricing tests pass unchanged.
+
+`etsy.ts` had NO test file at all, which is how a whole channel ended up
+mispricing every plus size unnoticed. Added `etsy-variations.test.ts` (11
+cases) covering both rails, the no-double-charge rule for youth, cent
+rounding, and the non-positive-price floor Etsy rejects.
+
+**Blast radius:** variations are written only on PUBLISH, so the new prices
+reach a listing the next time it's published. Live today: **2 active primary
+listings** (which keep their old flat pricing until republished) and 45 primary
+drafts (which will publish with the new prices). Republishing those 2 is the
+only manual step, and it raises their 2XL/3XL by $2.50.
+
+### Two judgement calls, flagged for David
+- **The youth discount does NOT stack on the 2-for-$25 bundle.** That price is
+  already flat and ignores the product's own price, so a second markdown would
+  sell a bundled youth tee at $9.50. The plus-size UPCHARGE still applies
+  inside a bundle (a 3XL genuinely costs more to make). Say the word if you
+  want youth discounted there too.
+- **$3.00 is my number, not yours** — you said "e.g. -$3" and I took it
+  literally. It is one constant (`YOUTH_SIZE_DISCOUNT_CENTS`) in
+  `catalog-capability.ts`; changing it there moves the storefront, the cart,
+  checkout, the server re-price and the Etsy variations together.
+
+### Deploy + live Etsy reprice 2026-09-07 (David: "yea you handle all of that")
+- Rebased onto `origin/main`, which had moved 4 commits ahead (incl. a7ba56a,
+  the $40 hoodie anchor). Only `TASK_NOTES.md` conflicted — both sides are
+  append-only sections, kept both. Verified the anchor composes with the new
+  per-size rails: hoodie $40 -> 2XL $42.50, Youth M $37; tee $25 -> 2XL $27.50,
+  Youth M $22.
+- Pushed `14f7410` to main. Render API healthy (`/api/health` ok) and the live
+  Vercel bundle (`/assets/index-Bc7rx5r2.js`) contains the youth band.
+
+**Repricing the already-live Etsy listings needed a path that did not exist.**
+`publishProductToEtsy` REFUSES a product that already has a live listing
+("use update instead of re-posting") — and there is no update route, so the
+inventory PUT is the only way. Exported `applyListingVariations` for it.
+
+Order of operations, deliberately: inspected both live listings read-only,
+then proved the write on a DRAFT (4559422897) before touching anything active.
+That mattered — our labels '2XL'/'3XL'/'Youth XS' are all CUSTOM values
+(taxonomy 482's only scale, 51 "Unisex letter size", offers XXS-XL then 2X/3X/4X
+— no 'L'-suffixed or youth values at all), and each is sent with `scale_id`
+attached. Etsy accepted them, which the existing live listings had already
+proven implicitly by carrying '2XL'.
+
+Repriced, each 6 offerings -> 11, all enabled, colour axis preserved:
+- 4544388862 Alien Directive Tee (ACTIVE)
+- 4544353578 Simply Be You Retro Varsity Shirt (ACTIVE)
+- 4559422897 Retro Cherry Roller Skate Shirt (draft, the rehearsal)
+
+Remaining 44 primary drafts pick the new prices up when they publish; no action.
+
+**Gap worth its own task:** there is still no "update a live Etsy listing"
+route. This reprice ran from a one-off script against an exported service
+function. Any future price/size change to a live listing has the same problem.
+
+---
+
 ## Current request (2026-09-07) — "the step flow should format the listing for etsy"
 
 David, on a gnome/alien tee the flow had just built: the design review came back

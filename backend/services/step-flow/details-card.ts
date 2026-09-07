@@ -31,6 +31,7 @@ const CARD_MARGIN = 24 // off-white gutter around the white text-column card
 const CARD_RADIUS = 24
 const TEXT_PAD = 40 // inner padding from the white card's edge to the text
 const MIN_FONT_SIZE = 28 // floor — nothing on this card may render smaller
+const MIN_CHART_ROW_H = 44 // floor — a 32px size-chart row needs this much air
 
 const INK = '#111827'
 const MUTED = '#6b7280'
@@ -40,7 +41,9 @@ const CARD_WHITE = '#ffffff'
 const ROW_TINT = '#f3f4f6'
 
 /**
- * S–3XL size charts, inches. Body width = garment laid flat, measured pit to
+ * Size charts, inches — the adult band followed by the youth band, matching
+ * exactly what `sizesForGarment` lets a buyer order on that listing. Body
+ * width = garment laid flat, measured pit to
  * pit (double for full chest circumference); body length = from the high
  * point of the shoulder to the hem.
  *
@@ -59,6 +62,12 @@ const SIZE_CHARTS: Record<GarmentId, { size: string; widthIn: number; lengthIn: 
     { size: 'XL', widthIn: 24, lengthIn: 31 },
     { size: '2XL', widthIn: 26, lengthIn: 32 },
     { size: '3XL', widthIn: 28, lengthIn: 33 },
+    // Gildan 5000B youth tee — sold on this same adult listing.
+    { size: 'YXS', widthIn: 16, lengthIn: 20.5 },
+    { size: 'YS', widthIn: 17, lengthIn: 22 },
+    { size: 'YM', widthIn: 18, lengthIn: 23.5 },
+    { size: 'YL', widthIn: 19, lengthIn: 25 },
+    { size: 'YXL', widthIn: 20, lengthIn: 26.5 },
   ],
   hoodie: [
     { size: 'S', widthIn: 20, lengthIn: 27 },
@@ -67,6 +76,14 @@ const SIZE_CHARTS: Record<GarmentId, { size: string; widthIn: number; lengthIn: 
     { size: 'XL', widthIn: 26, lengthIn: 30 },
     { size: '2XL', widthIn: 28, lengthIn: 31 },
     { size: '3XL', widthIn: 30, lengthIn: 32 },
+    // Gildan 18500B youth hoodie — the same listing sells it (David
+    // 2026-09-07), so the chart has to carry it or the card advertises sizes
+    // it doesn't measure.
+    { size: 'YXS', widthIn: 16, lengthIn: 20 },
+    { size: 'YS', widthIn: 17, lengthIn: 22 },
+    { size: 'YM', widthIn: 18, lengthIn: 23.5 },
+    { size: 'YL', widthIn: 19, lengthIn: 25 },
+    { size: 'YXL', widthIn: 20, lengthIn: 26.5 },
   ],
   // Gildan 5000B youth range. A youth listing's size table is the ONLY thing
   // on the card that tells a buyer this is a kids' shirt in numbers rather
@@ -267,8 +284,20 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   emit('Chest', chartColX[1], 32, 700, INK)
   emit('Length', chartColX[2], 32, 700, INK)
 
-  const CHART_ROW_H = 56
-  let rowTop = y + 14
+  // Row height ADAPTS to how many sizes this garment sells. It was a fixed 56,
+  // which fit the six adult sizes exactly — adding the five youth rows pushed
+  // the card's last baseline to y=1508 on a 1500px card, i.e. the care line
+  // rendered off the bottom edge (measured, not guessed). The floor keeps the
+  // 32px row text legible; the guard after the care line turns any future
+  // overflow into a thrown error instead of a silently clipped card.
+  const CARE_RESERVE = 64 + 2 * Math.round(28 * 1.3) // gap + up to two care lines
+  const chartTop = y + 14
+  const available = CARD_HEIGHT - CARD_MARGIN - CARE_RESERVE - chartTop
+  const CHART_ROW_H = Math.max(
+    MIN_CHART_ROW_H,
+    Math.min(56, Math.floor(available / Math.max(1, chart.length)))
+  )
+  let rowTop = chartTop
   for (let i = 0; i < chart.length; i++) {
     const row = chart[i]
     if (i % 2 === 0) {
@@ -297,6 +326,17 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
   for (const line of careLines) {
     emit(line, contentX, 28, 400, MUTED)
     y += careLineHeight
+  }
+
+  // Nothing may render below the card. The size chart is the only block whose
+  // height depends on data (one row per size the garment sells), so this is
+  // where a future size addition would silently push the care line off the
+  // bottom — the exact bug the youth rows caused. Fail loudly instead.
+  if (y > CARD_HEIGHT) {
+    throw new Error(
+      `details-card: content ran ${y - CARD_HEIGHT}px past the ${CARD_HEIGHT}px card ` +
+      `(${chart.length} size rows at ${CHART_ROW_H}px)`
+    )
   }
 
   return `<svg width="${RIGHT_WIDTH}" height="${CARD_HEIGHT}" xmlns="http://www.w3.org/2000/svg">

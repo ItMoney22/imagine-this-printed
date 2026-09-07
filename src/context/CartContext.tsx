@@ -2,10 +2,10 @@ import React, { createContext, useContext, useReducer, useState, useCallback, us
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
 import { addonsUnitTotal, addonsSignature, lineBasePrice } from '../lib/product-kind'
-import { normalizeMetalSizeKey } from '../../backend/shared/metal-art'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
 
 interface CartState {
   items: CartItem[]
@@ -140,18 +140,9 @@ type CartAction =
   | { type: 'CLEAR_CART' }
   | { type: 'RESTORE_FROM_ORDER'; payload: CartItem[] }
 
-// Sizes that incur an additional $2.50 upcharge
-const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-const PLUS_SIZE_UPCHARGE = 2.50
-
-// Check if a size is a plus size (2XL and above)
-// Plus-size is an apparel upcharge — a metal panel size ("4x6" contains the
-// "4X" token) is never one. Mirrors backend/services/order-pricing.ts.
-const isPlusSize = (size?: string): boolean => {
-  if (!size) return false
-  if (normalizeMetalSizeKey(size)) return false
-  return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
-}
+// The plus-size upcharge and the youth discount both come from
+// backend/shared/catalog-capability.ts — ONE definition read by this cart, the
+// checkout page, the server pricing engine and the Etsy variation axis.
 
 // Blank garments (metadata.garment.blank) price per size + colour off their
 // own table — backend/shared/blank-pricing.ts — which already carries Jiffy's
@@ -159,6 +150,11 @@ const isPlusSize = (size?: string): boolean => {
 // a garment-tier upcharge, and are never bundle-eligible. Mirrors
 // backend/services/order-pricing.ts exactly (the server re-prices checkout).
 const isBlankLine = (item: CartItem): boolean => isBlankGarmentMeta(item.product.metadata)
+
+/** Round a dollar figure to whole cents — the $3 youth discount is the first
+ *  subtraction in this total, and 24.95 - 3 style arithmetic is exactly where
+ *  binary-float dust shows up against the server's integer-cent math. */
+const reduceToCents = (dollars: number): number => Math.round(dollars * 100) / 100
 
 const calculateTotal = (items: CartItem[]): number => {
   // Separate eligible and non-eligible items — see backend/shared/promos.ts
@@ -176,11 +172,35 @@ const calculateTotal = (items: CartItem[]): number => {
     return sum
   }, 0)
 
-  // Calculate total for non-eligible items (base price + plus size upcharge)
-  const nonEligibleTotal = nonEligibleItems.reduce(
-    (sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity),
-    0
-  ) + nonEligiblePlusSizeUpcharge
+  // Youth-size discount, $3 off per unit (David 2026-09-07) — the mirror of the
+  // plus-size upcharge, and like it, skipped for blanks. NOT applied to
+  // bundle-eligible lines: the 2-for-$25 price is already a flat promo, so a
+  // second markdown on top of it would sell a bundled youth tee at $9.50.
+  // Mirrors backend/services/order-pricing.ts computeExtrasCentsPerUnit.
+  //
+  // Capped per unit at everything else that unit costs, which is how the
+  // server's Math.max(0, ...) floor behaves: this is the only NEGATIVE term in
+  // the total, so without the cap a listing priced under $3 would credit the
+  // customer and the client/server totals would diverge past the 1-cent
+  // tolerance that gates checkout.
+  const nonEligibleYouthDiscount = nonEligibleItems.reduce((sum, item) => {
+    if (isBlankLine(item) || !isYouthSize(item.selectedSize)) return sum
+    const otherPerUnit =
+      lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
+      (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
+      garmentTierUpcharge(item.selectedTier) +
+      addonsUnitTotal(item.selectedAddons)
+    return sum + Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, otherPerUnit) * item.quantity
+  }, 0)
+
+  // Calculate total for non-eligible items (base price + plus size upcharge
+  // - youth discount)
+  const nonEligibleTotal = reduceToCents(
+    nonEligibleItems.reduce(
+      (sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity),
+      0
+    ) + nonEligiblePlusSizeUpcharge - nonEligibleYouthDiscount
+  )
 
   // Calculate total for eligible items (BUNDLE_DEAL — "2 for $25", David
   // 2026-09-02, was "3 for $25"). bundleTotalCents pools eligible quantity
