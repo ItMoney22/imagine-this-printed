@@ -278,7 +278,11 @@ const AdminDashboard: React.FC = () => {
     hoodies: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
     tumblers: ['12oz', '20oz', '30oz', '40oz'],
     'dtf-transfers': ['8.5x11"', '11x17"', '13x19"'],
-    '3d-models': [],
+    // A 3D print is ONE SIZE unless you tick tiers here (David 2026-09-06).
+    // Leaving these unchecked is the normal case and the storefront then shows
+    // no size picker at all; before this the page invented the four tiers for
+    // every 3D listing, so a one-size candle holder demanded a size.
+    '3d-models': ['mini', 'small', 'medium', 'large'],
     // Metal print sizes WITHOUT the inch mark — the real stocked panels from
     // backend/shared/metal-art.ts STUDIO_SIZE_KEYS (4x6, 8x10). The old
     // hardcoded '8x11' here was the pre-2026-07-28 canvas size, not a panel.
@@ -454,6 +458,19 @@ const AdminDashboard: React.FC = () => {
   // Remove uploaded image
   const removeUploadedImage = (index: number) => {
     setUploadedImages(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // Promote an uploaded image to the customer-facing main shot. handleProductSubmit
+  // writes products.images in this order and images[0] is the main image
+  // everywhere (catalog card, product page hero, emails), so "set as main" is a
+  // move-to-front — the same reorder handleSetMainImage does server-side for a
+  // product that already exists.
+  const makeUploadedImageMain = (index: number) => {
+    setUploadedImages(prev =>
+      index <= 0 || index >= prev.length
+        ? prev
+        : [prev[index], ...prev.filter((_, i) => i !== index)]
+    )
   }
 
   // Handle digital file upload
@@ -3352,8 +3369,20 @@ const AdminDashboard: React.FC = () => {
                         {uploadedImages.map((img, idx) => (
                           <div key={idx} className="relative group">
                             <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
-                            {idx === 0 && (
+                            {idx === 0 ? (
                               <span className="absolute top-1 left-1 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded">Main</span>
+                            ) : (
+                              // The first upload became the customer-facing
+                              // shot with no way to change it (David
+                              // 2026-09-06). products.images[0] IS the main
+                              // image, so promoting one is just a reorder.
+                              <button
+                                type="button"
+                                onClick={() => makeUploadedImageMain(idx)}
+                                className="absolute inset-x-1 bottom-1 bg-slate-900/80 hover:bg-purple-600 text-white text-[10px] py-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                              >
+                                Set as main
+                              </button>
                             )}
                             <button
                               type="button"
@@ -3365,6 +3394,13 @@ const AdminDashboard: React.FC = () => {
                           </div>
                         ))}
                       </div>
+                    )}
+                    {uploadedImages.length > 1 && (
+                      <p className="text-xs text-slate-500 mt-2">
+                        The <span className="font-medium text-slate-700">Main</span> image is what
+                        customers see on the catalog card and at the top of the product page.
+                        Hover any other image to promote it.
+                      </p>
                     )}
                   </div>
 

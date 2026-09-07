@@ -34,9 +34,15 @@ const letteringStyleLabel = (style: LetteringStyleId | 'auto' | undefined): stri
   return getLetteringStyle(style)?.label ?? style
 }
 
-const PRODUCT_KIND_CHIPS: Array<{ value: 'tshirt' | 'hoodie' | 'metal'; label: string }> = [
+type KindChoice = 'tshirt' | 'hoodie' | 'youth-tshirt' | 'metal'
+
+// David 2026-09-03: the kids' tee is a choice from the very first step, not
+// something discovered at the Garment step — it changes what Mrs. Imagine
+// writes AND it is the garment that lets the mockup be photographed on a kid.
+const PRODUCT_KIND_CHIPS: Array<{ value: KindChoice; label: string }> = [
   { value: 'tshirt', label: 'T-Shirt' },
   { value: 'hoodie', label: 'Hoodie' },
+  { value: 'youth-tshirt', label: 'Kids T-Shirt' },
   { value: 'metal', label: 'Metal print' },
 ]
 
@@ -108,7 +114,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   // actually flips `state.productKind` via SET_PRODUCT_KIND. Seeded from a
   // resumed draft's brief so re-opening the Idea step to review shows the
   // choice that was actually made.
-  const [kindChoice, setKindChoice] = useState<'tshirt' | 'hoodie' | 'metal'>(() =>
+  const [kindChoice, setKindChoice] = useState<KindChoice>(() =>
     state.productKind === 'metal' ? 'metal' : (state.stepFlow?.brief?.garmentHint ?? 'tshirt')
   )
 
@@ -124,7 +130,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   const phrase = state.phrase
   const inspiration = state.inspiration
 
-  const handleSelectKind = (kind: 'tshirt' | 'hoodie' | 'metal') => {
+  const handleSelectKind = (kind: KindChoice) => {
     setKindChoice(kind)
     dispatch({ type: 'SET_PRODUCT_KIND', productKind: kind === 'metal' ? 'metal' : 'garment' })
   }
@@ -182,7 +188,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
       // The product-kind chip is the admin's explicit choice — it wins over
       // whatever garment the writing brain guessed from the idea text alone.
       const resolvedBrief: StepBrief =
-        state.productKind === 'metal' ? newBrief : { ...newBrief, garmentHint: kindChoice === 'hoodie' ? 'hoodie' : 'tshirt' }
+        state.productKind === 'metal' ? newBrief : { ...newBrief, garmentHint: kindChoice === 'metal' ? 'tshirt' : kindChoice }
       setBrief(resolvedBrief)
       setBriefOpen(true)
     } catch (err: any) {

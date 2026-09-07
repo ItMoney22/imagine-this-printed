@@ -16,6 +16,7 @@ import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES } from '../shared/metal-art.js'
+import { normalizeGarment, sizesForGarment } from '../shared/catalog-capability.js'
 import {
   type EtsyTier,
   TRANSFER_SHEET_SIZES,
@@ -366,7 +367,22 @@ export function taxonomyIdFor(category: string | null): number | null {
 // ---------------------------------------------------------------------------
 
 const APPAREL_CATEGORIES = new Set(['shirts', 't-shirts', 'hoodies'])
-const APPAREL_SIZES = ['S', 'M', 'L', 'XL', '2XL', '3XL']
+
+// Sizes come from the GARMENT, not from the category (David 2026-09-03): the
+// youth tee files under 't-shirts' like the adult one but is sold YXS-YXL, and
+// a hardcoded S-3XL axis here would have offered adult sizes on a kids'
+// listing. Legacy rows with no product_type fall back to the adult tee range,
+// which is what this constant always was.
+const apparelSizesFor = (metadata: any): string[] =>
+  sizesForGarment(normalizeGarment(metadata?.product_type) ?? 'tshirt').map(etsySizeLabel)
+
+// "YM" in an Etsy size dropdown is ambiguous next to adult letter sizes;
+// spelled out, a buyer cannot mistake which one they are ordering. Adult
+// sizes are unchanged. (These labels don't match Etsy's letter-size scale, so
+// the variation goes through as custom values — the same scale-less path
+// metal art's "4x6 inches" already uses.)
+const etsySizeLabel = (size: string): string =>
+  /^Y(XS|S|M|L|XL)$/.test(size) ? `Youth ${size.slice(1)}` : size
 
 // David 2026-07-26: metal art comes in 4x6 and 8x10 only for now, priced per
 // size ($25 / $45 anchors → $15 / $27 shown under the 40% shop sale; cheaper
@@ -719,7 +735,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
           : [])
         const sizes = isTransfer
           ? TRANSFER_SHEET_SIZES.map(s => ({ label: s.label, price: s.price }))
-          : isMetal ? METAL_SIZES : APPAREL_SIZES.map(s => ({ label: s }))
+          : isMetal ? METAL_SIZES : apparelSizesFor(product.metadata).map(s => ({ label: s }))
         const combos = await applyListingVariations(token, listingId, taxonomyId, {
           colors,
           sizes,

@@ -435,6 +435,41 @@ and the Tripo key.
   Related: decimation breaks the 0.6mm union at ANY ratio (0.61 fails exactly
   like 0.04), so it is a local mesh defect, not a decimation-strength problem.
 
+## Current request (2026-09-03) — weekly Etsy shop review
+
+- Review the live Etsy storefront against the 2026-08-20 baseline.
+- Capture the shop home, strongest listing, weaker listing, and About/policies.
+- Email the report from Mr. Imagine with all four screenshots embedded by CID and attached as PNG files.
+
+## Current status (2026-09-03)
+
+- Meaningful change: the 30% sale ended and all seven listings returned from `$17.50` to `$25.00`.
+- Other visible metrics were unchanged: 7 active listings, 0 sales, no reviews, 0 admirers, and the same four featured products.
+- `Y2K Vibe` remains the strongest presentation (6 images, White/Black, S–3XL); `HIM WAS BAD` remains weakest (4 images, no visible color choice, low-legibility chest text).
+- Both reviewed listings show `$5.00` shipping, a September 5–14 estimate, and returns within 30 days.
+- Real finished-shirt proof, readable size charts, storefront sections/banner, simpler iconography, consistent galleries, and aligned AI wording remain the priority gaps.
+- Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`.
+- Verified four inline CID attachments in Resend, four attachments in the canonical Mr. Imagine Sent record, and four working PNG downloads in the WeCare recipient record.
+- Resend also accepted one verification retry while its new message was not yet queryable; the canonical Sent and recipient records remain the first delivery.
+- No live Etsy changes or repo implementation-code changes were made.
+
+## File shortlist (approved scope — 2026-09-03 weekly Etsy review)
+
+### Read first
+- `AGENTS.md`
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md`
+- `backend/routes/email.ts`
+- `backend/services/email-resend.ts`
+
+### Edit allowed
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
+- No repo implementation files.
+- External state approved for this request: one weekly report from the existing Mr. Imagine mailbox.
+
+---
+
 ## Prior request (2026-08-20) — weekly Etsy shop review
 
 - Review the live Etsy storefront against the 2026-08-13 baseline.
@@ -1382,6 +1417,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-09-03 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Compared with August 20: seven listings and the same four featured products remain, sales/reviews/admirers remain at zero, while the 30% sale ended and every listing returned from $17.50 to $25. Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified four inline CID attachments in Resend, four attachments in the canonical Mr. Imagine Sent record, and four working PNG downloads in the recipient record. Resend also accepted one verification retry during eventual-consistency checks. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-16 (Codex, Watchtower task 3ba0cd22-5d2f-45f0-bee7-1290a032b8a2): Verified `a7b3393` is already merged into `origin/main`; both production health probes returned HTTP 200. Read-only live evidence confirms the newest Nano Banana 2 Lite mockup is JPEG by magic bytes and GCS `image/jpeg` metadata, and the Etsy ledger records 107 accepted image uploads across 24 listings with no recorded upload errors. Current `main` later defaults flat/ghost mockups to Flux 2 Pro, so a future post-deploy job must be evaluated by template rather than expecting Lite universally. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`.
 - 2026-08-06 (Codex Etsy email image correction): Resent the full August 6 report from `mrimagine@imaginethisprinted.com` with four CID-embedded screenshots and the same four PNG attachments. Verified four inline attachments in Resend and four received images with stored URLs in `wecare@imaginethisprinted.com`. Updated `weekly-etsy-shop-review` to require and verify all four images on future runs. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-06 (Codex weekly Etsy review): Captured fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Verified no meaningful change since 2026-07-30: six active listings, all $17.50 at 30% off, and zero sales/reviews/admirers; the same real-product, size-chart, gallery, banner/icon, section, and AI-wording gaps remain. Sent the report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` and verified both Sent and recipient records. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
@@ -2331,6 +2367,210 @@ Account price is 34-45% under public list. Both stored on every product
   (2.4 MB). `seed-blanks.ts` now writes `metadata.garment.colors[].image` and
   leads `images` with the hero + Black/White/Navy; ProductPage swaps the hero
   to the picked colour's render. Reseeded LIVE.
+
+---
+
+## Current request (2026-09-03) — the model must match the design
+
+David, with a screenshot of "Too Cute To Spook Ghost T-Shirt" mocked up on a
+bearded adult man: "in the step flow we need Mrs. Imagine to understand the
+design so something like this should of been mocked up on a kid she should
+adjust what our model looks like based on the design so the person matches
+what they wearing."
+
+### Root cause (read on the code, 2026-09-03)
+The Step Flow's "On a person" shot calls `shootOneModelShot(productId, userId,
+{ shirtColor, garment, nonce, replaceUrl })` — **no `cast`**
+(`services/step-flow/shots.ts:539`). With no cast, `etsy-model-shots.ts`
+falls through to `pick(ARCHETYPES)`: a uniformly random draw from 16 adult
+archetypes, in a random scene. Nothing about the artwork reaches the casting
+decision. A cute kids' Halloween ghost rolled `classic` and got a grown man.
+
+The keyword-matched cast picker (`ShotArchetype.keywords`, `listShotSubjects`)
+already exists but ONLY the Etsy panel passes a cast
+(`routes/admin/etsy.ts`); the Step Flow never has.
+
+### The honesty problem this exposed (David's call, 2026-09-03)
+Casting a child on the existing catalogue would have been a lie: `shared/
+catalog-capability.ts` offers Gildan 5000/18500 in adult sizes only
+(`etsy.ts` APPAREL_SIZES = S..3XL), so the photo would promise a size we
+cannot ship — the exact defect class already tracked as "Deactivate
+unfulfillable live ITP listings". Asked David; he chose **add youth sizes AND
+cast kids**. So the rule this work encodes is:
+
+> **The cast's age band is the GARMENT's age band.** The design decides WHICH
+> kind of person (goth / mom / student / kid) and the scene; the garment
+> decides whether that person is an adult or a child. A kid never models a
+> garment we only make in adult sizes, and an adult never models the youth tee.
+
+### File shortlist (approved scope — 2026-09-03 design-aware casting)
+- `backend/shared/catalog-capability.ts` (youth tee, per-garment `sizes` +
+  `audience`)
+- `backend/services/step-flow/casting.ts` + `.test.ts` (NEW — Mrs. Imagine
+  reads the art and casts it)
+- `backend/services/etsy-model-shots.ts` (youth archetypes, audience-aware
+  prompt, refusal fallback)
+- `backend/services/step-flow/shots.ts` (call casting, pass the cast, persist it)
+- `backend/services/step-flow/details-card.ts` (youth size chart)
+- `backend/services/etsy.ts` (per-garment size variations)
+- `backend/routes/admin/ai-products-step-flow.ts` (write `products.sizes`)
+- `src/components/studio/MockupStep.tsx` (show who was cast and why)
+- `src/lib/api.ts` (casting types)
+- `TASK_NOTES.md`
+
+Gildan 5000B chart used for the youth size table (two independent sources
+agree): XS 16x20.5, S 17x22, M 18x23.5, L 19x25, XL 20x26.5 (width x length,
+inches, laid flat).
+
+---
+
+## Current request (2026-09-03) — active-only product recommendations
+
+David reported that product-detail recommendations include products that are
+not active. The page renders recommendations through `ProductRecommendations`,
+which delegates both co-purchase and fallback retrieval to
+`product-recommender.ts`.
+
+### Root cause (scouted 2026-09-03)
+`ProductCatalog.tsx` treats a storefront product as visible only when both
+`status = 'active'` and `is_active = true`. Both recommendation queries apply
+only `is_active = true`, so draft, inactive, or archived rows can be returned
+when that flag remains true.
+
+### File shortlist (approved scope)
+- Read first: `src/utils/product-recommender.ts`, then `src/pages/ProductCatalog.tsx`
+  as the established storefront-visibility contract.
+- Allowed to edit: `src/utils/product-recommender.ts` and `TASK_NOTES.md` only.
+
+### Work log (append-only)
+- 2026-09-03 — Scouted the product-detail recommendation flow and confirmed the
+  visibility mismatch: recommendations filter `is_active` alone while the live
+  catalog requires both `status='active'` and `is_active=true`. Wrote the
+  scoped Claude handoff; modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`.
+
+### Work log 2026-09-03 (design-aware casting + the youth lane)
+- **Casting brain** — new `services/step-flow/casting.ts`. `castForDesign()`
+  shows the actual print artwork to a vision model (OpenRouter
+  gemini-2.5-flash, OpenAI vision fallback, same cost-first pattern as
+  brief/phrases/inspiration) with ONLY the archetypes castable on this
+  garment, and gets back a subject + a one-line reason naming something in
+  the art. Never throws: a bad/unavailable/uncastable answer degrades to a
+  word-boundary keyword match over the archetype keywords, then to the
+  plainest subject in the band. `runModelShot` now calls it and passes
+  `cast: { subjects: [id] }` — the shot that used to be a blind dice roll.
+- **The decision is now visible** — persisted to `step_flow.casting` BEFORE
+  the (slow, paid) render, surfaced in MockupStep as "Cast: <who> — <why>",
+  with a lower-confidence line when it fell back to keywords/default.
+- **Youth lane, end to end.** `youth-tshirt` (Gildan 5000B, YXS-YXL, 8-inch
+  print) added to the capability boundary, which now also owns each garment's
+  `sizes` and `audience`. Everything downstream reads that one fact: Etsy
+  variations (was a hardcoded S-3XL for anything in a shirt category),
+  `products.sizes` (written at garment approval, so the storefront picker is
+  honest), the details card's size table, the mockup prompt nouns
+  (`worker-helpers` PRODUCT_NAMES + ghost-mannequin support), and
+  `print_size_inches` (clamped down to the garment's max, never overwriting a
+  smaller deliberate pick). Kids T-Shirt is a chip on the Idea step.
+- **The rule, enforced server-side:** the CAST's age band is the GARMENT's age
+  band. `resolveCast(cast, audience)` rejects a youth subject on an adult
+  garment and vice versa; random fill draws only from the garment's own band;
+  free text describing a minor is still refused on BOTH garments, so the only
+  path to a child render is three curated archetypes with fixed wording.
+- **Youth prompt wording** — `promptTail` is audience-aware: the adult
+  "clearly an adult" line stays for adult shots, and a youth shot gets a
+  children's-catalog brief (fully/modestly dressed, plain catalog stance,
+  explicit exclusions) plus youth-only trait pools and wholesome public
+  scenes. Youth nano-banana shots drop the adult stock anchor entirely.
+- **Refusal fallback** — if BOTH engines decline a child subject,
+  `generateOneShot` re-renders the shirt with nobody in it and returns
+  `check.degraded`. The shot lands DONE with an amber note on the card, never
+  as a silent adult (the original bug) and never as a dead step.
+- Tests: new `casting.test.ts` (14, against the REAL archetype catalog),
+  plus youth-wording/cast-boundary tests in `etsy-model-shots.test.ts` and
+  casting-wiring tests in `shots.test.ts`. Full suite 1216 pass, both tsc
+  projects and `npm run build` clean. NOTE: `tsc -p tsconfig.json` is a no-op
+  on this repo (`files: []` + project references) — the frontend check that
+  actually runs is `tsc -p tsconfig.app.json`.
+- **Known gap, deliberate:** the Idea-step writing brain is not told the
+  product is a kids' tee, so picking "Kids T-Shirt" changes the garment, the
+  sizes and the model — but not yet the ART brief. Design-follows-garment is
+  the reverse direction from what was asked for and is its own change.
+
+---
+
+## Current request (2026-09-06) — a new 3D product had no main-image choice and fake sizes
+
+David, on the just-added **Gothic Ghost Face Candle Holder**
+(`43d607e5-e8e1-4b57-a52f-110a5cd6a1c3`, category `3d-models`, 3 images, `sizes: []`):
+> "i cannot select what image i want to be the main cust facing image and 2 it
+> says small med or large but i only have one size for this which is included in
+> the product image"
+
+### Root causes (both verified against the live row)
+
+**1. No way to pick the main image.** `products.images[0]` IS the customer-facing
+image everywhere, but neither admin surface let you choose which URL sits there:
+- The **Create Product** form (`AdminDashboard.tsx`, the only way in — the pencil
+  in the products table opens the *enhanced* modal, so `openEditProductModal` is
+  now dead code) painted a "Main" badge on upload #0 and offered no reorder. The
+  first file that finished uploading was the hero, permanently. For this product
+  that was the **dimension diagram**, not the candle holder.
+- The **enhanced edit modal** builds its gallery from `product_assets` +
+  `metadata.etsy_shots.images` only. A hand-added product has **zero
+  `product_assets` rows** (confirmed: `select … from product_assets where
+  product_id = …` → 0), so the Images tab said "No images yet for this product"
+  and set-as-main — which only ever lived two clicks deep inside the lightbox —
+  was unreachable.
+
+**2. Invented sizes.** `defaultSizesFor('3d')` returned
+`['mini','small','medium','large']` whenever `products.sizes` was empty, and
+ProductPage duplicated that literal inline. The admin form's
+`SIZE_OPTIONS['3d-models']` was `[]`, so **no 3D product can even be given
+sizes** — all four live 3D rows carry `sizes: []`, so every one of them was
+advertising four variants that don't exist and demanding a pick before checkout.
+3D pricing is the flat `products.price` (`lineBasePrice`/`order-pricing.ts`), so
+the tier had no effect on anything except blocking the sale.
+
+### File shortlist (approved scope — 2026-09-06 3D product fixes)
+- `src/lib/product-kind.ts` (`defaultSizesFor('3d')` → `[]`; new `sizeChoicesFor`)
+- `src/lib/product-kind.test.ts`
+- `src/pages/ProductPage.tsx` (`requiresSize` gate; picker hidden when empty)
+- `src/components/ProductCard.tsx` (quick-add: no picker, no gate, adds in one click)
+- `src/components/admin/AdminProductEditModal.tsx` ('listing' group + inline set-as-main)
+- `src/pages/AdminDashboard.tsx` (`makeUploadedImageMain`; 3D tiers as opt-in)
+- `src/components/mr-imagine/MrImagineCartNotification.tsx` (dangling "Size: •")
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- **3D listings are one size unless they say otherwise.** `defaultSizesFor('3d')`
+  now returns `[]`, and the new `sizeChoicesFor(product)` is the ONE answer both
+  ProductPage and ProductCard read (metal → panel list, explicit column → itself,
+  else the type default). Empty ⇒ no picker rendered and no "please select a
+  size" gate on Add to Cart / Buy Now / Quick Add. `sizeChoicesFor` also fixes a
+  latent bug in the old `product.sizes || metadata.sizes` chain: an empty array
+  is truthy, so the legacy metadata list was never reachable — it now falls
+  through on length.
+- **3D tiers became opt-in instead of imaginary.** `SIZE_OPTIONS['3d-models']`
+  went from `[]` to the four tiers, so a 3D listing that really is sold in sizes
+  can be given them in the admin form; leaving them unticked (the default, and
+  the state of all four live 3D rows) is what now means "one size".
+- **The main image is pickable in both admin surfaces.** The create form got
+  `makeUploadedImageMain(idx)` (a move-to-front, mirroring the server-side
+  `handleSetMainImage` reorder) on a hover button, plus a line saying what "Main"
+  means. The enhanced modal's `buildGallery` now appends anything on
+  `products.images` that no pipeline claimed as a **Listing Images** group, and
+  set-as-main moved out of the lightbox onto every thumbnail and under the big
+  viewer.
+- **Verified live in a browser** (dev server against prod Supabase): the product
+  page renders with no size picker and Add to Cart succeeds; Quick Add on the
+  catalog card adds in one click; the edit modal listed all 3 images and "Set as
+  main" promoted the clean product shot — confirmed persisted in the DB
+  (`images[0]` is now `products/5FSWetHam_.png`, the dimension diagram moved to
+  `[1]`). Fixed one thing found only by looking: the Mr. Imagine add-to-cart
+  popup printed a dangling `Size: • $20.00` for a size-less line.
+- Checks: `tsc -b` clean, `vitest --dir src` 292/292 (4 new `sizeChoicesFor`
+  cases), eslint 0 errors on every touched file. The 4 failing files in the full
+  `vitest run` all live under `.claude/worktrees/` — other sessions' checkouts,
+  untouched by this change.
 
 ---
 

@@ -13,7 +13,20 @@
  * (Gildan 5000 is the standard tee; Gildan 18500 the standard hoodie).
  */
 
-export type GarmentId = 'tshirt' | 'hoodie'
+export type GarmentId = 'tshirt' | 'hoodie' | 'youth-tshirt'
+
+/**
+ * Who physically wears this garment. This is a CAPABILITY fact, not a
+ * styling preference: it is the single thing that decides whether a listing
+ * photo may show a child (David 2026-09-03 — a cute kids' design was mocked
+ * up on a bearded man, and the fix could not be "photograph a kid" alone
+ * because the catalogue had no youth size to sell them).
+ *
+ * The rule the whole build follows: the CAST's age band is the GARMENT's age
+ * band. A child never models a garment we only make in adult sizes, and an
+ * adult never models the youth tee — see services/step-flow/casting.ts.
+ */
+export type GarmentAudience = 'adult' | 'youth'
 
 export type ColorId =
   | 'black'
@@ -44,6 +57,15 @@ export interface CapabilityGarment {
   colors: ColorId[]
   /** Default print area width in inches for the front-center placement. */
   printWidthInches: number
+  /** Adult or youth body — drives casting, the size chart and the size variations. */
+  audience: GarmentAudience
+  /**
+   * The sizes this blank is actually sold in, smallest first. Sourced here so
+   * the Etsy variation axis, the details card's size table and
+   * `products.sizes` can never drift into promising a size we don't stock
+   * (they each used to carry their own hardcoded S-3XL list).
+   */
+  sizes: string[]
 }
 
 export const COLORS: Record<ColorId, CapabilityColor> = {
@@ -66,6 +88,8 @@ export const GARMENTS: CapabilityGarment[] = [
     weightOz: 5.3,
     colors: ['black', 'white', 'navy', 'heather-grey', 'red', 'forest-green', 'royal-blue'],
     printWidthInches: 11,
+    audience: 'adult',
+    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
   },
   {
     id: 'hoodie',
@@ -76,6 +100,25 @@ export const GARMENTS: CapabilityGarment[] = [
     weightOz: 8.0,
     colors: ['black', 'white', 'navy', 'heather-grey', 'red', 'forest-green'],
     printWidthInches: 10,
+    audience: 'adult',
+    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+  },
+  // David 2026-09-03: added so a kids' design can be photographed on a kid
+  // and still be a listing we can actually fulfil. Same DTF process, same
+  // Gildan Heavy Cotton fabric, youth cut (style 5000B). Sizes are Gildan's
+  // published youth range; the print is 8 inches wide because an 11-inch
+  // adult print is wider than a youth MEDIUM's entire 18-inch body.
+  {
+    id: 'youth-tshirt',
+    label: 'Youth T-Shirt',
+    category: 't-shirts',
+    noun: 'youth crew neck t-shirt',
+    blank: 'Gildan 5000B Heavy Cotton Youth',
+    weightOz: 5.3,
+    colors: ['black', 'white', 'navy', 'heather-grey', 'red', 'forest-green', 'royal-blue'],
+    printWidthInches: 8,
+    audience: 'youth',
+    sizes: ['YXS', 'YS', 'YM', 'YL', 'YXL'],
   },
 ]
 
@@ -101,6 +144,25 @@ export function colorsForGarment(id: GarmentId): CapabilityColor[] {
   return g ? g.colors.map((c) => COLORS[c]) : []
 }
 
+/** The sizes a garment is sold in. Unknown garment → the adult tee range (the historical default). */
+export function sizesForGarment(id: string | null | undefined): string[] {
+  return [...(getGarment(id)?.sizes ?? ['S', 'M', 'L', 'XL', '2XL', '3XL'])]
+}
+
+/**
+ * Whether this garment is worn by an adult or a child. Unknown/absent garment
+ * is treated as 'adult' — the safe default everywhere it matters, because it
+ * is the answer that never puts a child in a photograph by accident.
+ */
+export function audienceForGarment(id: string | null | undefined): GarmentAudience {
+  return getGarment(id)?.audience ?? 'adult'
+}
+
+/** True when this garment is a youth cut, i.e. the listing photo should show a child. */
+export function isYouthGarment(id: string | null | undefined): boolean {
+  return audienceForGarment(id) === 'youth'
+}
+
 export function isColorOfferedOn(garment: GarmentId, color: string): color is ColorId {
   const g = getGarment(garment)
   return !!g && (g.colors as string[]).includes(color)
@@ -120,6 +182,12 @@ export function assertOffered(garment: string, color?: string): CapabilityGarmen
 export function normalizeGarment(value: string | null | undefined): GarmentId | null {
   const v = (value || '').toLowerCase().trim()
   if (!v) return null
+  // Youth is matched FIRST: 'youth tshirt' also contains 'tshirt', and
+  // resolving it to the adult tee would quietly sell adult sizes with a child
+  // in the photo — the precise mismatch the youth lane exists to prevent.
+  if (['youth-tshirt', 'youth tshirt', 'youth t-shirt', 'youth tee', 'youth-tee', 'kids tshirt', 'kids t-shirt', 'kids tee', 'kids-tshirt', 'toddler tee'].includes(v)) {
+    return 'youth-tshirt'
+  }
   if (['tshirt', 't-shirt', 'tee', 't-shirts', 'shirts', 'shirt'].includes(v)) return 'tshirt'
   if (['hoodie', 'hoodies', 'hooded sweatshirt'].includes(v)) return 'hoodie'
   return null

@@ -16,7 +16,9 @@ import type { SelectedInspiration, StepBrief } from './types'
 export type StepFlowCreateRequest = Omit<AIProductCreationRequest, 'background' | 'category' | 'productType'> & {
   background?: 'white' | 'black'
   category?: AIProductCreationRequest['category'] | 't-shirts'
-  productType?: AIProductCreationRequest['productType'] | 'metal-art'
+  // 'youth-tshirt' is the same local widening (David 2026-09-03): the kids'
+  // tee is a capability id, and src/types/index.ts's older union predates it.
+  productType?: AIProductCreationRequest['productType'] | 'metal-art' | 'youth-tshirt'
   takes?: 1 | 2 | 3
   stepFlow?: { idea: string; brief: StepBrief; inspiration?: SelectedInspiration }
 }

@@ -44,11 +44,12 @@ const ROW_TINT = '#f3f4f6'
  * pit (double for full chest circumference); body length = from the high
  * point of the shoulder to the hem.
  *
- * SOURCE: Gildan's published spec sheets for style 5000 (Heavy Cotton Tee)
- * and style 18500 (Heavy Blend Hoodie) — https://www.gildan.com, "size
- * chart" tab per style. Values below are the standard adult-unisex numbers
- * from those sheets (rounded to the nearest quarter inch), not a live fetch —
- * update here if Gildan revises a spec sheet.
+ * SOURCE: Gildan's published spec sheets for style 5000 (Heavy Cotton Tee),
+ * style 18500 (Heavy Blend Hoodie) and style 5000B (Heavy Cotton Youth Tee) —
+ * https://www.gildan.com, "size chart" tab per style. Values below are the
+ * standard adult-unisex (and, for 5000B, youth) numbers from those sheets
+ * (rounded to the nearest quarter inch), not a live fetch — update here if
+ * Gildan revises a spec sheet.
  */
 const SIZE_CHARTS: Record<GarmentId, { size: string; widthIn: number; lengthIn: number }[]> = {
   tshirt: [
@@ -66,6 +67,16 @@ const SIZE_CHARTS: Record<GarmentId, { size: string; widthIn: number; lengthIn: 
     { size: 'XL', widthIn: 26, lengthIn: 30 },
     { size: '2XL', widthIn: 28, lengthIn: 31 },
     { size: '3XL', widthIn: 30, lengthIn: 32 },
+  ],
+  // Gildan 5000B youth range. A youth listing's size table is the ONLY thing
+  // on the card that tells a buyer this is a kids' shirt in numbers rather
+  // than in a photograph, so it ships with the garment, not as an afterthought.
+  'youth-tshirt': [
+    { size: 'YXS', widthIn: 16, lengthIn: 20.5 },
+    { size: 'YS', widthIn: 17, lengthIn: 22 },
+    { size: 'YM', widthIn: 18, lengthIn: 23.5 },
+    { size: 'YL', widthIn: 19, lengthIn: 25 },
+    { size: 'YXL', widthIn: 20, lengthIn: 26.5 },
   ],
 }
 
@@ -244,7 +255,8 @@ export function buildDetailsSvg(opts: DetailsCardTextOpts): string {
     )
   }
 
-  // --- 4. Size chart: header, column labels, then S–3XL rows with
+  // --- 4. Size chart: header, column labels, then one row per size THIS
+  // garment is sold in (six for the adult cuts, five for the youth tee) with
   // alternating row tint.
   y += 70
   emit('Size chart (inches)', contentX, 38, 700, INK)

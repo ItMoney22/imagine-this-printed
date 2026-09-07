@@ -24,9 +24,10 @@ import { STUDIO_SIZE_KEYS, METAL_ART_PRICES } from '../../../backend/shared/meta
 import { MockupProgressPanel, type MockupProgress } from '../MockupProgressPanel'
 import { ImageLightbox, type LightboxImage } from './ImageLightbox'
 
-type AssetGroupKey = 'source' | 'nobg' | 'upscaled' | 'mockup' | 'model'
+type AssetGroupKey = 'listing' | 'source' | 'nobg' | 'upscaled' | 'mockup' | 'model'
 
 const GROUP_LABELS: Record<AssetGroupKey, string> = {
+  listing: 'Listing Images',
   source: 'Source',
   nobg: 'No Background',
   upscaled: 'Upscaled',
@@ -35,7 +36,10 @@ const GROUP_LABELS: Record<AssetGroupKey, string> = {
 }
 
 // Fixed display order for the Images tab and the flattened lightbox gallery.
-const GROUP_ORDER: AssetGroupKey[] = ['source', 'nobg', 'upscaled', 'mockup', 'model']
+// 'listing' comes last to match buildGallery's order — the pipeline groups
+// claim their images first and whatever is left over on products.images falls
+// into 'listing', so the tab sections and the lightbox agree on sequence.
+const GROUP_ORDER: AssetGroupKey[] = ['source', 'nobg', 'upscaled', 'mockup', 'model', 'listing']
 
 interface GalleryImage {
   url: string
@@ -62,6 +66,19 @@ const buildGallery = (product: any, assetGroups: Record<string, any[]>): Gallery
     : []
   for (const url of modelShots) {
     if (url) out.push({ url, group: 'model' })
+  }
+  // Anything sitting in products.images that no pipeline claimed above.
+  // A product added by hand in the admin form (David's Gothic Ghost Face
+  // Candle Holder, 2026-09-06) uploads straight to products.images and gets
+  // NO product_assets rows at all, so before this the Images tab said "no
+  // images yet" and its main image could never be changed — images[0], the
+  // first file that happened to upload, was the customer-facing shot forever.
+  const seen = new Set(out.map(g => g.url))
+  for (const url of (product?.images || [])) {
+    if (typeof url === 'string' && url && !seen.has(url)) {
+      seen.add(url)
+      out.push({ url, group: 'listing' })
+    }
   }
   return out
 }
@@ -231,6 +248,22 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
                 </span>
               )}
             </button>
+            {selectedUrl && (
+              selectedUrl === mainImageUrl ? (
+                <p className="text-[11px] text-center text-muted">
+                  This is the main image customers see on the card and product page.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSetMain(selectedUrl)}
+                  className="w-full px-3 py-2 rounded-xl border border-accent/40 text-accent hover:bg-accent hover:text-black text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Make this the main image
+                </button>
+              )
+            )}
             {mockupProgress && <MockupProgressPanel progress={mockupProgress} />}
           </div>
 
@@ -278,6 +311,7 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
                   selectedUrl={selectedUrl}
                   mainImageUrl={mainImageUrl}
                   onSelect={setSelectedUrl}
+                  onSetMain={onSetMain}
                   printAssets={printAssets}
                 />
               )}
@@ -577,14 +611,19 @@ const ImagesTab: React.FC<{
   selectedUrl: string | null
   mainImageUrl: string | null
   onSelect: (url: string) => void
+  onSetMain: (url: string) => void
   printAssets: any[]
-}> = ({ gallery, selectedUrl, mainImageUrl, onSelect, printAssets }) => {
+}> = ({ gallery, selectedUrl, mainImageUrl, onSelect, onSetMain, printAssets }) => {
   if (gallery.length === 0 && printAssets.length === 0) {
     return <p className="text-sm text-muted">No images yet for this product.</p>
   }
 
   return (
     <div className="space-y-5">
+      <p className="text-[11px] text-muted">
+        The <span className="font-semibold text-text">MAIN</span> image is the one customers see on
+        the catalog card and at the top of the product page. Hover any image to make it the main one.
+      </p>
       {GROUP_ORDER.map((key) => {
         const imgs = gallery.filter(g => g.group === key)
         if (imgs.length === 0) return null
@@ -595,23 +634,39 @@ const ImagesTab: React.FC<{
             </h5>
             <div className="grid grid-cols-3 gap-2">
               {imgs.map((img, i) => (
-                <button
+                <div
                   key={img.assetId || `${key}-${i}`}
-                  type="button"
-                  onClick={() => onSelect(img.url)}
-                  className={`relative aspect-square rounded-lg overflow-hidden border ${CHECKERBOARD_BG} transition-colors ${
+                  className={`relative aspect-square rounded-lg overflow-hidden border ${CHECKERBOARD_BG} transition-colors group ${
                     selectedUrl === img.url
                       ? 'border-primary ring-2 ring-primary/40'
                       : 'border-white/10 hover:border-white/30'
                   }`}
                 >
-                  <img src={img.url} alt={`${GROUP_LABELS[key]} ${i + 1}`} className="w-full h-full object-contain" />
-                  {mainImageUrl === img.url && (
+                  <button
+                    type="button"
+                    onClick={() => onSelect(img.url)}
+                    className="absolute inset-0 w-full h-full"
+                    aria-label={`View ${GROUP_LABELS[key]} ${i + 1}`}
+                  >
+                    <img src={img.url} alt={`${GROUP_LABELS[key]} ${i + 1}`} className="w-full h-full object-contain" />
+                  </button>
+                  {mainImageUrl === img.url ? (
                     <span className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-accent text-black">
                       MAIN
                     </span>
+                  ) : (
+                    // Set-as-main used to live ONLY inside the lightbox, two
+                    // clicks deep behind a zoom — David couldn't find it. It
+                    // now sits on the thumbnail itself.
+                    <button
+                      type="button"
+                      onClick={() => onSetMain(img.url)}
+                      className="absolute inset-x-1 bottom-1 text-[9px] font-bold px-1.5 py-1 rounded-md bg-black/75 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-accent hover:text-black"
+                    >
+                      Set as main
+                    </button>
                   )}
-                </button>
+                </div>
               ))}
             </div>
           </div>

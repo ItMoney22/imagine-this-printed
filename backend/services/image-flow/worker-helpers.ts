@@ -57,7 +57,7 @@ function houseOpenAISize(extra?: Record<string, unknown>): OpenAISize {
  */
 async function runRegisteredModel(
   model: ImageModel,
-  req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number }
+  req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number; transparent?: boolean }
 ): Promise<{ url: string }> {
   if (model.provider === 'openai') {
     const quality = houseOpenAIQuality(req.extra)
@@ -67,7 +67,12 @@ async function runRegisteredModel(
       const r = await editOpenAIImage({ sourceUrl, refUrls, prompt: req.prompt, quality, size, moderation: 'low' })
       return { url: r.url }
     }
-    const r = await runOpenAIImage({ prompt: req.prompt, quality, size, moderation: 'low' })
+    const r = await runOpenAIImage({
+      prompt: req.prompt, quality, size, moderation: 'low',
+      // A garment design is printed as a cutout, so ask for one. See the note
+      // at the isGarment branch below.
+      background: req.transparent ? 'transparent' : undefined,
+    })
     return { url: r.url }
   }
   const input = buildInput(model, { prompt: req.prompt, inputImages: req.inputImages, extra: req.extra })
@@ -219,7 +224,20 @@ export async function runImageFlowMultiGenerate(opts: {
     ids.map(async (id, i) => {
       const model = getModel(id)
       if (!model) throw new Error(`unknown image-flow model: ${id}`)
-      const r = await runRegisteredModel(model, { prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000 })
+      // TRANSPARENCY AT THE SOURCE. A garment design is printed as a cutout, and
+      // gpt-image-2 will render one directly - `background:'transparent'` returns
+      // real alpha (verified live 2026-09-03, at production quality on a dense
+      // etched design, and it wins even when the prompt text still asks for a
+      // solid black field). Everything in services/bg-key.ts exists to RECOVER a
+      // cutout from a design painted onto an opaque field, and no amount of
+      // cleverness there can undo the ambiguity of black ink on a black field.
+      // Not asking for the background in the first place is the fix; the keyer
+      // stays for the models that cannot do this and for older designs.
+      // Deliberately garment-only: a metal print is a full-bleed panel and wants
+      // its background.
+      const r = await runRegisteredModel(model, {
+        prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000, transparent: Boolean(isGarment),
+      })
       return { id: model.id, label: model.label, url: r.url }
     })
   )
@@ -240,7 +258,7 @@ export type MockupTemplate = 'flat_lay' | 'ghost_mannequin' | 'hanger' | 'mr_ima
 export interface RunMockupOpts {
   template: MockupTemplate
   designImageUrl: string
-  productType: 'tshirt' | 'hoodie' | 'tank' | 'polo'
+  productType: 'tshirt' | 'hoodie' | 'tank' | 'polo' | 'youth-tshirt'
   /** Legacy wizard colors or a catalog-capability ColorId (see COLOR_DESC). */
   shirtColor: 'black' | 'white' | 'gray' | 'grey' | 'heather-grey' | 'navy' | 'red' | 'forest-green' | 'royal-blue'
   /** For mr_imagine — URL of the Mr. Imagine character base. */
@@ -304,6 +322,10 @@ const PRODUCT_NAMES: Record<string, string> = {
   hoodie: 'hoodie',
   tank: 'tank top',
   polo: 'polo shirt',
+  // David 2026-09-03: without its own entry the youth tee fell through to
+  // 't-shirt' and every flat-lay/ghost shot on a kids' listing rendered an
+  // adult-looking shirt — no scale cue anywhere except the size chart.
+  'youth-tshirt': 'youth t-shirt',
 }
 // Keyed by the legacy wizard colors AND the catalog-capability ColorIds the
 // Step Flow sends (backend/shared/catalog-capability.ts). An unknown key used

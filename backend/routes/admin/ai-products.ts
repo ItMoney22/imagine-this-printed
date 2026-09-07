@@ -935,14 +935,17 @@ async function generateOneShotViaOpenAI(
 
   // Uses the shared OpenAI-direct gpt-image-2 flow (with built-in gpt-image-1
   // fallback) — the same provider the Imagination Station premium tier uses.
-  // background:'auto' because gpt-image-2 rejects 'transparent'; the
-  // transparent-bg intent is carried by the prompt text (buildDtfPrompt).
+  // background:'transparent' - gpt-image-2 accepts it and returns real alpha
+  // (verified live 2026-09-03). It used to be 'auto' on the belief that the
+  // parameter was rejected, which left every design needing a lossy
+  // background-removal pass to recover a cutout it could have been born with.
+  // buildDtfPrompt still carries the intent in text for the fallback models.
   const objectPath = `ai-products/one-shot/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
   const { url: gcsUrl, modelId } = await runOpenAIImage({
     prompt: dtfSystemPrompt,
     objectPath,
     quality: 'high',
-    background: 'auto',
+    background: 'transparent',
   })
 
   return saveDraftProductRow({

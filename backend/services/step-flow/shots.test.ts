@@ -111,7 +111,23 @@ vi.mock('../../lib/supabase.js', () => ({
 }))
 
 const shootOneModelShot = vi.fn()
-vi.mock('../etsy-model-shots.js', () => ({ shootOneModelShot: (...args: any[]) => shootOneModelShot(...args) }))
+// designReferenceForProduct: the artwork the casting pass looks at (2026-09-03).
+// Stubbed rather than left out — an undefined import here would make every
+// model shot throw, which is how this mock's incompleteness would show up.
+const designReferenceForProduct = vi.fn(async () => 'https://cdn/design.png')
+vi.mock('../etsy-model-shots.js', () => ({
+  shootOneModelShot: (...args: any[]) => shootOneModelShot(...args),
+  designReferenceForProduct: (...args: any[]) => designReferenceForProduct(...args),
+}))
+
+// Casting (David 2026-09-03): who Mrs. Imagine puts in the photo. Its own
+// behaviour is covered in casting.test.ts against the real archetype
+// catalog — here it is a stub so these tests stay about the SHOT pipeline.
+const castForDesign = vi.fn(async () => ({
+  subjectId: 'goth', label: 'goth', audience: 'adult' as const,
+  reason: 'Skulls and heavy black linework.', source: 'mrs-imagine' as const,
+}))
+vi.mock('./casting.js', () => ({ castForDesign: (...args: any[]) => castForDesign(...args) }))
 
 const renderDetailsCard = vi.fn()
 const renderMetalDetailsCard = vi.fn()
@@ -458,6 +474,60 @@ describe('runModelShot (via queueStepShots) — design-fidelity QA gating', () =
     await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
 
     expect(db.product_assets.some((a) => a.asset_role === 'mockup_model_1' && a.url === 'https://cdn/good.png')).toBe(true)
+  })
+})
+
+// David 2026-09-03: the on-person shot used to be fired with NO cast, so
+// etsy-model-shots.ts fell through to a uniform random draw over every adult
+// archetype — which is how a cute kids' ghost tee got a bearded man. The shot
+// is now cast from the artwork first, and that decision has to (a) actually
+// reach the shoot and (b) be visible afterwards.
+describe('runModelShot — design-aware casting', () => {
+  it('casts from the design and passes the chosen subject to the shoot', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/good.png', check: { ok: true } })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
+
+    expect(castForDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designUrl: 'https://cdn/design.png', garment: 'tshirt' })
+    )
+    // The whole point: a cast is passed, and it is the one that was decided.
+    const [, , opts] = shootOneModelShot.mock.calls.at(-1)!
+    expect(opts.cast).toEqual({ subjects: ['goth'] })
+  })
+
+  it('records the casting decision on step_flow so the panel can show who was cast and why', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/good.png', check: { ok: true } })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
+
+    expect(getStepFlow(db.products.find((p) => p.id === 'p1')!).casting).toMatchObject({
+      subjectId: 'goth',
+      label: 'goth',
+      reason: 'Skulls and heavy black linework.',
+      source: 'mrs-imagine',
+    })
+  })
+
+  it('keeps a degraded shot as done, with the reason attached as a note rather than an error', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({
+      url: 'https://cdn/empty-shirt.png',
+      check: { ok: true, degraded: 'The image engine declined to render a child model.' },
+    })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
+
+    const model = getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model!
+    expect(model.note).toBe('The image engine declined to render a child model.')
+    expect(model.error).toBeUndefined()
+    // Still a usable listing photo — it must be mirrored, not thrown away.
+    expect(db.product_assets.some((a) => a.asset_role === 'mockup_model_1')).toBe(true)
   })
 })
 

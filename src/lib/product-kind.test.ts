@@ -13,6 +13,7 @@ import {
   productKindOf,
   canonicalCategoryOf,
   defaultSizesFor,
+  sizeChoicesFor,
   getProductAssets,
   hasDigitalDeliverables,
   getGalleryImages,
@@ -77,14 +78,42 @@ describe('canonicalCategoryOf — the id the storefront filter uses', () => {
 })
 
 describe('defaultSizesFor', () => {
-  it('offers print sizes for metal, tiers for 3D and garment sizes for apparel', () => {
+  it('offers print sizes for metal and garment sizes for apparel', () => {
     expect(defaultSizesFor('metal')).toEqual(STUDIO_SIZE_KEYS)
-    expect(defaultSizesFor('3d')).toEqual(['mini', 'small', 'medium', 'large'])
     expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL'])
+  })
+
+  // David 2026-09-06: a 3D print ships at the one size in its own photo. The
+  // old mini/small/medium/large fallback advertised four variants that don't
+  // exist and made the customer pick one before checkout.
+  it('offers NO default sizes for a 3D print (one size unless tiers are set)', () => {
+    expect(defaultSizesFor('3d')).toEqual([])
   })
 
   it('never shows shirt sizes on a metal print', () => {
     expect(defaultSizesFor('metal')).not.toContain('XL')
+  })
+})
+
+describe('sizeChoicesFor', () => {
+  it('gives a 3D print with no sizes column nothing to pick', () => {
+    expect(sizeChoicesFor(p({ category: '3d-models', sizes: [] }))).toEqual([])
+    expect(sizeChoicesFor(p({ category: '3d-prints' }))).toEqual([])
+  })
+
+  it('still honours explicit tiers set on a 3D listing', () => {
+    expect(sizeChoicesFor(p({ category: '3d-prints', sizes: ['small', 'large'] })))
+      .toEqual(['small', 'large'])
+  })
+
+  it('falls back to shirt sizes for apparel and panel sizes for metal', () => {
+    expect(sizeChoicesFor(p({ category: 'shirts' }))).toEqual(['S', 'M', 'L', 'XL', '2XL'])
+    expect(sizeChoicesFor(p({ category: 'metal-art' }))).toEqual(STUDIO_SIZE_KEYS)
+  })
+
+  it('reads a legacy metadata.sizes list when the column is empty', () => {
+    expect(sizeChoicesFor(p({ category: 'shirts', sizes: [], metadata: { sizes: ['M', 'L'] } } as any)))
+      .toEqual(['M', 'L'])
   })
 })
 

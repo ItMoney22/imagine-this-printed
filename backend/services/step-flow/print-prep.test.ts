@@ -261,12 +261,50 @@ describe('buildPrintFile (fetch + halftone + upload + DB stubbed)', () => {
       asset_role: 'print_halftone',
     })
 
-    expect(deletedFilters).toHaveLength(1)
-    expect(deletedFilters[0]).toMatchObject({ table: 'product_assets', product_id: 'p1', asset_role: 'print_halftone' })
+    // One print file per product, WHICHEVER way it was made: the sweep clears
+    // every print role, so switching between a halftone screen and a vector
+    // trace replaces the file instead of leaving both behind.
+    expect(deletedFilters).toHaveLength(2)
+    expect(deletedFilters.map((f: any) => f.asset_role).sort()).toEqual(['print_halftone', 'print_vector'])
+    for (const f of deletedFilters) expect(f).toMatchObject({ table: 'product_assets', product_id: 'p1' })
 
     // Structural guarantee that products.images is never touched by this
     // pipeline: buildPrintFile never even opens a `products` table handle.
     expect(fromCalls.every((t) => t === 'product_assets')).toBe(true)
+    expect(fromCalls).not.toContain('products')
+
+    vi.unstubAllGlobals()
+  })
+
+  // David 2026-09-03: "lets have vectorizer as a add on just like we do with
+  // halftone". Same slot, same team-only role family, different tool.
+  it("method:'vector' writes an SVG print_vector row instead of a screened PNG", async () => {
+    const size = 64
+    const raw = Buffer.alloc(size * size * 4)
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const inCircle = Math.hypot(x - size / 2, y - size / 2) < size / 3
+      raw[i] = 220; raw[i + 1] = 40; raw[i + 2] = 40; raw[i + 3] = inCircle ? 255 : 0
+    }
+    const artwork = await sharp(raw, { raw: { width: size, height: size, channels: 4 } }).png().toBuffer()
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200, statusText: 'OK',
+      arrayBuffer: async () => artwork.buffer.slice(artwork.byteOffset, artwork.byteOffset + artwork.byteLength),
+    })))
+    uploadFile.mockResolvedValueOnce({
+      gcsPath: 'users/system/mockups/p1-print-vector-123.svg',
+      publicUrl: 'https://signed.example/p1-print-vector-123.svg',
+      filename: 'p1-print-vector-123.svg',
+    })
+
+    const result = await buildPrintFile('p1', 'https://cdn.example/nobg.png', { method: 'vector' }, 'admin-1')
+
+    // Uploaded as an SVG, not a PNG - a print file the press can scale.
+    expect(uploadFile.mock.calls[0][1]).toMatchObject({ folder: 'mockups', contentType: 'image/svg+xml' })
+    expect(uploadFile.mock.calls[0][0].toString('utf8')).toContain('<svg')
+    expect(insertedRows[0]).toMatchObject({ product_id: 'p1', kind: 'print', asset_role: 'print_vector' })
+    expect(result.options).toMatchObject({ method: 'vector', format: 'svg' })
+    // Still team-only, still never near the storefront gallery.
     expect(fromCalls).not.toContain('products')
 
     vi.unstubAllGlobals()

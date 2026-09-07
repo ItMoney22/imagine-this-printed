@@ -17,6 +17,9 @@ import {
   assertOffered,
   normalizeGarment,
   normalizeColor,
+  sizesForGarment,
+  audienceForGarment,
+  isYouthGarment,
 } from './catalog-capability.js'
 
 // Pure module — no Supabase, no network.
@@ -89,8 +92,8 @@ describe('NOT_OFFERED — the explicit deny list', () => {
 })
 
 describe('GARMENTS / colorsForGarment — the offered catalog shape', () => {
-  it('offers exactly tshirt and hoodie', () => {
-    expect(GARMENT_IDS.sort()).toEqual(['hoodie', 'tshirt'])
+  it('offers exactly the adult tee, the hoodie and the youth tee', () => {
+    expect(GARMENT_IDS.sort()).toEqual(['hoodie', 'tshirt', 'youth-tshirt'])
   })
 
   it('getGarment resolves a real id and rejects an unoffered one', () => {
@@ -143,5 +146,56 @@ describe('normalizeColor — loose color strings → capability ids', () => {
   it('is null for unknown colors', () => {
     expect(normalizeColor('mauve')).toBeNull()
     expect(normalizeColor('')).toBeNull()
+  })
+})
+
+// David 2026-09-03: the youth tee was added so a kids' design could be
+// photographed on a kid AND still be a listing we can fulfil. The audience
+// flag is what every downstream surface reads to decide who may appear in a
+// photo, so it is the boundary that matters most here.
+describe('audience — who physically wears a garment', () => {
+  it('marks the youth tee youth and everything else adult', () => {
+    expect(audienceForGarment('youth-tshirt')).toBe('youth')
+    expect(isYouthGarment('youth-tshirt')).toBe(true)
+    expect(audienceForGarment('tshirt')).toBe('adult')
+    expect(audienceForGarment('hoodie')).toBe('adult')
+  })
+
+  it('treats an unknown or missing garment as ADULT — the answer that never puts a child in a photo by accident', () => {
+    expect(audienceForGarment('polo')).toBe('adult')
+    expect(audienceForGarment(null)).toBe('adult')
+    expect(audienceForGarment(undefined)).toBe('adult')
+    expect(isYouthGarment('something-new')).toBe(false)
+  })
+
+  it('normalizes youth strings to the youth tee, never to the adult one', () => {
+    for (const v of ['youth-tshirt', 'Youth T-Shirt', 'kids tee', 'YOUTH TEE']) {
+      expect(normalizeGarment(v)).toBe('youth-tshirt')
+    }
+    // The adult aliases must not have been captured by the youth match.
+    expect(normalizeGarment('tshirt')).toBe('tshirt')
+    expect(normalizeGarment('tee')).toBe('tshirt')
+  })
+})
+
+describe('sizesForGarment — the one place sizes are declared', () => {
+  it('gives the youth tee its own range, not the adult one', () => {
+    expect(sizesForGarment('youth-tshirt')).toEqual(['YXS', 'YS', 'YM', 'YL', 'YXL'])
+    expect(sizesForGarment('tshirt')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+  })
+
+  it('falls back to the adult tee range for an unknown garment (the historical default)', () => {
+    expect(sizesForGarment('polo')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+    expect(sizesForGarment(null)).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+  })
+
+  it('returns a copy, so a caller cannot mutate the catalog', () => {
+    const sizes = sizesForGarment('youth-tshirt')
+    sizes.push('4XL')
+    expect(sizesForGarment('youth-tshirt')).not.toContain('4XL')
+  })
+
+  it('prints the youth tee smaller than the adult one', () => {
+    expect(getGarment('youth-tshirt')!.printWidthInches).toBeLessThan(getGarment('tshirt')!.printWidthInches)
   })
 })

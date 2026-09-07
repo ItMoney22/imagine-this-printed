@@ -13,7 +13,7 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
@@ -329,6 +329,12 @@ const ProductPage: React.FC = () => {
     return 'apparel'
   })()
   const isApparel = productKind === 'apparel'
+  // The sizes this listing actually offers. Empty = a one-size product (a 3D
+  // print with no explicit tiers), which hides the picker below and drops the
+  // "please select a size" gate — it used to demand a choice between four
+  // sizes the listing never had.
+  const sizeChoices = sizeChoicesFor(product)
+  const requiresSize = sizeChoices.length > 0
   // Blank garments are sold as-is (no print, no quality upsell — the blank IS
   // its tier, priced outright). Seeded with metadata.garment.blank = true.
   const isBlank = isBlankProduct(product)
@@ -454,8 +460,9 @@ const ProductPage: React.FC = () => {
   }
 
   const handleAddToCart = (attribution?: { tryonId: string | null; secondsSinceTryon: number }) => {
-    // Size is always required (we show default sizes if product doesn't have them)
-    if (!selectedSize) {
+    // Size is required only when the listing actually offers sizes — a
+    // one-size 3D print has no picker to answer.
+    if (requiresSize && !selectedSize) {
       toast.warning('Selection required', 'Please select a size')
       return
     }
@@ -477,8 +484,9 @@ const ProductPage: React.FC = () => {
   }
 
   const handleBuyNow = () => {
-    // Size is always required (we show default sizes if product doesn't have them)
-    if (!selectedSize) {
+    // Size is required only when the listing actually offers sizes — a
+    // one-size 3D print has no picker to answer.
+    if (requiresSize && !selectedSize) {
       toast.warning('Selection required', 'Please select a size')
       return
     }
@@ -721,19 +729,15 @@ const ProductPage: React.FC = () => {
           <div className="border-t card-border pt-6">
             {/* Size selector — type-aware: apparel shirt sizes, metal print sizes, or 3D tiers */}
             {(() => {
-              // Default sizes depend on the product kind. Real products carry
-              // their sizes on the column (set at approval); these are fallbacks
-              // for legacy rows that predate per-type sizing.
-              const defaultSizes =
-                productKind === '3d' ? ['mini', 'small', 'medium', 'large']
-                : ['S', 'M', 'L', 'XL', '2XL']
-              // Metal: always the canonical panel list (legacy '8x11' rows
-              // collapse onto the real 8x10 panel; an empty column offers
-              // both sizes) - each chip carries its own price. Blanks carry
-              // their real per-size price on the button instead.
-              const displaySizes: string[] =
-                productKind === 'metal' ? metalSizeOptions(product)
-                : product.sizes && product.sizes.length > 0 ? product.sizes : defaultSizes
+              // sizeChoicesFor() owns the whole decision: metal always shows
+              // the canonical panel list (legacy '8x11' rows collapse onto the
+              // real 8x10 panel; an empty column offers both), everything else
+              // shows its own column when set and a type-aware fallback
+              // otherwise. Blanks carry their real per-size price on the button.
+              const displaySizes: string[] = sizeChoices
+              // A one-size product (a 3D print with no explicit tiers) has no
+              // picker at all — see the requiresSize gate on add-to-cart.
+              if (displaySizes.length === 0) return null
               // Plus-size upcharge is apparel-only - metal/3D sizes never qualify,
               // and blanks carry their real per-size price instead.
               const hasPlusSizes = isApparel && !isBlank && displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))

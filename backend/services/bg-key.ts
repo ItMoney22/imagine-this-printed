@@ -38,6 +38,42 @@ export async function transparentFraction(input: Buffer): Promise<number> {
 }
 
 /**
+ * Does this image ALREADY have a real transparent background?
+ *
+ * gpt-image-2 accepts `background: 'transparent'` and returns a PNG with true
+ * alpha - verified live 2026-09-03 against the API, including at production
+ * quality on a dense etched design, and it holds even when the prompt text still
+ * asks for a solid black field. A design generated that way needs no background
+ * removal at all: nothing to key, nothing to segment, no black-ink-on-black-field
+ * ambiguity to resolve, and no cost.
+ *
+ * Two conditions, because "has some transparent pixels" is not the same claim:
+ * a real cutout has a substantial clear area AND a clear BORDER. Rounded corners
+ * or a few knocked-out holes satisfy the first and not the second.
+ */
+export async function alreadyTransparent(input: Buffer): Promise<boolean> {
+  try {
+    const { data, info } = await sharp(input)
+      .ensureAlpha()
+      .resize(128, 128, { fit: 'fill' })
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const { width: W, height: H } = info
+    let clear = 0
+    for (let i = 3; i < data.length; i += 4) if (data[i] < 16) clear++
+    if (clear / (W * H) < 0.1) return false
+
+    let borderClear = 0, borderTotal = 0
+    const look = (x: number, y: number) => { borderTotal++; if (data[(y * W + x) * 4 + 3] < 16) borderClear++ }
+    for (let x = 0; x < W; x++) { look(x, 0); look(x, H - 1) }
+    for (let y = 0; y < H; y++) { look(0, y); look(W - 1, y) }
+    return borderClear / borderTotal >= 0.8
+  } catch {
+    return false
+  }
+}
+
+/**
  * Is the border a PAINTED checkerboard — fake transparency baked into the
  * pixels, which several of our generated sources carry?
  *

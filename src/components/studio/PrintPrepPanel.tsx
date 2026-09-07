@@ -66,6 +66,7 @@ const AdvancedOptions: React.FC<{
       >
         <option value="halftone">Halftone</option>
         <option value="diffusion">Diffusion</option>
+        <option value="vector">Vector trace</option>
       </select>
     </label>
     <label className="flex flex-col gap-1">
@@ -118,6 +119,52 @@ const AdvancedOptions: React.FC<{
   </div>
 )
 
+/** Vector tracing knobs. Not part of SuggestedPrintOptions because print
+ *  advice never suggests vector — it is always a deliberate pick. */
+interface VectorOptions {
+  colors: number
+  detail: number
+  despeckle: number
+}
+
+const DEFAULT_VECTOR: VectorOptions = { colors: 24, detail: 1, despeckle: 32 }
+
+const VectorControls: React.FC<{
+  options: VectorOptions
+  onChange: (next: VectorOptions) => void
+}> = ({ options, onChange }) => (
+  <div className="rounded-xl border border-border-subtle p-3 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+    <label className="flex flex-col gap-1">
+      <span className="text-muted">Colours — {options.colors}</span>
+      <input
+        type="range" min={4} max={48} step={1} value={options.colors}
+        onChange={(e) => onChange({ ...options, colors: Number(e.target.value) })}
+      />
+      <span className="text-[11px] text-muted font-normal">
+        Too few and the black outlines merge into the fills
+      </span>
+    </label>
+    <label className="flex flex-col gap-1">
+      <span className="text-muted">Speckle floor — {options.despeckle}px</span>
+      <input
+        type="range" min={0} max={128} step={4} value={options.despeckle}
+        onChange={(e) => onChange({ ...options, despeckle: Number(e.target.value) })}
+      />
+      <span className="text-[11px] text-muted font-normal">Drops traced flecks smaller than this</span>
+    </label>
+    <label className="flex flex-col gap-1 sm:col-span-2">
+      <span className="text-muted">Smoothness — {options.detail}</span>
+      <input
+        type="range" min={0.5} max={4} step={0.5} value={options.detail}
+        onChange={(e) => onChange({ ...options, detail: Number(e.target.value) })}
+      />
+      <span className="text-[11px] text-muted font-normal">
+        Higher rounds the curves off; lower follows the pixels literally
+      </span>
+    </label>
+  </div>
+)
+
 interface PrintPrepPanelProps {
   state: StepFlowState
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
@@ -133,6 +180,7 @@ const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
   const [rendering, setRendering] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [options, setOptions] = useState<SuggestedPrintOptions>(DEFAULT_OPTIONS)
+  const [vector, setVector] = useState<VectorOptions>(DEFAULT_VECTOR)
   const [error, setError] = useState<string | null>(null)
   const requestedAdviceRef = useRef(false)
   const seededFromAdviceRef = useRef(false)
@@ -166,7 +214,10 @@ const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
     setRendering(true)
     renderStartedAtRef.current = Date.now()
     try {
-      await stepFlow.printFile(state.productId, options)
+      await stepFlow.printFile(
+        state.productId,
+        options.method === 'vector' ? { method: 'vector', ...vector } : options
+      )
       await refresh()
     } catch (err: any) {
       setError(err?.message || 'Failed to render the print file')
@@ -181,7 +232,8 @@ const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
     <div className="mt-6 border-t border-border-subtle pt-5">
       <h3 className="text-sm font-semibold text-text mb-1">Print prep</h3>
       <p className="text-xs text-muted mb-3">
-        Optional — a team-only screened file for the press. It never changes the design your customer sees.
+        Optional — a team-only file for the press: a halftone screen, or a vector trace that stays sharp at
+        any print size. It never changes the design your customer sees.
       </p>
 
       {loadingAdvice && !advice && (
@@ -223,12 +275,17 @@ const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
         </div>
       )}
 
-      {advancedOpen && !rendering && <AdvancedOptions options={options} onChange={setOptions} />}
+      {advancedOpen && !rendering && (
+        <>
+          <AdvancedOptions options={options} onChange={setOptions} />
+          {options.method === 'vector' && <VectorControls options={vector} onChange={setVector} />}
+        </>
+      )}
 
       {rendering && (
         <div className="py-4 px-1">
           <ProgressBar
-            label="Screening the print file"
+            label={options.method === 'vector' ? 'Tracing the print file' : 'Screening the print file'}
             startedAt={renderStartedAtRef.current ?? Date.now()}
             expectedMs={PRINT_FILE_EXPECTED_MS}
           />

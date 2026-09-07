@@ -5,6 +5,7 @@
 // UI/reducer-only — it never crosses the wire.
 import type {
   ArtworkStats,
+  CastingDecision,
   ColorAdvice,
   EtsyComposePack,
   EtsyTier,
@@ -39,6 +40,7 @@ import type {
 
 export type {
   ArtworkStats,
+  CastingDecision,
   ColorAdvice,
   EtsyComposePack,
   EtsyTier,
