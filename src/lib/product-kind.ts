@@ -10,6 +10,12 @@
 import type { Product, CartAddon } from '../types'
 import { isBlankGarmentMeta, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import {
+  normalizeGarment,
+  adultSizesForGarment,
+  youthSizesForGarment,
+  isYouthSize
+} from '../../backend/shared/catalog-capability'
+import {
   STUDIO_SIZE_KEYS,
   METAL_ADDONS as METAL_ADDONS_SHARED,
   METAL_ART_PRICES,
@@ -242,7 +248,17 @@ export function categoryValuesFor(canonicalId: string): string[] {
 export function defaultSizesFor(kind: ProductKind): string[] {
   if (kind === 'metal') return STUDIO_SIZE_KEYS
   if (kind === '3d') return []
-  return ['S', 'M', 'L', 'XL', '2XL']
+  // Apparel's fallback is the capability table's adult tee range, NOT the
+  // hardcoded S-2XL this used to return. That stale list was what every live
+  // shirt and hoodie actually showed (measured 2026-09-07: all 84 rows carry
+  // an EMPTY sizes column, so every one of them fell through to here) — it
+  // was quietly hiding the 3XL we do stock.
+  return adultSizesForGarment('tshirt')
+}
+
+/** The garment a product row is for: its explicit product_type, else its category. */
+export function garmentIdOf(product: Pick<Product, 'category' | 'metadata'>): string | null {
+  return normalizeGarment(product?.metadata?.product_type) ?? normalizeGarment(product?.category ?? null)
 }
 
 /**
@@ -260,11 +276,41 @@ export function sizeChoicesFor(
   // tried on length, not on `||` — otherwise a row that was migrated to the
   // column but left empty hides the metadata list it still carries.
   const column = product?.sizes
-  if (Array.isArray(column) && column.length > 0) return column
   const legacy = (product as any)?.metadata?.sizes
-  if (Array.isArray(legacy) && legacy.length > 0) return legacy
-  return defaultSizesFor(kind)
+  const stored =
+    Array.isArray(column) && column.length > 0 ? column
+    : Array.isArray(legacy) && legacy.length > 0 ? legacy
+    : null
+
+  // Printed apparel ALSO sells the youth cut of the same garment on the same
+  // listing (David 2026-09-07: "all of our shirts and hoodies available in
+  // youth sizes as well"). Appended to whatever the row stores rather than
+  // read instead of it, so a row whose sizes column was frozen before the
+  // youth band existed still offers youth — the requirement is that no shirt
+  // or hoodie can be missing it, and a stale column must not be able to.
+  //
+  // Blanks are excluded: a blank's sizes ARE its price table (every size in
+  // the picker must have a row in metadata.garment.pricing, and the youth
+  // blanks aren't in that table), so adding a size we cannot price would make
+  // it unbuyable. Blanks are their own /blanks lane, not a printed listing.
+  if (kind === 'apparel' && !isBlankProduct(product)) {
+    const garment = garmentIdOf(product)
+    // The fallback is THIS garment's own band, not a generic apparel default.
+    // defaultSizesFor() answers for the adult tee, so using it here would put
+    // S-3XL on a youth-tee listing whose sizes column happens to be empty —
+    // a photo of a child advertising sizes we'd never ship them.
+    const base = stored ?? adultSizesForGarment(garment)
+    const youth = youthSizesForGarment(garment)
+    const missing = youth.filter(y => !base.some(b => String(b).toUpperCase() === y))
+    return [...base, ...missing]
+  }
+
+  return stored ?? defaultSizesFor(kind)
 }
+
+/** True when this size is the youth cut of the listing's garment. Re-exported
+ *  so the storefront doesn't import the capability module in five places. */
+export { isYouthSize }
 
 // Role-tagged design assets stored on products.metadata.assets. This lets the
 // storefront show only display-safe images (clean art + contextual mockups)

@@ -16,7 +16,7 @@ import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES } from '../shared/metal-art.js'
-import { normalizeGarment, sizesForGarment } from '../shared/catalog-capability.js'
+import { normalizeGarment, sizesForGarment, isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../shared/catalog-capability.js'
 import {
   type EtsyTier,
   TRANSFER_SHEET_SIZES,
@@ -376,6 +376,24 @@ const APPAREL_CATEGORIES = new Set(['shirts', 't-shirts', 'hoodies'])
 const apparelSizesFor = (metadata: any): string[] =>
   sizesForGarment(normalizeGarment(metadata?.product_type) ?? 'tshirt').map(etsySizeLabel)
 
+/**
+ * Apparel variation rows. Adult sizes sit at the listing price (an explicit
+ * price equal to basePrice is a no-op, and it keeps every row on one code
+ * path); youth sizes carry the $3 discount the storefront gives them (David
+ * 2026-09-07), so the same shirt isn't cheaper for a child on the website
+ * than it is on Etsy. Floored at $1 because Etsy rejects a listing priced at
+ * or below zero, which a cheap base price minus $3 would otherwise produce.
+ *
+ * The plus-size upcharge is deliberately NOT mirrored here — Etsy listings
+ * have always sold every adult size at one price, and adding it now would
+ * raise prices on live listings, which is not what was asked for.
+ */
+const apparelVariationSizes = (metadata: any, basePrice: number): VariationSize[] =>
+  apparelSizesFor(metadata).map(label => ({
+    label,
+    price: isYouthSize(label) ? Math.max(1, Number((basePrice - YOUTH_SIZE_DISCOUNT_DOLLARS).toFixed(2))) : basePrice
+  }))
+
 // "YM" in an Etsy size dropdown is ambiguous next to adult letter sizes;
 // spelled out, a buyer cannot mistake which one they are ordering. Adult
 // sizes are unchanged. (These labels don't match Etsy's letter-size scale, so
@@ -716,8 +734,9 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
       }
     }
 
-    // Variations — buyers pick from dropdowns. Apparel: Size S-3XL × pack
-    // colors at uniform price. Metal art: Size 4x6/8x10 with per-size pricing.
+    // Variations — buyers pick from dropdowns. Apparel: Size S-3XL plus the
+    // youth band (YXS-YXL, listed as "Youth XS"…) × pack colors; adult sizes
+    // at the listing price, youth $3 under it. Metal art: 4x6/8x10 per-size.
     // Transfer tier: sheet size with per-size pricing, no color axis (the film
     // is the film — garment color is the buyer's own shirt). Downloads have no
     // axis at all: one file, one price.
@@ -735,7 +754,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
           : [])
         const sizes = isTransfer
           ? TRANSFER_SHEET_SIZES.map(s => ({ label: s.label, price: s.price }))
-          : isMetal ? METAL_SIZES : apparelSizesFor(product.metadata).map(s => ({ label: s }))
+          : isMetal ? METAL_SIZES : apparelVariationSizes(product.metadata, price)
         const combos = await applyListingVariations(token, listingId, taxonomyId, {
           colors,
           sizes,

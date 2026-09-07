@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import sharp from 'sharp'
+import { sizesForGarment } from '../../shared/catalog-capability.js'
 
 // ---------------------------------------------------------------------------
 // Tests for the Step Flow "details" card (backend/services/step-flow/details-card.ts).
@@ -100,6 +101,47 @@ describe('buildDetailsSvg', () => {
     expect(svg).toMatch(/Wash cold inside out/)
     for (const size of ['S', 'M', 'L', 'XL', '2XL', '3XL']) {
       expect(svg).toContain(`>${size}<`)
+    }
+  })
+
+  it('charts the youth sizes the same listing sells (David 2026-09-07)', () => {
+    for (const garment of ['tshirt', 'hoodie'] as const) {
+      const svg = buildDetailsSvg({ garment, color: 'black', title: 'Test Design', printWidthInches: 10 })
+      for (const size of ['YXS', 'YS', 'YM', 'YL', 'YXL']) {
+        expect(svg, `${garment} chart is missing ${size}`).toContain(`>${size}<`)
+      }
+    }
+  })
+
+  it('charts exactly the sizes the listing lets a buyer order — no more, no less', () => {
+    // The card is the only place a buyer sees the sizes as NUMBERS. If the
+    // chart and sizesForGarment ever disagree, the card either measures a size
+    // we do not sell or sells a size we never measured.
+    for (const garment of ['tshirt', 'hoodie', 'youth-tshirt'] as const) {
+      const svg = buildDetailsSvg({ garment, color: 'black', title: 'Test Design', printWidthInches: 10 })
+      for (const size of sizesForGarment(garment)) {
+        expect(svg, `${garment} chart is missing ${size}`).toContain(`>${size}<`)
+      }
+    }
+  })
+
+  // The size chart is the only block whose height depends on data, so it is
+  // where the card overflows. Adding the five youth rows pushed the adult
+  // garments' last baseline to y=1508 on a 1500px card — the care line
+  // rendered off the bottom edge. Measured, not guessed.
+  it('never renders content below the bottom edge of the card', () => {
+    for (const garment of ['tshirt', 'hoodie', 'youth-tshirt'] as const) {
+      const svg = buildDetailsSvg({
+        garment,
+        color: 'black',
+        // A 3-line title is the tallest header the card can produce, so this
+        // is the worst case for the blocks underneath it.
+        title: 'An Extremely Long Product Title That Wraps Onto Three Separate Lines',
+        blurb: 'A long enough blurb to occupy its own wrapped lines on the card.',
+        printWidthInches: 10
+      })
+      const maxY = Math.max(...[...svg.matchAll(/ y="(\d+(?:\.\d+)?)"/g)].map(m => Number(m[1])))
+      expect(maxY, `${garment} card ran ${maxY - 1500}px past the bottom`).toBeLessThanOrEqual(1500)
     }
   })
 

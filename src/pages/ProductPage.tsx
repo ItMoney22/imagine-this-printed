@@ -14,6 +14,7 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
+import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
@@ -740,22 +741,24 @@ const ProductPage: React.FC = () => {
               if (displaySizes.length === 0) return null
               // Plus-size upcharge is apparel-only - metal/3D sizes never qualify,
               // and blanks carry their real per-size price instead.
-              const hasPlusSizes = isApparel && !isBlank && displaySizes.some(s => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
+              const hasPlusSizes = isApparel && !isBlank && displaySizes.some(s => !isYouthSize(s) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
               const sizeLabel = productKind === 'metal' ? 'Print Size' : productKind === '3d' ? 'Size' : 'Size'
 
-              return (
-                <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-text">{sizeLabel}</label>
-                    {hasPlusSizes && (
-                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                        2XL+ = +$2.50
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {displaySizes.map(size => {
-                      const isPlusSize = isApparel && !isBlank && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+              // Shirts and hoodies sell the adult cut AND the youth cut on the
+              // same listing (David 2026-09-07). They're split into two labelled
+              // rows rather than one long strip because "YM" sitting next to "M"
+              // in a single row of buttons is exactly how a parent buys the
+              // wrong shirt. Only split when there IS a youth band — a metal
+              // print or a blank still renders the one plain row it always did.
+              const youthSizes = displaySizes.filter(sz => isYouthSize(sz))
+              const adultSizes = displaySizes.filter(sz => !isYouthSize(sz))
+              const splitBands = youthSizes.length > 0 && adultSizes.length > 0
+
+              const renderSizeButtons = (sizes: string[]) => (
+                <div className="flex flex-wrap gap-2">
+                    {sizes.map(size => {
+                      const isYouth = isApparel && !isBlank && isYouthSize(size)
+                      const isPlusSize = isApparel && !isBlank && !isYouth && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
                       // Blank garments: the real price for this size (in the
                       // selected colour group) lives on the button itself.
@@ -767,8 +770,8 @@ const ProductPage: React.FC = () => {
                           className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
                             ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
                             : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
-                            } ${isPlusSize ? 'pr-6' : ''} ${sizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
-                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : undefined}
+                            } ${isPlusSize || isYouth ? 'pr-6' : ''} ${sizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
+                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : isYouth ? `Youth size — $${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)} off` : sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : undefined}
                         >
                           {size}
                           {sizePrice !== null ? (
@@ -785,10 +788,46 @@ const ProductPage: React.FC = () => {
                               +$
                             </span>
                           )}
+                          {isYouth && (
+                            <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-emerald-200' : 'text-emerald-500'}`}>
+                              -$
+                            </span>
+                          )}
                         </button>
                       )
                     })}
+                </div>
+              )
+
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="block text-sm font-medium text-text">{sizeLabel}</label>
+                    {hasPlusSizes && (
+                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                        2XL+ = +$2.50
+                      </span>
+                    )}
+                    {splitBands && (
+                      <span className="text-xs bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full">
+                        Youth = -${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)}
+                      </span>
+                    )}
                   </div>
+                  {splitBands ? (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted mb-1.5">Adult</div>
+                        {renderSizeButtons(adultSizes)}
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted mb-1.5">Youth</div>
+                        {renderSizeButtons(youthSizes)}
+                      </div>
+                    </div>
+                  ) : (
+                    renderSizeButtons(displaySizes)
+                  )}
                 </div>
               )
             })()}

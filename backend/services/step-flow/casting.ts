@@ -22,8 +22,11 @@
 //     That is this file's job.
 // When the design's own audience disagrees with the garment (a kids' design on
 // an adult tee), we do NOT quietly cast a child. We cast the best adult and
-// hand the panel a `mismatch` line telling the admin to switch the garment —
-// the fix is one click away and it is the admin's call, not ours.
+// hand the panel a `mismatch` line telling the admin the PHOTO, not the
+// listing, is the thing that's off — the fix is one click away and it is the
+// admin's call, not ours. (Since 2026-09-07 an adult listing also sells the
+// youth band, so this is purely about who is in the picture; it is no longer
+// true that a kids' design on an adult tee has no youth size to sell.)
 //
 // Same cost-first writing-brain pattern as brief.ts / phrases.ts /
 // inspiration.ts: OpenRouter gemini-2.5-flash (vision) when configured,
@@ -251,8 +254,9 @@ export function mismatchNote(read: DesignRead | undefined, audience: GarmentAudi
   if (!read || audience === 'youth') return undefined
   if (read.audience !== 'kids') return undefined
   return (
-    'This design reads as a kids\' design, but the garment is an adult size, so the photo has to show an adult. ' +
-    'Switch the garment to the Youth T-Shirt to have it modelled by a kid (and to sell youth sizes).'
+    'This design reads as a kids\' design, but the garment is an adult cut, so the photo has to show an adult. ' +
+    'Youth sizes ARE already sellable on this listing, so nothing here is unfulfillable — ' +
+    'switch the garment to the Youth T-Shirt only if you want a kid in the photo.'
   )
 }
 

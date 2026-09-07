@@ -80,7 +80,7 @@ describe('canonicalCategoryOf — the id the storefront filter uses', () => {
 describe('defaultSizesFor', () => {
   it('offers print sizes for metal and garment sizes for apparel', () => {
     expect(defaultSizesFor('metal')).toEqual(STUDIO_SIZE_KEYS)
-    expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL'])
+    expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
   })
 
   // David 2026-09-06: a 3D print ships at the one size in its own photo. The
@@ -106,14 +106,60 @@ describe('sizeChoicesFor', () => {
       .toEqual(['small', 'large'])
   })
 
-  it('falls back to shirt sizes for apparel and panel sizes for metal', () => {
-    expect(sizeChoicesFor(p({ category: 'shirts' }))).toEqual(['S', 'M', 'L', 'XL', '2XL'])
+  it('falls back to the capability adult range plus youth for apparel, panels for metal', () => {
+    // Was a hardcoded S-2XL, which is what every live shirt actually showed
+    // (measured 2026-09-07: all 84 shirt/hoodie rows have an EMPTY sizes
+    // column, so all of them landed here) — it hid the 3XL we do stock.
+    expect(sizeChoicesFor(p({ category: 'shirts' })))
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
     expect(sizeChoicesFor(p({ category: 'metal-art' }))).toEqual(STUDIO_SIZE_KEYS)
   })
 
-  it('reads a legacy metadata.sizes list when the column is empty', () => {
+  it('offers youth sizes on a hoodie too', () => {
+    expect(sizeChoicesFor(p({ category: 'hoodies' })))
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('appends youth to a legacy metadata.sizes list instead of replacing it', () => {
+    // The stored list is still honoured — but a sizes list frozen before the
+    // youth band existed must not be able to leave a shirt without one, which
+    // is exactly what David asked for ("ALL of our shirts and hoodies").
     expect(sizeChoicesFor(p({ category: 'shirts', sizes: [], metadata: { sizes: ['M', 'L'] } } as any)))
-      .toEqual(['M', 'L'])
+      .toEqual(['M', 'L', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  // NOTE: the live products.category column holds 't-shirts', but the Product
+  // type's union still says 'shirts' — pre-existing drift, so these cases cast.
+  // normalizeGarment() accepts both spellings, which is why it doesn't bite.
+  it('appends youth to an explicit sizes column too', () => {
+    expect(sizeChoicesFor(p({ category: 't-shirts' as any, sizes: ['S', 'M'] })))
+      .toEqual(['S', 'M', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('never duplicates a youth size a row already stores', () => {
+    expect(sizeChoicesFor(p({ category: 't-shirts' as any, sizes: ['S', 'YM'] })))
+      .toEqual(['S', 'YM', 'YXS', 'YS', 'YL', 'YXL'])
+  })
+
+  it('leaves the youth tee listing alone — it is already all youth', () => {
+    expect(sizeChoicesFor(p({ category: 't-shirts', metadata: { product_type: 'youth-tshirt' } } as any)))
+      .toEqual(['YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('does NOT add youth sizes to a blank, whose sizes are its price table', () => {
+    // A blank prices per size off metadata.garment.pricing; a size with no row
+    // in that table cannot be priced, so offering one would make it unbuyable.
+    const blank = p({
+      category: 't-shirts',
+      sizes: ['S', 'M', 'L'],
+      metadata: { garment: { blank: true, pricing: { default: { S: 3.29, M: 3.29, L: 3.29 } } } }
+    } as any)
+    expect(sizeChoicesFor(blank)).toEqual(['S', 'M', 'L'])
+  })
+
+  it('does not put youth sizes on metal or 3D listings', () => {
+    expect(sizeChoicesFor(p({ category: 'metal-art' }))).not.toContain('YM')
+    expect(sizeChoicesFor(p({ category: '3d-prints', sizes: ['small', 'large'] }))).toEqual(['small', 'large'])
   })
 })
 

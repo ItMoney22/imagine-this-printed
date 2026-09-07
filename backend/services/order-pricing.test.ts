@@ -196,6 +196,66 @@ describe('computeLineItemCents', () => {
     expect(cents).toBe(2000 + 250)
   })
 
+  describe('youth-size discount (David 2026-09-07 — shirts and hoodies sell youth on the same listing)', () => {
+    it('takes $3 off a youth size', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { cents } = computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: 'YM' }, map)
+      expect(cents).toBe(2000 - 300)
+    })
+
+    it('applies per unit, not per line', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { cents } = computeLineItemCents({ productId: PRODUCT_A, quantity: 3, selectedSize: 'YL' }, map)
+      expect(cents).toBe((2000 - 300) * 3)
+    })
+
+    it('honours the spelled-out Etsy label so an Etsy order prices the same', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { cents } = computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: 'Youth M' }, map)
+      expect(cents).toBe(2000 - 300)
+    })
+
+    it('leaves every adult size alone', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      for (const sz of ['S', 'M', 'L', 'XL']) {
+        expect(computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: sz }, map).cents).toBe(2000)
+      }
+    })
+
+    it('never charges a youth size the plus-size upcharge', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      // 'YXL' must not trip the PLUS_SIZES substring match — the same shape of
+      // bug that once charged a 4x6 metal panel a plus-size upcharge.
+      expect(computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: 'YXL' }, map).cents).toBe(2000 - 300)
+    })
+
+    it('stacks with a garment tier the way the plus-size upcharge does', () => {
+      const map = new Map([[PRODUCT_A, 20]])
+      const { cents } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'YM', selectedTier: 'heavyweight' }, map)
+      expect(cents).toBe(2000 - 300 + 700)
+    })
+
+    it('never drives a line negative — floored at zero', () => {
+      // A $2 listing minus the $3 youth discount would otherwise CREDIT the
+      // customer; this is the first negative term the engine can produce.
+      const map = new Map([[PRODUCT_A, 2]])
+      const { cents } = computeLineItemCents({ productId: PRODUCT_A, quantity: 4, selectedSize: 'YM' }, map)
+      expect(cents).toBe(0)
+    })
+
+    it('does NOT discount a blank garment — its size x colour table is its whole price', () => {
+      const blankMap = new Map([[PRODUCT_A, 99]])
+      const { cents } = computeLineItemCents(
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'M', selectedColor: 'Black' },
+        blankMap,
+        new Map(),
+        new Map([[PRODUCT_A, BLANK_PRICING]])
+      )
+      expect(cents).toBe(329) // the table price, untouched
+    })
+  })
+
   describe('garment quality tiers (mirrors src/lib/garment-tiers.ts)', () => {
     it('adds the per-unit tier upcharge for a recognized tier', () => {
       const map = new Map([[PRODUCT_A, 20]])
@@ -415,6 +475,25 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
     expect(errors).toEqual([])
     // Base: 2 units = one $25 bundle. Extras: (plus-size $2.50 + tier $5.00) * 2 units.
     expect(subtotalCents).toBe(2500 + (250 + 500) * 2)
+  })
+
+  it('does NOT stack the youth discount on top of the flat 2-for-$25 bundle price', () => {
+    // The bundle IS the discount — it ignores the product's own price entirely
+    // — so a second $3 markdown would sell a bundled youth tee at $9.50.
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true, selectedSize: 'YM' }],
+      eligibleMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500)
+  })
+
+  it('still applies the plus-size UPCHARGE inside a bundle (a 3XL really does cost more)', () => {
+    const { subtotalCents } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true, selectedSize: '3XL' }],
+      eligibleMap
+    )
+    expect(subtotalCents).toBe(2500 + 250 * 2)
   })
 
   it('errors on a bundle-eligible id that does not resolve to a real catalog product', () => {
