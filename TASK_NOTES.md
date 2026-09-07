@@ -128,11 +128,32 @@ ever been sent a cart reminder.
   so a week-old link cannot resurrect a stale price or a retired item.
 - Verified: 1005 backend tests pass (66 files), both tsconfigs typecheck clean,
   `npm run build` succeeds.
-- **NEEDS DAVID:** the two migrations could not be applied — writing DDL to the
-  live DB is blocked by this session's auto-mode classifier. Until
-  `20260728140100_abandoned_cart_reminders.sql` is applied, the recovery sweep
-  halts on purpose and sends nothing (it will not guess and risk double-mailing).
-  Everything else in this change works without them.
+- **Both migrations APPLIED to prod 2026-09-07** (David authorised after the
+  first attempt was blocked by the auto-mode classifier). Verified live:
+  `abandoned_cart_reminders` exists with PK `(order_id, stage)` and RLS on, and
+  `admin_notifications_type_check` now accepts `order_completed`.
+  - `20260728140100` was already committed on main and had simply never been
+    run — prod and main now agree on it.
+  - `20260907120000` is new on this branch, so **prod is one migration ahead of
+    main until this merges.** It only widens a CHECK constraint (additive, no
+    data touched), so nothing on main is broken by the gap.
+- Dry-ran the real sweep's query path against LIVE prod, read-only: the
+  reminder-history query now returns HTTP 200, which is exactly the halt
+  condition clearing. One recoverable cart is queued (ITP-MTQBXPVV-38KZ,
+  $21.40, 1x Gothic Ghost Face Candle Holder) and is due the 4h nudge. The
+  other live draft captured no email and correctly cannot be chased.
+- Rendered the real email for that real cart through the shipped code with only
+  the transport stubbed: subject/product/total correct, 3.7KB (well under
+  Gmail's ~102KB clip point), CTA and unsubscribe links both present, RFC 8058
+  headers set. Cart and unsubscribe tokens round-trip and correctly reject a
+  tampered token, a different order id, and a different address.
+- **NOT sent yet, deliberately.** The recovery link points at `/recover-cart/:id`
+  and `GET /api/orders/:id/recover`, neither of which exists in production until
+  this branch deploys. Mailing a customer a dead button is worse than mailing
+  late. This sequences itself with no discipline required: the sweep only exists
+  on this branch, so the first send cannot precede the deploy that ships its
+  landing page.
+- **NEEDS DAVID:** merge to main (a push to main is a production deploy).
 
 
 ## Current request (2026-09-02) — background removal is eating disconnected art
