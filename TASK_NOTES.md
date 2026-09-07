@@ -2647,3 +2647,24 @@ gate looser, not blocking, so it is noted rather than changed here.)
   metadata at write time, and lifted sub-1000px renders to a 1024px short edge
   before upload. Frontend tsc clean, lint 0 errors, full suite 82 files /
   1234 tests pass (15 of them new).
+- 2026-09-07 — **Priced and shipped.** David named the anchors ("shirts are 25,
+  hoodies 40"), so `ETSY_HOODIE_ANCHOR_PRICE` goes $35 -> $40 and tees stay at
+  $25. Correcting the 09-03 note above: hoodies were NOT still hard-failing the
+  pricing criterion. That was written against the flat $25 anchor; `d62e1cd`
+  split hoodies to $35 the same day, and `checkPricing` compares the raw anchor
+  to `PRICE_BANDS.hoodies` ($28-$95), so $35 already passed. $40 is David's
+  price, not a gate fix.
+  Merged main in first — it had moved 6 commits and rewritten 414 lines of
+  `etsy-model-shots.ts` under this branch's resolution floor. Three union
+  resolutions (both test import sets, both test describes, TASK_NOTES), and
+  confirmed by reading the merged call site that `ensureListingResolution`
+  still runs on the nano-banana path before the sniff + upload.
+  Checks on the merged tree: `tsc -b` clean, eslint 0 errors on all 8 touched
+  files (one pre-existing `no-unexpected-multiline` on the sharp helper fixed
+  via `.toFormat()`), full suite **85 files / 1288 tests pass**.
+  Two things NOT closed by this push, both flagged to David: (1) if Render has
+  `ETSY_HOODIE_ANCHOR_PRICE` set as an env var it overrides this default — the
+  Render API is blocked by this environment's tool classifier so it could not
+  be read from here; (2) any `etsy_pack` composed before this deploy still
+  carries its old price, since `services/etsy.ts` resolves `pack?.price ??
+  product.price` — re-running the Listing step recomposes it.
