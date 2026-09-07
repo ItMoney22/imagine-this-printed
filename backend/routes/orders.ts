@@ -2,14 +2,136 @@ import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { checkOrderTransition } from '../lib/order-status.js'
+import { isPaidOrder, isAbandonedCheckout } from '../shared/order-visibility.js'
 import { processOrderCompletion, retryFailedRewards, scheduleRewardProcessing } from '../services/order-reward-service.js'
 import { processReferralFirstPurchase } from '../services/referral-service.js'
 import { attachProductFiles } from '../services/product-files.js'
+import { notifyTeamOfOrderClosed } from '../services/order-alerts.js'
+import { sendOrderShippedEmail, sendOrderDeliveredEmail } from '../utils/email.js'
 import { verifyOrderStatusToken } from '../utils/order-status-token.js'
+import { verifyCartRecoveryToken } from '../utils/cart-recovery-token.js'
+import { MAX_RECOVERY_AGE_MS } from '../lib/abandoned-cart.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { WAREHOUSE_ADDRESS_FROM } from './shipping.js'
 
 const router = Router()
+
+/** Snapshot product ids are client-supplied strings; only real UUIDs get looked up. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// GET /api/orders/:orderId/recover?t=<token> — PUBLIC, no auth.
+//
+// Backs the "Finish My Order" button in the abandoned-cart email. Returns the
+// cart snapshot the checkout draft already stored in orders.metadata.items, so
+// the storefront can put it back in the cart on ANY device — not just the
+// browser profile the shopper abandoned in, whose localStorage is the only
+// other place that cart exists.
+//
+// Registered before '/:orderId' so the more specific path wins.
+router.get('/:orderId/recover', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    if (!verifyCartRecoveryToken(orderId, String(req.query.t || ''))) {
+      return res.status(403).json({ error: 'Invalid or missing recovery token' })
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('id, order_number, status, payment_status, created_at, metadata, discount_codes')
+      .eq('id', orderId)
+      .single()
+
+    if (error || !order) {
+      return res.status(404).json({ error: 'That cart is no longer available' })
+    }
+
+    // Already bought it. Say so plainly instead of silently re-filling a cart
+    // and letting them pay twice for the same thing.
+    if (isPaidOrder(order)) {
+      return res.status(409).json({ error: 'already_paid', message: 'This order has already been paid for.' })
+    }
+    if (!isAbandonedCheckout(order)) {
+      return res.status(410).json({ error: 'unavailable', message: 'This checkout is no longer recoverable.' })
+    }
+    // Independent of the token: a link older than the recovery window is dead
+    // even if the token still verifies.
+    if (Date.now() - new Date(order.created_at).getTime() > MAX_RECOVERY_AGE_MS) {
+      return res.status(410).json({ error: 'expired', message: 'This cart link has expired.' })
+    }
+
+    const snapshot = Array.isArray(order.metadata?.items) ? order.metadata.items : []
+    if (snapshot.length === 0) {
+      return res.status(410).json({ error: 'empty', message: 'There is nothing left in this cart.' })
+    }
+
+    // Rehydrate against the LIVE product rows so a recovered cart can't restore
+    // a stale price or a product that has since been deactivated. The snapshot
+    // is the record of intent; `products` is the source of truth for what we
+    // will actually sell and for how much.
+    const productIds = [...new Set(snapshot.map((i: any) => i?.id).filter((id: any) => typeof id === 'string' && UUID_RE.test(id)))]
+    const liveById = new Map<string, any>()
+    if (productIds.length > 0) {
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, name, price, images, status, metadata, print_locations, weight')
+        .in('id', productIds)
+      for (const p of products || []) liveById.set(p.id, p)
+    }
+
+    const items: any[] = []
+    const unavailable: string[] = []
+    for (const snap of snapshot) {
+      const live = typeof snap?.id === 'string' ? liveById.get(snap.id) : null
+      if (snap?.id && !live) {
+        unavailable.push(snap?.name || 'An item')
+        continue
+      }
+      if (live && String(live.status || '').toLowerCase() !== 'active') {
+        unavailable.push(live.name || snap?.name || 'An item')
+        continue
+      }
+      items.push({
+        // CartItem shape (src/types/index.ts) — the storefront writes these
+        // straight into the cart, so the field names have to match exactly.
+        id: `recover-${orderId}-${items.length}`,
+        product: {
+          id: live?.id ?? snap?.id ?? null,
+          name: live?.name ?? snap?.name ?? 'Custom item',
+          // Live price wins. A cart recovered a week later must not resurrect
+          // last week's price.
+          price: live?.price != null ? Number(live.price) : (snap?.price != null ? Number(snap.price) : 0),
+          images: live?.images ?? (snap?.image ? [snap.image] : []),
+          metadata: live?.metadata ?? null,
+          weight: live?.weight ?? null
+        },
+        quantity: Number(snap?.quantity) || 1,
+        selectedSize: snap?.size ?? undefined,
+        selectedColor: snap?.color ?? undefined,
+        selectedTier: snap?.tier ?? undefined,
+        printLocation: snap?.printLocation ?? undefined,
+        customDesign: snap?.customDesign ?? undefined,
+        selectedAddons: Array.isArray(snap?.addons) ? snap.addons : undefined
+      })
+    }
+
+    if (items.length === 0) {
+      return res.status(410).json({ error: 'unavailable', message: 'Everything in this cart has sold out or been retired.', unavailable })
+    }
+
+    return res.json({
+      orderId: order.id,
+      orderNumber: order.order_number,
+      items,
+      // Named so the storefront can tell the shopper WHY their total moved,
+      // rather than silently handing back a different cart than the email showed.
+      unavailable,
+      couponCode: Array.isArray(order.discount_codes) ? order.discount_codes[0] ?? null : null
+    })
+  } catch (error: any) {
+    console.error('[orders] Cart recovery failed:', error)
+    return res.status(500).json({ error: 'Failed to recover cart' })
+  }
+})
 
 // GET /api/orders/status/:orderId?t=<token> — PUBLIC, no auth.
 //
@@ -118,27 +240,61 @@ router.get('/status/:orderId', async (req: Request, res: Response): Promise<any>
 })
 
 // GET /api/orders - Get all orders (admin/manager only)
+//
+// `view` (2026-09-07) decides which KIND of row comes back, and defaults to the
+// only one a fulfilment screen should ever see:
+//
+//   'orders'    (default) — rows money actually reached us for. What the crew
+//                           makes and ships.
+//   'abandoned'           — checkouts somebody started and never paid for.
+//                           Explicit opt-in, never mixed into the default.
+//   'all'                 — everything, for debugging/reconciliation.
+//
+// Before this, the route returned every row unfiltered, so two abandoned
+// checkouts ($34.20 and $21.40, both `requires_payment_method` in live Stripe)
+// sat in OrderManagement's "Pending" tab with Buy Label and Mark Shipped wired
+// up, and the shop was preparing to ship goods nobody had paid for. See
+// backend/shared/order-visibility.ts for why payment_status — not status — is the
+// thing that decides.
 router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async (req: Request, res: Response): Promise<any> => {
   try {
     const { status, limit = 100 } = req.query
+    const view = String(req.query.view || 'orders').toLowerCase()
+    if (!['orders', 'abandoned', 'all'].includes(view)) {
+      return res.status(400).json({ error: `Unknown view "${view}". Valid: orders, abandoned, all` })
+    }
 
-    // First get orders
+    // First get orders.
+    //
+    // The payment filter is applied in JS rather than as a .in() on the query
+    // because the fulfilment `status` filter below and the paid/abandoned split
+    // are independent axes, and a row with a NULL payment_status has to land on
+    // the UNPAID side — which a PostgREST .in() would silently drop from BOTH
+    // views instead. Over-fetching by the handful of drafts that exist is far
+    // cheaper than an order going invisible.
     let query = supabase
       .from('orders')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(Number(limit))
+      // Fetch headroom so the payment filter can't starve the page: the caller
+      // asked for `limit` real orders, not `limit` rows of which some are drafts.
+      .limit(view === 'all' ? Number(limit) : Number(limit) * 2)
 
     if (status && status !== 'all') {
       query = query.eq('status', status)
     }
 
-    const { data: orders, error } = await query
+    const { data: allRows, error } = await query
 
     if (error) {
       console.error('[orders] Error fetching orders:', error)
       return res.status(500).json({ error: error.message })
     }
+
+    const orders =
+      view === 'all' ? (allRows || [])
+        : view === 'abandoned' ? (allRows || []).filter(isAbandonedCheckout).slice(0, Number(limit))
+          : (allRows || []).filter(isPaidOrder).slice(0, Number(limit))
 
     // Try to get order items separately (may fail if table has different schema)
     const orderIds = (orders || []).map(o => o.id)
@@ -212,7 +368,34 @@ router.get('/', requireAuth, requireRole(['admin', 'manager', 'founder']), async
     // bundles rather than failing the order list.
     const ordersWithFiles = await attachProductFiles(ordersWithItems)
 
-    return res.json({ orders: ordersWithFiles })
+    // On the abandoned view, hand back which recovery nudges have already gone
+    // out. Without it the admin can't tell "we're chasing this" from "this
+    // customer never gave us an email", and would have no way to see the
+    // recovery job working at all. Fail-soft: the table is only created by
+    // 20260728140100_abandoned_cart_reminders.sql, so before that migration is
+    // applied this degrades to an empty list rather than 500ing the whole view.
+    if (view === 'abandoned' && ordersWithFiles.length > 0) {
+      try {
+        const { data: reminders } = await supabase
+          .from('abandoned_cart_reminders')
+          .select('order_id, stage, sent_at')
+          .in('order_id', ordersWithFiles.map((o: any) => o.id))
+        const byOrder = new Map<string, Array<{ stage: string; sent_at: string }>>()
+        for (const r of reminders || []) {
+          const list = byOrder.get(r.order_id) || []
+          list.push({ stage: r.stage, sent_at: r.sent_at })
+          byOrder.set(r.order_id, list)
+        }
+        return res.json({
+          view,
+          orders: ordersWithFiles.map((o: any) => ({ ...o, recovery_reminders: byOrder.get(o.id) || [] }))
+        })
+      } catch (remindersError: any) {
+        console.error('[orders] Recovery reminder lookup failed:', remindersError?.message || remindersError)
+      }
+    }
+
+    return res.json({ view, orders: ordersWithFiles })
   } catch (error: any) {
     console.error('[orders] Error:', error)
     return res.status(500).json({ error: error.message })
@@ -225,17 +408,25 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
     const userId = req.user?.sub
     const { limit = 50 } = req.query
 
-    const { data: orders, error } = await supabase
+    const { data: allRows, error } = await supabase
       .from('orders')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(Number(limit))
+      // Headroom so unpaid drafts can't push real orders off the page.
+      .limit(Number(limit) * 2)
 
     if (error) {
       console.error('[orders/my] Error fetching user orders:', error)
       return res.status(500).json({ error: error.message })
     }
+
+    // Paid only (2026-09-07). This is the customer's OWN order history, and a
+    // checkout they walked away from is not an order they placed. Showing it
+    // tells a shopper they bought something they never paid for and invites a
+    // "where is my order?" ticket about a shirt that was never made. Same rule
+    // as the admin list above.
+    const orders = (allRows || []).filter(isPaidOrder).slice(0, Number(limit))
 
     // Try to get order items separately
     const orderIds = (orders || []).map(o => o.id)
@@ -473,9 +664,15 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       return res.status(400).json({ error: 'estimated_delivery must be a string or null' })
     }
 
+    // Fetch the fields the customer notification needs, not just the status.
+    // This route used to select only `id, status` and send NOTHING on a status
+    // change, while the near-identical PATCH /api/stripe/orders/:orderId/status
+    // did send shipped/delivered mail. The admin UI calls THIS one — so every
+    // order the crew marked shipped from the dashboard shipped silently and
+    // the customer was never told (2026-09-07).
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status')
+      .select('id, status, payment_status, order_number, customer_email, customer_name, shipping_address, tracking_number, tracking_company, total')
       .eq('id', orderId)
       .single()
 
@@ -528,7 +725,62 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       return res.status(500).json({ error: updateError?.message || 'Failed to update order' })
     }
 
+    // ---------------------------------------------------------------------
+    // Tell people the order moved (2026-09-07).
+    //
+    // Guarded on `updateData.status`, which is only set for a REAL transition
+    // (checkOrderTransition returns kind 'noop' when from === to and the block
+    // above writes nothing). That is what stops a crew member re-clicking
+    // "Shipped" from re-mailing the customer every time.
+    //
+    // Every send is fail-soft: the status change is already committed and is
+    // the thing that matters. A dead mail provider must not turn a successful
+    // update into a 500 the admin retries — which is how duplicate side
+    // effects get created.
+    // ---------------------------------------------------------------------
     if (updateData.status) {
+      const orderRef = order.order_number || orderId
+      const customerName =
+        order.customer_name ||
+        [order.shipping_address?.firstName, order.shipping_address?.lastName].filter(Boolean).join(' ') ||
+        undefined
+
+      if (order.customer_email) {
+        try {
+          if (updateData.status === 'shipped') {
+            await sendOrderShippedEmail(
+              order.customer_email,
+              orderRef,
+              // Prefer tracking arriving in THIS request (the Buy Label flow
+              // PATCHes tracking + status together) over what's already stored.
+              (wantsTrackingNumber ? tracking_number : null) || order.tracking_number || undefined,
+              (wantsTrackingCompany ? tracking_company : null) || order.tracking_company || undefined,
+              { orderId, customerName }
+            )
+            console.log(`[orders] 📦 Shipped email sent for ${orderRef} to ${order.customer_email}`)
+          } else if (updateData.status === 'delivered') {
+            await sendOrderDeliveredEmail(order.customer_email, orderRef, { orderId, customerName })
+            console.log(`[orders] 📬 Delivered email sent for ${orderRef} to ${order.customer_email}`)
+          }
+        } catch (emailError: any) {
+          console.error(`[orders] Status email failed for ${orderRef}:`, emailError?.message || emailError)
+        }
+      }
+
+      // Team-facing close-out alert. David asked to be told when orders are
+      // done, not only when they arrive — this is the other half of that.
+      if (['shipped', 'delivered', 'completed'].includes(updateData.status)) {
+        notifyTeamOfOrderClosed({
+          orderId,
+          orderNumber: orderRef,
+          status: updateData.status,
+          total: Number(order.total) || 0,
+          customerEmail: order.customer_email,
+          trackingNumber: (wantsTrackingNumber ? tracking_number : null) || order.tracking_number || null,
+          trackingCompany: (wantsTrackingCompany ? tracking_company : null) || order.tracking_company || null
+        }).catch(err => console.error('[orders] Close-out alert failed:', err?.message || err))
+      }
+
       await supabase.from('audit_logs').insert({
         user_id: req.user?.sub,
         action: 'order_status_updated',
@@ -639,6 +891,18 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
       // referral_transactions row (referral-service.ts:230).
       await processReferralFirstPurchase(order.user_id, order.total)
     }
+
+    // Tell the crew this one is closed out. Fire-and-forget behind the atomic
+    // claim above, so a concurrent second call can never double-alert.
+    notifyTeamOfOrderClosed({
+      orderId,
+      orderNumber: order.order_number || orderId,
+      status: 'completed',
+      total: Number(order.total) || 0,
+      customerEmail: order.customer_email,
+      trackingNumber: order.tracking_number ?? null,
+      trackingCompany: order.tracking_company ?? null
+    }).catch(err => console.error('[orders/complete] Close-out alert failed:', err?.message || err))
 
     // Create audit log
     await supabase.from('audit_logs').insert({

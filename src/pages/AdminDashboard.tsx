@@ -8,6 +8,7 @@ import { buildProductGallery } from '../lib/product-gallery'
 import { productKindOf } from '../lib/product-kind'
 import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import { BUNDLE_DEAL } from '../../backend/shared/promos'
+import { isPaidOrder, paidRevenueTotal } from '../../backend/shared/order-visibility'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
 import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import AdminWalletManagement from '../components/AdminWalletManagement'
@@ -569,13 +570,21 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
 
       // Get total orders and revenue (live column is `total` — the old
-      // `total_amount` name doesn't exist, which made revenue read $0)
+      // `total_amount` name doesn't exist, which made revenue read $0).
+      //
+      // payment_status is selected and filtered on (2026-09-07) because this
+      // used to sum EVERY row, including checkout drafts that were never paid.
+      // On the live shop that reported $91.01 of revenue across 6 "orders" when
+      // only $35.41 across 4 was real money — the other $55.60 was two
+      // abandoned carts sitting at `requires_payment_method` in Stripe.
+      // isPaidOrder is the same rule the orders API and the crew screens use.
       const { data: orders } = await supabase
         .from('orders')
-        .select('total')
+        .select('total, status, payment_status')
 
-      const totalRevenue = orders?.reduce((sum, order) => sum + (Number(order.total) || 0), 0) || 0
-      const totalOrders = orders?.length || 0
+      const paidOrders = (orders || []).filter(isPaidOrder)
+      const totalRevenue = paidRevenueTotal(orders || [])
+      const totalOrders = paidOrders.length
 
       // Get active vendors (users with role = 'vendor')
       const { count: activeVendors } = await supabase

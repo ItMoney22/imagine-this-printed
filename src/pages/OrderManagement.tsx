@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { apiFetch } from '../lib/api'
+import ProgressBar from '../components/studio/ProgressBar'
 import type { Order } from '../types'
 
 // Database order interface
@@ -169,12 +170,43 @@ const renderReversalStep = (label: string, step?: { ok: boolean; skipped: boolea
   )
 }
 
+/**
+ * A checkout somebody started and never paid for.
+ *
+ * Deliberately a different type from AdminOrder: it has no fulfilment fields
+ * because there is nothing to fulfil, and giving it the same shape is how one
+ * of these ends up back in a "ready to ship" list. What it does carry is the
+ * recovery state — which nudge emails have gone out — so the crew can see the
+ * recovery job working instead of wondering why nobody is chasing these.
+ */
+interface AbandonedCheckout {
+  id: string
+  orderNumber: string
+  email: string | null
+  name: string | null
+  total: number
+  createdAt: string
+  itemCount: number
+  firstItemName: string | null
+  reminders: Array<{ stage: string; sent_at: string }>
+}
+
 const OrderManagement: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
-  const [selectedTab, setSelectedTab] = useState<'pending' | 'processing' | 'shipped' | 'on_hold' | 'all'>('pending')
+  const [selectedTab, setSelectedTab] = useState<'pending' | 'processing' | 'shipped' | 'on_hold' | 'all' | 'abandoned'>('pending')
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [isLoading, setIsLoading] = useState(true)
+
+  // Abandoned checkouts (2026-09-07). These are NOT orders — nobody paid — so
+  // they live in their own tab, are loaded from their own endpoint
+  // (GET /api/orders?view=abandoned) and never touch `orders`. Keeping them
+  // out of that array is what stops them reappearing in the fulfilment tabs,
+  // the counts and the revenue line, which is the bug this tab exists beside.
+  const [abandoned, setAbandoned] = useState<AbandonedCheckout[]>([])
+  const [abandonedLoaded, setAbandonedLoaded] = useState(false)
+  const [abandonedLoading, setAbandonedLoading] = useState(false)
+  const [abandonedStartedAt, setAbandonedStartedAt] = useState(0)
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showShippingModal, setShowShippingModal] = useState(false)
@@ -198,11 +230,57 @@ const OrderManagement: React.FC = () => {
     fetchOrders()
   }, [])
 
+  // Abandoned checkouts are fetched lazily — the crew opens this tab rarely,
+  // and it must never slow down the screen they actually work from.
+  useEffect(() => {
+    if (selectedTab === 'abandoned' && !abandonedLoaded && !abandonedLoading) {
+      fetchAbandoned()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTab])
+
+  const fetchAbandoned = async () => {
+    setAbandonedLoading(true)
+    setAbandonedStartedAt(Date.now())
+    try {
+      const result = await apiFetch('/api/orders?view=abandoned&limit=100')
+      const rows = result?.orders || []
+      setAbandoned(rows.map((o: any) => {
+        const items = Array.isArray(o.order_items) ? o.order_items : []
+        return {
+          id: o.id,
+          orderNumber: o.order_number || String(o.id).slice(0, 8),
+          email: o.customer_email ?? null,
+          name: o.customer_name
+            || [o.shipping_address?.firstName, o.shipping_address?.lastName].filter(Boolean).join(' ')
+            || null,
+          total: Number(o.total) || 0,
+          createdAt: o.created_at,
+          itemCount: items.reduce((n: number, i: any) => n + (Number(i.quantity) || 0), 0),
+          firstItemName: items[0]?.product_name ?? null,
+          reminders: Array.isArray(o.recovery_reminders) ? o.recovery_reminders : []
+        }
+      }))
+      setAbandonedLoaded(true)
+    } catch (err) {
+      console.error('Failed to fetch abandoned checkouts:', err)
+      toast.error('Could not load abandoned checkouts')
+    } finally {
+      setAbandonedLoading(false)
+    }
+  }
+
   const fetchOrders = async () => {
     setIsLoading(true)
     try {
-      // Use backend API to fetch orders (bypasses RLS issues)
-      // apiFetch handles API_BASE, auth token, and returns parsed JSON directly
+      // Use backend API to fetch orders (bypasses RLS issues).
+      // apiFetch handles API_BASE, auth token, and returns parsed JSON directly.
+      //
+      // This returns PAID orders only as of 2026-09-07 — the endpoint filters
+      // on payment_status. It used to return every row, so two abandoned
+      // checkouts ($34.20 and $21.40, neither ever paid) sat in the Pending tab
+      // below with Buy Label and Mark Shipped wired up. Unpaid checkouts now
+      // live in the Abandoned tab, loaded separately by fetchAbandoned().
       const result = await apiFetch('/api/orders')
       const data = result?.orders
 
@@ -580,9 +658,12 @@ const OrderManagement: React.FC = () => {
     }
   }
 
-  const filteredOrders = selectedTab === 'all'
-    ? orders
-    : orders.filter(order => order.status === selectedTab)
+  // 'abandoned' renders its own panel below and shares nothing with this list.
+  const filteredOrders = selectedTab === 'abandoned'
+    ? []
+    : selectedTab === 'all'
+      ? orders
+      : orders.filter(order => order.status === selectedTab)
 
   // Stats (memoized to avoid filtering on every render)
   const { pendingCount, processingCount, shippedCount, onHoldCount } = useMemo(() => ({
@@ -713,7 +794,10 @@ const OrderManagement: React.FC = () => {
               { id: 'processing', label: 'Processing', count: processingCount },
               { id: 'shipped', label: 'Shipped', count: shippedCount },
               { id: 'on_hold', label: 'On Hold', count: onHoldCount },
-              { id: 'all', label: 'All Orders', count: orders.length }
+              { id: 'all', label: 'All Orders', count: orders.length },
+              // Not an order status — a separate kind of row entirely. Count is
+              // null until the tab is opened, because it is fetched lazily.
+              { id: 'abandoned', label: 'Abandoned Carts', count: abandonedLoaded ? abandoned.length : null }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -737,8 +821,105 @@ const OrderManagement: React.FC = () => {
           </nav>
         </div>
 
+        {/* ---------------------------------------------------------------
+            Abandoned checkouts (2026-09-07).
+
+            Its own panel, not a row in the orders table, because these are not
+            orders: nobody paid, there is nothing to make and nothing to ship.
+            Read-only on purpose — no status control, no Buy Label, no Mark
+            Shipped. Having those buttons next to an unpaid cart is exactly how
+            the shop nearly shipped two of them.
+            --------------------------------------------------------------- */}
+        {selectedTab === 'abandoned' && (
+          <div className="bg-card rounded-xl shadow-lg border border-amber-500/20 overflow-hidden">
+            <div className="px-6 py-4 border-b border-amber-500/20 bg-amber-500/5">
+              <h3 className="text-base font-semibold text-text">Abandoned checkouts</h3>
+              <p className="text-sm text-muted mt-1">
+                Carts that reached the payment screen and were never paid for. Nothing here is owed a shipment.
+                The recovery job emails these customers automatically at 4 hours and again at 24 hours, then stops.
+              </p>
+            </div>
+
+            {abandonedLoading && (
+              <div className="p-8">
+                <ProgressBar label="Loading abandoned checkouts" startedAt={abandonedStartedAt} expectedMs={1500} />
+              </div>
+            )}
+
+            {!abandonedLoading && abandoned.length === 0 && (
+              <div className="p-12 text-center">
+                <h4 className="text-lg font-semibold text-text mb-2">No abandoned checkouts</h4>
+                <p className="text-muted">Every checkout started in the last week was either paid for or cancelled.</p>
+              </div>
+            )}
+
+            {!abandonedLoading && abandoned.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-800/50">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-muted uppercase tracking-wider">Checkout</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-muted uppercase tracking-wider">Customer</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-muted uppercase tracking-wider">Cart</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-muted uppercase tracking-wider">Value</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-muted uppercase tracking-wider">Abandoned</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-muted uppercase tracking-wider">Recovery email</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {abandoned.map((cart) => {
+                      const ageHours = Math.floor((Date.now() - new Date(cart.createdAt).getTime()) / 3_600_000)
+                      const ageLabel = ageHours < 1 ? 'just now'
+                        : ageHours < 24 ? `${ageHours}h ago`
+                          : `${Math.floor(ageHours / 24)}d ago`
+                      const stages = cart.reminders.map(r => r.stage)
+                      return (
+                        <tr key={cart.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-text">{cart.orderNumber}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-text">{cart.name || '—'}</div>
+                            <div className="text-xs text-muted">{cart.email || 'no email captured'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-text">{cart.itemCount} item(s)</div>
+                            <div className="text-xs text-muted truncate max-w-[180px]">{cart.firstItemName || '—'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-text">${cart.total.toFixed(2)}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">{ageLabel}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {!cart.email ? (
+                              <span className="text-xs text-muted">Can't chase — no email</span>
+                            ) : stages.length === 0 ? (
+                              <span className="text-xs text-muted">{ageHours < 4 ? 'Due at 4h' : 'Due on next sweep'}</span>
+                            ) : (
+                              <div className="flex gap-1.5">
+                                {['first', 'second'].map(stage => (
+                                  <span
+                                    key={stage}
+                                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                      stages.includes(stage)
+                                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                                        : 'bg-gray-100 dark:bg-gray-800 text-muted'
+                                    }`}
+                                  >
+                                    {stage === 'first' ? '4h' : '24h'}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Loading State */}
-        {isLoading && (
+        {selectedTab !== 'abandoned' && isLoading && (
           <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-12 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
             <p className="mt-4 text-muted">Loading orders...</p>
@@ -746,7 +927,7 @@ const OrderManagement: React.FC = () => {
         )}
 
         {/* Empty State */}
-        {!isLoading && filteredOrders.length === 0 && (
+        {selectedTab !== 'abandoned' && !isLoading && filteredOrders.length === 0 && (
           <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-12 text-center">
             <svg className="w-16 h-16 mx-auto text-muted mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />

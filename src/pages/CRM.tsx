@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
+import { isPaidOrder } from '../../backend/shared/order-visibility'
 import type { CustomerContact, ContactNote, CustomJobRequest, Order } from '../types'
 
 const CRM: React.FC = () => {
@@ -42,10 +43,15 @@ const CRM: React.FC = () => {
         const profiles = profilesResult.data
         const ordersData = ordersResult.data
 
-        // Calculate customer stats from orders
+        // Calculate customer stats from orders.
+        //
+        // PAID orders only (2026-09-07). Lifetime value and order count are
+        // what segment a customer and decide who gets chased — counting a
+        // checkout somebody abandoned makes a browser look like a buyer. Same
+        // rule as the orders API and the admin metrics.
         const customerStats: Record<string, { totalSpent: number; totalOrders: number; lastOrderDate: string | null }> = {}
 
-        ordersData?.forEach((order: any) => {
+        ordersData?.filter(isPaidOrder).forEach((order: any) => {
           const userId = order.user_id
           if (!customerStats[userId]) {
             customerStats[userId] = { totalSpent: 0, totalOrders: 0, lastOrderDate: null }
@@ -79,8 +85,11 @@ const CRM: React.FC = () => {
 
         setCustomers(mappedCustomers)
 
-        // Map orders to Order format
-        const mappedOrders: Order[] = (ordersData || []).map((order: any) => ({
+        // Map orders to Order format. Unpaid checkout drafts are dropped here
+        // too — the Orders tab below is a fulfilment view (it has status
+        // controls and a "pending" counter the crew works from), so a cart
+        // nobody paid for does not belong in it.
+        const mappedOrders: Order[] = (ordersData || []).filter(isPaidOrder).map((order: any) => ({
           id: order.id,
           userId: order.user_id,
           status: order.status || 'pending',

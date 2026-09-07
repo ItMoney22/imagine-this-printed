@@ -13,6 +13,7 @@ import { addWatermark } from '../services/watermark.js'
 import { extractPalette } from '../services/print-palette.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
+import { sweepAbandonedCarts } from '../services/abandoned-cart.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
 import { claimOnce } from '../lib/webhook-helpers.js'
 import sharp from 'sharp'
@@ -2626,6 +2627,16 @@ async function cleanupExpiredDesignSessions() {
 // own top-level try/catch (backend/services/order-monitor.ts) that logs and
 // swallows everything, so wrapping it again would be redundant.
 async function runCleanupSweeps() {
+  // Abandoned-checkout recovery mail (2026-09-07) runs FIRST, deliberately.
+  // cleanupIncompleteOrders below hard-DELETES unpaid orders at 10 days and the
+  // recovery window is 7, so today the order doesn't matter — but if anyone
+  // ever lowers that 10, mailing before deleting is what stops a cart being
+  // shredded in the same tick it was due to be chased.
+  try {
+    await sweepAbandonedCarts()
+  } catch (error) {
+    console.error('[worker] ❌ sweepAbandonedCarts threw:', error)
+  }
   try {
     await cleanupIncompleteOrders()
   } catch (error) {

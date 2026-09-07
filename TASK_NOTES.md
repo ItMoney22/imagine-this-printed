@@ -1,5 +1,140 @@
 # TASK_NOTES
 
+## Current request (2026-09-07) — unpaid checkouts are showing up as orders to ship
+
+David: "we had a couple of people who added products to their cart and it's
+showing up as orders as if we need to ship them out. look at stripe you'll see
+that payments are not complete, please fix this. we need to be alerted when an
+order is coming in and when they're completed so we can ship and for the orders
+that are incomplete, the customers need to get an email asking if they left
+something in their cart"
+
+### Verified against LIVE Stripe + LIVE prod DB (2026-09-07)
+Both "orders" David is looking at are abandoned checkouts. Stripe (live key)
+says neither was ever paid:
+
+| Order | Created | DB | Stripe PaymentIntent |
+|---|---|---|---|
+| ITP-MTRCHS6X-T7W5 $34.20 | 09-07 14:37 | pending / pending / unfulfilled | `requires_payment_method` |
+| ITP-MTQBXPVV-38KZ $21.40 | 09-06 21:34 | pending / pending / unfulfilled | `requires_payment_method` |
+
+Only 6 rows exist in `orders` at all; exactly one is a real paid customer order
+(ITP-MSJK1K3I-8GDG, delivered). Stripe holds ~14 more `requires_payment_method`
+intents whose draft rows were already hard-deleted by the worker's 10-day
+`cleanupIncompleteOrders()` sweep.
+
+### Root cause
+`POST /api/stripe/checkout-payment-intent` (backend/routes/stripe.ts:524)
+INSERTs an `orders` row at payment-intent creation — *before any money moves* —
+with `status:'pending', payment_status:'pending'`. That is deliberate and load
+bearing: the row id rides in the PaymentIntent metadata, so it is what the
+webhook and the hourly reconciler use to mark the order paid. It is also the
+cart snapshot the abandoned-cart migration was written against.
+
+The row is not the bug. The bug is that **nothing on the fulfilment side filters
+on `payment_status`**:
+- `GET /api/orders` (routes/orders.ts:121) returns every row, unfiltered.
+- `OrderManagement.tsx` drops them straight into the "Pending" tab next to real
+  orders, with Buy Label / Mark Shipped wired up.
+- `AdminDashboard.tsx:574` sums `total` over ALL orders, so abandoned carts
+  inflate reported revenue ($55.60 of the $90.01 "revenue" was never paid).
+
+The codebase already encodes "pending = never paid" in three other places
+(`lib/order-status.ts`, `services/order-refunds.ts` EVER_PAID_STATUSES,
+`lib/abandoned-cart.ts`), so the fix is to honour that contract on the
+fulfilment surfaces, NOT to rename the status.
+
+### Second defect found while tracing the alert path
+There are two order-status update routes and only one of them emails anybody:
+- `PATCH /api/stripe/orders/:orderId/status` — sends shipped/delivered mail.
+- `PATCH /api/orders/:orderId` — **sends nothing**, and this is the one the
+  admin UI actually calls (OrderManagement.tsx:342).
+So every order the crew has marked shipped from the dashboard shipped *silently*.
+
+### Third defect: abandoned-cart recovery was built to 40% and left dark
+`lib/abandoned-cart.ts` (schedule/decision layer) and its tests exist, and
+`supabase/migrations/20260728140100_abandoned_cart_reminders.sql` exists — but
+`services/abandoned-cart.ts`, the email template and the worker wiring were
+never written, and **the migration was never applied to prod** (verified:
+`relation "public.abandoned_cart_reminders" does not exist`). No customer has
+ever been sent a cart reminder.
+
+### File shortlist (approved scope — 2026-09-07 order truth + alerts)
+- `backend/lib/order-visibility.ts` (new) + `.test.ts` — the one answer to
+  "is this a real order or an unpaid checkout draft"
+- `backend/routes/orders.ts` — filter GET /, abandoned view, shipped/delivered
+  mail + completion alert on PATCH
+- `backend/services/abandoned-cart.ts` (new) + `.test.ts` — candidate query,
+  suppression check, send, idempotent record
+- `backend/lib/abandoned-cart.ts` — status-agnostic candidate contract
+- `backend/utils/email.ts` — `sendAbandonedCartEmail`, `sendOrderCompletedTeamEmail`, header passthrough
+- `backend/utils/unsubscribe-token.ts` (new) + `backend/routes/email.ts` — CAN-SPAM unsubscribe path
+- `backend/worker/ai-jobs-worker.ts` — hourly abandoned-cart sweep
+- `src/pages/AdminDashboard.tsx` — revenue/order metrics count paid only
+- `src/pages/CRM.tsx` — customer lifetime value counts paid only
+- `src/pages/OrderManagement.tsx` — "Abandoned Checkouts" tab, unpaid rows out of fulfilment
+- `src/pages/RecoverCart.tsx` (new) + `src/App.tsx` — one-click cart restore from the email
+- `supabase/migrations/20260728140100_abandoned_cart_reminders.sql` — apply to prod
+- `TASK_NOTES.md`
+
+
+### Work log 2026-09-07 (order truth + alerts + cart recovery)
+- Proved the report against LIVE Stripe with the live secret key: both flagged
+  "orders" are `requires_payment_method`. Nobody paid. The webhook endpoint
+  itself is healthy (`api.imaginethisprinted.com/api/stripe/webhook`, enabled,
+  `payment_intent.succeeded` subscribed) — this was never a webhook outage, the
+  drafts simply had no reason to be on a fulfilment screen.
+- Added `backend/shared/order-visibility.ts` — `isPaidOrder` /
+  `isAbandonedCheckout` / `paidRevenueTotal`. Put in `shared/` (not `lib/`)
+  because the frontend imports it too, so the crew screen, the customer's own
+  order history, the CRM and the API all answer "is this a real order?" from
+  ONE implementation. 16 tests, keyed to the real live rows.
+- `GET /api/orders` gained `view=orders|abandoned|all`, defaulting to `orders`.
+  `GET /api/orders/my` now returns paid only too — a customer was seeing their
+  own abandoned checkout listed as a purchase.
+- AdminDashboard revenue and CRM lifetime-value now count paid orders only.
+  Verified against live data: reported revenue was $91.01 across 6 "orders";
+  $55.60 of that was the two abandoned carts. True figure is $35.41 across 4.
+- OrderManagement gained an "Abandoned Carts" tab: own endpoint, own read-only
+  type, no status control and no Buy Label, plus a per-cart column showing
+  which recovery nudges have gone out. Uses the existing studio `ProgressBar`
+  rather than a spinner.
+- **Second defect found while tracing the alert path.** There are two order
+  status routes and only `PATCH /api/stripe/orders/:orderId/status` emailed
+  anyone. The admin UI calls the OTHER one (`PATCH /api/orders/:orderId`),
+  which selected `id, status` and sent nothing — so every order the crew has
+  ever marked shipped from the dashboard shipped SILENTLY. It now sends the
+  same shipped/delivered mail, guarded on a real transition so re-clicking
+  "Shipped" can't re-mail.
+- Added `services/order-alerts.ts` + `notifyTeamOfOrderClosed`: bell row and
+  crew email on shipped/delivered/completed, the missing bookend to the
+  existing paid-order alert. New `order_completed` notification type
+  (migration `20260907120000`).
+- **Third defect: abandoned-cart recovery was built to 40% and left dark.**
+  `lib/abandoned-cart.ts`, its tests and migration `20260728140100` were
+  written 2026-07-28; the service, the email and the worker wiring never were,
+  and the migration was never applied to prod. Built the missing half:
+  `services/abandoned-cart.ts` (claims the stage BEFORE sending, so a crash
+  mid-send cannot re-mail; refuses to send at all if the dedupe table is
+  unreadable), `utils/email-marketing.ts` (kept OUT of utils/email.ts — this is
+  ITP's first commercial send and the rules differ), a real unsubscribe path
+  (`utils/unsubscribe-token.ts` + `GET/POST /api/email/unsubscribe`, RFC 8058
+  one-click, recorded in `email_suppressions` which every send already checks),
+  and the hourly worker sweep. 15 tests.
+- The email's CTA restores the cart SERVER-side (`GET /api/orders/:id/recover`
+  + `/recover-cart/:orderId` page) instead of pointing at `/cart`. The cart
+  lives only in localStorage, so a plain link is broken for anyone who reads
+  mail on their phone and shops on a laptop. Rehydrates against live `products`
+  so a week-old link cannot resurrect a stale price or a retired item.
+- Verified: 1005 backend tests pass (66 files), both tsconfigs typecheck clean,
+  `npm run build` succeeds.
+- **NEEDS DAVID:** the two migrations could not be applied — writing DDL to the
+  live DB is blocked by this session's auto-mode classifier. Until
+  `20260728140100_abandoned_cart_reminders.sql` is applied, the recovery sweep
+  halts on purpose and sends nothing (it will not guess and risk double-mailing).
+  Everything else in this change works without them.
+
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it

@@ -39,6 +39,13 @@ interface EmailOptions {
   subject: string
   htmlContent: string
   textContent?: string
+  /**
+   * Extra SMTP headers. Added 2026-09-07 for RFC 8058 List-Unsubscribe on the
+   * abandoned-cart recovery mail — Gmail and Yahoo require them on commercial
+   * sends, and the reputation hit for omitting them lands on the same domain
+   * that carries order confirmations. Transactional mail leaves this unset.
+   */
+  headers?: Record<string, string>
 }
 
 export interface SendEmailResult {
@@ -65,6 +72,7 @@ async function sendViaResendTransport(options: EmailOptions): Promise<SendEmailR
     subject: options.subject,
     html: options.htmlContent,
     text: options.textContent || options.htmlContent.replace(/<[^>]*>/g, ''),
+    ...(options.headers ? { headers: options.headers } : {}),
   })
   console.log('[Email] ✅ Sent via Resend to:', options.to, 'id:', result.id)
   return { success: true, messageId: result.id }

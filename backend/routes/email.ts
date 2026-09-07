@@ -23,6 +23,7 @@ import {
 } from '../services/email-resend.js';
 import { uploadFile } from '../services/gcs-storage.js';
 import { listSuppressions, recordSuppression } from '../services/email-suppression.js';
+import { verifyUnsubscribeToken, UNSUBSCRIBE_FRONTEND_URL } from '../utils/unsubscribe-token.js';
 
 const router = Router();
 
@@ -203,6 +204,79 @@ async function ensureRole(req: Request): Promise<string> {
   req.user!.role = data?.role || 'customer';
   return req.user!.role!;
 }
+
+// ---------------------------------------------------------------------------
+// Unsubscribe — PUBLIC, no auth (2026-09-07)
+//
+// Backs the opt-out link and the RFC 8058 List-Unsubscribe header on the
+// abandoned-cart recovery mail, ITP's first commercial send. The token is an
+// HMAC of the address, so this can't be used to unsubscribe someone else or to
+// enumerate who we mail.
+//
+// The opt-out is recorded in `email_suppressions` (reason 'manual'), which
+// sendEmailWithTracking consults before EVERY send — so one click silences ITP
+// mail to that address everywhere at once.
+//
+// GET renders a confirmation page for a human clicking the link. POST is what
+// Gmail/Yahoo call for one-click unsubscribe and answers 204 with no body.
+// ---------------------------------------------------------------------------
+async function applyUnsubscribe(rawEmail: unknown, rawToken: unknown): Promise<{ ok: boolean; email: string }> {
+  const email = String(rawEmail || '').trim().toLowerCase();
+  if (!email || !verifyUnsubscribeToken(email, String(rawToken || ''))) {
+    return { ok: false, email };
+  }
+  await recordSuppression({
+    email,
+    reason: 'manual',
+    source: 'manual',
+    detail: 'Unsubscribed via one-click link in marketing email',
+  });
+  console.log(`[email] 🚫 ${email} unsubscribed via one-click link`);
+  return { ok: true, email };
+}
+
+const UNSUB_PAGE = (title: string, body: string) => `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title></head>
+<body style="margin:0;background:#0b0b12;color:#e8e8f0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px">
+<div style="max-width:460px;text-align:center">
+<h1 style="font-size:22px;margin:0 0 12px">${title}</h1>
+<p style="font-size:15px;line-height:1.6;color:#b9b9c9;margin:0 0 24px">${body}</p>
+<a href="${UNSUBSCRIBE_FRONTEND_URL}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:600">Back to Imagine This Printed</a>
+</div></body></html>`;
+
+router.get('/unsubscribe', async (req: Request, res: Response) => {
+  try {
+    const { ok, email } = await applyUnsubscribe(req.query.e, req.query.t);
+    if (!ok) {
+      return res.status(400).type('html').send(UNSUB_PAGE(
+        'That link is not valid',
+        'We could not verify this unsubscribe link. It may have been altered in transit. Email wecare@imaginethisprinted.com and we will take you off the list by hand.'
+      ));
+    }
+    return res.type('html').send(UNSUB_PAGE(
+      'You are unsubscribed',
+      `We will not email <strong>${email}</strong> again. You will still get receipts and shipping updates for anything you order — those are not marketing.`
+    ));
+  } catch (err: any) {
+    console.error('[email] Unsubscribe failed:', err?.message || err);
+    return res.status(500).type('html').send(UNSUB_PAGE(
+      'Something went wrong',
+      'We could not process that just now. Email wecare@imaginethisprinted.com and we will remove you by hand.'
+    ));
+  }
+});
+
+// One-click (RFC 8058). Mail providers POST here; they read the status code, not a body.
+router.post('/unsubscribe', async (req: Request, res: Response) => {
+  try {
+    const { ok } = await applyUnsubscribe(req.query.e, req.query.t);
+    return res.status(ok ? 204 : 400).end();
+  } catch (err: any) {
+    console.error('[email] One-click unsubscribe failed:', err?.message || err);
+    return res.status(500).end();
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Mailboxes
