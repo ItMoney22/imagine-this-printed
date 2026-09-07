@@ -454,11 +454,17 @@ function propertyValue(prop: any, name: string, scaleId?: number) {
   return pv
 }
 
-// Set variations on a freshly created listing via the inventory endpoint.
-// Property ids are discovered from the taxonomy (never hardcoded — they're
-// Etsy's to define). Price can vary by size (per-size price on the spec);
-// otherwise uniform. Throws on failure; the caller treats it as best-effort.
-async function applyListingVariations(
+// Set variations on a listing via the inventory endpoint. Property ids are
+// discovered from the taxonomy (never hardcoded — they're Etsy's to define).
+// Price can vary by size (per-size price on the spec); otherwise uniform.
+// Throws on failure; the publish caller treats it as best-effort.
+//
+// Exported because it is also the ONLY way to reprice an ALREADY-PUBLISHED
+// listing: publishProductToEtsy refuses a product that already has a live
+// listing ("use update instead of re-posting"), and the inventory PUT is a
+// full replace, so re-deriving the whole axis here is exactly right. Used to
+// push the 2026-09-07 per-size pricing onto listings that were live before it.
+export async function applyListingVariations(
   token: string,
   listingId: number,
   taxonomyId: number,

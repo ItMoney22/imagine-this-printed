@@ -2774,3 +2774,36 @@ only manual step, and it raises their 2XL/3XL by $2.50.
   literally. It is one constant (`YOUTH_SIZE_DISCOUNT_CENTS`) in
   `catalog-capability.ts`; changing it there moves the storefront, the cart,
   checkout, the server re-price and the Etsy variations together.
+
+### Deploy + live Etsy reprice 2026-09-07 (David: "yea you handle all of that")
+- Rebased onto `origin/main`, which had moved 4 commits ahead (incl. a7ba56a,
+  the $40 hoodie anchor). Only `TASK_NOTES.md` conflicted — both sides are
+  append-only sections, kept both. Verified the anchor composes with the new
+  per-size rails: hoodie $40 -> 2XL $42.50, Youth M $37; tee $25 -> 2XL $27.50,
+  Youth M $22.
+- Pushed `14f7410` to main. Render API healthy (`/api/health` ok) and the live
+  Vercel bundle (`/assets/index-Bc7rx5r2.js`) contains the youth band.
+
+**Repricing the already-live Etsy listings needed a path that did not exist.**
+`publishProductToEtsy` REFUSES a product that already has a live listing
+("use update instead of re-posting") — and there is no update route, so the
+inventory PUT is the only way. Exported `applyListingVariations` for it.
+
+Order of operations, deliberately: inspected both live listings read-only,
+then proved the write on a DRAFT (4559422897) before touching anything active.
+That mattered — our labels '2XL'/'3XL'/'Youth XS' are all CUSTOM values
+(taxonomy 482's only scale, 51 "Unisex letter size", offers XXS-XL then 2X/3X/4X
+— no 'L'-suffixed or youth values at all), and each is sent with `scale_id`
+attached. Etsy accepted them, which the existing live listings had already
+proven implicitly by carrying '2XL'.
+
+Repriced, each 6 offerings -> 11, all enabled, colour axis preserved:
+- 4544388862 Alien Directive Tee (ACTIVE)
+- 4544353578 Simply Be You Retro Varsity Shirt (ACTIVE)
+- 4559422897 Retro Cherry Roller Skate Shirt (draft, the rehearsal)
+
+Remaining 44 primary drafts pick the new prices up when they publish; no action.
+
+**Gap worth its own task:** there is still no "update a live Etsy listing"
+route. This reprice ran from a one-off script against an exported service
+function. Any future price/size change to a live listing has the same problem.
