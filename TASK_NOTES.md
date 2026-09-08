@@ -2931,3 +2931,57 @@ title than its publish path is that same failure with a slower fuse.
   4544388862 returned 11 offerings, and both live listings independently verify
   as active with 11 enabled offerings at the correct prices.
 - Full suite 88 files / 1364 tests, both typechecks clean, eslint 0 errors.
+
+---
+
+## Current request (2026-09-08) — the admin overview cards were lying, and dead
+
+David, on the Admin Dashboard: "its counting money we dont even have this needs
+to be clickable too so if i clik the money card should take me to orders and the
+other items too should be clickable."
+
+### What was wrong (measured against the live DB, 7 order rows)
+- **Revenue $118.52 was every `orders` row summed.** A row is written at
+  checkout BEFORE Stripe confirms, so the total included two unpaid drafts
+  ($55.60 that never arrived) and three cancelled test orders ($9.41 that went
+  back out). Actually collected: **$53.51** from 2 paid orders.
+- **Pending Approvals 2471 counted `status='draft'`** — i.e. the imported design
+  library plus Mrs. Imagine's output. The real number is 1, which is what the
+  Ops Monitor two inches below the card already said. Two widgets on one screen
+  disagreed by 2,470.
+- **Active Sessions was hard-coded 0** with a `// implement session tracking`
+  note. There is no session store to read, so it could never be anything else.
+- **No card was clickable** — the number was the end of the road.
+- Order Management's own header repeated the same $118.52 sum, so the money
+  card's destination would have re-told the lie on arrival.
+
+### What changed
+- `src/pages/AdminDashboard.tsx` — revenue/order count = `payment_status='paid'`
+  minus `REVERSED_ORDER_STATUSES` (cancelled/refunded, mirroring
+  `backend/services/order-monitor.ts`); approvals = `pending_approval` products
+  + unapproved 3D models, drafts excluded; new `StatCard` button component
+  (hover lift, chevron, focus ring, aria-label) + `goToTab()`.
+- Fourth card is now **Unpaid Checkouts** (2 · $55.60 never collected) instead
+  of Active Sessions — the money that didn't land gets its own honest home
+  rather than being folded into revenue.
+- `src/pages/OrderManagement.tsx` — same paid-only rule for the header revenue,
+  plus `?tab=` support so the cards land on the right slice.
+- `src/types/index.ts` — `SystemMetrics`: `activeSessions` → `unpaidOrders` +
+  `unpaidRevenue`.
+
+### Destinations
+Users → Users tab · Revenue → `/admin/orders?tab=all` · Approvals → Products tab
+pre-filtered to Pending approval · Unpaid → `/admin/orders?tab=pending`.
+
+### Verified
+All four clicks driven in a real browser against the live DB as an admin:
+303 users → User Management 303 of 303; $53.51 / 2 paid orders → All Orders with
+the header now reading $53.51; 1 approval → Products showing the single
+pending_approval row; 2 unpaid / $55.60 → Pending tab showing exactly those two
+orders. tsc clean, eslint 0 errors, production build clean.
+
+### File shortlist (approved scope — 2026-09-08 admin cards)
+- `src/pages/AdminDashboard.tsx`
+- `src/pages/OrderManagement.tsx`
+- `src/types/index.ts`
+- `TASK_NOTES.md`

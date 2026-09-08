@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import api, { aiProducts, adminApi, API_BASE, etsy, apiFetch } from '../lib/api'
 import { buildProductGallery } from '../lib/product-gallery'
@@ -31,6 +31,11 @@ import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-prese
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
 import AdminVirtualTryOnReport from '../components/AdminVirtualTryOnReport'
 import AdminProductEditModal from '../components/admin/AdminProductEditModal'
+
+// Order states where the money came in and then went back out. Kept in sync
+// with TERMINAL_ORDER_STATUSES in backend/services/order-monitor.ts, which is
+// what the Ops Monitor on this same page counts against.
+const REVERSED_ORDER_STATUSES = ['cancelled', 'refunded']
 
 // T-shirt print placements offered on a product → products.print_locations.
 // Mirrors the same list in the AI wizard (AdminCreateProductWizard.tsx) and the
@@ -124,12 +129,67 @@ const ProductRowThumbnail: React.FC<{ candidates: string[]; alt: string }> = ({ 
   )
 }
 
+// A number on the overview row is only half an answer — the admin's next move is
+// always "show me the rows behind it". Every tile is therefore a button that
+// lands on the exact view that explains it.
+const STAT_TONES = {
+  blue: 'from-blue-500 to-blue-600 shadow-blue-500/25',
+  emerald: 'from-emerald-500 to-emerald-600 shadow-emerald-500/25',
+  amber: 'from-amber-500 to-orange-500 shadow-amber-500/25',
+  rose: 'from-rose-500 to-rose-600 shadow-rose-500/25'
+} as const
+
+const StatCard: React.FC<{
+  label: string
+  value: string
+  sub?: string
+  tone: keyof typeof STAT_TONES
+  icon: React.ReactNode
+  actionLabel: string
+  onClick: () => void
+}> = ({ label, value, sub, tone, icon, actionLabel, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={actionLabel}
+    aria-label={`${label}: ${value}. ${actionLabel}`}
+    className="group w-full text-left bg-white rounded-2xl shadow-soft border border-slate-100 p-6 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lg hover:border-purple-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
+  >
+    <div className="flex items-center">
+      <div className={`p-3 bg-gradient-to-br ${STAT_TONES[tone]} rounded-xl shadow-lg shrink-0`}>
+        {icon}
+      </div>
+      <div className="ml-4 min-w-0">
+        <p className="text-sm font-medium text-slate-500">{label}</p>
+        <p className="text-2xl font-bold text-slate-900">{value}</p>
+        {sub && <p className="text-xs text-slate-400 mt-0.5 truncate">{sub}</p>}
+      </div>
+      <svg
+        aria-hidden="true"
+        className="w-5 h-5 ml-auto shrink-0 text-slate-300 transition-all group-hover:text-purple-500 group-hover:translate-x-0.5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+      </svg>
+    </div>
+  </button>
+)
+
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
   const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
+  // One place that moves the dashboard to a tab, so the overview cards and the
+  // tab bar can never drift apart on how the URL is kept in sync.
+  const goToTab = (tab: typeof selectedTab) => {
+    setSelectedTab(tab)
+    setSearchParams({ tab })
+  }
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorSubmission[]>([])
   // Users-tab filters: 180+ accounts render in one table, so finding the person
@@ -235,7 +295,8 @@ const AdminDashboard: React.FC = () => {
     pendingApprovals: 0,
     modelsUploaded: 0,
     pointsDistributed: 0,
-    activeSessions: 0
+    unpaidOrders: 0,
+    unpaidRevenue: 0
   })
   const [showProductModal, setShowProductModal] = useState(false)
   // ITC Pricing state
@@ -590,14 +651,31 @@ const AdminDashboard: React.FC = () => {
         .from('user_profiles')
         .select('*', { count: 'exact', head: true })
 
-      // Get total orders and revenue (live column is `total` — the old
-      // `total_amount` name doesn't exist, which made revenue read $0)
+      // Revenue is money that ACTUALLY LANDED, and an `orders` row is written
+      // at checkout BEFORE Stripe confirms the payment. Summing every row
+      // therefore counted two things the business never received: unpaid
+      // checkout drafts that sit at payment_status='pending' forever, and
+      // cancelled/refunded orders where the money went back out. That is how
+      // this card read $118.52 against $53.51 actually collected.
+      // (live column is `total` — the old `total_amount` name doesn't exist,
+      // which is a separate bug that once made revenue read $0)
       const { data: orders } = await supabase
         .from('orders')
-        .select('total')
+        .select('total, status, payment_status')
 
-      const totalRevenue = orders?.reduce((sum, order) => sum + (Number(order.total) || 0), 0) || 0
-      const totalOrders = orders?.length || 0
+      const allOrders = orders || []
+      const isReversed = (order: { status?: string | null }) =>
+        REVERSED_ORDER_STATUSES.includes(String(order.status || '').toLowerCase())
+
+      const paidOrders = allOrders.filter(o => o.payment_status === 'paid' && !isReversed(o))
+      const totalRevenue = paidOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0)
+      const totalOrders = paidOrders.length
+
+      // The other half of the truth: checkouts that never paid. Not revenue,
+      // but not nothing either — this is recoverable money, so it gets its own
+      // card instead of being quietly folded into the revenue number.
+      const unpaid = allOrders.filter(o => o.payment_status !== 'paid' && !isReversed(o))
+      const unpaidRevenue = unpaid.reduce((sum, order) => sum + (Number(order.total) || 0), 0)
 
       // Get active vendors (users with role = 'vendor')
       const { count: activeVendors } = await supabase
@@ -605,13 +683,12 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('role', 'vendor')
 
-      // Get pending approvals (draft products)
-      const { count: pendingProducts } = await supabase
-        .from('products')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'draft')
-
-      // Get user-submitted products pending approval
+      // Get products actually awaiting a decision. `draft` is NOT one of them:
+      // the imported design library plus Mrs. Imagine's output leave ~2,470
+      // draft rows sitting in `products`, and counting those made this card
+      // read 2471 while the Ops Monitor directly below it read 1. A draft is
+      // work in progress; only `pending_approval` is a submission waiting on
+      // an admin.
       const { count: pendingUserProducts } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true })
@@ -628,7 +705,7 @@ const AdminDashboard: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('approved', false)
 
-      const pendingApprovals = (pendingProducts || 0) + (pendingUserProducts || 0) + (pendingModels || 0)
+      const pendingApprovals = (pendingUserProducts || 0) + (pendingModels || 0)
 
       // Get total 3D models
       const { count: modelsUploaded } = await supabase
@@ -650,7 +727,8 @@ const AdminDashboard: React.FC = () => {
         pendingApprovals,
         modelsUploaded: modelsUploaded || 0,
         pointsDistributed,
-        activeSessions: 0 // Keep as 0 or implement session tracking
+        unpaidOrders: unpaid.length,
+        unpaidRevenue
       })
     } catch (error) {
       console.error('Error loading metrics:', error)
@@ -2160,63 +2238,66 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* System Overview Cards */}
+        {/* System Overview Cards — every tile is a door into the rows behind it */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg shadow-blue-500/25">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-slate-500">Total Users</p>
-                <p className="text-2xl font-bold text-slate-900">{systemMetrics.totalUsers}</p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            label="Total Users"
+            value={String(systemMetrics.totalUsers)}
+            sub={`${systemMetrics.activeVendors} vendor${systemMetrics.activeVendors === 1 ? '' : 's'}`}
+            tone="blue"
+            actionLabel="Opens the Users tab"
+            onClick={() => goToTab('users')}
+            icon={
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+              </svg>
+            }
+          />
 
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl shadow-lg shadow-emerald-500/25">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-slate-500">Total Revenue</p>
-                <p className="text-2xl font-bold text-slate-900">${systemMetrics.totalRevenue.toFixed(2)}</p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            label="Revenue Collected"
+            value={`$${systemMetrics.totalRevenue.toFixed(2)}`}
+            sub={`${systemMetrics.totalOrders} paid order${systemMetrics.totalOrders === 1 ? '' : 's'}`}
+            tone="emerald"
+            actionLabel="Opens Order Management"
+            onClick={() => navigate('/admin/orders?tab=all')}
+            icon={
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+              </svg>
+            }
+          />
 
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl shadow-lg shadow-amber-500/25">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-slate-500">Pending Approvals</p>
-                <p className="text-2xl font-bold text-slate-900">{systemMetrics.pendingApprovals}</p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            label="Pending Approvals"
+            value={String(systemMetrics.pendingApprovals)}
+            sub="Waiting on you"
+            tone="amber"
+            actionLabel="Opens the Products tab filtered to pending approval"
+            onClick={() => {
+              setProductStatusFilter('pending_approval')
+              goToTab('products')
+            }}
+            icon={
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+          />
 
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-            <div className="flex items-center">
-              <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg shadow-purple-500/25">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-slate-500">Active Sessions</p>
-                <p className="text-2xl font-bold text-slate-900">{systemMetrics.activeSessions}</p>
-              </div>
-            </div>
-          </div>
+          <StatCard
+            label="Unpaid Checkouts"
+            value={String(systemMetrics.unpaidOrders)}
+            sub={`$${systemMetrics.unpaidRevenue.toFixed(2)} never collected`}
+            tone="rose"
+            actionLabel="Opens Order Management on the pending tab"
+            onClick={() => navigate('/admin/orders?tab=pending')}
+            icon={
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+            }
+          />
         </div>
 
         {/* Tabs */}

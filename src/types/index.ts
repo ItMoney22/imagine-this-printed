@@ -296,13 +296,18 @@ export interface MarketingCampaign {
 
 export interface SystemMetrics {
   totalUsers: number
+  /** Paid, non-reversed orders only — see AdminDashboard.loadMetrics. */
   totalOrders: number
+  /** Money actually collected: paid, not cancelled/refunded. */
   totalRevenue: number
   activeVendors: number
   pendingApprovals: number
   modelsUploaded: number
   pointsDistributed: number
-  activeSessions: number
+  /** Checkouts that created an order row but never got paid. */
+  unpaidOrders: number
+  /** Dollar value sitting in those unpaid checkouts. */
+  unpaidRevenue: number
 }
 
 export interface ShippingAddress {

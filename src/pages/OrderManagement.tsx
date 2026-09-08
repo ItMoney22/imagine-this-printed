@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { apiFetch } from '../lib/api'
@@ -169,10 +170,27 @@ const renderReversalStep = (label: string, step?: { ok: boolean; skipped: boolea
   )
 }
 
+// Order states where money came in and then went back out. Mirrors
+// TERMINAL_ORDER_STATUSES in backend/services/order-monitor.ts.
+const REVERSED_ORDER_STATUSES = ['cancelled', 'refunded']
+
+const ORDER_TABS = ['pending', 'processing', 'shipped', 'on_hold', 'all'] as const
+type OrderTab = typeof ORDER_TABS[number]
+
 const OrderManagement: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
-  const [selectedTab, setSelectedTab] = useState<'pending' | 'processing' | 'shipped' | 'on_hold' | 'all'>('pending')
+  // ?tab= lets the admin dashboard's overview cards land on the right slice
+  // instead of always dropping the admin on 'pending'.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabFromUrl = searchParams.get('tab') as OrderTab | null
+  const [selectedTab, setSelectedTab] = useState<OrderTab>(
+    tabFromUrl && ORDER_TABS.includes(tabFromUrl) ? tabFromUrl : 'pending'
+  )
+  const selectTab = (tab: OrderTab) => {
+    setSelectedTab(tab)
+    setSearchParams({ tab }, { replace: true })
+  }
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
@@ -591,7 +609,13 @@ const OrderManagement: React.FC = () => {
     shippedCount: orders.filter(o => o.status === 'shipped').length,
     onHoldCount: orders.filter(o => o.status === 'on_hold').length
   }), [orders])
-  const totalRevenue = orders.reduce((sum, o) => sum + (o.total || 0), 0)
+  // Same rule as the admin dashboard's Revenue Collected card: an order row is
+  // written at checkout before Stripe confirms, so unpaid drafts and
+  // cancelled/refunded orders are NOT revenue. Summing every row here reported
+  // $118.52 against $53.51 actually collected.
+  const totalRevenue = orders
+    .filter(o => o.paymentStatus === 'paid' && !REVERSED_ORDER_STATUSES.includes(String(o.status || '').toLowerCase()))
+    .reduce((sum, o) => sum + (o.total || 0), 0)
 
   if (user?.role !== 'admin' && user?.role !== 'manager' && user?.role !== 'founder') {
     return (
@@ -623,7 +647,7 @@ const OrderManagement: React.FC = () => {
                 <p className="text-white text-xl font-bold">{orders.length}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/20">
-                <p className="text-purple-100 text-xs">Revenue</p>
+                <p className="text-purple-100 text-xs">Revenue collected</p>
                 <p className="text-white text-xl font-bold">${totalRevenue.toFixed(2)}</p>
               </div>
             </div>
@@ -717,7 +741,7 @@ const OrderManagement: React.FC = () => {
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setSelectedTab(tab.id as any)}
+                onClick={() => selectTab(tab.id as OrderTab)}
                 className={`flex items-center px-4 py-2.5 rounded-lg font-medium text-sm transition-all whitespace-nowrap ${
                   selectedTab === tab.id
                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
