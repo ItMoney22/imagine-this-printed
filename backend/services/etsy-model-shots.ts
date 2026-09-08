@@ -33,6 +33,7 @@ import {
   normalizeGarment,
   getGarment,
   audienceForGarment,
+  photographableAudiences,
   type GarmentAudience,
   type GarmentId,
   type ColorId,
@@ -446,18 +447,21 @@ export interface ShotSubject {
   label: string
   persona: string
   keywords: readonly string[]
-  /** 'youth' subjects are only offered on a youth garment. */
+  /** 'youth' subjects are only offered where the listing actually sells youth sizes. */
   audience: GarmentAudience
 }
 
 /**
  * Catalog for the admin picker — the blurb doubles as the chip tooltip.
- * Pass the garment's audience to get only the subjects castable on it; with
- * no argument you get everything (the Etsy panel's full catalog).
+ * Pass the band(s) castable on this garment to narrow the list; with no
+ * argument you get everything (the Etsy panel's full catalog). A garment that
+ * sells a youth cut on the same listing passes BOTH bands — see
+ * `photographableAudiences` in shared/catalog-capability.ts.
  */
-export function listShotSubjects(audience?: GarmentAudience): ShotSubject[] {
+export function listShotSubjects(audience?: GarmentAudience | GarmentAudience[]): ShotSubject[] {
+  const allowed = audience == null ? null : new Set(Array.isArray(audience) ? audience : [audience])
   return ARCHETYPES
-    .filter(a => !audience || (a.audience ?? 'adult') === audience)
+    .filter(a => !allowed || allowed.has(a.audience ?? 'adult'))
     .map(a => ({
       id: a.id,
       label: a.label,
@@ -541,23 +545,29 @@ export function composeSubject(member: CastMember): { persona: string; signature
  * Resolve the admin's picks into at most two cast slots. Throws on a bad
  * custom subject.
  *
- * `audience` is the GARMENT's audience (see shared/catalog-capability.ts) and
- * is the hard boundary on who can be cast: a youth archetype on an adult
- * garment, or an adult archetype on the youth tee, is rejected here rather
- * than quietly producing a photo that misrepresents what the buyer receives.
- * Omitting it means 'adult' — the safe default, and what every existing
- * caller got before the youth lane existed.
+ * `audience` is the band (or bands) this listing may be photographed on — see
+ * `photographableAudiences` in shared/catalog-capability.ts — and is the hard
+ * boundary on who can be cast. The rule it enforces is "a photo may never
+ * advertise a size we don't sell", so a garment that sells BOTH an adult and a
+ * youth cut on one listing legitimately passes both bands, while the youth tee
+ * passes only 'youth'. Omitting it means 'adult' alone — the safe default, and
+ * what every existing caller got before the youth lane existed.
  */
-export function resolveCast(cast?: ShotCast, audience: GarmentAudience = 'adult'): CastMember[] {
+export function resolveCast(
+  cast?: ShotCast,
+  audience: GarmentAudience | GarmentAudience[] = 'adult'
+): CastMember[] {
+  const bands = Array.isArray(audience) ? audience : [audience]
+  const allowed = new Set(bands)
   const members: CastMember[] = []
   for (const id of cast?.subjects ?? []) {
     const match = ARCHETYPES.find(a => a.id === id)
     if (!match) throw new ShotCastError(`Unknown model subject "${id}"`)
     const subjectAudience = match.audience ?? 'adult'
-    if (subjectAudience !== audience) {
+    if (!allowed.has(subjectAudience)) {
       throw new ShotCastError(
         subjectAudience === 'youth'
-          ? `"${match.label}" is a youth subject and this listing is an adult garment — a child model would advertise a size this product isn't sold in. Switch the garment to the Youth T-Shirt, or pick an adult subject.`
+          ? `"${match.label}" is a youth subject and this listing sells no youth size — a child model would advertise a size this product isn't sold in. Pick an adult subject.`
           : `"${match.label}" is an adult subject and this listing is a youth garment. Pick one of: ${castableFor('youth').map(a => a.label).join(', ')}.`
       )
     }
@@ -565,7 +575,10 @@ export function resolveCast(cast?: ShotCast, audience: GarmentAudience = 'adult'
   }
   const custom = sanitizeCustomSubject(cast?.custom)
   if (custom) {
-    if (audience === 'youth') {
+    // Free text is adults-only, and on a youth-ONLY listing there is no adult
+    // to describe. A listing that sells both bands still takes free text — it
+    // describes the adult in the adult cut.
+    if (!allowed.has('adult')) {
       throw new ShotCastError(
         'A youth listing can only be cast from the built-in kid subjects — free-text subjects are adults only. ' +
         `Pick one of: ${castableFor('youth').map(a => a.label).join(', ')}.`
@@ -1291,8 +1304,12 @@ async function loadShotContext(productId: string, userId: string, override?: { g
 
   return {
     category: String((product as any).category || ''),
-    // The garment decides who may be photographed in it — never the design,
-    // never the prompt, never a random draw (David 2026-09-03).
+    garment,
+    // The GARMENT decides who may be photographed in it — never the design,
+    // never the prompt, never a random draw (David 2026-09-03). This is the
+    // garment's own band; `photographableAudiences(garment)` is the wider set
+    // it may legitimately be shot on (an adult tee that also sells a youth
+    // cut can show either).
     audience: audienceForGarment(garment),
     colorFor: (i: number) => (packColors.length ? packColors[i % packColors.length] : baseColor).toLowerCase(),
     ctx: {
@@ -1562,22 +1579,38 @@ export async function shootOneModelShot(
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
   }
-  const { audience, colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
-  // Resolved against THIS garment's audience (the context is loaded first for
-  // exactly that reason). Before 2026-09-03 the Step Flow passed no cast at
-  // all and this fell through to a uniform random draw over every adult
-  // archetype — which is how a kids' ghost tee got a bearded man.
-  const resolved = resolveCast(opts.cast, audience)
+  const { garment, audience, colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
+  // Resolved against every band this listing may honestly be photographed on
+  // (the context is loaded first for exactly that reason). Before 2026-09-03
+  // the Step Flow passed no cast at all and this fell through to a uniform
+  // random draw over every adult archetype — which is how a kids' ghost tee
+  // got a bearded man. Since 2026-09-07 an adult tee also sells a youth cut,
+  // so "adult garment" no longer means "adult model only" (David 2026-09-08).
+  const resolved = resolveCast(opts.cast, photographableAudiences(garment))
 
+  // An UNPICKED slot still falls back to the garment's own band — a random
+  // draw must never surprise anyone with a child; that only happens when it
+  // is asked for, either by the admin or by Mrs. Imagine reading the artwork.
   const member: CastMember = resolved[0] ?? (() => {
     const a = pick(castableFor(audience))
     return { label: a.label, archetype: a, custom: null }
   })()
-  const plan = castShot(`step-model${opts.nonce ? `-${opts.nonce}` : ''}`, member, pick(scenesFor(audience)))
+  // Everything downstream of the plan follows the CAST, not the garment:
+  // scenes here, and the youth realism/wording rules via `plan.audience`.
+  const shotAudience: GarmentAudience = member.archetype?.audience ?? 'adult'
+  const plan = castShot(`step-model${opts.nonce ? `-${opts.nonce}` : ''}`, member, pick(scenesFor(shotAudience)))
+  // A child in an adult listing's photo is wearing that listing's YOUTH cut
+  // (a 5000B, not a small 5000), which takes a narrower print — briefing the
+  // adult's 11 inches would paint a print wider than the body it is on.
+  const youthPrintWidth = getGarment(garment)?.youth?.printWidthInches
+  const shotCtx: ShotContext =
+    shotAudience === 'youth' && audience !== 'youth' && youthPrintWidth
+      ? { ...ctx, sizeInches: youthPrintWidth }
+      : ctx
   const shirtColor = opts.shirtColor ? (COLORS[opts.shirtColor]?.label.toLowerCase() ?? opts.shirtColor) : colorFor(0)
 
   console.log(`[etsy-shots] ${productId} ${plan.key} (step-flow single shot) cast: ${plan.signature} [slate ${plan.variant}]`)
-  const { url, check } = await renderVerifiedShot(plan, shirtColor, ctx)
+  const { url, check } = await renderVerifiedShot(plan, shirtColor, shotCtx)
 
   // Re-read at write time (same pattern as reshootOne/saveShotsState).
   const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()

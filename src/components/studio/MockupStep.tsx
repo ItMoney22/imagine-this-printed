@@ -98,15 +98,15 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 /**
- * Who Mrs. Imagine cast for the on-person shot, and why (David 2026-09-03:
- * a cute kids' ghost tee came back modelled by a bearded man). Two jobs:
+ * Who was cast for the on-person shot, and why (David 2026-09-03: a cute kids'
+ * ghost tee came back modelled by a bearded man). Two jobs:
  *  1. Make the casting decision VISIBLE — before this, the model was a silent
  *     random draw, so a wrong-looking person had no explanation and no lever.
- *  2. Surface the mismatch nudge. When the artwork reads as a kids' design but
- *     the garment is an adult size, the photo has to show an adult — the fix
- *     is to go back a step and switch to the Youth T-Shirt, which also puts
- *     youth sizes on the listing. That is the admin's call, so it is stated
- *     plainly instead of being silently applied.
+ *  2. Surface the mismatch nudge on the one case that is still a dead end —
+ *     a kids' design on a listing that sells no youth size at all. A shirt or
+ *     hoodie sells a youth cut on the same listing, so it just casts the kid
+ *     and this stays quiet; the lever for changing that pick is the "Who?"
+ *     picker on the shot card itself, not a trip back to the Garments step.
  */
 export const CastingNote: React.FC<{
   casting?: CastingDecision
@@ -457,24 +457,39 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                   {key === 'model' && pickerKey === key && (
                     <div className="rounded-lg border border-border-subtle bg-card-elevated p-2">
                       <p className="text-[10px] text-muted mb-1.5">Redo as:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {subjects.map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            title={s.persona}
-                            disabled={busy}
-                            onClick={() => handleRedo('model', s.id)}
-                            className={`text-[10px] px-2 py-1 rounded-full border transition-colors disabled:opacity-50 ${
-                              state.stepFlow?.casting?.subjectId === s.id
-                                ? 'bg-primary border-primary text-white'
-                                : 'bg-card border-border-subtle text-text hover:border-primary/50'
-                            }`}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
+                      {(['youth', 'adult'] as const).map((band) => {
+                        const inBand = subjects.filter((s) => s.audience === band)
+                        if (!inBand.length) return null
+                        return (
+                          <div key={band} className="mb-1.5 last:mb-0">
+                            {/* Only worth labelling when both bands are on offer — on the
+                                youth tee every chip is a kid and the header is noise. */}
+                            {subjects.some((s) => s.audience !== band) && (
+                              <p className="text-[9px] uppercase tracking-wide text-muted mb-1">
+                                {band === 'youth' ? 'Kids' : 'Adults'}
+                              </p>
+                            )}
+                            <div className="flex flex-wrap gap-1">
+                              {inBand.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  title={s.persona}
+                                  disabled={busy}
+                                  onClick={() => handleRedo('model', s.id)}
+                                  className={`text-[10px] px-2 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                                    state.stepFlow?.casting?.subjectId === s.id
+                                      ? 'bg-primary border-primary text-white'
+                                      : 'bg-card border-border-subtle text-text hover:border-primary/50'
+                                  }`}
+                                >
+                                  {s.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>

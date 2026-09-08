@@ -19,7 +19,7 @@ import {
 } from '../../services/etsy.js'
 import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-composer.js'
 import { startModelShots, reshootModelShot, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
-import { audienceForGarment } from '../../shared/catalog-capability.js'
+import { photographableAudiences } from '../../shared/catalog-capability.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
 import { checkGate } from '../../services/design-qa-gate.js'
 import { supabase } from '../../lib/supabase.js'
@@ -213,12 +213,13 @@ router.post('/compose/:productId', async (req: Request, res: Response) => {
 // Casting catalog for the panel's subject picker (ids + keywords for the
 // suggested cast). Every subject carries its `audience`, and an optional
 // ?garment= narrows the list to what is actually castable on that garment —
-// the youth (kid) subjects only exist on the youth tee, and offering them on
-// an adult listing would just earn a 400 from resolveCast (David 2026-09-03).
-// Omitting the param returns the full catalog, exactly as before.
+// which is every band that garment's listing SELLS, not just the band the
+// blank itself is cut for. A shirt or hoodie carries a youth cut on the same
+// listing (David 2026-09-07), so its picker offers the kid subjects too;
+// the youth tee offers only kids. Omitting the param returns the full catalog.
 router.get('/shot-subjects', (req: Request, res: Response) => {
   const garment = typeof req.query.garment === 'string' ? req.query.garment : undefined
-  return res.json({ subjects: listShotSubjects(garment ? audienceForGarment(garment) : undefined) })
+  return res.json({ subjects: listShotSubjects(garment ? photographableAudiences(garment) : undefined) })
 })
 
 // Kick off AI model-shot generation for one product (fire-and-forget; the

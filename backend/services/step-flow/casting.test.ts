@@ -74,11 +74,18 @@ describe('manualCast — the admin picks the model directly', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it('returns null for a subject outside the garment audience', () => {
+  it('returns null for a subject the listing cannot sell', () => {
     // 'goth' is a real archetype, but an ADULT one — never castable on a
     // youth tee, admin pick or not.
     expect(manualCast('goth', 'youth-tshirt')).toBeNull()
-    expect(manualCast('kid-playful', 'tshirt')).toBeNull()
+  })
+
+  // David 2026-09-08: "an adult can buy it too tho so lets make sure i can
+  // reshoot with a kid." The shirt sells a youth cut on the same listing, so
+  // the kid is a real variant and the admin may cast one.
+  it('lets the admin cast a kid on a shirt that also sells youth sizes', () => {
+    const decision = manualCast('kid-playful', 'tshirt')
+    expect(decision).toMatchObject({ subjectId: 'kid-playful', audience: 'youth', source: 'manual' })
   })
 
   it('returns null for an unknown id', () => {
@@ -86,7 +93,7 @@ describe('manualCast — the admin picks the model directly', () => {
   })
 })
 
-describe('castForDesign — the garment decides the age band', () => {
+describe('castForDesign — the catalogue decides the age band', () => {
   it('casts a KID for a kids design on the youth tee', async () => {
     create.mockResolvedValue(
       reply({
@@ -111,14 +118,17 @@ describe('castForDesign — the garment decides the age band', () => {
     expect(decision.mismatch).toBeUndefined()
   })
 
-  it('never casts a kid on an adult garment, and says so instead', async () => {
+  // The exact photo David complained about, twice. The shirt sells a youth cut
+  // on the same listing (2026-09-07), so a kid is a real buyable variant and
+  // Mrs. Imagine is now allowed to cast one — no warning, no garment swap.
+  it('casts a KID for a kids design on a shirt that also sells youth sizes', async () => {
     create.mockResolvedValue(
       reply({
-        subjectId: 'classic',
+        subjectId: 'kid-playful',
         audience: 'kids',
-        subjectMatter: 'a smiling cartoon ghost',
+        subjectMatter: 'a smiling cartoon ghost holding a candy bucket',
         vibe: 'cute spooky',
-        reason: 'Soft and friendly.',
+        reason: 'The googly-eyed ghost and candy bucket are aimed at trick-or-treaters.',
       })
     )
 
@@ -128,11 +138,9 @@ describe('castForDesign — the garment decides the age band', () => {
       productName: 'Too Cute To Spook Ghost T-Shirt',
     })
 
-    expect(decision.audience).toBe('adult')
-    // The nudge David actually needs: the flow tells him to switch garments
-    // rather than silently shooting the wrong person (or the wrong size).
-    expect(decision.mismatch).toMatch(/Youth T-Shirt/)
-    expect(decision.mismatch).toMatch(/kids/)
+    expect(decision.subjectId).toBe('kid-playful')
+    expect(decision.audience).toBe('youth')
+    expect(decision.mismatch).toBeUndefined()
   })
 
   it('rejects a subject the model picked that is not castable on this garment', async () => {
@@ -203,14 +211,18 @@ describe('coerceDesignRead / mismatchNote', () => {
     expect(coerceDesignRead({})).toBeUndefined()
   })
 
-  it('only nudges for a kids design on an adult garment', () => {
+  it('only nudges when the listing genuinely cannot sell a youth size', () => {
     const kids = { audience: 'kids' as const, subjectMatter: 'a ghost', vibe: 'cute' }
     const adultRead = { audience: 'adult' as const, subjectMatter: 'a skull', vibe: 'dark' }
 
-    expect(mismatchNote(kids, 'adult')).toBeTruthy()
+    // The permanent rule: no youth size on the listing → no child in the photo.
+    expect(mismatchNote(kids, ['adult'])).toMatch(/no youth size/)
+    // ...but a listing that sells both bands just casts the kid instead of
+    // warning about it (David 2026-09-08), so there is nothing to say.
+    expect(mismatchNote(kids, ['adult', 'youth'])).toBeUndefined()
     // An adult-leaning design deliberately made into a kids' tee is fine.
-    expect(mismatchNote(adultRead, 'youth')).toBeUndefined()
-    expect(mismatchNote(kids, 'youth')).toBeUndefined()
-    expect(mismatchNote(undefined, 'adult')).toBeUndefined()
+    expect(mismatchNote(adultRead, ['youth'])).toBeUndefined()
+    expect(mismatchNote(kids, ['youth'])).toBeUndefined()
+    expect(mismatchNote(undefined, ['adult'])).toBeUndefined()
   })
 })
