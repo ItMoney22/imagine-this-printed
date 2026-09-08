@@ -646,12 +646,15 @@ router.post('/:id/step/shots', requireAuth, requireAdminOrManager, rateLimitAI(1
   }
 })
 
-// POST /:id/step/shots/:key/redo -> { job }. New render, old asset stays
-// visible until the redo lands; the shot's approval resets to false.
+// POST /:id/step/shots/:key/redo — { subjectId? } -> { job }. New render, old
+// asset stays visible until the redo lands; the shot's approval resets to
+// false. `subjectId` (model shot only, David 2026-09-08) picks the exact
+// archetype instead of letting Mrs. Imagine re-cast automatically.
 router.post('/:id/step/shots/:key/redo', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id, key } = req.params
-    const result = await redoShot(id, actorId(req), key as ShotKey)
+    const subjectId = typeof req.body?.subjectId === 'string' && req.body.subjectId.trim() ? req.body.subjectId.trim() : undefined
+    const result = await redoShot(id, actorId(req), key as ShotKey, subjectId)
     res.json(result)
   } catch (err: any) {
     if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })

@@ -127,7 +127,19 @@ const castForDesign = vi.fn(async () => ({
   subjectId: 'goth', label: 'goth', audience: 'adult' as const,
   reason: 'Skulls and heavy black linework.', source: 'mrs-imagine' as const,
 }))
-vi.mock('./casting.js', () => ({ castForDesign: (...args: any[]) => castForDesign(...args) }))
+// manualCast (David 2026-09-08): the admin's explicit pick. 'known-subject'
+// is a stand-in for a real castable archetype id; anything else — including
+// a real archetype from the wrong audience — is "not castable here", same as
+// the real function's contract.
+const manualCast = vi.fn((subjectId: string) =>
+  subjectId === 'known-subject'
+    ? { subjectId: 'known-subject', label: 'Known Subject', audience: 'adult' as const, reason: 'Known Subject — you picked this person for the shot.', source: 'manual' as const }
+    : null
+)
+vi.mock('./casting.js', () => ({
+  castForDesign: (...args: any[]) => castForDesign(...args),
+  manualCast: (...args: any[]) => manualCast(...args),
+}))
 
 const renderDetailsCard = vi.fn()
 const renderMetalDetailsCard = vi.fn()
@@ -216,6 +228,8 @@ beforeEach(() => {
   shootOneModelShot.mockReset()
   renderDetailsCard.mockReset()
   processMockupJob.mockReset()
+  castForDesign.mockClear()
+  manualCast.mockClear()
 })
 
 describe('defaultShotKeys', () => {
@@ -669,6 +683,47 @@ describe('redoShot', () => {
       },
     })
     await expect(redoShot('p1', 'user-1', 'details')).rejects.toBeInstanceOf(StepFlowValidationError)
+  })
+
+  // David 2026-09-08: "I should be able to say who I want the mock up to be."
+  describe('with a subjectId (the admin picks the model)', () => {
+    it('skips castForDesign and records a manual casting decision', async () => {
+      seedProduct()
+      shootOneModelShot.mockResolvedValue({ url: 'https://cdn/model.png', check: { ok: true } })
+
+      await redoShot('p1', 'user-1', 'model', 'known-subject')
+      await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
+
+      expect(castForDesign).not.toHaveBeenCalled()
+      expect(manualCast).toHaveBeenCalledWith('known-subject', 'tshirt')
+      const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
+      expect(sf.casting).toMatchObject({ subjectId: 'known-subject', source: 'manual' })
+      expect(shootOneModelShot).toHaveBeenCalledWith(
+        'p1', 'user-1',
+        expect.objectContaining({ cast: { subjects: ['known-subject'] } })
+      )
+    })
+
+    it('rejects an id that is not castable on this garment, before creating a job', async () => {
+      seedProduct()
+      const jobsBefore = db.ai_jobs.length
+      await expect(redoShot('p1', 'user-1', 'model', 'not-a-real-subject')).rejects.toBeInstanceOf(StepFlowValidationError)
+      expect(db.ai_jobs.length).toBe(jobsBefore) // failed validation before any job was inserted
+      expect(shootOneModelShot).not.toHaveBeenCalled()
+    })
+
+    it('rejects a subjectId on any shot other than the on-person one', async () => {
+      seedProduct({
+        metadata: {
+          step_flow: {
+            version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+            shots: { hanger: { assetId: 'a1', url: 'https://cdn/a1.png', approved: true, status: 'done' } },
+            approvals: {},
+          },
+        },
+      })
+      await expect(redoShot('p1', 'user-1', 'hanger', 'known-subject')).rejects.toBeInstanceOf(StepFlowValidationError)
+    })
   })
 })
 

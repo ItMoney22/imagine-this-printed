@@ -170,13 +170,21 @@ describe('youth shots — audience-aware prompt wording', () => {
   })
 })
 
-// The hard boundary: WHO may be photographed is decided by the garment, not
-// by the design, the prompt or a random draw. resolveCast is the server-side
-// enforcement point every shoot entry passes through.
-describe('resolveCast — the garment decides the age band', () => {
-  it('refuses a youth subject on an adult garment, and explains why', () => {
+// The hard boundary: WHO may be photographed is decided by what the listing
+// SELLS, not by the design, the prompt or a random draw. resolveCast is the
+// server-side enforcement point every shoot entry passes through.
+describe('resolveCast — the catalogue decides the age band', () => {
+  it('refuses a youth subject when the listing sells no youth size, and explains why', () => {
     expect(() => resolveCast({ subjects: ['kid'] }, 'adult')).toThrow(ShotCastError)
-    expect(() => resolveCast({ subjects: ['kid'] }, 'adult')).toThrow(/Youth T-Shirt/)
+    expect(() => resolveCast({ subjects: ['kid'] }, 'adult')).toThrow(/sells no youth size/)
+  })
+
+  // David 2026-09-08: a shirt sells BOTH bands on one listing, so a kid in its
+  // photo advertises a size that really ships (a 5000B youth cut). Passing both
+  // bands is how a caller says exactly that.
+  it('accepts a youth subject when the listing sells both bands', () => {
+    expect(resolveCast({ subjects: ['kid-playful'] }, ['adult', 'youth'])[0].label).toBe('playful kid')
+    expect(resolveCast({ subjects: ['goth'] }, ['adult', 'youth'])[0].label).toBe('goth')
   })
 
   it('refuses an adult subject on a youth garment', () => {
@@ -212,6 +220,13 @@ describe('youth casting pools', () => {
     expect(adult).not.toContain('kid')
     // No argument = the full catalog, which the Etsy panel still lists.
     expect(listShotSubjects().length).toBe(youth.length + adult.length)
+  })
+
+  it('offers both pools to a listing that sells both bands', () => {
+    const both = listShotSubjects(['adult', 'youth']).map((s) => s.id)
+    expect(both).toContain('kid')
+    expect(both).toContain('goth')
+    expect(both.length).toBe(listShotSubjects().length)
   })
 
   it('dresses a kid from the youth trait pools, never the adult ones', () => {

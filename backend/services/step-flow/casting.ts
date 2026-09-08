@@ -13,20 +13,27 @@
 // the casting decision at all.
 //
 // TWO THINGS DECIDE THE CAST, and they are not the same thing:
-//   • The GARMENT decides the age band — adult tee/hoodie → an adult, youth
-//     tee → a child. That is a capability fact (shared/catalog-capability.ts),
-//     enforced in etsy-model-shots.ts's resolveCast, and nothing in this file
-//     can override it. A photo may never advertise a size we don't sell.
-//   • The DESIGN decides which KIND of person within that band — the goth for
-//     horror art, the mom for a mama tee, the sporty kid for a soccer design.
+//   • The CATALOGUE decides which age bands are even possible — a photo may
+//     never advertise a size we don't sell. That is a capability fact
+//     (`photographableAudiences` in shared/catalog-capability.ts), enforced
+//     again in etsy-model-shots.ts's resolveCast, and nothing in this file can
+//     override it.
+//   • The DESIGN decides who, within what the catalogue allows — the goth for
+//     horror art, the mom for a mama tee, the playful kid for a cute ghost.
 //     That is this file's job.
-// When the design's own audience disagrees with the garment (a kids' design on
-// an adult tee), we do NOT quietly cast a child. We cast the best adult and
-// hand the panel a `mismatch` line telling the admin the PHOTO, not the
-// listing, is the thing that's off — the fix is one click away and it is the
-// admin's call, not ours. (Since 2026-09-07 an adult listing also sells the
-// youth band, so this is purely about who is in the picture; it is no longer
-// true that a kids' design on an adult tee has no youth size to sell.)
+//
+// Those two used to collapse into "the GARMENT decides the age band", which
+// meant a kids' design on an adult tee got the best available adult plus a
+// `mismatch` note telling the admin to go switch garments. That rule expired
+// on 2026-09-07, when shirts and hoodies gained a youth cut sold on the SAME
+// listing: the adult tee ships YXS-YXL on a 5000B, so a child in its photo is
+// a real buyable variant, not a false promise. David 2026-09-08, looking at
+// that stale warning on his ghost tee: "it saying i gotta switch the garment
+// size but where do i do that plus an adult can buy it too tho so lets make
+// sure i can reshoot with a kid." So the age band now follows the ARTWORK
+// wherever the listing sells both bands, and the admin can override the pick
+// outright (see manualCast). The mismatch note survives only for a listing
+// that genuinely sells no youth size — where the old warning is still true.
 //
 // Same cost-first writing-brain pattern as brief.ts / phrases.ts /
 // inspiration.ts: OpenRouter gemini-2.5-flash (vision) when configured,
@@ -37,6 +44,7 @@ import OpenAI from 'openai'
 import {
   audienceForGarment,
   getGarment,
+  photographableAudiences,
   type GarmentAudience,
   type GarmentId,
 } from '../../shared/catalog-capability.js'
@@ -56,12 +64,17 @@ export interface CastingDecision {
   /** Archetype id from etsy-model-shots.ts — safe to pass straight through as `cast.subjects`. */
   subjectId: string
   label: string
-  /** The garment's age band. Always the garment's, never the design's. */
+  /**
+   * The age band of the person in the photo — the CAST's, which on a listing
+   * that sells both bands may be the youth one even though the blank is an
+   * adult cut. Always one of `photographableAudiences(garment)`, so it can
+   * never name a band this listing doesn't sell.
+   */
   audience: GarmentAudience
   /** One plain sentence for the panel: why this person is wearing this design. */
   reason: string
   /** Where the decision came from, so a bad cast is explainable. */
-  source: 'mrs-imagine' | 'keywords' | 'default'
+  source: 'mrs-imagine' | 'keywords' | 'default' | 'manual'
   read?: DesignRead
   /**
    * Set when the DESIGN reads as a different audience than the GARMENT sells
@@ -105,11 +118,15 @@ const isReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
 // ---------------------------------------------------------------------------
 
 /**
- * Best keyword-matched subject for `text`, restricted to `audience`. Returns
- * null when nothing matches at all, so the caller can say "default" honestly
- * instead of dressing up a random pick as a decision.
+ * Best keyword-matched subject for `text`, restricted to `audience` — a single
+ * band, or every band this listing may be photographed on. Returns null when
+ * nothing matches at all, so the caller can say "default" honestly instead of
+ * dressing up a random pick as a decision.
  */
-export function pickByKeywords(text: string, audience: GarmentAudience): ShotSubject | null {
+export function pickByKeywords(
+  text: string,
+  audience: GarmentAudience | GarmentAudience[]
+): ShotSubject | null {
   const haystack = ` ${String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `
   let best: { subject: ShotSubject; score: number } | null = null
   for (const subject of listShotSubjects(audience)) {
@@ -131,16 +148,51 @@ function defaultSubject(audience: GarmentAudience): ShotSubject {
   return all.find((s) => s.id === 'classic' || s.id === 'kid') ?? all[0]
 }
 
+/**
+ * Skip Mrs. Imagine entirely — the admin already knows who they want (David
+ * 2026-09-08: "I should be able to say who I want the mock up to be").
+ * Still bound by the same garment-audience wall as every other path here: a
+ * youth subject can never be forced onto an adult garment or vice versa, so
+ * an id outside `garment`'s castable list returns null and the caller
+ * decides how to handle that (reject the request rather than silently
+ * falling back to a random cast — the admin asked for a SPECIFIC person).
+ */
+export function manualCast(subjectId: string, garment: GarmentId): CastingDecision | null {
+  const subject = listShotSubjects(photographableAudiences(garment)).find((s) => s.id === subjectId)
+  if (!subject) return null
+  return {
+    subjectId: subject.id,
+    label: subject.label,
+    audience: subject.audience,
+    source: 'manual',
+    reason: `${subject.label} — you picked this person for the shot.`,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The vision call.
 // ---------------------------------------------------------------------------
 
-const systemPrompt = (subjects: ShotSubject[], audience: GarmentAudience, garmentLabel: string): string =>
+/** What the listing sells, in the one sentence the model needs to cast it. */
+const bandSentence = (bands: GarmentAudience[]): string => {
+  const youth = bands.includes('youth')
+  const adult = bands.includes('adult')
+  if (youth && adult) {
+    return (
+      'THIS LISTING SELLS BOTH ADULT SIZES AND YOUTH (KID) SIZES, so it may be modelled by an adult OR by a ' +
+      'child — whichever the artwork is really for. If the design is plainly made for children, cast a kid.'
+    )
+  }
+  if (youth) return 'THE GARMENT IS A YOUTH (CHILD) SIZE GARMENT, so it must be modelled by a child.'
+  return 'THE GARMENT IS AN ADULT SIZE GARMENT, so it must be modelled by an adult.'
+}
+
+const systemPrompt = (subjects: ShotSubject[], bands: GarmentAudience[], garmentLabel: string): string =>
   `You are Mrs. Imagine, Imagine This Printed's art director. You are casting the model for ONE product photo: a ${garmentLabel} printed with the artwork you are shown.
 
 Your job is to pick who should be wearing it, so that the person in the photo makes sense with the design. A cute cartoon ghost tee should not be modelled by a middle-aged man; a heavy-metal skull tee should not be modelled by a schoolteacher.
 
-THE GARMENT IS A ${audience === 'youth' ? 'YOUTH (CHILD) SIZE' : 'ADULT SIZE'} GARMENT. You may ONLY pick from this list:
+${bandSentence(bands)} You may ONLY pick from this list:
 ${subjects.map((s) => `- ${s.id}: ${s.label} — ${s.persona}`).join('\n')}
 
 Also tell me who the ARTWORK itself is aimed at, honestly, even if that does not match the garment — "kids" for a design clearly made for children, "teen", "adult", or "any" when it genuinely suits anyone.
@@ -174,14 +226,14 @@ async function callVisionModel(
   imageUrl: string,
   context: string,
   subjects: ShotSubject[],
-  audience: GarmentAudience,
+  bands: GarmentAudience[],
   garmentLabel: string
 ): Promise<any> {
   const completion = await client.chat.completions.create({
     model,
     ...(isReasoningModel(model) ? { max_completion_tokens: 500 } : { max_tokens: 500, temperature: 0.4 }),
     messages: [
-      { role: 'system', content: systemPrompt(subjects, audience, garmentLabel) },
+      { role: 'system', content: systemPrompt(subjects, bands, garmentLabel) },
       {
         role: 'user',
         content: [
@@ -199,13 +251,13 @@ async function requestCastFromModel(
   imageUrl: string,
   context: string,
   subjects: ShotSubject[],
-  audience: GarmentAudience,
+  bands: GarmentAudience[],
   garmentLabel: string
 ): Promise<any> {
   const viaOpenRouter = openrouterClient()
   if (viaOpenRouter) {
     try {
-      const parsed = await callVisionModel(viaOpenRouter, OPENROUTER_VISION_MODEL, imageUrl, context, subjects, audience, garmentLabel)
+      const parsed = await callVisionModel(viaOpenRouter, OPENROUTER_VISION_MODEL, imageUrl, context, subjects, bands, garmentLabel)
       if (parsed) return parsed
     } catch (err: any) {
       console.warn('[step-flow/casting] OpenRouter vision call failed, falling back to OpenAI:', err?.message || err)
@@ -214,7 +266,7 @@ async function requestCastFromModel(
   const viaOpenAI = openaiClient()
   if (!viaOpenAI) return null
   try {
-    return await callVisionModel(viaOpenAI, OPENAI_VISION_MODEL, imageUrl, context, subjects, audience, garmentLabel)
+    return await callVisionModel(viaOpenAI, OPENAI_VISION_MODEL, imageUrl, context, subjects, bands, garmentLabel)
   } catch (err: any) {
     console.warn('[step-flow/casting] OpenAI vision call failed:', err?.message || err)
     return null
@@ -245,18 +297,25 @@ export function coerceDesignRead(raw: any): DesignRead | undefined {
 }
 
 /**
- * The nudge, when the artwork is clearly for kids but the listing is an adult
- * garment. Deliberately one-directional: an adult design on a youth tee is the
- * admin deliberately making a kids' version of something, which is fine, while
- * a kids' design on an adult tee is the exact thing David caught.
+ * The nudge, for the ONE case that is still a real dead end: the artwork is
+ * clearly for kids and this listing sells no youth size at all, so a child
+ * genuinely cannot be photographed in it.
+ *
+ * Every garment ITP sells today carries a youth cut (2026-09-07), so in
+ * practice this no longer fires — a kids' design now simply gets a kid, and
+ * the admin can pick one by hand regardless. It stays because the rule it
+ * encodes ("never photograph a size we don't sell") is permanent even though
+ * today's catalogue happens to satisfy it everywhere.
  */
-export function mismatchNote(read: DesignRead | undefined, audience: GarmentAudience): string | undefined {
-  if (!read || audience === 'youth') return undefined
+export function mismatchNote(
+  read: DesignRead | undefined,
+  bands: GarmentAudience[]
+): string | undefined {
+  if (!read || bands.includes('youth')) return undefined
   if (read.audience !== 'kids') return undefined
   return (
-    'This design reads as a kids\' design, but the garment is an adult cut, so the photo has to show an adult. ' +
-    'Youth sizes ARE already sellable on this listing, so nothing here is unfulfillable — ' +
-    'switch the garment to the Youth T-Shirt only if you want a kid in the photo.'
+    "This design reads as a kids' design, but this listing sells no youth size, so the photo has to show an " +
+    'adult. Add a youth cut to this garment if you want a kid in the picture.'
   )
 }
 
@@ -276,17 +335,22 @@ export interface CastForDesignOpts {
 
 /**
  * Decide who wears this design. Never throws: every failure degrades to the
- * keyword match, and then to the plainest subject in the garment's band.
+ * keyword match, and then to the plainest subject in the garment's OWN band.
+ *
+ * The vision pass and the keyword pass both see every band this listing sells,
+ * so a kids' design on a shirt that also sells youth sizes casts a kid. The
+ * final no-signal fallback deliberately does NOT: with nothing to go on, the
+ * everyday adult is the answer that never puts a child in a photo by accident.
  */
 export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDecision> {
-  const audience = audienceForGarment(opts.garment)
+  const bands = photographableAudiences(opts.garment)
   const garmentLabel = getGarment(opts.garment)?.label ?? 'T-Shirt'
-  const subjects = listShotSubjects(audience)
+  const subjects = listShotSubjects(bands)
   const context = [opts.productName, opts.idea, (opts.tags ?? []).join(' ')].filter(Boolean).join(' — ').slice(0, 500)
 
   let read: DesignRead | undefined
   if (opts.designUrl) {
-    const raw = await requestCastFromModel(opts.designUrl, context, subjects, audience, garmentLabel)
+    const raw = await requestCastFromModel(opts.designUrl, context, subjects, bands, garmentLabel)
     read = coerceDesignRead(raw)
     const wanted = clean(raw?.subjectId, 40)
     const match = subjects.find((s) => s.id === wanted)
@@ -295,44 +359,45 @@ export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDec
       return {
         subjectId: match.id,
         label: match.label,
-        audience,
+        audience: match.audience,
         source: 'mrs-imagine',
         reason: reason || `${match.label} suits this design.`,
         read,
-        mismatch: mismatchNote(read, audience),
+        mismatch: mismatchNote(read, bands),
       }
     }
     // The model answered but named a subject that isn't castable here (or
     // didn't answer at all). Its READ of the design is still useful, so feed
     // it to the keyword pass below rather than throwing it away.
-    if (wanted) console.warn(`[step-flow/casting] model picked "${wanted}", not castable on a ${audience} garment — falling back to keywords`)
+    if (wanted) console.warn(`[step-flow/casting] model picked "${wanted}", not castable on this listing (${bands.join('/')}) — falling back to keywords`)
   }
 
   const searchText = [context, read?.subjectMatter, read?.vibe].filter(Boolean).join(' ')
-  const byKeyword = pickByKeywords(searchText, audience)
+  const byKeyword = pickByKeywords(searchText, bands)
   if (byKeyword) {
     return {
       subjectId: byKeyword.id,
       label: byKeyword.label,
-      audience,
+      audience: byKeyword.audience,
       source: 'keywords',
       reason: `Matched the ${byKeyword.label} look from this listing's wording.`,
       read,
-      mismatch: mismatchNote(read, audience),
+      mismatch: mismatchNote(read, bands),
     }
   }
 
-  const fallback = defaultSubject(audience)
+  const ownBand = audienceForGarment(opts.garment)
+  const fallback = defaultSubject(ownBand)
   return {
     subjectId: fallback.id,
     label: fallback.label,
-    audience,
+    audience: fallback.audience,
     source: 'default',
     reason:
-      audience === 'youth'
+      ownBand === 'youth'
         ? 'Nothing specific to go on, so this is an everyday kid.'
         : 'Nothing specific to go on, so this is an everyday adult.',
     read,
-    mismatch: mismatchNote(read, audience),
+    mismatch: mismatchNote(read, bands),
   }
 }
