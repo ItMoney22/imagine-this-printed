@@ -3335,3 +3335,30 @@ Frontend
   1,493 tests passing in this checkout (the 12 failures in a full `vitest run`
   are inside `.claude/worktrees/**` — two other sessions' checkouts vitest
   scans, untouched by this work). NOT yet exercised against a live backend.
+
+### Shipped 2026-09-08 (zero-nine, David: "okay new things to push so get it all done thanks")
+Found this entire wave (this entry's shortlist, above) sitting uncommitted
+directly in the shared `main` checkout — a discipline violation from whoever
+left it, since real feature work belongs in its own worktree. Moved it there
+before touching anything: `git stash -u`, `git worktree add` a fresh
+`earth/zero-nine/studio-flow-lanes` branch off current `main`, `git stash pop`
+into it (junctioned `node_modules` first, hit a TS2742 portability error
+through the junction's relative path, swapped to a real `npm ci` in the
+worktree instead — the same code typechecks clean in the original checkout,
+confirming it was a junction artifact, not a code bug).
+Re-verified fresh rather than trusting the prior session's claims: backend +
+frontend `tsc --noEmit` both clean, full suite 1539/1539 passing across 96
+files (was 1,493 — the count grew because this run, unlike the prior one,
+wasn't sharing the tree with two other sessions' stale `.claude/worktrees/**`
+checkouts), `eslint` 0 errors (347 pre-existing-style warnings, no new ones),
+`npm run build` green. Committed as one commit (5078382), pushed, PR opened:
+https://github.com/ItMoney22/imagine-this-printed/pull/11 — left as a PR
+rather than merged straight to main given the size (36 files) and that David
+asked to "get it all done," not "merge to main sight unseen"; the PR body
+flags the one thing that still needs David's own click-through before merge
+(the ITC-metering + submit-for-review path as a real creator).
+Separately, closed out the September 3 Etsy weekly-review task's own
+CLAUDE_TASK.md/TASK_NOTES.md bookkeeping and a `.claude/settings.local.json`
+tweak (unrelated to this feature, just sitting in the same dirty tree) —
+committed and pushed straight to `main` (5d47316) since those are docs/config,
+not app code.
