@@ -58,6 +58,18 @@ const ASSIGNABLE_ROLES: { value: User['role']; label: string; blurb: string; pri
 
 const roleLabel = (role: string) => ASSIGNABLE_ROLES.find(r => r.value === role)?.label || role
 
+// One flagged account from GET /api/admin/users/suspected-bots. `reasons` is
+// what tripped it (generated name, dot-injected address, never signed in,
+// never confirmed) so a purge can be reviewed rather than taken on faith.
+type SuspectedBot = {
+  id: string
+  email: string | null
+  name: string
+  createdAt: string
+  score: number
+  reasons: string[]
+}
+
 const ROLE_BADGE_CLASS: Record<string, string> = {
   admin: 'bg-red-100 text-red-700',
   founder: 'bg-purple-100 text-purple-700',
@@ -128,6 +140,16 @@ const AdminDashboard: React.FC = () => {
   const [userLimit, setUserLimit] = useState(USERS_PAGE_SIZE)
   // Pending role change awaiting confirmation (privileged roles only).
   const [roleChange, setRoleChange] = useState<{ user: User; newRole: User['role'] } | null>(null)
+  // Pending account deletion awaiting confirmation. Deleting is permanent and
+  // has no undo, so it always goes through the modal — no click-to-delete.
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  // Result of the bot-signup scan: the backend scores every account and returns
+  // the ones that look machine-registered, so a purge is reviewed before it runs.
+  const [botScan, setBotScan] = useState<{ total: number; flagged: SuspectedBot[] } | null>(null)
+  const [botScanning, setBotScanning] = useState(false)
+  const [purging, setPurging] = useState(false)
+  const [showBotReview, setShowBotReview] = useState(false)
   const filteredUsers = React.useMemo(() => {
     const q = userSearch.trim().toLowerCase()
     return users.filter(u => {
@@ -1807,6 +1829,89 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  // Permanently deletes an account. user_profiles and user_wallets cascade off
+  // auth.users, but orders and the ITC/points ledger are ON DELETE NO ACTION —
+  // so an account with real history is refused by the database, and the API
+  // returns 409 with the reason rather than silently orphaning an order.
+  const deleteUserAccount = async (target: User) => {
+    setDeleting(true)
+    try {
+      await apiFetch(`/api/admin/users/${target.id}`, { method: 'DELETE' })
+
+      setUsers(prev => prev.filter(u => u.id !== target.id))
+      setBotScan(prev => prev ? { ...prev, flagged: prev.flagged.filter(b => b.id !== target.id) } : prev)
+      setDeleteTarget(null)
+      await loadAuditLogsData()
+      await loadMetrics()
+      toast.success('Account deleted', `${target.email || target.id} has been removed.`)
+    } catch (error: any) {
+      // apiFetch throws "HTTP 409: {json}" — surface the server's reason, which
+      // is usually "owns orders or ledger history", not a generic failure.
+      const detail = String(error?.message || '')
+      const match = detail.match(/\{.*\}/)
+      let reason = detail
+      if (match) {
+        try { reason = JSON.parse(match[0]).error || detail } catch { /* keep raw */ }
+      }
+      toast.error('Could not delete account', reason)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // Read-only scan. Nothing is deleted until the review panel's purge button.
+  const scanForBotSignups = async () => {
+    setBotScanning(true)
+    try {
+      const result = await apiFetch('/api/admin/users/suspected-bots?minScore=3') as {
+        total: number; flagged: SuspectedBot[]
+      }
+      setBotScan(result)
+      setShowBotReview(true)
+      if (result.flagged.length === 0) {
+        toast.success('No bot signups found', 'Every account looks human.')
+      }
+    } catch (error: any) {
+      toast.error('Scan failed', error.message)
+    } finally {
+      setBotScanning(false)
+    }
+  }
+
+  // Bulk purge, chunked at 200 so a large wave stays under the API's per-call
+  // cap and one bad account cannot fail the whole run.
+  const purgeBotSignups = async () => {
+    if (!botScan?.flagged.length) return
+    setPurging(true)
+    try {
+      const ids = botScan.flagged.map(b => b.id)
+      let deleted = 0
+      let skipped = 0
+      for (let i = 0; i < ids.length; i += 200) {
+        const res = await apiFetch('/api/admin/users/bulk-delete', {
+          method: 'POST',
+          body: JSON.stringify({ userIds: ids.slice(i, i + 200) })
+        }) as { deletedCount: number; skippedCount: number }
+        deleted += res.deletedCount
+        skipped += res.skippedCount
+      }
+      setShowBotReview(false)
+      setBotScan(null)
+      await loadUsersData()
+      await loadAuditLogsData()
+      await loadMetrics()
+      toast.success(
+        'Bot signups purged',
+        `${deleted} account${deleted === 1 ? '' : 's'} deleted${skipped ? `, ${skipped} skipped (real history).` : '.'}`
+      )
+    } catch (error: any) {
+      toast.error('Purge failed', error.message)
+      await loadUsersData()
+    } finally {
+      setPurging(false)
+    }
+  }
+
   const handleGrantItc = async () => {
     if (!itcUser || itcAmount === 0) return
 
@@ -2279,6 +2384,14 @@ const AdminDashboard: React.FC = () => {
                       {roleLabel(role)} · {count}
                     </button>
                   ))}
+                  <button
+                    onClick={scanForBotSignups}
+                    disabled={botScanning}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-50 transition-colors"
+                    title="Score every account for signup-bot fingerprints"
+                  >
+                    {botScanning ? 'Scanning…' : 'Scan for bot signups'}
+                  </button>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -2378,6 +2491,13 @@ const AdminDashboard: React.FC = () => {
                           className="text-purple-600 hover:text-purple-700 hover:underline"
                         >
                           Grant ITC
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(row)}
+                          className="text-rose-600 hover:text-rose-700 hover:underline"
+                          title="Permanently delete this account"
+                        >
+                          Delete
                         </button>
                       </td>
                     </tr>
@@ -3889,6 +4009,98 @@ const AdminDashboard: React.FC = () => {
             onCreateMockups={() => handleCreateMockups(editingProductData.id)}
             onGptAssist={handleGptAssist}
           />
+        )}
+
+        {/* Account deletion — permanent, so always confirmed */}
+        {deleteTarget && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 p-6">
+              <h3 className="text-xl font-display font-bold text-slate-900 mb-4">
+                Delete this account?
+              </h3>
+              <p className="text-slate-600 mb-3">
+                <span className="font-semibold">{deleteTarget.email || deleteTarget.id}</span>
+                {' '}and its profile and wallet are removed permanently. There is no undo.
+              </p>
+              <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-5">
+                Accounts that own orders or ITC history are protected by the database and
+                will be refused — you will see why rather than losing the order.
+              </p>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void deleteUserAccount(deleteTarget)}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 bg-rose-600 text-white rounded-xl font-medium hover:bg-rose-700 disabled:opacity-50 transition-colors"
+                >
+                  {deleting ? 'Deleting…' : 'Delete account'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bot-signup review — the scan result, previewed before any purge */}
+        {showBotReview && botScan && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full border border-slate-200 flex flex-col max-h-[85vh]">
+              <div className="p-6 border-b border-slate-200">
+                <h3 className="text-xl font-display font-bold text-slate-900 mb-2">
+                  {botScan.flagged.length} of {botScan.total} accounts look machine-registered
+                </h3>
+                <p className="text-sm text-slate-600">
+                  Each row below tripped at least three signup-bot fingerprints. Anything that
+                  owns an order was excluded from this list before it was built.
+                </p>
+              </div>
+              <div className="overflow-y-auto flex-1 px-6 py-2">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="sticky top-0 bg-white">
+                    <tr>
+                      <th className="py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
+                      <th className="py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
+                      <th className="py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Joined</th>
+                      <th className="py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Why flagged</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {botScan.flagged.map(b => (
+                      <tr key={b.id}>
+                        <td className="py-2 pr-4 text-sm text-slate-700 whitespace-nowrap">{b.email}</td>
+                        <td className="py-2 pr-4 text-sm text-slate-500 whitespace-nowrap">{b.name || '—'}</td>
+                        <td className="py-2 pr-4 text-sm text-slate-500 whitespace-nowrap">
+                          {new Date(b.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="py-2 text-xs text-slate-500">{b.reasons.join(', ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-6 border-t border-slate-200 flex space-x-3">
+                <button
+                  onClick={() => setShowBotReview(false)}
+                  disabled={purging}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => void purgeBotSignups()}
+                  disabled={purging || botScan.flagged.length === 0}
+                  className="flex-1 px-4 py-2.5 bg-rose-600 text-white rounded-xl font-medium hover:bg-rose-700 disabled:opacity-50 transition-colors"
+                >
+                  {purging ? 'Deleting…' : `Delete all ${botScan.flagged.length}`}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Role change confirmation — privileged roles only */}
