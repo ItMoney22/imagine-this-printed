@@ -318,6 +318,27 @@ export function isYouthGarment(id: string | null | undefined): boolean {
   return audienceForGarment(id) === 'youth'
 }
 
+/**
+ * Which bodies this listing may honestly be photographed on, smallest set
+ * first-listed as the garment's own band.
+ *
+ * The rule a listing photo has to satisfy is "never advertise a size we don't
+ * sell" — NOT "never show a child". Those were the same sentence until
+ * 2026-09-07, when shirts and hoodies gained a youth cut sold on the SAME
+ * listing (see `youth` above). From that day the adult tee genuinely ships
+ * YXS-YXL on a 5000B, so a kid in its photo is a real, buyable variant.
+ *
+ * David 2026-09-08, on a kids' ghost design stuck with a grown man because the
+ * garment said 'adult': "an adult can buy it too tho so lets make sure i can
+ * reshoot with a kid." This is that answer, derived from the catalogue rather
+ * than asserted: a band is photographable when the listing actually sells it.
+ */
+export function photographableAudiences(id: string | null | undefined): GarmentAudience[] {
+  const own = audienceForGarment(id)
+  if (own === 'youth') return ['youth']
+  return youthSizesForGarment(id).length ? ['adult', 'youth'] : ['adult']
+}
+
 export function isColorOfferedOn(garment: GarmentId, color: string): color is ColorId {
   const g = getGarment(garment)
   return !!g && (g.colors as string[]).includes(color)

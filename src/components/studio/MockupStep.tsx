@@ -3,7 +3,7 @@
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, RefreshCw, UserRound, X } from 'lucide-react'
-import { stepFlow } from '../../lib/api'
+import { stepFlow, type ShotSubject } from '../../lib/api'
 import { COLORS } from '../../../backend/shared/catalog-capability'
 import {
   areMockupsResolved,
@@ -98,15 +98,15 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 /**
- * Who Mrs. Imagine cast for the on-person shot, and why (David 2026-09-03:
- * a cute kids' ghost tee came back modelled by a bearded man). Two jobs:
+ * Who was cast for the on-person shot, and why (David 2026-09-03: a cute kids'
+ * ghost tee came back modelled by a bearded man). Two jobs:
  *  1. Make the casting decision VISIBLE — before this, the model was a silent
  *     random draw, so a wrong-looking person had no explanation and no lever.
- *  2. Surface the mismatch nudge. When the artwork reads as a kids' design but
- *     the garment is an adult size, the photo has to show an adult — the fix
- *     is to go back a step and switch to the Youth T-Shirt, which also puts
- *     youth sizes on the listing. That is the admin's call, so it is stated
- *     plainly instead of being silently applied.
+ *  2. Surface the mismatch nudge on the one case that is still a dead end —
+ *     a kids' design on a listing that sells no youth size at all. A shirt or
+ *     hoodie sells a youth cut on the same listing, so it just casts the kid
+ *     and this stays quiet; the lever for changing that pick is the "Who?"
+ *     picker on the shot card itself, not a trip back to the Garments step.
  */
 export const CastingNote: React.FC<{
   casting?: CastingDecision
@@ -127,7 +127,9 @@ export const CastingNote: React.FC<{
             <p className="text-[10px] text-muted mt-0.5">
               {casting.source === 'keywords'
                 ? "Matched on the listing wording — Mrs. Imagine couldn't read the artwork this time."
-                : 'No strong signal in the design, so this is the everyday default.'}
+                : casting.source === 'manual'
+                  ? 'You picked this model for the shot.'
+                  : 'No strong signal in the design, so this is the everyday default.'}
             </p>
           )}
         </div>
@@ -147,6 +149,13 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   const [busyKey, setBusyKey] = useState<ShotKey | null>(null)
   const [approvingAll, setApprovingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Who can model the on-person shot for the approved garment (David
+  // 2026-09-08: "I should be able to say who I want the mock up to be") —
+  // fetched once the garment is known; empty until then or on a metal print.
+  const [subjects, setSubjects] = useState<ShotSubject[]>([])
+  // The one shot card with its model picker expanded. Only ever 'model'
+  // today, but kept as a ShotKey so a second pickable shot needs no rework.
+  const [pickerKey, setPickerKey] = useState<ShotKey | null>(null)
   // Keys we've already asked the server to queue this session — guards
   // against both React StrictMode's double-invoke and re-firing a key whose
   // shot just hasn't landed in `shots` yet (the async request is in flight).
@@ -192,6 +201,31 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.productId, state.productKind, state.stepFlow?.colors, state.stepFlow?.sizes, shots])
 
+  // Load the castable subjects for the approved garment so the picker below
+  // only ever offers people who are actually valid for this listing (a youth
+  // archetype on an adult tee, or vice versa, is rejected server-side).
+  const garment = state.stepFlow?.garment
+  useEffect(() => {
+    if (state.productKind !== 'garment' || !garment) {
+      setSubjects([])
+      return
+    }
+    let cancelled = false
+    stepFlow
+      .shotSubjects(garment)
+      .then((res) => {
+        if (!cancelled) setSubjects(res.subjects || [])
+      })
+      .catch(() => {
+        // The picker just doesn't offer anything — Redo without a pick still
+        // works via automatic casting.
+        if (!cancelled) setSubjects([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [state.productKind, garment])
+
   const handleApprove = async (key: ShotKey, shot: ShotState) => {
     if (!state.productId || !shot.assetId) return
     setBusyKey(key)
@@ -206,17 +240,20 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     }
   }
 
-  const handleRedo = async (key: ShotKey) => {
+  /** `subjectId` (model shot only) picks exactly who's in the photo instead
+   *  of leaving it to Mrs. Imagine's automatic re-cast. */
+  const handleRedo = async (key: ShotKey, subjectId?: string) => {
     if (!state.productId) return
     setBusyKey(key)
     setError(null)
     try {
-      await stepFlow.redoShot(state.productId, key)
+      await stepFlow.redoShot(state.productId, key, subjectId)
       await refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to redo ${shotLabel(key)}`)
     } finally {
       setBusyKey(null)
+      setPickerKey(null)
     }
   }
 
@@ -390,6 +427,21 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         {busy ? <BusyDot className="w-1.5 h-1.5" /> : <RefreshCw className="w-3 h-3" />} Redo
                       </button>
                     )}
+                    {key === 'model' && subjects.length > 0 && (shot.status === 'done' || shot.status === 'failed') && (
+                      <button
+                        type="button"
+                        onClick={() => setPickerKey(pickerKey === key ? null : key)}
+                        disabled={busy}
+                        title="Pick who models this shot"
+                        className={`inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg border disabled:opacity-50 ${
+                          pickerKey === key
+                            ? 'bg-primary/10 border-primary/30 text-primary'
+                            : 'bg-card border-border-subtle text-text hover:bg-card-elevated'
+                        }`}
+                      >
+                        <UserRound className="w-3 h-3" /> Who?
+                      </button>
+                    )}
                     {canSkip && (
                       <button
                         type="button"
@@ -402,6 +454,44 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       </button>
                     )}
                   </div>
+                  {key === 'model' && pickerKey === key && (
+                    <div className="rounded-lg border border-border-subtle bg-card-elevated p-2">
+                      <p className="text-[10px] text-muted mb-1.5">Redo as:</p>
+                      {(['youth', 'adult'] as const).map((band) => {
+                        const inBand = subjects.filter((s) => s.audience === band)
+                        if (!inBand.length) return null
+                        return (
+                          <div key={band} className="mb-1.5 last:mb-0">
+                            {/* Only worth labelling when both bands are on offer — on the
+                                youth tee every chip is a kid and the header is noise. */}
+                            {subjects.some((s) => s.audience !== band) && (
+                              <p className="text-[9px] uppercase tracking-wide text-muted mb-1">
+                                {band === 'youth' ? 'Kids' : 'Adults'}
+                              </p>
+                            )}
+                            <div className="flex flex-wrap gap-1">
+                              {inBand.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  title={s.persona}
+                                  disabled={busy}
+                                  onClick={() => handleRedo('model', s.id)}
+                                  className={`text-[10px] px-2 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                                    state.stepFlow?.casting?.subjectId === s.id
+                                      ? 'bg-primary border-primary text-white'
+                                      : 'bg-card border-border-subtle text-text hover:border-primary/50'
+                                  }`}
+                                >
+                                  {s.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )

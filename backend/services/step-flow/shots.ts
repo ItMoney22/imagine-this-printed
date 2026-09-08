@@ -21,7 +21,7 @@ import {
 import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.js'
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
-import { castForDesign, type CastingDecision } from './casting.js'
+import { castForDesign, manualCast, type CastingDecision } from './casting.js'
 import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
 import { buildProductGallery, METAL_ROLE_ORDER, ROLE_ORDER, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief, StepFlowInspiration } from './brief.js'
@@ -553,7 +553,15 @@ async function runModelShot(
   /** Set on a redo — the PRIOR shot's URL to replace in-place rather than append. */
   replaceUrl?: string,
   /** Listing wording the casting pass reads alongside the artwork. */
-  castContext: { productName?: string; idea?: string } = {}
+  castContext: { productName?: string; idea?: string } = {},
+  /**
+   * Set when the admin picked the model themselves (David 2026-09-08: "I
+   * should be able to say who I want the mock up to be") — already validated
+   * against the garment's castable list by `queueModelShot` before this ran,
+   * so Mrs. Imagine's vision pass is skipped entirely rather than overridden
+   * after the fact.
+   */
+  subjectOverride?: string
 ): Promise<void> {
   try {
     // Cast FIRST, from the artwork itself (David 2026-09-03). Passing no cast
@@ -562,12 +570,14 @@ async function runModelShot(
     // decision is persisted before the (slow, paid) render so the panel can
     // show who is being shot while it happens — and so a bad cast is
     // explainable afterwards instead of being an anonymous dice roll.
-    const decision = await castForDesign({
-      designUrl: await designReferenceForProduct(productId),
-      garment,
-      productName: castContext.productName,
-      idea: castContext.idea,
-    })
+    const decision =
+      (subjectOverride && manualCast(subjectOverride, garment)) ||
+      (await castForDesign({
+        designUrl: await designReferenceForProduct(productId),
+        garment,
+        productName: castContext.productName,
+        idea: castContext.idea,
+      }))
     console.log(
       `[step-flow/shots] ${productId} cast ${decision.label} (${decision.source}) for the model shot: ${decision.reason}`
     )
@@ -620,8 +630,15 @@ async function queueModelShot(
   primaryColor: ColorId,
   userId: string,
   /** Set on a redo — threads through to `shootOneModelShot`'s `replaceUrl` so the retake replaces the prior entry in metadata.etsy_shots.images instead of piling up another one. */
-  previousUrl?: string
+  previousUrl?: string,
+  /** The admin's explicit model pick (David 2026-09-08) — validated against
+   *  this garment's castable subjects BEFORE any job is created, so a bad id
+   *  fails fast as a 400 instead of burning a paid render first. */
+  subjectOverride?: string
 ): Promise<{ jobId: string; status: ShotState['status'] }> {
+  if (subjectOverride && !manualCast(subjectOverride, garment)) {
+    throw new StepFlowValidationError(`"${subjectOverride}" isn't a castable model for this garment`)
+  }
   const nonce = randomNonce()
   const { data: job, error } = await supabase
     .from('ai_jobs')
@@ -642,10 +659,17 @@ async function queueModelShot(
   // caller save it later" — makes the ordering correct regardless of timing.
   await patchShotState(product.id, 'model', { status: 'running', jobId: job.id, approved: false, error: undefined })
 
-  void runModelShot(product.id, userId, job.id, garment, primaryColor, nonce, previousUrl, {
-    productName: product.name ?? undefined,
-    idea: getStepFlow(product).idea || undefined,
-  })
+  void runModelShot(
+    product.id,
+    userId,
+    job.id,
+    garment,
+    primaryColor,
+    nonce,
+    previousUrl,
+    { productName: product.name ?? undefined, idea: getStepFlow(product).idea || undefined },
+    subjectOverride
+  )
 
   return { jobId: job.id, status: 'running' }
 }
@@ -739,7 +763,9 @@ async function buildShotJob(
   stepFlow: StepFlowMeta,
   key: ShotKey,
   userId: string,
-  mode: 'queue' | 'redo'
+  mode: 'queue' | 'redo',
+  /** The admin's explicit model pick — only meaningful for `key === 'model'`. */
+  subjectOverride?: string
 ): Promise<{ jobId: string | null; status: ShotState['status'] }> {
   if (isMetalStepFlow(stepFlow)) {
     const sizes = stepFlow.sizes || []
@@ -776,7 +802,7 @@ async function buildShotJob(
     // shootOneModelShot REPLACES it in metadata.etsy_shots.images instead of
     // appending another take for the Etsy uploader to potentially pick up.
     const previousUrl = mode === 'redo' ? stepFlow.shots.model?.url : undefined
-    return queueModelShot(product, garment, colors.primary, userId, previousUrl)
+    return queueModelShot(product, garment, colors.primary, userId, previousUrl, subjectOverride)
   }
 
   if (key === 'details') {
@@ -859,7 +885,11 @@ export async function queueStepShots(
 export async function redoShot(
   productId: string,
   userId: string,
-  key: ShotKey
+  key: ShotKey,
+  /** The admin's explicit model pick for a `key === 'model'` redo (David
+   *  2026-09-08) — ignored (rejected below) on every other key, which has no
+   *  human subject to pick. */
+  subjectOverride?: string
 ): Promise<{ job: { id: string | null; key: ShotKey; status: ShotState['status'] } }> {
   const product = await loadProductRow(productId)
   const stepFlow = getStepFlow(product)
@@ -882,11 +912,15 @@ export async function redoShot(
     throw new StepFlowValidationError(`Unknown shot key "${key}" for the current garment/colors`)
   }
 
+  if (subjectOverride && key !== 'model') {
+    throw new StepFlowValidationError('A model can only be picked for the on-person shot')
+  }
+
   // Old asset stays visible until the redo lands — every builder's internal
   // patchShotState merges onto the existing state, so assetId/url survive
   // for product/hanger/color/model keys; details replaces immediately since
   // its render is synchronous.
-  const { jobId, status } = await buildShotJob(product, stepFlow, key, userId, 'redo')
+  const { jobId, status } = await buildShotJob(product, stepFlow, key, userId, 'redo', subjectOverride)
   return { job: { id: jobId, key, status } }
 }
 
